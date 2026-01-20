@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Phone, UserPlus, Trash2, X, MapPin, Edit3, ExternalLink } from 'lucide-react'
+import { Plus, Phone, Trash2, X, MapPin, Edit3, Navigation } from 'lucide-react'
 
 const CRM = () => {
   const [prospectos, setProspectos] = useState(() => {
@@ -26,12 +26,14 @@ const CRM = () => {
   const obtenerGPS = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition((pos) => {
-        const url = `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`
+        const { latitude, longitude } = pos.coords;
+        // Formato universal que abre la App de Google Maps o pregunta por Waze
+        const url = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
         setNuevo({...nuevo, ubicacion: url})
-        alert("📍 Ubicación capturada correctamente")
-      }, () => alert("Error: Activa el GPS de tu móvil"))
+        alert("📍 Ubicación fijada para Google Maps / Waze");
+      }, () => alert("Error: Activa el GPS de tu móvil"));
     }
-  }
+  };
 
   const guardarCambios = (e) => {
     e.preventDefault()
@@ -57,23 +59,25 @@ const CRM = () => {
   }
 
   return (
-    <div className="p-4 bg-gray-50 min-h-screen pb-20">
+    <div className="p-4 bg-gray-50 min-h-screen pb-24">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-xl font-bold text-gray-800">CRM - Captación</h1>
+        {/* Botón Naranja Forzado */}
         <button 
           onClick={() => setShowModal(true)}
-          className="bg-orange-500 text-white p-3 rounded-full shadow-lg active:scale-95"
+          className="text-white p-4 rounded-full shadow-xl active:scale-95 transition-transform"
+          style={{ backgroundColor: '#f97316' }} 
         >
-          <Plus size={24} />
+          <Plus size={28} />
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
+      <div className="space-y-4">
         {prospectos.length === 0 && (
           <div className="text-center py-20 text-gray-400 italic">No hay visitas registradas hoy.</div>
         )}
         {prospectos.map(p => (
-          <div key={p.id} onClick={() => abrirEditor(p)} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 relative active:bg-gray-50 transition-colors">
+          <div key={p.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 relative">
             <div className="flex justify-between items-start mb-2">
               <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${
                 p.interes === 'Alto' ? 'bg-red-100 text-red-600' : 
@@ -81,23 +85,32 @@ const CRM = () => {
               }`}>
                 {p.interes === 'Alto' ? '🔥 Alto' : p.interes === 'Medio' ? '⚡ Medio' : '🧊 Bajo'}
               </span>
-              <div className="flex gap-2">
-                <button onClick={(e) => {e.stopPropagation(); abrirEditor(p)}} className="text-gray-400 p-1"><Edit3 size={16} /></button>
-                <button onClick={(e) => eliminarProspecto(p.id, e)} className="text-gray-300 p-1"><Trash2 size={16} /></button>
+              <div className="flex gap-3">
+                <button onClick={() => abrirEditor(p)} className="text-blue-500 p-1"><Edit3 size={18} /></button>
+                <button onClick={(e) => eliminarProspecto(p.id, e)} className="text-gray-300 p-1"><Trash2 size={18} /></button>
               </div>
             </div>
             
             <h3 className="font-bold text-lg text-gray-900 leading-tight">{p.grupo}</h3>
-            <p className="text-sm text-gray-600 mb-3">{p.contacto}</p>
+            <p className="text-sm text-gray-600 mb-3">{p.contacto} • {p.fechaVisita}</p>
             
-            <div className="flex gap-2 mb-3">
-              <a href={`tel:${p.telefono}`} onClick={(e) => e.stopPropagation()} className="flex-1 bg-green-50 text-green-700 py-2 rounded-xl flex justify-center items-center gap-2 font-bold text-sm border border-green-200">
-                <Phone size={16} /> Llamar
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <a href={`tel:${p.telefono}`} className="bg-green-50 text-green-700 py-3 rounded-xl flex justify-center items-center gap-2 font-bold text-xs border border-green-200">
+                <Phone size={14} /> Llamar
               </a>
-              {p.ubicacion && (
-                <a href={p.ubicacion} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex-1 bg-blue-50 text-blue-700 py-2 rounded-xl flex justify-center items-center gap-2 font-bold text-sm border border-blue-200">
-                  <MapPin size={16} /> Mapa
+              {p.ubicacion ? (
+                <a 
+                  href={p.ubicacion} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="bg-blue-600 text-white py-3 rounded-xl flex justify-center items-center gap-2 font-bold text-xs shadow-md active:bg-blue-700"
+                >
+                  <Navigation size={14} /> Ir con GPS
                 </a>
+              ) : (
+                <button disabled className="bg-gray-100 text-gray-400 py-3 rounded-xl flex justify-center items-center gap-2 font-bold text-xs border border-gray-200">
+                  <MapPin size={14} /> Sin GPS
+                </button>
               )}
             </div>
 
@@ -109,10 +122,10 @@ const CRM = () => {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-end md:items-center justify-center z-50">
-          <div className="bg-white w-full max-w-md rounded-t-3xl p-6 shadow-2xl animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/60 flex items-end justify-center z-50">
+          <div className="bg-white w-full max-w-md rounded-t-3xl p-6 shadow-2xl animate-in slide-in-from-bottom max-h-[95vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold">{editandoId ? 'Editar Visita' : 'Nueva Visita'}</h2>
+              <h2 className="text-xl font-bold text-gray-800">{editandoId ? 'Editar Visita' : 'Nueva Visita'}</h2>
               <button onClick={cerrarModal} className="p-2 text-gray-400"><X size={24} /></button>
             </div>
             
@@ -120,7 +133,7 @@ const CRM = () => {
               <input 
                 placeholder="Nombre del Grupo" 
                 required 
-                className="w-full p-4 bg-gray-100 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full p-4 bg-gray-100 rounded-2xl outline-none border-2 border-transparent focus:border-orange-500"
                 value={nuevo.grupo}
                 onChange={e => setNuevo({...nuevo, grupo: e.target.value})}
               />
@@ -142,31 +155,31 @@ const CRM = () => {
               
               <div className="flex gap-2">
                 <select 
-                  className="flex-1 p-4 bg-gray-100 rounded-2xl outline-none appearance-none"
+                  className="flex-1 p-4 bg-gray-100 rounded-2xl outline-none appearance-none font-bold"
                   value={nuevo.interes}
                   onChange={e => setNuevo({...nuevo, interes: e.target.value})}
                 >
-                  <option value="Bajo">Interés Bajo</option>
-                  <option value="Medio">Interés Medio</option>
-                  <option value="Alto">Interés Alto</option>
+                  <option value="Bajo">🧊 Bajo</option>
+                  <option value="Medio">⚡ Medio</option>
+                  <option value="Alto">🔥 Alto</option>
                 </select>
                 <button 
                   type="button" 
                   onClick={obtenerGPS}
-                  className={`flex-1 p-4 rounded-2xl font-bold flex items-center justify-center gap-2 border transition-colors ${nuevo.ubicacion ? 'bg-green-100 border-green-500 text-green-700' : 'bg-gray-100 border-gray-300 text-gray-600'}`}
+                  className={`flex-1 p-4 rounded-2xl font-bold flex items-center justify-center gap-2 border transition-all ${nuevo.ubicacion ? 'bg-green-500 text-white border-green-600' : 'bg-gray-200 text-gray-700 border-gray-300'}`}
                 >
-                  <MapPin size={20} /> {nuevo.ubicacion ? 'Ubicación OK' : 'GPS'}
+                  <MapPin size={20} /> {nuevo.ubicacion ? 'GPS OK' : 'Captar GPS'}
                 </button>
               </div>
 
               <textarea 
                 placeholder="Notas de la visita..." 
-                className="w-full p-4 bg-gray-100 rounded-2xl outline-none h-24"
+                className="w-full p-4 bg-gray-100 rounded-2xl outline-none h-28"
                 value={nuevo.notas}
                 onChange={e => setNuevo({...nuevo, notas: e.target.value})}
               ></textarea>
 
-              <button type="submit" className="w-full bg-blue-900 text-white py-4 rounded-2xl font-bold shadow-lg">
+              <button type="submit" className="w-full bg-blue-900 text-white py-4 rounded-2xl font-bold shadow-lg active:bg-blue-950">
                 {editandoId ? 'Guardar Cambios' : 'Registrar Visita'}
               </button>
             </form>
