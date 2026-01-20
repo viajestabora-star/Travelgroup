@@ -11,11 +11,12 @@
     "restart": "npm run kill-port && npm run dev"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.90.1",
+    "date-fns": "^3.3.1",
+    "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.22.0",
-    "lucide-react": "^0.344.0",
-    "date-fns": "^3.3.1"
+    "react-router-dom": "^6.22.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
