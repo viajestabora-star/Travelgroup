@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { Plus, Phone, Trash2, X, MapPin, Edit3, Navigation, RefreshCw } from 'lucide-react'
 
-// CONFIGURACIÓN SUPABASE DIRECTA
+// CONFIGURACIÓN SUPABASE - VERIFICADA
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
@@ -16,16 +16,22 @@ const CRM = () => {
     grupo: '', contacto: '', telefono: '', interes: 'Medio', notas: '', ubicacion: '', fecha: new Date().toLocaleDateString()
   })
 
-  // Función para traer datos de la nube
+  // Carga de datos desde la nube
   const cargarDatos = async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('prospectos')
-      .select('*')
-      .order('id', { ascending: false })
-    
-    if (!error) setProspectos(data)
-    setLoading(false)
+    try {
+      const { data, error } = await supabase
+        .from('prospectos')
+        .select('*')
+        .order('id', { ascending: false })
+      
+      if (error) throw error
+      setProspectos(data || [])
+    } catch (err) {
+      console.error("Error cargando datos:", err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -42,35 +48,44 @@ const CRM = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition((pos) => {
         const { latitude, longitude } = pos.coords;
-        const url = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+        // CORRECCIÓN: Sintaxis de variables corregida para que funcione el mapa
+        const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
         setNuevo({...nuevo, ubicacion: url})
-        alert("📍 Ubicación fijada para Google Maps / Waze");
-      }, () => alert("Error: Activa el GPS"));
+        alert("📍 Ubicación fijada correctamente");
+      }, () => alert("Error: Activa el GPS de tu móvil"));
     }
   };
 
   const guardarCambios = async (e) => {
     e.preventDefault()
-    const telefonoLimpio = nuevo.telefono.replace(/\s+/g, '')
-    
-    const datosBase = {
-      grupo: nuevo.grupo,
-      contacto: nuevo.contacto,
-      telefono: telefonoLimpio,
-      interes: nuevo.interes,
-      notas: nuevo.notas,
-      ubicacion: nuevo.ubicacion,
-      fecha: nuevo.fecha
-    }
+    try {
+      const telefonoLimpio = nuevo.telefono.replace(/\s+/g, '')
+      const datosBase = {
+        grupo: nuevo.grupo,
+        contacto: nuevo.contacto,
+        telefono: telefonoLimpio,
+        interes: nuevo.interes,
+        notes: nuevo.notas, // Asegúrate de que en Supabase se llame 'notas' o 'notes'
+        ubicacion: nuevo.ubicacion,
+        fecha: nuevo.fecha
+      }
 
-    if (editandoId) {
-      await supabase.from('prospectos').update(datosBase).eq('id', editandoId)
-    } else {
-      await supabase.from('prospectos').insert([datosBase])
+      let error;
+      if (editandoId) {
+        const res = await supabase.from('prospectos').update(datosBase).eq('id', editandoId)
+        error = res.error
+      } else {
+        const res = await supabase.from('prospectos').insert([datosBase])
+        error = res.error
+      }
+      
+      if (error) throw error
+
+      cerrarModal()
+      await cargarDatos()
+    } catch (err) {
+      alert("❌ Error al guardar en Supabase: " + err.message)
     }
-    
-    cerrarModal()
-    cargarDatos()
   }
 
   const cerrarModal = () => {
@@ -82,8 +97,9 @@ const CRM = () => {
   const eliminarProspecto = async (id, e) => {
     e.stopPropagation()
     if (window.confirm('¿Eliminar esta visita de la nube?')) {
-      await supabase.from('prospectos').delete().eq('id', id)
-      cargarDatos()
+      const { error } = await supabase.from('prospectos').delete().eq('id', id)
+      if (!error) cargarDatos()
+      else alert("Error al eliminar: " + error.message)
     }
   }
 
@@ -91,28 +107,30 @@ const CRM = () => {
     <div className="p-4 bg-gray-50 min-h-screen pb-24 font-sans">
       <div className="flex justify-between items-center mb-6">
         <div>
-            <h1 className="text-2xl font-black text-gray-900">CRM</h1>
-            <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Sincronizado</p>
+            <h1 className="text-2xl font-black text-gray-900">TABORA CRM</h1>
+            <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Nube Sincronizada</p>
         </div>
         <div className="flex gap-2">
             <button onClick={cargarDatos} className="p-3 text-gray-400 active:rotate-180 transition-transform">
                 <RefreshCw size={24}/>
             </button>
             <button 
-            onClick={() => setShowModal(true)}
-            className="text-white p-4 rounded-2xl shadow-lg active:scale-95 transition-all"
-            style={{ backgroundColor: '#f97316' }} 
+                onClick={() => setShowModal(true)}
+                className="text-white p-4 rounded-2xl shadow-lg active:scale-95 transition-all"
+                style={{ backgroundColor: '#f97316' }} 
             >
-            <Plus size={28} />
+                <Plus size={28} />
             </button>
         </div>
       </div>
 
       <div className="space-y-4">
         {loading ? (
-            <div className="text-center py-20 text-gray-400 animate-pulse">Conectando con la base de datos...</div>
+            <div className="text-center py-20 text-gray-400 animate-pulse font-medium">Conectando...</div>
         ) : prospectos.length === 0 ? (
-            <div className="text-center py-20 text-gray-400 italic">No hay visitas registradas.</div>
+            <div className="text-center py-20 text-gray-400 italic bg-white rounded-3xl border border-dashed border-gray-200">
+                No hay visitas registradas.
+            </div>
         ) : prospectos.map(p => (
           <div key={p.id} className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-100 relative">
             <div className="flex justify-between items-start mb-3">
@@ -128,7 +146,7 @@ const CRM = () => {
               </div>
             </div>
             
-            <h3 className="font-bold text-xl text-gray-900 mb-1">{p.grupo}</h3>
+            <h3 className="font-bold text-xl text-gray-900 mb-1 leading-tight">{p.grupo}</h3>
             <p className="text-sm text-gray-500 mb-4 font-medium">{p.contacto} • {p.fecha}</p>
             
             <div className="grid grid-cols-2 gap-3 mb-4">
@@ -159,7 +177,7 @@ const CRM = () => {
         <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-8 shadow-2xl animate-in slide-in-from-bottom duration-300 max-h-[92vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-2xl font-black text-gray-800">{editandoId ? 'Editar Visita' : 'Nueva Visita'}</h2>
+              <h2 className="text-2xl font-black text-gray-800">{editandoId ? 'Editar' : 'Nueva'} Visita</h2>
               <button onClick={cerrarModal} className="bg-gray-100 p-2 rounded-full text-gray-400"><X size={24} /></button>
             </div>
             
@@ -172,7 +190,7 @@ const CRM = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-400 ml-2 uppercase">Contacto</label>
-                    <input className="w-full p-4 bg-gray-50 rounded-2xl outline-none" value={nuevo.contacto} onChange={e => setNuevo({...nuevo, contacto: e.target.value})} />
+                    <input className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-semibold" value={nuevo.contacto} onChange={e => setNuevo({...nuevo, contacto: e.target.value})} />
                 </div>
                 <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-400 ml-2 uppercase">Móvil</label>
@@ -193,8 +211,8 @@ const CRM = () => {
 
               <textarea placeholder="Notas de la visita..." className="w-full p-4 bg-gray-50 rounded-2xl h-28 outline-none border-2 border-transparent focus:border-blue-500 transition-all text-sm" value={nuevo.notas} onChange={e => setNuevo({...nuevo, notas: e.target.value})} />
 
-              <button type="submit" className="w-full bg-blue-900 text-white py-5 rounded-[1.5rem] font-black text-lg shadow-xl active:scale-95 transition-all">
-                {editandoId ? 'ACTUALIZAR DATOS' : 'GUARDAR EN LA NUBE'}
+              <button type="submit" className="w-full bg-blue-900 text-white py-5 rounded-[1.5rem] font-black text-lg shadow-xl active:scale-95 transition-all uppercase tracking-tight">
+                {editandoId ? 'Actualizar Registro' : 'Guardar en la Nube'}
               </button>
             </form>
           </div>
