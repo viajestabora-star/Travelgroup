@@ -4,7 +4,12 @@ import { storage } from '../utils/storage'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
+import { createClient } from '@supabase/supabase-js'
 
+const supabase = createClient(
+  'https://gtwyqxfkpdwpakmgrkbu.supabase.co',
+  'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
+)
 const ESTADOS = {
   peticion: { label: 'Petición', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', badge: 'bg-yellow-500', cssClass: 'peticion' },
   confirmado: { label: 'Confirmado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500', cssClass: 'confirmado' },
@@ -79,33 +84,31 @@ const Expedientes = () => {
   }, [])
 
   // PROTECCIÓN: Cargar datos de forma segura + NORMALIZACIÓN DE FECHAS
-  const loadData = () => {
+  const loadData = async () => {
     try {
-      const expedientesData = storage.get('expedientes')
-      const clientesData = storage.getClientes()
+      // 1. Leemos tus expedientes de siempre (PC)
+      const localData = storage.get('expedientes') || []
       
-      // PROTECCIÓN: Asegurar que siempre sean arrays
-      const expedientesArray = Array.isArray(expedientesData) ? expedientesData : []
+      // 2. Intentamos leer los nuevos de la nube (Cloud)
+      const { data: cloudData, error } = await supabase
+        .from('expedientes')
+        .select('*, clientes(nombre)')
+
+      // 3. Los unimos para que no desaparezca NADA
+      const fusion = [...localData, ...(cloudData || [])]
       
-      // ============ NORMALIZACIÓN AUTOMÁTICA DE FECHAS ============
-      // Convierte TODAS las fechas a formato DD/MM/AAAA (español)
-      const expedientesNormalizados = normalizarExpedientes(expedientesArray)
-      
-      // Guardar con el formato normalizado
-      if (expedientesNormalizados.length > 0) {
-        storage.set('expedientes', expedientesNormalizados)
-      }
+      // 4. Tu normalización de fechas mágica (Arrancapins vs Viveros)
+      const expedientesNormalizados = normalizarExpedientes(fusion)
       
       setExpedientes(expedientesNormalizados)
-      setClientes(Array.isArray(clientesData) ? clientesData : [])
+      setClientes(storage.getClientes() || [])
       
-      console.log('✅ Expedientes normalizados a formato DD/MM/AAAA:', expedientesNormalizados.length)
+      console.log('✅ Motor recuperado y sincronizado con Cloud')
     } catch (error) {
       console.error('Error cargando datos:', error)
-      setExpedientes([])
-      setClientes([])
     }
   }
+    
 
   const sincronizarConPlanning = () => {
     const planning = storage.getPlanning()
