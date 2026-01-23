@@ -35,6 +35,7 @@ const Expedientes = () => {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [trimestreExport, setTrimestreExport] = useState('Q1')
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
+  const [searchTermExpedientes, setSearchTermExpedientes] = useState('')
 
   const [expedienteForm, setExpedienteForm] = useState({
     responsable: '',
@@ -96,24 +97,106 @@ const Expedientes = () => {
     return unsubscribe
   }, [])
 
-  // PROTECCIÓN: Cargar expedientes (local) + clientes de Supabase
+  // Cargar expedientes desde Supabase
   const loadData = async () => {
     try {
-      const localData = storage.get('expedientes') || []
-
       // Lee expedientes de Supabase
-      const { data: cloudData } = await supabase
+      const { data: cloudData, error } = await supabase
         .from('expedientes')
         .select('*, clientes(nombre)')
+        .order('fechaCreacion', { ascending: false })
 
-      const fusion = [...localData, ...(cloudData || [])]
-      const expedientesNormalizados = normalizarExpedientes(fusion)
+      if (error) {
+        console.error('Error cargando expedientes:', error)
+        alert('⚠️ Error cargando expedientes desde la nube. Revisa tu conexión.')
+        return
+      }
 
+      // Parsear campos JSON de Supabase
+      const expedientesParseados = (cloudData || []).map(exp => {
+        const expedienteParseado = { ...exp }
+        
+        // Parsear campos JSON si existen
+        if (typeof exp.cotizacion === 'string' && exp.cotizacion) {
+          try {
+            expedienteParseado.cotizacion = JSON.parse(exp.cotizacion)
+          } catch (e) {
+            console.warn('Error parseando cotizacion:', e)
+            expedienteParseado.cotizacion = null
+          }
+        }
+        
+        if (typeof exp.pasajeros === 'string' && exp.pasajeros) {
+          try {
+            expedienteParseado.pasajeros = JSON.parse(exp.pasajeros)
+          } catch (e) {
+            console.warn('Error parseando pasajeros:', e)
+            expedienteParseado.pasajeros = []
+          }
+        } else if (!exp.pasajeros) {
+          expedienteParseado.pasajeros = []
+        }
+        
+        if (typeof exp.cobros === 'string' && exp.cobros) {
+          try {
+            expedienteParseado.cobros = JSON.parse(exp.cobros)
+          } catch (e) {
+            console.warn('Error parseando cobros:', e)
+            expedienteParseado.cobros = []
+          }
+        } else if (!exp.cobros) {
+          expedienteParseado.cobros = []
+        }
+        
+        if (typeof exp.pagos === 'string' && exp.pagos) {
+          try {
+            expedienteParseado.pagos = JSON.parse(exp.pagos)
+          } catch (e) {
+            console.warn('Error parseando pagos:', e)
+            expedienteParseado.pagos = []
+          }
+        } else if (!exp.pagos) {
+          expedienteParseado.pagos = []
+        }
+        
+        if (typeof exp.documentos === 'string' && exp.documentos) {
+          try {
+            expedienteParseado.documentos = JSON.parse(exp.documentos)
+          } catch (e) {
+            console.warn('Error parseando documentos:', e)
+            expedienteParseado.documentos = []
+          }
+        } else if (!exp.documentos) {
+          expedienteParseado.documentos = []
+        }
+        
+        if (typeof exp.cierre === 'string' && exp.cierre) {
+          try {
+            expedienteParseado.cierre = JSON.parse(exp.cierre)
+          } catch (e) {
+            console.warn('Error parseando cierre:', e)
+            expedienteParseado.cierre = null
+          }
+        }
+        
+        return expedienteParseado
+      })
+
+      const expedientesNormalizados = normalizarExpedientes(expedientesParseados)
       setExpedientes(expedientesNormalizados)
-      // Solo cargar clientes de Supabase, no duplicar storage local!
+      
+      // También guardar en localStorage como backup
+      if (expedientesParseados && expedientesParseados.length > 0) {
+        storage.set('expedientes', expedientesParseados)
+      }
+      
+      // Cargar clientes de Supabase
       fetchClientesFromSupabase()
     } catch (error) {
       console.error('Error cargando datos:', error)
+      // Fallback a localStorage si hay error
+      const localData = storage.get('expedientes') || []
+      setExpedientes(normalizarExpedientes(localData))
     }
   }
 
@@ -163,9 +246,35 @@ const Expedientes = () => {
     }
   }
 
-  const saveExpedientes = (data) => {
+  const saveExpedientes = async (data) => {
     try {
       const dataToSave = Array.isArray(data) ? data : []
+      
+      // Guardar en Supabase (actualizar cada expediente)
+      for (const expediente of dataToSave) {
+        if (expediente.id) {
+          // Preparar datos para Supabase (excluir campos calculados o no necesarios)
+          const { cotizacion, pasajeros, cobros, pagos, documentos, cierre, ...expedienteParaSupabase } = expediente
+          
+          const { error } = await supabase
+            .from('expedientes')
+            .upsert({
+              ...expedienteParaSupabase,
+              cotizacion: cotizacion ? JSON.stringify(cotizacion) : null,
+              pasajeros: pasajeros ? JSON.stringify(pasajeros) : null,
+              cobros: cobros ? JSON.stringify(cobros) : null,
+              pagos: pagos ? JSON.stringify(pagos) : null,
+              documentos: documentos ? JSON.stringify(documentos) : null,
+              cierre: cierre ? JSON.stringify(cierre) : null,
+            }, { onConflict: 'id' })
+          
+          if (error) {
+            console.error('Error guardando expediente en Supabase:', error)
+          }
+        }
+      }
+      
+      // También guardar en localStorage como backup
       storage.set('expedientes', dataToSave)
       setExpedientes(dataToSave)
     } catch (error) {
@@ -187,13 +296,14 @@ const Expedientes = () => {
         nombre: clienteInputValue.trim(),
         personaContacto: expedienteForm.responsable || '',
         telefono: expedienteForm.telefono || '',
+        movil: expedienteForm.telefono || '', // Usar teléfono como móvil si no hay móvil específico
         email: expedienteForm.email || '',
-        cif: '',
+        cif_nif: '',
         direccion: '',
         poblacion: '',
-        cp: '',
+        codigo_postal: '',
         provincia: '',
-        nSocios: '',
+        comisiones: '',
       }
       try {
         const { data, error } = await supabase.from('clientes').insert([nuevoClienteSupabase]).select().single()
@@ -210,7 +320,7 @@ const Expedientes = () => {
     // MAPEO LIMPIO: Variables correctas para jerarquía visual
     const newExpediente = {
       id: Date.now(),
-      clienteId: finalClienteId || '',
+      clienteId: finalClienteId || null,
       nombre_grupo: finalClienteNombre || clienteInputValue.trim() || '',
       cliente_responsable: expedienteForm.responsable || '',
       telefono: expedienteForm.telefono || '',
@@ -230,11 +340,38 @@ const Expedientes = () => {
       clienteNombre: finalClienteNombre || clienteInputValue.trim() || '',
       responsable: expedienteForm.responsable || '',
     }
-    saveExpedientes([...expedientes, newExpediente])
-    setShowExpedienteModal(false)
-    resetExpedienteForm()
-    setClienteInputValue('')
-    setShowSuggestions(false)
+    
+    // Guardar en Supabase primero
+    try {
+      const { data, error } = await supabase
+        .from('expedientes')
+        .insert([{
+          ...newExpediente,
+          cotizacion: null,
+          pasajeros: JSON.stringify([]),
+          cobros: JSON.stringify([]),
+          pagos: JSON.stringify([]),
+          documentos: JSON.stringify([]),
+          cierre: null,
+        }])
+        .select()
+        .single()
+      
+      if (error) throw error
+      
+      // Actualizar estado local
+      const expedienteConId = { ...newExpediente, id: data.id }
+      setExpedientes([...expedientes, expedienteConId])
+      storage.set('expedientes', [...expedientes, expedienteConId])
+      
+      setShowExpedienteModal(false)
+      resetExpedienteForm()
+      setClienteInputValue('')
+      setShowSuggestions(false)
+    } catch (err) {
+      console.error('Error guardando expediente:', err)
+      alert('⚠️ Error guardando expediente en la base de datos. Revisa tu conexión.')
+    }
   }
 
   // NUEVA VERSIÓN: CREA CLIENTE TANTO EN SUPABASE COMO LOCAL
@@ -242,15 +379,16 @@ const Expedientes = () => {
     e.preventDefault()
     const newCliente = {
       nombre: clienteForm.nombre,
-      cif: clienteForm.cif,
+      cif_nif: clienteForm.cif || '',
       direccion: clienteForm.direccion,
       poblacion: clienteForm.poblacion,
-      cp: clienteForm.cp,
+      codigo_postal: clienteForm.cp || '',
       provincia: clienteForm.provincia,
-      nSocios: clienteForm.nSocios,
       personaContacto: clienteForm.personaContacto,
       telefono: clienteForm.telefono || '',
-      email: clienteForm.email || ''
+      movil: clienteForm.telefono || '', // Usar teléfono como móvil si no hay móvil específico
+      email: clienteForm.email || '',
+      comisiones: ''
     }
 
     try {
@@ -275,39 +413,94 @@ const Expedientes = () => {
     }
   }
 
-  const handleDeleteExpediente = (id) => {
+  const handleDeleteExpediente = async (id) => {
     const expediente = expedientes.find(exp => exp.id === id)
     const nombreExpediente = expediente?.responsable || expediente?.destino || 'este expediente'
     const destino = expediente?.destino ? ` - ${expediente.destino}` : ''
     if (window.confirm(`¿Está seguro de que desea eliminar el expediente "${nombreExpediente}${destino}"?\n\nEsta acción no se puede deshacer.`)) {
-      saveExpedientes(expedientes.filter(exp => exp.id !== id))
-      alert('✅ Expediente eliminado correctamente')
+      try {
+        // Eliminar de Supabase
+        const { error } = await supabase
+          .from('expedientes')
+          .delete()
+          .eq('id', id)
+        
+        if (error) throw error
+        
+        // Actualizar estado local
+        const nuevosExpedientes = expedientes.filter(exp => exp.id !== id)
+        setExpedientes(nuevosExpedientes)
+        storage.set('expedientes', nuevosExpedientes)
+        alert('✅ Expediente eliminado correctamente')
+      } catch (err) {
+        console.error('Error eliminando expediente:', err)
+        alert('⚠️ Error eliminando expediente. Revisa tu conexión.')
+      }
     }
   }
 
-  const actualizarExpediente = (expedienteActualizado) => {
-    const updated = expedientes.map(exp =>
-      exp.id === expedienteActualizado.id ? expedienteActualizado : exp
-    )
-    saveExpedientes(updated)
-    setExpedientes(updated)
-    loadData()
+  const actualizarExpediente = async (expedienteActualizado) => {
+    try {
+      // Preparar datos para Supabase
+      const { cotizacion, pasajeros, cobros, pagos, documentos, cierre, ...expedienteParaSupabase } = expedienteActualizado
+      
+      const { error } = await supabase
+        .from('expedientes')
+        .update({
+          ...expedienteParaSupabase,
+          cotizacion: cotizacion ? JSON.stringify(cotizacion) : null,
+          pasajeros: pasajeros ? JSON.stringify(pasajeros) : null,
+          cobros: cobros ? JSON.stringify(cobros) : null,
+          pagos: pagos ? JSON.stringify(pagos) : null,
+          documentos: documentos ? JSON.stringify(documentos) : null,
+          cierre: cierre ? JSON.stringify(cierre) : null,
+        })
+        .eq('id', expedienteActualizado.id)
+      
+      if (error) throw error
+      
+      // Actualizar estado local
+      const updated = expedientes.map(exp =>
+        exp.id === expedienteActualizado.id ? expedienteActualizado : exp
+      )
+      setExpedientes(updated)
+      storage.set('expedientes', updated)
+    } catch (err) {
+      console.error('Error actualizando expediente:', err)
+      alert('⚠️ Error actualizando expediente. Revisa tu conexión.')
+    }
   }
 
-  const cambiarEstado = (id, nuevoEstado) => {
-    const updated = expedientes.map(exp =>
-      exp.id === id ? { ...exp, estado: nuevoEstado } : exp
-    )
-    saveExpedientes(updated)
-    const expediente = updated.find(exp => exp.id === id)
-    if (expediente && expediente.planningId) {
-      const planning = storage.getPlanning()
-      const updatedPlanning = planning.map(p =>
-        p.id === expediente.planningId
-          ? { ...p, estado: nuevoEstado }
-          : p
+  const cambiarEstado = async (id, nuevoEstado) => {
+    try {
+      // Actualizar en Supabase
+      const { error } = await supabase
+        .from('expedientes')
+        .update({ estado: nuevoEstado })
+        .eq('id', id)
+      
+      if (error) throw error
+      
+      // Actualizar estado local
+      const updated = expedientes.map(exp =>
+        exp.id === id ? { ...exp, estado: nuevoEstado } : exp
       )
-      storage.setPlanning(updatedPlanning)
+      setExpedientes(updated)
+      storage.set('expedientes', updated)
+      
+      const expediente = updated.find(exp => exp.id === id)
+      if (expediente && expediente.planningId) {
+        const planning = storage.getPlanning()
+        const updatedPlanning = planning.map(p =>
+          p.id === expediente.planningId
+            ? { ...p, estado: nuevoEstado }
+            : p
+        )
+        storage.setPlanning(updatedPlanning)
+      }
+    } catch (err) {
+      console.error('Error cambiando estado:', err)
+      alert('⚠️ Error actualizando estado. Revisa tu conexión.')
     }
   }
 
@@ -523,10 +716,28 @@ const Expedientes = () => {
     setShowExportModal(false)
   }
 
+  // Filtrar expedientes por ejercicio y búsqueda
   const expedientesFiltradosPorEjercicio = expedientes.filter(exp => {
+    // Filtro por ejercicio
     if (!exp.fechaInicio) return false
     const añoExpediente = extraerAño(exp.fechaInicio)
-    return añoExpediente === ejercicioActual
+    if (añoExpediente !== ejercicioActual) return false
+    
+    // Filtro por búsqueda
+    if (!searchTermExpedientes.trim()) return true
+    
+    const term = searchTermExpedientes.toLowerCase()
+    const cliente = clientes.find(c => c.id === exp.clienteId)
+    const nombreCliente = cliente?.nombre || exp.clienteNombre || exp.nombre_grupo || ''
+    const responsable = exp.cliente_responsable || exp.responsable || cliente?.personaContacto || ''
+    const destino = exp.destino || ''
+    
+    return (
+      nombreCliente.toLowerCase().includes(term) ||
+      responsable.toLowerCase().includes(term) ||
+      destino.toLowerCase().includes(term) ||
+      exp.observaciones?.toLowerCase().includes(term)
+    )
   })
 
   return (
@@ -548,6 +759,20 @@ const Expedientes = () => {
         </div>
       </div>
 
+      {/* ==================== BUSCADOR DE EXPEDIENTES ==================== */}
+      <div className="mb-6">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+          <input
+            type="text"
+            placeholder="Buscar expedientes por cliente, responsable, destino..."
+            value={searchTermExpedientes}
+            onChange={(e) => setSearchTermExpedientes(e.target.value)}
+            className="w-full pl-12 pr-4 py-3 border-2 border-navy-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+          />
+        </div>
+      </div>
+
       {/* ==================== CONTADOR DE EXPEDIENTES ==================== */}
       <div className="mb-6 p-4 bg-gradient-to-r from-navy-50 to-blue-50 rounded-xl border border-navy-200">
         <div className="flex items-center justify-between">
@@ -555,7 +780,12 @@ const Expedientes = () => {
             <Calendar className="text-navy-600" size={24} />
             <div>
               <p className="text-sm font-medium text-gray-700">Ejercicio {ejercicioActual}</p>
-              <p className="text-xs text-gray-500">Vista de expedientes del año seleccionado</p>
+              <p className="text-xs text-gray-500">
+                {searchTermExpedientes 
+                  ? `Buscando: "${searchTermExpedientes}" - ${expedientesFiltradosPorEjercicio.length} resultado${expedientesFiltradosPorEjercicio.length !== 1 ? 's' : ''}`
+                  : `Vista de expedientes del año seleccionado`
+                }
+              </p>
             </div>
           </div>
           <div className="px-4 py-2 bg-navy-600 text-white rounded-lg font-bold">

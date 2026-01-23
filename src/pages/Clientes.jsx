@@ -13,9 +13,19 @@ const Clientes = () => {
   const [editingId, setEditingId] = useState(null)
   
   const [formData, setFormData] = useState({
-    nombre: '', cif_nif: '', telefono: '', email: '',
-    direccion: '', poblacion: '', provincia: '',
-    codigo_postal: '', observaciones: ''
+    nombre: '', 
+    cif_nif: '', 
+    telefono: '', 
+    email: '',
+    direccion: '', 
+    poblacion: '', 
+    provincia: '',
+    codigo_postal: '', 
+    observaciones: '',
+    personaContacto: '', // Responsable
+    movil: '', // Móvil
+    bonificaciones: '', // Bonificaciones (en lugar de comisiones)
+    gratuidades: '' // Gratuidades
   })
 
   useEffect(() => { fetchClientes() }, [])
@@ -48,9 +58,37 @@ const Clientes = () => {
 
   const openModal = (c = null) => {
     if (c) {
-      setEditingId(c.id); setFormData({ ...c })
+      setEditingId(c.id); setFormData({ 
+        nombre: c.nombre || '', 
+        cif_nif: c.cif_nif || c.cif || '', 
+        telefono: c.telefono || '', 
+        email: c.email || '', 
+        direccion: c.direccion || '', 
+        poblacion: c.poblacion || '', 
+        provincia: c.provincia || '', 
+        codigo_postal: c.codigo_postal || c.cp || '', 
+        observaciones: c.observaciones || '',
+        personaContacto: c.personaContacto || c.responsable || '',
+        movil: c.movil || '',
+        bonificaciones: c.bonificaciones || c.comisiones || '',
+        gratuidades: c.gratuidades || ''
+      })
     } else {
-      setEditingId(null); setFormData({ nombre: '', cif_nif: '', telefono: '', email: '', direccion: '', poblacion: '', provincia: '', codigo_postal: '', observaciones: '' })
+      setEditingId(null); setFormData({ 
+        nombre: '', 
+        cif_nif: '', 
+        telefono: '', 
+        email: '', 
+        direccion: '', 
+        poblacion: '', 
+        provincia: '', 
+        codigo_postal: '', 
+        observaciones: '',
+        personaContacto: '',
+        movil: '',
+        bonificaciones: '',
+        gratuidades: ''
+      })
     }
     setShowModal(true)
   }
@@ -94,8 +132,11 @@ const Clientes = () => {
                   <div className="text-[10px] font-black text-slate-400 mt-1 uppercase italic tracking-widest">{c.cif_nif || 'Sin CIF'}</div>
                 </td>
                 <td className="px-6 py-6">
-                  <div className="text-xs font-bold text-slate-800 flex items-center gap-2"><Phone size={14} className="text-green-600"/> {c.telefono || '-'}</div>
+                  <div className="text-xs font-bold text-slate-800 flex items-center gap-2"><Phone size={14} className="text-green-600"/> {c.movil || c.telefono || '-'}</div>
                   <div className="text-xs font-medium text-slate-400 flex items-center gap-2 mt-1"><Mail size={14}/> {c.email || '-'}</div>
+                  {c.personaContacto && (
+                    <div className="text-xs font-medium text-slate-500 flex items-center gap-2 mt-1">👤 {c.personaContacto}</div>
+                  )}
                 </td>
                 <td className="px-6 py-6">
                   <div className="text-xs font-bold text-slate-800 uppercase leading-relaxed"><MapPin size={14} className="inline mr-1 text-slate-400"/> {c.poblacion}</div>
@@ -125,8 +166,8 @@ const Clientes = () => {
                   <input required className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-green-100" value={formData.nombre} onChange={e=>setFormData({...formData, nombre:e.target.value})} />
                </div>
                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">CIF / NIF</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.cif_nif} onChange={e=>setFormData({...formData, cif_nif:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase ml-2">CIF / NIF *</label>
+                  <input required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.cif_nif} onChange={e=>setFormData({...formData, cif_nif:e.target.value})} />
                </div>
                <div className="space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase ml-2">Teléfono de Contacto</label>
@@ -137,8 +178,24 @@ const Clientes = () => {
                   <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.email} onChange={e=>setFormData({...formData, email:e.target.value})} />
                </div>
                <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Dirección</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.direccion} onChange={e=>setFormData({...formData, direccion:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Dirección *</label>
+                  <input required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.direccion} onChange={e=>setFormData({...formData, direccion:e.target.value})} />
+               </div>
+               <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Responsable *</label>
+                  <input required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.personaContacto} onChange={e=>setFormData({...formData, personaContacto:e.target.value})} />
+               </div>
+               <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Móvil *</label>
+                  <input required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.movil} onChange={e=>setFormData({...formData, movil:e.target.value})} />
+               </div>
+               <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Bonificaciones</label>
+                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.bonificaciones} onChange={e=>setFormData({...formData, bonificaciones:e.target.value})} placeholder="Ej: 15€" />
+               </div>
+               <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Gratuidades</label>
+                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.gratuidades} onChange={e=>setFormData({...formData, gratuidades:e.target.value})} placeholder="Ej: 1 plaza gratis por cada 25 de pago" />
                </div>
                <div className="space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase ml-2">Población</label>
