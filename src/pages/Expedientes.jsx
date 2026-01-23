@@ -20,13 +20,6 @@ const ESTADOS = {
 // ============================================================================
 // FUNCIONES DE FECHAS: Usar normalizador centralizado
 // ============================================================================
-// REGLA: Todas las fechas se guardan en formato español DD/MM/AAAA
-// ENTRADA: DD/MM/AAAA (con auto-formateo en inputs)
-// SALIDA: DD/MM/AAAA (formato visual)
-// COMPARACIÓN: Date object para orden cronológico exacto
-// ============================================================================
-
-// Alias de las funciones del normalizador para compatibilidad
 const parsearFecha = parsearFechaADate  // Devuelve Date object para comparaciones
 const formatearFecha = formatearFechaVisual  // Devuelve DD/MM/AAAA para mostrar
 
@@ -41,7 +34,6 @@ const Expedientes = () => {
   const [clienteInputValue, setClienteInputValue] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [trimestreExport, setTrimestreExport] = useState('Q1')
-  // ============ EJERCICIO GLOBAL (PERSISTENTE) ============
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
 
   const [expedienteForm, setExpedienteForm] = useState({
@@ -66,97 +58,104 @@ const Expedientes = () => {
     provincia: '',
     nSocios: '',
     personaContacto: '',
+    telefono: '',
+    email: ''
   })
+
+  // Cargar todos los clientes de Supabase
+  const fetchClientesFromSupabase = async () => {
+    try {
+      const { data, error } = await supabase.from('clientes').select('*')
+      if (error) {
+        console.error('Error obteniendo clientes de Supabase:', error)
+        return []
+      }
+      setClientes(Array.isArray(data) ? data : [])
+      return data
+    } catch (error) {
+      console.error('Error fetch clientes supabase:', error)
+      return []
+    }
+  }
 
   useEffect(() => {
     loadData()
     sincronizarConPlanning()
+    fetchClientesFromSupabase()
+    // eslint-disable-next-line
   }, [])
+
+  // Actualiza clientes al crear uno nuevo o al modificar
+  const reloadClientes = () => fetchClientesFromSupabase()
 
   // ============ SINCRONIZACIÓN GLOBAL DEL EJERCICIO ============
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
-      console.log('📅 Ejercicio cambiado globalmente a:', nuevoEjercicio)
       setEjercicioActual(nuevoEjercicio)
     })
-    
     return unsubscribe
   }, [])
 
-  // PROTECCIÓN: Cargar datos de forma segura + NORMALIZACIÓN DE FECHAS
+  // PROTECCIÓN: Cargar expedientes (local) + clientes de Supabase
   const loadData = async () => {
     try {
-      // 1. Leemos tus expedientes de siempre (PC)
       const localData = storage.get('expedientes') || []
-      
-      // 2. Intentamos leer los nuevos de la nube (Cloud)
-      const { data: cloudData, error } = await supabase
+
+      // Lee expedientes de Supabase
+      const { data: cloudData } = await supabase
         .from('expedientes')
         .select('*, clientes(nombre)')
 
-      // 3. Los unimos para que no desaparezca NADA
       const fusion = [...localData, ...(cloudData || [])]
-      
-      // 4. Tu normalización de fechas mágica (Arrancapins vs Viveros)
       const expedientesNormalizados = normalizarExpedientes(fusion)
-      
+
       setExpedientes(expedientesNormalizados)
-      setClientes(storage.getClientes() || [])
-      
-      console.log('✅ Motor recuperado y sincronizado con Cloud')
+      // Solo cargar clientes de Supabase, no duplicar storage local!
+      fetchClientesFromSupabase()
     } catch (error) {
       console.error('Error cargando datos:', error)
     }
   }
-    
 
   const sincronizarConPlanning = () => {
     const planning = storage.getPlanning()
     const expedientesActuales = storage.get('expedientes') || []
-    
+
     // Crear expedientes desde Planning si no existen
     const nuevosExpedientes = []
-    
     planning.forEach(viaje => {
-      // Verificar si ya existe un expediente para este viaje del planning
       const existe = expedientesActuales.find(exp => exp.planningId === viaje.id)
-      
       if (!existe) {
-        // Crear expediente desde el planning
         const fechas = viaje.fecha ? viaje.fecha.split(' AL ') : ['', '']
         const nuevoExpediente = {
-          id: Date.now() + Math.random(), // ID único
-          planningId: viaje.id, // Vincular con planning
-          // JERARQUÍA CORRECTA
-          nombre_grupo: viaje.grupo || '', // GRUPO (Grande)
-          cliente_responsable: '', // RESPONSABLE (Pequeño) - vacío desde planning
+          id: Date.now() + Math.random(),
+          planningId: viaje.id,
+          nombre_grupo: viaje.grupo || '',
+          cliente_responsable: '',
           destino: viaje.destino || '',
           fechaInicio: parsearFecha(fechas[0]) || '',
           fechaFin: parsearFecha(fechas[1]) || '',
           clienteId: '',
-          estado: 'peticion', // Por defecto Petición (amarillo)
+          estado: 'peticion',
           observaciones: viaje.observaciones || '',
           fechaCreacion: new Date().toISOString(),
-          // Estructuras vacías
           cotizacion: null,
           pasajeros: [],
           cobros: [],
           pagos: [],
           documentos: [],
           cierre: null,
-          // Datos adicionales del planning
           hotel: viaje.hotel || '',
           plazas: viaje.plazas || 0,
           bus: viaje.bus || '',
           precioBus: viaje.precioBus || 0,
-          // Compatibilidad con código antiguo
           clienteNombre: viaje.grupo || '',
           responsable: '',
         }
         nuevosExpedientes.push(nuevoExpediente)
       }
     })
-    
+
     if (nuevosExpedientes.length > 0) {
       const todosExpedientes = [...expedientesActuales, ...nuevosExpedientes]
       storage.set('expedientes', todosExpedientes)
@@ -164,10 +163,8 @@ const Expedientes = () => {
     }
   }
 
-  // PROTECCIÓN: Guardar expedientes de forma segura
   const saveExpedientes = (data) => {
     try {
-      // PROTECCIÓN: Asegurar que data sea un array
       const dataToSave = Array.isArray(data) ? data : []
       storage.set('expedientes', dataToSave)
       setExpedientes(dataToSave)
@@ -177,19 +174,19 @@ const Expedientes = () => {
     }
   }
 
-  const handleExpedienteSubmit = (e) => {
+  // CREAR/SELECCIONAR CLIENTE: Si no existe, lo crea en Supabase
+  const handleExpedienteSubmit = async (e) => {
     e.preventDefault()
-    
+
     let finalClienteId = expedienteForm.clienteId
     let finalClienteNombre = expedienteForm.clienteNombre
-    
+
+    // Crear cliente en Supabase y volver a cargar lista
     if (!finalClienteId && clienteInputValue.trim()) {
-      const nuevoCliente = {
-        id: Date.now(),
+      const nuevoClienteSupabase = {
         nombre: clienteInputValue.trim(),
         personaContacto: expedienteForm.responsable || '',
         telefono: expedienteForm.telefono || '',
-        movil: expedienteForm.telefono || '',
         email: expedienteForm.email || '',
         cif: '',
         direccion: '',
@@ -198,73 +195,90 @@ const Expedientes = () => {
         provincia: '',
         nSocios: '',
       }
-      const updatedClientes = [...clientes, nuevoCliente]
-      storage.setClientes(updatedClientes)
-      setClientes(updatedClientes)
-      finalClienteId = nuevoCliente.id
-      finalClienteNombre = nuevoCliente.nombre
+      try {
+        const { data, error } = await supabase.from('clientes').insert([nuevoClienteSupabase]).select().single()
+        if (error) throw error
+        await reloadClientes()
+        finalClienteId = data.id
+        finalClienteNombre = data.nombre
+      } catch (err) {
+        alert('⚠️ Error creando cliente en la base de datos. Revisa tu conexión.')
+        return
+      }
     }
-    
+
     // MAPEO LIMPIO: Variables correctas para jerarquía visual
     const newExpediente = {
       id: Date.now(),
       clienteId: finalClienteId || '',
-      // JERARQUÍA CORRECTA:
-      nombre_grupo: finalClienteNombre || clienteInputValue.trim() || '', // GRUPO (Grande)
-      cliente_responsable: expedienteForm.responsable || '', // RESPONSABLE (Pequeño)
-      // Datos de contacto (autocompletados si hay cliente seleccionado)
+      nombre_grupo: finalClienteNombre || clienteInputValue.trim() || '',
+      cliente_responsable: expedienteForm.responsable || '',
       telefono: expedienteForm.telefono || '',
       email: expedienteForm.email || '',
-      // Otros datos del formulario
       destino: expedienteForm.destino || '',
       fechaInicio: expedienteForm.fechaInicio || '',
       fechaFin: expedienteForm.fechaFin || '',
       estado: expedienteForm.estado || 'peticion',
       observaciones: expedienteForm.observaciones || '',
       fechaCreacion: new Date().toISOString(),
-      // Estructuras vacías
       cotizacion: null,
       pasajeros: [],
       cobros: [],
       pagos: [],
       documentos: [],
       cierre: null,
-      // Compatibilidad con código antiguo
       clienteNombre: finalClienteNombre || clienteInputValue.trim() || '',
       responsable: expedienteForm.responsable || '',
     }
     saveExpedientes([...expedientes, newExpediente])
     setShowExpedienteModal(false)
     resetExpedienteForm()
-    setClienteInputValue('') // Limpiar buscador
+    setClienteInputValue('')
     setShowSuggestions(false)
   }
 
-  const handleCrearCliente = (e) => {
+  // NUEVA VERSIÓN: CREA CLIENTE TANTO EN SUPABASE COMO LOCAL
+  const handleCrearCliente = async (e) => {
     e.preventDefault()
     const newCliente = {
-      ...clienteForm,
-      id: Date.now(),
+      nombre: clienteForm.nombre,
+      cif: clienteForm.cif,
+      direccion: clienteForm.direccion,
+      poblacion: clienteForm.poblacion,
+      cp: clienteForm.cp,
+      provincia: clienteForm.provincia,
+      nSocios: clienteForm.nSocios,
+      personaContacto: clienteForm.personaContacto,
+      telefono: clienteForm.telefono || '',
+      email: clienteForm.email || ''
     }
-    const updatedClientes = [...clientes, newCliente]
-    storage.setClientes(updatedClientes)
-    setClientes(updatedClientes)
-    setExpedienteForm({ 
-      ...expedienteForm, 
-      clienteId: newCliente.id,
-      clienteNombre: newCliente.nombre,
-      responsable: clienteForm.personaContacto || '' 
-    })
-    setClienteInputValue(newCliente.nombre)
-    setShowClienteModal(false)
-    resetClienteForm()
+
+    try {
+      // Inserta en Supabase
+      const { data, error } = await supabase.from('clientes').insert([newCliente]).select().single()
+      if (error) throw error
+
+      // Actualiza el estado
+      await reloadClientes()
+      setExpedienteForm({
+        ...expedienteForm,
+        clienteId: data.id,
+        clienteNombre: data.nombre,
+        responsable: data.personaContacto || ''
+      })
+      setClienteInputValue(data.nombre)
+      setShowClienteModal(false)
+      resetClienteForm()
+    } catch (err) {
+      alert('⚠️ Error creando cliente en la base de datos. Revisa tu conexión y los campos.')
+      // Opcional: setShowClienteModal(false)
+    }
   }
 
   const handleDeleteExpediente = (id) => {
     const expediente = expedientes.find(exp => exp.id === id)
     const nombreExpediente = expediente?.responsable || expediente?.destino || 'este expediente'
     const destino = expediente?.destino ? ` - ${expediente.destino}` : ''
-    
     if (window.confirm(`¿Está seguro de que desea eliminar el expediente "${nombreExpediente}${destino}"?\n\nEsta acción no se puede deshacer.`)) {
       saveExpedientes(expedientes.filter(exp => exp.id !== id))
       alert('✅ Expediente eliminado correctamente')
@@ -272,7 +286,7 @@ const Expedientes = () => {
   }
 
   const actualizarExpediente = (expedienteActualizado) => {
-    const updated = expedientes.map(exp => 
+    const updated = expedientes.map(exp =>
       exp.id === expedienteActualizado.id ? expedienteActualizado : exp
     )
     saveExpedientes(updated)
@@ -281,55 +295,54 @@ const Expedientes = () => {
   }
 
   const cambiarEstado = (id, nuevoEstado) => {
-    const updated = expedientes.map(exp => 
+    const updated = expedientes.map(exp =>
       exp.id === id ? { ...exp, estado: nuevoEstado } : exp
     )
     saveExpedientes(updated)
-    
-    // Sincronizar con Planning si está vinculado
     const expediente = updated.find(exp => exp.id === id)
     if (expediente && expediente.planningId) {
       const planning = storage.getPlanning()
-      const updatedPlanning = planning.map(p => 
-        p.id === expediente.planningId 
-          ? { ...p, estado: nuevoEstado } 
+      const updatedPlanning = planning.map(p =>
+        p.id === expediente.planningId
+          ? { ...p, estado: nuevoEstado }
           : p
       )
       storage.setPlanning(updatedPlanning)
     }
   }
 
+  // ========= Buscador: SIEMPRE mostrar clientes de Supabase ===========
+  const [loadingClientes, setLoadingClientes] = useState(false)
+  const clientesFiltrados = React.useMemo(() => {
+    // Siempre incluir TODOS los clientes de la base, y filtrar si hay texto
+    if (clienteInputValue.trim() === '') {
+      return clientes.slice().sort((a, b) => (a.nombre || '').toLowerCase().localeCompare((b.nombre || '').toLowerCase()))
+    }
+    return clientes.filter(c =>
+      c.nombre?.toLowerCase().includes(clienteInputValue.toLowerCase()) ||
+      c.poblacion?.toLowerCase().includes(clienteInputValue.toLowerCase())
+    ).sort((a, b) => (a.nombre || '').toLowerCase().localeCompare((b.nombre || '').toLowerCase()))
+  }, [clientes, clienteInputValue])
+
+  // Selección de cliente: AUTOCOMPLETADO TOTAL
   const seleccionarCliente = (cliente) => {
-    // ============ AUTOCOMPLETADO COMPLETO DE DATOS ============
-    // Al seleccionar un cliente, rellenar TODOS los campos disponibles
-    console.log('✅ Cliente seleccionado:', cliente.nombre)
-    console.log('📋 Datos a autocompletar:', {
-      responsable: cliente.personaContacto,
-      telefono: cliente.telefono || cliente.movil,
-      email: cliente.email
-    })
-    
-    setExpedienteForm({ 
-      ...expedienteForm, 
+    // Autorellena TODOS los campos disponibles del formulario expediente
+    setExpedienteForm({
+      ...expedienteForm,
       clienteId: cliente.id,
       clienteNombre: cliente.nombre,
-      // Autocompletar Responsable
-      responsable: cliente.personaContacto || expedienteForm.responsable,
-      // Autocompletar Teléfono (priorizar móvil si existe)
-      telefono: cliente.movil || cliente.telefono || expedienteForm.telefono,
-      // Autocompletar Email
-      email: cliente.email || expedienteForm.email
+      responsable: cliente.personaContacto || '',
+      telefono: cliente.telefono || '',
+      email: cliente.email || ''
     })
     setClienteInputValue(cliente.nombre)
     setShowSuggestions(false)
   }
 
+  // El buscador solo manipula el value buscado y activa sugerencias
   const handleClienteInputChange = (value) => {
     setClienteInputValue(value)
-    // ============ COMBOBOX: MOSTRAR SUGERENCIAS SIEMPRE ============
-    // Si hay texto, filtrar. Si está vacío, mostrar todos
     setShowSuggestions(true)
-    
     if (!value) {
       setExpedienteForm({
         ...expedienteForm,
@@ -338,9 +351,7 @@ const Expedientes = () => {
       })
     }
   }
-  
   const handleClienteInputFocus = () => {
-    // ============ COMBOBOX: MOSTRAR TODOS AL HACER CLIC ============
     setShowSuggestions(true)
   }
 
@@ -371,6 +382,8 @@ const Expedientes = () => {
       provincia: '',
       nSocios: '',
       personaContacto: '',
+      telefono: '',
+      email: ''
     })
   }
 
@@ -378,14 +391,6 @@ const Expedientes = () => {
     setExpedienteActual(expediente)
     setShowDetalleModal(true)
   }
-
-  // ============ COMBOBOX: MOSTRAR TODOS O FILTRADOS ============
-  const clientesFiltrados = clienteInputValue.trim() === ''
-    ? clientes.sort((a, b) => (a.nombre || '').toLowerCase().localeCompare((b.nombre || '').toLowerCase()))
-    : clientes.filter(c =>
-        c.nombre?.toLowerCase().includes(clienteInputValue.toLowerCase()) ||
-        c.poblacion?.toLowerCase().includes(clienteInputValue.toLowerCase())
-      ).sort((a, b) => (a.nombre || '').toLowerCase().localeCompare((b.nombre || '').toLowerCase()))
 
   // PROTECCIÓN: Obtener nombre de cliente de forma segura
   const getClienteNombre = (clienteId) => {
@@ -407,7 +412,6 @@ const Expedientes = () => {
       const fecha = new Date(fechaISO + 'T00:00:00')
       if (isNaN(fecha.getTime())) return false
       const mes = fecha.getMonth() + 1
-      
       switch(trimestreExport) {
         case 'Q1': return mes >= 1 && mes <= 3
         case 'Q2': return mes >= 4 && mes <= 6
@@ -469,7 +473,7 @@ const Expedientes = () => {
       const cliente = clientes.find(c => c.id === exp.clienteId)
       const beneficio = exp.cotizacion?.resultados?.beneficioNeto || 0
       const beneficioClass = beneficio >= 0 ? 'beneficio-positivo' : 'beneficio-negativo'
-      
+
       html += `
         <tr>
           <td>${exp.responsable || '-'}</td>
@@ -519,13 +523,12 @@ const Expedientes = () => {
     setShowExportModal(false)
   }
 
-  // ============ FILTRAR EXPEDIENTES POR EJERCICIO (AÑO) ============
   const expedientesFiltradosPorEjercicio = expedientes.filter(exp => {
-    if (!exp.fechaInicio) return false // No mostrar expedientes sin fecha
+    if (!exp.fechaInicio) return false
     const añoExpediente = extraerAño(exp.fechaInicio)
     return añoExpediente === ejercicioActual
   })
-  
+
   return (
     <div>
       <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -583,8 +586,8 @@ const Expedientes = () => {
           <FileText className="mx-auto text-gray-400 mb-4" size={64} />
           <h3 className="text-xl font-bold text-gray-700 mb-2">No hay expedientes en {ejercicioActual}</h3>
           <p className="text-gray-600 mb-6">
-            {expedientes.length === 0 
-              ? 'Crea tu primer expediente' 
+            {expedientes.length === 0
+              ? 'Crea tu primer expediente'
               : `Cambia el ejercicio arriba o crea un nuevo expediente para ${ejercicioActual}`
             }
           </p>
@@ -598,161 +601,105 @@ const Expedientes = () => {
           {expedientesFiltradosPorEjercicio
             .slice()
             .sort((a, b) => {
-              // ============ ORDENACIÓN CRONOLÓGICA CORREGIDA ============
-              // INSTRUCCIÓN: Arrancapins (16 enero) ANTES que Viveros (25 enero)
-              // 1. PRIORIDAD POR ESTADO (Cancelados/Finalizados AL FINAL)
-              // 2. ORDEN CRONOLÓGICO REAL (más cercano primero)
-              
               try {
-                // ============ NUEVA LÓGICA: SOLO FECHA PARA ACTIVOS ============
-                // REGLA: Finalizados y Cancelados al final, el resto SOLO por fecha
-                
                 const esFinalizadoA = a.estado === 'finalizado' || a.estado === 'cancelado'
                 const esFinalizadoB = b.estado === 'finalizado' || b.estado === 'cancelado'
-                
-                // Si uno está finalizado y el otro no → finalizado va al final
                 if (esFinalizadoA && !esFinalizadoB) return 1
                 if (!esFinalizadoA && esFinalizadoB) return -1
-                
-                // ============ ORDENACIÓN ESTRICTA POR FECHA ============
-                // Para TODOS los activos (Petición, Confirmado, En Curso)
-                // O para TODOS los finalizados entre sí
-                // NO importa el estado, SOLO la fecha
-                
                 const fechaObjA = parsearFecha(a.fechaInicio)
                 const fechaObjB = parsearFecha(b.fechaInicio)
-                
-                // Debug log para verificar conversión
-                if (a.nombre_grupo === 'ARRANCAPINS' || a.nombre_grupo === 'VIVEROS' || 
-                    b.nombre_grupo === 'ARRANCAPINS' || b.nombre_grupo === 'VIVEROS') {
-                  console.log('🔍 Comparando fechas:', {
-                    A: { nombre: a.nombre_grupo, fechaStr: a.fechaInicio, fechaObj: fechaObjA },
-                    B: { nombre: b.nombre_grupo, fechaStr: b.fechaInicio, fechaObj: fechaObjB }
-                  })
-                }
-                
-                // REGLA DE ORO: Expedientes sin fecha → al final del grupo
                 if (!fechaObjA) return 1
                 if (!fechaObjB) return -1
-                
-                // Ordenar por fecha ascendente (más cercano primero)
-                // 16/01/2026 (Arrancapins) < 25/01/2026 (Viveros)
-                const resultado = fechaObjA - fechaObjB
-                
-                // Debug log del resultado
-                if (a.nombre_grupo === 'ARRANCAPINS' || a.nombre_grupo === 'VIVEROS' || 
-                    b.nombre_grupo === 'ARRANCAPINS' || b.nombre_grupo === 'VIVEROS') {
-                  console.log('📊 Resultado comparación:', resultado, 
-                    resultado < 0 ? `${a.nombre_grupo} va ANTES` : `${b.nombre_grupo} va ANTES`)
-                }
-                
-                return resultado
-                
+                return fechaObjA - fechaObjB
               } catch (error) {
-                console.error('❌ Error en ordenación de expedientes:', error, a, b)
-                return 0 // Mantener orden si hay error
+                return 0
               }
             })
             .map(expediente => {
-              // PROTECCIÓN GLOBAL: Try-catch por cada expediente
               try {
-                // PROTECCIÓN TOTAL: Valores seguros + Detección de nulos
-                if (!expediente || !expediente.id) {
-                  console.warn('Expediente sin ID detectado:', expediente)
-                  return null // No renderizar expedientes corruptos
-                }
-              
-              const estado = ESTADOS[expediente.estado || 'peticion'] || ESTADOS.peticion
-              const cliente = clientes.find(c => c.id === expediente.clienteId) || {}
-              
-              // JERARQUÍA VISUAL RE-CONFIRMADA:
-              // 1. nombre_grupo = GRUPO (Grande y Negrita) - Ej: "LLOMBAI"
-              // 2. cliente_responsable = RESPONSABLE (Pequeño) - Ej: "Viorica"
-              const nombreGrupo = expediente.nombre_grupo || cliente.nombre || expediente.clienteNombre || 'GRUPO SIN NOMBRE'
-              const nombreResponsable = expediente.cliente_responsable || expediente.responsable || cliente.responsable || cliente.personaContacto || 'Sin responsable'
-              const destino = expediente.destino || 'Sin destino'
-              const fechaInicio = expediente.fechaInicio || ''
-              const fechaFin = expediente.fechaFin || ''
-              
-              return (
-                <div key={expediente?.id || Math.random()} className={`card border-l-4 ${estado.badge.replace('bg-', 'border-')} hover:shadow-xl transition-shadow cursor-pointer`}
-                     onClick={() => abrirDetalle(expediente)}>
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${estado.color}`}>
-                          {estado.label}
+                if (!expediente || !expediente.id) return null
+                const estado = ESTADOS[expediente.estado || 'peticion'] || ESTADOS.peticion
+                const cliente = clientes.find(c => c.id === expediente.clienteId) || {}
+                const nombreGrupo = expediente.nombre_grupo || cliente.nombre || expediente.clienteNombre || 'GRUPO SIN NOMBRE'
+                const nombreResponsable = expediente.cliente_responsable || expediente.responsable || cliente.responsable || cliente.personaContacto || 'Sin responsable'
+                const destino = expediente.destino || 'Sin destino'
+                const fechaInicio = expediente.fechaInicio || ''
+                const fechaFin = expediente.fechaFin || ''
+
+                return (
+                  <div key={expediente?.id || Math.random()} className={`card border-l-4 ${estado.badge.replace('bg-', 'border-')} hover:shadow-xl transition-shadow cursor-pointer`}
+                       onClick={() => abrirDetalle(expediente)}>
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${estado.color}`}>
+                            {estado.label}
+                          </span>
+                        </div>
+                        <h2 className="text-2xl font-black text-navy-900 uppercase tracking-wide mb-1">
+                          {nombreGrupo}
+                        </h2>
+                        <span className="text-sm text-gray-600 block mb-2">
+                          👤 {nombreResponsable}
                         </span>
-                      </div>
-                      {/* JERARQUÍA VISUAL CORRECTA */}
-                      <h2 className="text-2xl font-black text-navy-900 uppercase tracking-wide mb-1">
-                        {nombreGrupo}
-                      </h2>
-                      <span className="text-sm text-gray-600 block mb-2">
-                        👤 {nombreResponsable}
-                      </span>
-                      <p className="text-base text-navy-600 font-medium">{destino}</p>
-                  </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteExpediente(expediente?.id)
-                      }}
-                      className="text-red-600 hover:text-red-900 p-2"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-
-                  <div className="space-y-2 text-sm mb-4">
-                    {fechaInicio && (
-                      <p className="text-gray-700">
-                        📅 {formatearFecha(fechaInicio)}
-                        {fechaFin && ` - ${formatearFecha(fechaFin)}`}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2 mt-3">
-                    {Object.entries(ESTADOS).map(([key, est]) => (
+                        <p className="text-base text-navy-600 font-medium">{destino}</p>
+                    </div>
                       <button
-                        key={key}
                         onClick={(e) => {
                           e.stopPropagation()
-                          cambiarEstado(expediente?.id, key)
+                          handleDeleteExpediente(expediente?.id)
                         }}
-                        className={`flex-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                          expediente?.estado === key ? est.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title={est.label}
+                        className="text-red-600 hover:text-red-900 p-2"
                       >
-                        {est.label.charAt(0)}
+                        <Trash2 size={18} />
                       </button>
-                    ))}
+                    </div>
+                    <div className="space-y-2 text-sm mb-4">
+                      {fechaInicio && (
+                        <p className="text-gray-700">
+                          📅 {formatearFecha(fechaInicio)}
+                          {fechaFin && ` - ${formatearFecha(fechaFin)}`}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                      {Object.entries(ESTADOS).map(([key, est]) => (
+                        <button
+                          key={key}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            cambiarEstado(expediente?.id, key)
+                          }}
+                          className={`flex-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                            expediente?.estado === key ? est.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                          title={est.label}
+                        >
+                          {est.label.charAt(0)}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )
-            } catch (error) {
-              // PROTECCIÓN: Si hay error en un expediente, mostrar card de error
-              console.error('Error renderizando expediente:', error, expediente)
-              return (
-                <div key={expediente?.id || Math.random()} className="card border-l-4 border-red-500 bg-red-50">
-                  <div className="p-4">
-                    <p className="text-red-800 font-bold">⚠️ Error en expediente</p>
-                    <p className="text-red-600 text-sm mt-1">
-                      {expediente?.responsable || expediente?.destino || 'Expediente con datos incompletos'}
-                    </p>
-                    <button
-                      onClick={() => handleDeleteExpediente(expediente?.id)}
-                      className="btn-secondary text-xs mt-2"
-                    >
-                      Eliminar expediente corrupto
-                    </button>
+                )
+              } catch (error) {
+                return (
+                  <div key={expediente?.id || Math.random()} className="card border-l-4 border-red-500 bg-red-50">
+                    <div className="p-4">
+                      <p className="text-red-800 font-bold">⚠️ Error en expediente</p>
+                      <p className="text-red-600 text-sm mt-1">
+                        {expediente?.responsable || expediente?.destino || 'Expediente con datos incompletos'}
+                      </p>
+                      <button
+                        onClick={() => handleDeleteExpediente(expediente?.id)}
+                        className="btn-secondary text-xs mt-2"
+                      >
+                        Eliminar expediente corrupto
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )
-            }
-          })}
+                )
+              }
+            })}
         </div>
       )}
 
@@ -802,7 +749,6 @@ const Expedientes = () => {
             </div>
             <form onSubmit={handleExpedienteSubmit} className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                
                 <div className="md:col-span-2">
                   <div className="flex justify-between items-center mb-2">
                     <label className="label mb-0">Nombre del Grupo</label>
@@ -826,7 +772,6 @@ const Expedientes = () => {
                       className="input-field pl-10"
                     />
                   </div>
-                  
                   {showSuggestions && (
                     <div className="mt-2 max-h-48 overflow-y-auto border-2 border-navy-300 rounded-lg shadow-lg bg-white">
                       {clientesFiltrados.length > 0 ? (
@@ -856,7 +801,6 @@ const Expedientes = () => {
                       )}
                     </div>
                   )}
-                  
                   {clienteInputValue && (
                     <div className="mt-2">
                       {expedienteForm.clienteId ? (
@@ -875,7 +819,6 @@ const Expedientes = () => {
                     </div>
                   )}
                 </div>
-
                 <div className="md:col-span-2">
                   <label className="label">Responsable</label>
                   <input
@@ -889,7 +832,6 @@ const Expedientes = () => {
                     {expedienteForm.clienteId ? '✓ Auto-rellenado del cliente seleccionado' : 'Se puede rellenar manualmente'}
                   </p>
                 </div>
-                
                 <div>
                   <label className="label">Teléfono</label>
                   <input
@@ -903,7 +845,6 @@ const Expedientes = () => {
                     {expedienteForm.clienteId ? '✓ Auto-rellenado del cliente' : 'Opcional'}
                   </p>
                 </div>
-                
                 <div>
                   <label className="label">Email</label>
                   <input
@@ -917,7 +858,6 @@ const Expedientes = () => {
                     {expedienteForm.clienteId ? '✓ Auto-rellenado del cliente' : 'Opcional'}
                   </p>
                 </div>
-                
                 <div className="md:col-span-2">
                   <label className="label">Destino</label>
                   <input
@@ -928,7 +868,6 @@ const Expedientes = () => {
                     placeholder="Ej: Galicia"
                   />
                 </div>
-
                 <div>
                   <label className="label">Fecha Inicio *</label>
                   <input
@@ -1075,6 +1014,24 @@ const Expedientes = () => {
                     type="text"
                     value={clienteForm.provincia}
                     onChange={(e) => setClienteForm({ ...clienteForm, provincia: e.target.value })}
+                    className="input-field"
+                  />
+                </div>
+                <div>
+                  <label className="label">Teléfono</label>
+                  <input
+                    type="text"
+                    value={clienteForm.telefono}
+                    onChange={(e) => setClienteForm({ ...clienteForm, telefono: e.target.value })}
+                    className="input-field"
+                  />
+                </div>
+                <div>
+                  <label className="label">Email</label>
+                  <input
+                    type="text"
+                    value={clienteForm.email}
+                    onChange={(e) => setClienteForm({ ...clienteForm, email: e.target.value })}
                     className="input-field"
                   />
                 </div>
