@@ -22,7 +22,7 @@ const Clientes = () => {
     provincia: '',
     codigo_postal: '', 
     observaciones: '',
-    personaContacto: '', // Responsable
+    responsable: '', // Responsable
     movil: '', // Móvil
     bonificaciones: '', // Bonificaciones (en lugar de comisiones)
     gratuidades: '' // Gratuidades
@@ -68,7 +68,7 @@ const Clientes = () => {
         provincia: c.provincia || '', 
         codigo_postal: c.codigo_postal || c.cp || '', 
         observaciones: c.observaciones || '',
-        personaContacto: c.personaContacto || c.responsable || '',
+        responsable: c.responsable || c.personaContacto || '',
         movil: c.movil || '',
         bonificaciones: c.bonificaciones || c.comisiones || '',
         gratuidades: c.gratuidades || ''
@@ -84,7 +84,7 @@ const Clientes = () => {
         provincia: '', 
         codigo_postal: '', 
         observaciones: '',
-        personaContacto: '',
+        responsable: '',
         movil: '',
         bonificaciones: '',
         gratuidades: ''
@@ -134,8 +134,8 @@ const Clientes = () => {
                 <td className="px-6 py-6">
                   <div className="text-xs font-bold text-slate-800 flex items-center gap-2"><Phone size={14} className="text-green-600"/> {c.movil || c.telefono || '-'}</div>
                   <div className="text-xs font-medium text-slate-400 flex items-center gap-2 mt-1"><Mail size={14}/> {c.email || '-'}</div>
-                  {c.personaContacto && (
-                    <div className="text-xs font-medium text-slate-500 flex items-center gap-2 mt-1">👤 {c.personaContacto}</div>
+                  {c.responsable && (
+                    <div className="text-xs font-medium text-slate-500 flex items-center gap-2 mt-1">👤 {c.responsable}</div>
                   )}
                 </td>
                 <td className="px-6 py-6">
@@ -166,8 +166,8 @@ const Clientes = () => {
                   <input required className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-green-100" value={formData.nombre} onChange={e=>setFormData({...formData, nombre:e.target.value})} />
                </div>
                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">CIF / NIF *</label>
-                  <input required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.cif_nif} onChange={e=>setFormData({...formData, cif_nif:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase ml-2">CIF / NIF</label>
+                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.cif_nif} onChange={e=>setFormData({...formData, cif_nif:e.target.value})} />
                </div>
                <div className="space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase ml-2">Teléfono de Contacto</label>
@@ -178,16 +178,16 @@ const Clientes = () => {
                   <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.email} onChange={e=>setFormData({...formData, email:e.target.value})} />
                </div>
                <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Dirección *</label>
-                  <input required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.direccion} onChange={e=>setFormData({...formData, direccion:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Dirección</label>
+                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.direccion} onChange={e=>setFormData({...formData, direccion:e.target.value})} />
                </div>
                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Responsable *</label>
-                  <input required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.personaContacto} onChange={e=>setFormData({...formData, personaContacto:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Responsable</label>
+                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.responsable} onChange={e=>setFormData({...formData, responsable:e.target.value})} />
                </div>
                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Móvil *</label>
-                  <input required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.movil} onChange={e=>setFormData({...formData, movil:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Móvil</label>
+                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.movil} onChange={e=>setFormData({...formData, movil:e.target.value})} />
                </div>
                <div className="space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase ml-2">Bonificaciones</label>
