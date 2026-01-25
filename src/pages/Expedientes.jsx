@@ -58,7 +58,7 @@ const Expedientes = () => {
     cp: '',
     provincia: '',
     nSocios: '',
-    personaContacto: '',
+    responsable: '',
     telefono: '',
     email: ''
   })
@@ -115,6 +115,14 @@ const Expedientes = () => {
       // Parsear campos JSON de Supabase
       const expedientesParseados = (cloudData || []).map(exp => {
         const expedienteParseado = { ...exp }
+        
+        // Mapear campos de Supabase a formato interno
+        if (exp.cliente_id !== undefined) {
+          expedienteParseado.clienteId = exp.cliente_id
+        }
+        if (exp.cliente_nombre !== undefined) {
+          expedienteParseado.clienteNombre = exp.cliente_nombre
+        }
         
         // Parsear campos JSON si existen
         if (typeof exp.cotizacion === 'string' && exp.cotizacion) {
@@ -210,12 +218,12 @@ const Expedientes = () => {
       const existe = expedientesActuales.find(exp => exp.planningId === viaje.id)
       if (!existe) {
         const fechas = viaje.fecha ? viaje.fecha.split(' AL ') : ['', '']
-        const nuevoExpediente = {
-          id: Date.now() + Math.random(),
-          planningId: viaje.id,
-          nombre_grupo: viaje.grupo || '',
-          cliente_responsable: '',
-          destino: viaje.destino || '',
+      const nuevoExpediente = {
+        id: Date.now() + Math.random(),
+        planningId: viaje.id,
+        nombre_grupo: viaje.grupo || '',
+        responsable: '',
+        destino: viaje.destino || '',
           fechaInicio: parsearFecha(fechas[0]) || '',
           fechaFin: parsearFecha(fechas[1]) || '',
           clienteId: '',
@@ -254,19 +262,28 @@ const Expedientes = () => {
       for (const expediente of dataToSave) {
         if (expediente.id) {
           // Preparar datos para Supabase (excluir campos calculados o no necesarios)
-          const { cotizacion, pasajeros, cobros, pagos, documentos, cierre, ...expedienteParaSupabase } = expediente
+          const { cotizacion, pasajeros, cobros, pagos, documentos, cierre, clienteId, clienteNombre, ...expedienteParaSupabase } = expediente
+          
+          // Mapear campos al formato de Supabase
+          const expedienteParaSupabaseMapeado = {
+            ...expedienteParaSupabase,
+            cliente_id: clienteId || null,
+            cliente_nombre: clienteNombre || '',
+            destino: expediente.destino || '',
+            telefono: expediente.telefono || '',
+            email: expediente.email || '',
+            observaciones: expediente.observaciones || '',
+            cotizacion: cotizacion ? JSON.stringify(cotizacion) : null,
+            pasajeros: pasajeros ? JSON.stringify(pasajeros) : null,
+            cobros: cobros ? JSON.stringify(cobros) : null,
+            pagos: pagos ? JSON.stringify(pagos) : null,
+            documentos: documentos ? JSON.stringify(documentos) : null,
+            cierre: cierre ? JSON.stringify(cierre) : null,
+          }
           
           const { error } = await supabase
             .from('expedientes')
-            .upsert({
-              ...expedienteParaSupabase,
-              cotizacion: cotizacion ? JSON.stringify(cotizacion) : null,
-              pasajeros: pasajeros ? JSON.stringify(pasajeros) : null,
-              cobros: cobros ? JSON.stringify(cobros) : null,
-              pagos: pagos ? JSON.stringify(pagos) : null,
-              documentos: documentos ? JSON.stringify(documentos) : null,
-              cierre: cierre ? JSON.stringify(cierre) : null,
-            }, { onConflict: 'id' })
+            .upsert(expedienteParaSupabaseMapeado, { onConflict: 'id' })
           
           if (error) {
             console.error('Error guardando expediente en Supabase:', error)
@@ -294,7 +311,7 @@ const Expedientes = () => {
     if (!finalClienteId && clienteInputValue.trim()) {
       const nuevoClienteSupabase = {
         nombre: clienteInputValue.trim(),
-        personaContacto: expedienteForm.responsable || '',
+        responsable: expedienteForm.responsable || '',
         telefono: expedienteForm.telefono || '',
         movil: expedienteForm.telefono || '', // Usar teléfono como móvil si no hay móvil específico
         email: expedienteForm.email || '',
@@ -303,7 +320,8 @@ const Expedientes = () => {
         poblacion: '',
         codigo_postal: '',
         provincia: '',
-        comisiones: '',
+        bonificaciones: '',
+        gratuidades: '',
       }
       try {
         const { data, error } = await supabase.from('clientes').insert([nuevoClienteSupabase]).select().single()
@@ -322,7 +340,7 @@ const Expedientes = () => {
       id: Date.now(),
       clienteId: finalClienteId || null,
       nombre_grupo: finalClienteNombre || clienteInputValue.trim() || '',
-      cliente_responsable: expedienteForm.responsable || '',
+      responsable: expedienteForm.responsable || '',
       telefono: expedienteForm.telefono || '',
       email: expedienteForm.email || '',
       destino: expedienteForm.destino || '',
@@ -338,22 +356,34 @@ const Expedientes = () => {
       documentos: [],
       cierre: null,
       clienteNombre: finalClienteNombre || clienteInputValue.trim() || '',
-      responsable: expedienteForm.responsable || '',
     }
     
     // Guardar en Supabase primero
     try {
+      // Mapear campos al formato de Supabase
+      const expedienteParaSupabase = {
+        cliente_id: newExpediente.clienteId || null,
+        cliente_nombre: newExpediente.clienteNombre || '',
+        destino: newExpediente.destino || '',
+        telefono: newExpediente.telefono || '',
+        email: newExpediente.email || '',
+        observaciones: newExpediente.observaciones || '',
+        responsable: newExpediente.responsable || '',
+        fechaInicio: newExpediente.fechaInicio || '',
+        fechaFin: newExpediente.fechaFin || '',
+        estado: newExpediente.estado || 'peticion',
+        fechaCreacion: newExpediente.fechaCreacion,
+        cotizacion: null,
+        pasajeros: JSON.stringify([]),
+        cobros: JSON.stringify([]),
+        pagos: JSON.stringify([]),
+        documentos: JSON.stringify([]),
+        cierre: null,
+      }
+      
       const { data, error } = await supabase
         .from('expedientes')
-        .insert([{
-          ...newExpediente,
-          cotizacion: null,
-          pasajeros: JSON.stringify([]),
-          cobros: JSON.stringify([]),
-          pagos: JSON.stringify([]),
-          documentos: JSON.stringify([]),
-          cierre: null,
-        }])
+        .insert([expedienteParaSupabase])
         .select()
         .single()
       
@@ -384,11 +414,12 @@ const Expedientes = () => {
       poblacion: clienteForm.poblacion,
       codigo_postal: clienteForm.cp || '',
       provincia: clienteForm.provincia,
-      personaContacto: clienteForm.personaContacto,
+      responsable: clienteForm.responsable,
       telefono: clienteForm.telefono || '',
       movil: clienteForm.telefono || '', // Usar teléfono como móvil si no hay móvil específico
       email: clienteForm.email || '',
-      comisiones: ''
+      bonificaciones: '',
+      gratuidades: ''
     }
 
     try {
@@ -402,7 +433,7 @@ const Expedientes = () => {
         ...expedienteForm,
         clienteId: data.id,
         clienteNombre: data.nombre,
-        responsable: data.personaContacto || ''
+        responsable: data.responsable || ''
       })
       setClienteInputValue(data.nombre)
       setShowClienteModal(false)
@@ -442,19 +473,28 @@ const Expedientes = () => {
   const actualizarExpediente = async (expedienteActualizado) => {
     try {
       // Preparar datos para Supabase
-      const { cotizacion, pasajeros, cobros, pagos, documentos, cierre, ...expedienteParaSupabase } = expedienteActualizado
+      const { cotizacion, pasajeros, cobros, pagos, documentos, cierre, clienteId, clienteNombre, ...expedienteParaSupabase } = expedienteActualizado
+      
+      // Mapear campos al formato de Supabase
+      const expedienteActualizadoParaSupabase = {
+        ...expedienteParaSupabase,
+        cliente_id: clienteId || null,
+        cliente_nombre: clienteNombre || '',
+        destino: expedienteActualizado.destino || '',
+        telefono: expedienteActualizado.telefono || '',
+        email: expedienteActualizado.email || '',
+        observaciones: expedienteActualizado.observaciones || '',
+        cotizacion: cotizacion ? JSON.stringify(cotizacion) : null,
+        pasajeros: pasajeros ? JSON.stringify(pasajeros) : null,
+        cobros: cobros ? JSON.stringify(cobros) : null,
+        pagos: pagos ? JSON.stringify(pagos) : null,
+        documentos: documentos ? JSON.stringify(documentos) : null,
+        cierre: cierre ? JSON.stringify(cierre) : null,
+      }
       
       const { error } = await supabase
         .from('expedientes')
-        .update({
-          ...expedienteParaSupabase,
-          cotizacion: cotizacion ? JSON.stringify(cotizacion) : null,
-          pasajeros: pasajeros ? JSON.stringify(pasajeros) : null,
-          cobros: cobros ? JSON.stringify(cobros) : null,
-          pagos: pagos ? JSON.stringify(pagos) : null,
-          documentos: documentos ? JSON.stringify(documentos) : null,
-          cierre: cierre ? JSON.stringify(cierre) : null,
-        })
+        .update(expedienteActualizadoParaSupabase)
         .eq('id', expedienteActualizado.id)
       
       if (error) throw error
@@ -524,8 +564,8 @@ const Expedientes = () => {
       ...expedienteForm,
       clienteId: cliente.id,
       clienteNombre: cliente.nombre,
-      responsable: cliente.personaContacto || '',
-      telefono: cliente.telefono || '',
+      responsable: cliente.responsable || '',
+      telefono: cliente.telefono || cliente.movil || '',
       email: cliente.email || ''
     })
     setClienteInputValue(cliente.nombre)
@@ -574,7 +614,7 @@ const Expedientes = () => {
       cp: '',
       provincia: '',
       nSocios: '',
-      personaContacto: '',
+      responsable: '',
       telefono: '',
       email: ''
     })
@@ -729,7 +769,7 @@ const Expedientes = () => {
     const term = searchTermExpedientes.toLowerCase()
     const cliente = clientes.find(c => c.id === exp.clienteId)
     const nombreCliente = cliente?.nombre || exp.clienteNombre || exp.nombre_grupo || ''
-    const responsable = exp.cliente_responsable || exp.responsable || cliente?.personaContacto || ''
+    const responsable = exp.responsable || cliente?.responsable || ''
     const destino = exp.destino || ''
     
     return (
@@ -851,7 +891,7 @@ const Expedientes = () => {
                 const estado = ESTADOS[expediente.estado || 'peticion'] || ESTADOS.peticion
                 const cliente = clientes.find(c => c.id === expediente.clienteId) || {}
                 const nombreGrupo = expediente.nombre_grupo || cliente.nombre || expediente.clienteNombre || 'GRUPO SIN NOMBRE'
-                const nombreResponsable = expediente.cliente_responsable || expediente.responsable || cliente.responsable || cliente.personaContacto || 'Sin responsable'
+                const nombreResponsable = expediente.responsable || cliente.responsable || 'Sin responsable'
                 const destino = expediente.destino || 'Sin destino'
                 const fechaInicio = expediente.fechaInicio || ''
                 const fechaFin = expediente.fechaFin || ''
@@ -981,7 +1021,7 @@ const Expedientes = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <div className="flex justify-between items-center mb-2">
-                    <label className="label mb-0">Nombre del Grupo</label>
+                    <label className="label mb-0">Nombre del Grupo *</label>
                     <button
                       type="button"
                       onClick={() => setShowClienteModal(true)}
@@ -1000,6 +1040,7 @@ const Expedientes = () => {
                       onChange={(e) => handleClienteInputChange(e.target.value)}
                       onFocus={handleClienteInputFocus}
                       className="input-field pl-10"
+                      required
                     />
                   </div>
                   {showSuggestions && (
@@ -1015,8 +1056,8 @@ const Expedientes = () => {
                           >
                             <p className="font-medium text-navy-900">{cliente.nombre}</p>
                             <p className="text-sm text-gray-600">{cliente.poblacion} {cliente.provincia && `- ${cliente.provincia}`}</p>
-                            {cliente.personaContacto && (
-                              <p className="text-xs text-navy-600 mt-1">👤 {cliente.personaContacto}</p>
+                            {cliente.responsable && (
+                              <p className="text-xs text-navy-600 mt-1">👤 {cliente.responsable}</p>
                             )}
                           </div>
                         ))
@@ -1099,7 +1140,7 @@ const Expedientes = () => {
                   />
                 </div>
                 <div>
-                  <label className="label">Fecha Inicio *</label>
+                  <label className="label">Fecha Inicio</label>
                   <input
                     type="date"
                     value={convertirEspañolAISO(expedienteForm.fechaInicio) || ''}
@@ -1202,11 +1243,11 @@ const Expedientes = () => {
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="label">Persona de Contacto (Responsable)</label>
+                  <label className="label">Responsable</label>
                   <input
                     type="text"
-                    value={clienteForm.personaContacto}
-                    onChange={(e) => setClienteForm({ ...clienteForm, personaContacto: e.target.value })}
+                    value={clienteForm.responsable}
+                    onChange={(e) => setClienteForm({ ...clienteForm, responsable: e.target.value })}
                     className="input-field"
                     placeholder="Se usará como responsable del expediente"
                   />
