@@ -103,7 +103,7 @@ const Expedientes = () => {
       // Lee expedientes de Supabase - traer solo las columnas que existen
       const { data: cloudData, error } = await supabase
         .from('expedientes')
-        .select('id_expediente, fecha_inicio, fecha_fin, cliente_nombre, cliente_id, itinerario, estado, total_pax, destino, telefono, email, observaciones')
+        .select('id_expediente, fecha_inicio, fecha_fin, cliente_nombre, cliente_id, destino, telefono, email, responsable, observaciones, estado')
         .order('id_expediente', { ascending: false })
 
       if (error) {
@@ -128,8 +128,7 @@ const Expedientes = () => {
           destino: exp.destino || '',
           telefono: exp.telefono || '',
           email: exp.email || '',
-          itinerario: exp.itinerario || '',
-          total_pax: exp.total_pax || '',
+          responsable: exp.responsable || '',
           estado: exp.estado || 'peticion',
           observaciones: exp.observaciones || '',
           // Campos por defecto para compatibilidad
@@ -229,11 +228,9 @@ const Expedientes = () => {
             destino: expediente.destino || '',
             telefono: expediente.telefono || '',
             email: expediente.email || '',
+            responsable: expediente.responsable || '',
             fecha_inicio: expediente.fecha_inicio || expediente.fechaInicio || '',
             fecha_fin: expediente.fecha_fin || expediente.fechaFin || '',
-            itinerario: expediente.itinerario || '',
-            total_pax: totalPaxTexto,
-            estado: expediente.estado || 'peticion',
             observaciones: expediente.observaciones || '',
           }
           
@@ -323,11 +320,9 @@ const Expedientes = () => {
         destino: newExpediente.destino || '',
         telefono: newExpediente.telefono || '',
         email: newExpediente.email || '',
+        responsable: newExpediente.responsable || '',
         fecha_inicio: newExpediente.fechaInicio || '',
         fecha_fin: newExpediente.fechaFin || '',
-        itinerario: '',
-        total_pax: '',
-        estado: newExpediente.estado || 'peticion',
         observaciones: newExpediente.observaciones || '',
       }
       
@@ -435,11 +430,9 @@ const Expedientes = () => {
         destino: expedienteActualizado.destino || '',
         telefono: expedienteActualizado.telefono || '',
         email: expedienteActualizado.email || '',
+        responsable: expedienteActualizado.responsable || '',
         fecha_inicio: expedienteActualizado.fecha_inicio || expedienteActualizado.fechaInicio || '',
         fecha_fin: expedienteActualizado.fecha_fin || expedienteActualizado.fechaFin || '',
-        itinerario: expedienteActualizado.itinerario || '',
-        total_pax: totalPaxTexto,
-        estado: expedienteActualizado.estado || 'peticion',
         observaciones: expedienteActualizado.observaciones || '',
       }
       

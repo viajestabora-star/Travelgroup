@@ -553,13 +553,12 @@ const Planning = () => {
             <form onSubmit={handleSubmit} className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
-                  <label className="label">Nombre del Grupo *</label>
+                  <label className="label">Nombre del Grupo</label>
                   <input
                     type="text"
                     value={formData.nombre_grupo}
                     onChange={(e) => setFormData({ ...formData, nombre_grupo: e.target.value })}
                     className="input-field"
-                    required
                     placeholder="Ej: LLOMBAI"
                   />
                 </div>
@@ -576,13 +575,12 @@ const Planning = () => {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="label">Destino *</label>
+                  <label className="label">Destino</label>
                   <input
                     type="text"
                     value={formData.destino}
                     onChange={(e) => setFormData({ ...formData, destino: e.target.value })}
                     className="input-field"
-                    required
                     placeholder="Ej: Galicia"
                   />
                 </div>
