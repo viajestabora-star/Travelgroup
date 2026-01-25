@@ -102,13 +102,14 @@ const Planning = () => {
       
       // ============ FILTRAR POR EJERCICIO (AÑO) SELECCIONADO ============
       const expedientesFiltrados = expedientesNormalizados.filter(exp => {
-        // Solo mostrar expedientes con fecha
-        if (!exp.fechaInicio) {
+        // Solo mostrar expedientes con fecha_inicio o fechaInicio (compatibilidad)
+        const fechaInicio = exp.fecha_inicio || exp.fechaInicio
+        if (!fechaInicio) {
           return false
         }
         
         // Extraer año del expediente
-        const añoExpediente = extraerAño(exp.fechaInicio)
+        const añoExpediente = extraerAño(fechaInicio)
         if (!añoExpediente) {
           return false
         }
@@ -144,15 +145,17 @@ const Planning = () => {
         // Para TODOS los activos o TODOS los finalizados
         // NO importa el estado, SOLO la fecha
         
-        const fechaObjA = parsearFecha(a.fechaInicio)
-        const fechaObjB = parsearFecha(b.fechaInicio)
+        const fechaInicioA = a.fecha_inicio || a.fechaInicio
+        const fechaInicioB = b.fecha_inicio || b.fechaInicio
+        const fechaObjA = parsearFecha(fechaInicioA)
+        const fechaObjB = parsearFecha(fechaInicioB)
         
         // Debug log para verificar conversión
         if (a.nombre_grupo === 'ARRANCAPINS' || a.nombre_grupo === 'VIVEROS' || 
             b.nombre_grupo === 'ARRANCAPINS' || b.nombre_grupo === 'VIVEROS') {
           console.log('🔍 Planning - Comparando fechas:', {
-            A: { nombre: a.nombre_grupo, fechaStr: a.fechaInicio, fechaObj: fechaObjA },
-            B: { nombre: b.nombre_grupo, fechaStr: b.fechaInicio, fechaObj: fechaObjB }
+            A: { nombre: a.nombre_grupo, fechaStr: fechaInicioA, fechaObj: fechaObjA },
+            B: { nombre: b.nombre_grupo, fechaStr: fechaInicioB, fechaObj: fechaObjB }
           })
         }
         
@@ -212,10 +215,10 @@ const Planning = () => {
 
   // ============ AGRUPAR Y ORDENAR POR TRIMESTRE ============
   const expedientesPorTrimestre = {
-    Q1: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fechaInicio) === 'Q1')),
-    Q2: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fechaInicio) === 'Q2')),
-    Q3: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fechaInicio) === 'Q3')),
-    Q4: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fechaInicio) === 'Q4')),
+    Q1: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fecha_inicio || e.fechaInicio) === 'Q1')),
+    Q2: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fecha_inicio || e.fechaInicio) === 'Q2')),
+    Q3: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fecha_inicio || e.fechaInicio) === 'Q3')),
+    Q4: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fecha_inicio || e.fechaInicio) === 'Q4')),
   }
 
   console.log('📊 Distribución por trimestre:', {
@@ -232,12 +235,14 @@ const Planning = () => {
   if (arrancapinsIndex !== -1 || viverosIndex !== -1) {
     console.log('✅ VERIFICACIÓN DE ORDEN EN Q1:')
     if (arrancapinsIndex !== -1) {
+      const fechaArrancapins = expedientesPorTrimestre.Q1[arrancapinsIndex].fecha_inicio || expedientesPorTrimestre.Q1[arrancapinsIndex].fechaInicio
       console.log(`   ARRANCAPINS en posición ${arrancapinsIndex + 1}`, 
-        `(Fecha: ${expedientesPorTrimestre.Q1[arrancapinsIndex].fechaInicio})`)
+        `(Fecha: ${fechaArrancapins})`)
     }
     if (viverosIndex !== -1) {
+      const fechaViveros = expedientesPorTrimestre.Q1[viverosIndex].fecha_inicio || expedientesPorTrimestre.Q1[viverosIndex].fechaInicio
       console.log(`   VIVEROS en posición ${viverosIndex + 1}`, 
-        `(Fecha: ${expedientesPorTrimestre.Q1[viverosIndex].fechaInicio})`)
+        `(Fecha: ${fechaViveros})`)
     }
     if (arrancapinsIndex !== -1 && viverosIndex !== -1) {
       if (arrancapinsIndex < viverosIndex) {
@@ -257,6 +262,8 @@ const Planning = () => {
     const nuevoExpediente = {
       id: Date.now(),
       ...formData,
+      fecha_inicio: formData.fechaInicio || '',
+      fecha_fin: formData.fechaFin || '',
       clienteId: '',
       clienteNombre: formData.nombre_grupo,
       fechaCreacion: new Date().toISOString(),
@@ -342,8 +349,8 @@ const Planning = () => {
     const nombreGrupo = expediente.nombre_grupo || expediente.clienteNombre || 'GRUPO SIN NOMBRE'
     const nombreResponsable = expediente.cliente_responsable || expediente.responsable || 'Sin responsable'
     const destino = expediente.destino || 'Sin destino'
-    const fechaInicio = expediente.fechaInicio || ''
-    const fechaFin = expediente.fechaFin || ''
+    const fechaInicio = expediente.fecha_inicio || expediente.fechaInicio || ''
+    const fechaFin = expediente.fecha_fin || expediente.fechaFin || ''
     
     return (
       <div 
@@ -581,7 +588,7 @@ const Planning = () => {
                 </div>
 
                 <div>
-                  <label className="label">Fecha de Inicio *</label>
+                  <label className="label">Fecha de Inicio</label>
                   <input
                     type="date"
                     value={convertirEspañolAISO(formData.fechaInicio) || ''}
@@ -590,7 +597,6 @@ const Planning = () => {
                       const fechaEspañola = convertirISOAEspañol(fechaISO)
                       setFormData({ ...formData, fechaInicio: fechaEspañola })
                     }}
-                    required
                     className="input-field"
                   />
                   <p className="text-xs text-gray-500 mt-1">

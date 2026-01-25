@@ -103,7 +103,7 @@ const Expedientes = () => {
       // Lee expedientes de Supabase - traer solo las columnas que existen
       const { data: cloudData, error } = await supabase
         .from('expedientes')
-        .select('id_expediente, fecha_viaje, cliente_nombre, cliente_id, itinerario, estado, total_pax, destino, telefono, email, observaciones')
+        .select('id_expediente, fecha_inicio, fecha_fin, cliente_nombre, cliente_id, itinerario, estado, total_pax, destino, telefono, email, observaciones')
         .order('id_expediente', { ascending: false })
 
       if (error) {
@@ -121,8 +121,10 @@ const Expedientes = () => {
           clienteId: exp.cliente_id || null, // Para compatibilidad interna
           cliente_nombre: exp.cliente_nombre || '',
           clienteNombre: exp.cliente_nombre || '', // Para compatibilidad interna
-          fecha_viaje: exp.fecha_viaje || '',
-          fechaInicio: exp.fecha_viaje || '', // Para compatibilidad interna
+          fecha_inicio: exp.fecha_inicio || '',
+          fecha_fin: exp.fecha_fin || '',
+          fechaInicio: exp.fecha_inicio || '', // Para compatibilidad interna
+          fechaFin: exp.fecha_fin || '', // Para compatibilidad interna
           destino: exp.destino || '',
           telefono: exp.telefono || '',
           email: exp.email || '',
@@ -227,7 +229,8 @@ const Expedientes = () => {
             destino: expediente.destino || '',
             telefono: expediente.telefono || '',
             email: expediente.email || '',
-            fecha_viaje: expediente.fecha_viaje || expediente.fechaInicio || '',
+            fecha_inicio: expediente.fecha_inicio || expediente.fechaInicio || '',
+            fecha_fin: expediente.fecha_fin || expediente.fechaFin || '',
             itinerario: expediente.itinerario || '',
             total_pax: totalPaxTexto,
             estado: expediente.estado || 'peticion',
@@ -320,7 +323,8 @@ const Expedientes = () => {
         destino: newExpediente.destino || '',
         telefono: newExpediente.telefono || '',
         email: newExpediente.email || '',
-        fecha_viaje: newExpediente.fechaInicio || '',
+        fecha_inicio: newExpediente.fechaInicio || '',
+        fecha_fin: newExpediente.fechaFin || '',
         itinerario: '',
         total_pax: '',
         estado: newExpediente.estado || 'peticion',
@@ -431,7 +435,8 @@ const Expedientes = () => {
         destino: expedienteActualizado.destino || '',
         telefono: expedienteActualizado.telefono || '',
         email: expedienteActualizado.email || '',
-        fecha_viaje: expedienteActualizado.fecha_viaje || expedienteActualizado.fechaInicio || '',
+        fecha_inicio: expedienteActualizado.fecha_inicio || expedienteActualizado.fechaInicio || '',
+        fecha_fin: expedienteActualizado.fecha_fin || expedienteActualizado.fechaFin || '',
         itinerario: expedienteActualizado.itinerario || '',
         total_pax: totalPaxTexto,
         estado: expedienteActualizado.estado || 'peticion',
@@ -585,8 +590,9 @@ const Expedientes = () => {
 
   const exportarTrimestre = () => {
     const expedientesFiltrados = expedientes.filter(exp => {
-      if (!exp.fechaInicio) return false
-      const fechaISO = parsearFecha(exp.fechaInicio)
+      const fechaInicio = exp.fecha_inicio || exp.fechaInicio
+      if (!fechaInicio) return false
+      const fechaISO = parsearFecha(fechaInicio)
       if (!fechaISO) return false
       const fecha = new Date(fechaISO + 'T00:00:00')
       if (isNaN(fecha.getTime())) return false
@@ -656,8 +662,8 @@ const Expedientes = () => {
           <td>-</td>
           <td><strong>${cliente?.nombre || exp.cliente_nombre || exp.clienteNombre || '-'}</strong></td>
           <td>${exp.destino || '-'}</td>
-          <td>${exp.fecha_viaje || exp.fechaInicio ? formatearFecha(exp.fecha_viaje || exp.fechaInicio) : '-'}</td>
-          <td>-</td>
+          <td>${exp.fecha_inicio || exp.fechaInicio ? formatearFecha(exp.fecha_inicio || exp.fechaInicio) : '-'}</td>
+          <td>${exp.fecha_fin || exp.fechaFin ? formatearFecha(exp.fecha_fin || exp.fechaFin) : '-'}</td>
           <td><span class="estado ${ESTADOS[exp.estado].cssClass}">${ESTADOS[exp.estado].label}</span></td>
           <td style="text-align: right;" class="${beneficioClass}">${beneficio.toFixed(2)}€</td>
         </tr>
@@ -703,8 +709,9 @@ const Expedientes = () => {
   // Filtrar expedientes por ejercicio y búsqueda
   const expedientesFiltradosPorEjercicio = expedientes.filter(exp => {
     // Filtro por ejercicio
-    if (!exp.fechaInicio) return false
-    const añoExpediente = extraerAño(exp.fechaInicio)
+    const fechaInicio = exp.fecha_inicio || exp.fechaInicio
+    if (!fechaInicio) return false
+    const añoExpediente = extraerAño(fechaInicio)
     if (añoExpediente !== ejercicioActual) return false
     
     // Filtro por búsqueda
@@ -818,8 +825,10 @@ const Expedientes = () => {
                 const esFinalizadoB = b.estado === 'finalizado' || b.estado === 'cancelado'
                 if (esFinalizadoA && !esFinalizadoB) return 1
                 if (!esFinalizadoA && esFinalizadoB) return -1
-                const fechaObjA = parsearFecha(a.fechaInicio)
-                const fechaObjB = parsearFecha(b.fechaInicio)
+                const fechaInicioA = a.fecha_inicio || a.fechaInicio
+                const fechaInicioB = b.fecha_inicio || b.fechaInicio
+                const fechaObjA = parsearFecha(fechaInicioA)
+                const fechaObjB = parsearFecha(fechaInicioB)
                 if (!fechaObjA) return 1
                 if (!fechaObjB) return -1
                 return fechaObjA - fechaObjB
@@ -834,8 +843,8 @@ const Expedientes = () => {
                 const cliente = clientes.find(c => String(c.id) === String(expediente.cliente_id || expediente.clienteId)) || {}
                 const nombreGrupo = expediente.cliente_nombre || expediente.clienteNombre || cliente.nombre || 'GRUPO SIN NOMBRE'
                 const destino = expediente.destino || 'Sin destino'
-                const fechaInicio = expediente.fecha_viaje || expediente.fechaInicio || ''
-                const fechaFin = ''
+                const fechaInicio = expediente.fecha_inicio || expediente.fechaInicio || ''
+                const fechaFin = expediente.fecha_fin || expediente.fechaFin || ''
 
                 return (
                   <div key={expediente?.id || Math.random()} className={`card border-l-4 ${estado.badge.replace('bg-', 'border-')} hover:shadow-xl transition-shadow cursor-pointer`}
