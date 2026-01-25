@@ -100,11 +100,11 @@ const Expedientes = () => {
   // Cargar expedientes desde Supabase
   const loadData = async () => {
     try {
-      // Lee expedientes de Supabase
+      // Lee expedientes de Supabase - traer solo las columnas que existen
       const { data: cloudData, error } = await supabase
         .from('expedientes')
-        .select('*, clientes(nombre)')
-        .order('fechaCreacion', { ascending: false })
+        .select('id_expediente, fecha_viaje, cliente_nombre, cliente_id, itinerario, estado, total_pax, destino, telefono, email, observaciones')
+        .order('id_expediente', { ascending: false })
 
       if (error) {
         console.error('Error cargando expedientes:', error)
@@ -112,79 +112,31 @@ const Expedientes = () => {
         return
       }
 
-      // Parsear campos JSON de Supabase
+      // Parsear campos de Supabase
       const expedientesParseados = (cloudData || []).map(exp => {
-        const expedienteParseado = { ...exp }
-        
         // Mapear campos de Supabase a formato interno
-        if (exp.cliente_id !== undefined) {
-          expedienteParseado.clienteId = exp.cliente_id
-        }
-        if (exp.cliente_nombre !== undefined) {
-          expedienteParseado.clienteNombre = exp.cliente_nombre
-        }
-        
-        // Parsear campos JSON si existen
-        if (typeof exp.cotizacion === 'string' && exp.cotizacion) {
-          try {
-            expedienteParseado.cotizacion = JSON.parse(exp.cotizacion)
-          } catch (e) {
-            console.warn('Error parseando cotizacion:', e)
-            expedienteParseado.cotizacion = null
-          }
-        }
-        
-        if (typeof exp.pasajeros === 'string' && exp.pasajeros) {
-          try {
-            expedienteParseado.pasajeros = JSON.parse(exp.pasajeros)
-          } catch (e) {
-            console.warn('Error parseando pasajeros:', e)
-            expedienteParseado.pasajeros = []
-          }
-        } else if (!exp.pasajeros) {
-          expedienteParseado.pasajeros = []
-        }
-        
-        if (typeof exp.cobros === 'string' && exp.cobros) {
-          try {
-            expedienteParseado.cobros = JSON.parse(exp.cobros)
-          } catch (e) {
-            console.warn('Error parseando cobros:', e)
-            expedienteParseado.cobros = []
-          }
-        } else if (!exp.cobros) {
-          expedienteParseado.cobros = []
-        }
-        
-        if (typeof exp.pagos === 'string' && exp.pagos) {
-          try {
-            expedienteParseado.pagos = JSON.parse(exp.pagos)
-          } catch (e) {
-            console.warn('Error parseando pagos:', e)
-            expedienteParseado.pagos = []
-          }
-        } else if (!exp.pagos) {
-          expedienteParseado.pagos = []
-        }
-        
-        if (typeof exp.documentos === 'string' && exp.documentos) {
-          try {
-            expedienteParseado.documentos = JSON.parse(exp.documentos)
-          } catch (e) {
-            console.warn('Error parseando documentos:', e)
-            expedienteParseado.documentos = []
-          }
-        } else if (!exp.documentos) {
-          expedienteParseado.documentos = []
-        }
-        
-        if (typeof exp.cierre === 'string' && exp.cierre) {
-          try {
-            expedienteParseado.cierre = JSON.parse(exp.cierre)
-          } catch (e) {
-            console.warn('Error parseando cierre:', e)
-            expedienteParseado.cierre = null
-          }
+        const expedienteParseado = {
+          id: exp.id_expediente,
+          cliente_id: exp.cliente_id || '',
+          clienteId: exp.cliente_id || null, // Para compatibilidad interna
+          cliente_nombre: exp.cliente_nombre || '',
+          clienteNombre: exp.cliente_nombre || '', // Para compatibilidad interna
+          fecha_viaje: exp.fecha_viaje || '',
+          fechaInicio: exp.fecha_viaje || '', // Para compatibilidad interna
+          destino: exp.destino || '',
+          telefono: exp.telefono || '',
+          email: exp.email || '',
+          itinerario: exp.itinerario || '',
+          total_pax: exp.total_pax || '',
+          estado: exp.estado || 'peticion',
+          observaciones: exp.observaciones || '',
+          // Campos por defecto para compatibilidad
+          cotizacion: null,
+          pasajeros: [],
+          cobros: [],
+          pagos: [],
+          documentos: [],
+          cierre: null,
         }
         
         return expedienteParseado
@@ -269,12 +221,13 @@ const Expedientes = () => {
           
           // Mapear campos al formato de Supabase - SOLO los campos permitidos
           const expedienteParaSupabaseMapeado = {
-            cliente_id: expediente.clienteId ? String(expediente.clienteId) : '',
-            cliente_nombre: expediente.clienteNombre || '',
-            responsable: expediente.responsable || '',
+            id_expediente: expediente.id_expediente || expediente.id,
+            cliente_id: expediente.cliente_id || (expediente.clienteId ? String(expediente.clienteId) : ''),
+            cliente_nombre: expediente.cliente_nombre || expediente.clienteNombre || '',
             destino: expediente.destino || '',
             telefono: expediente.telefono || '',
             email: expediente.email || '',
+            fecha_viaje: expediente.fecha_viaje || expediente.fechaInicio || '',
             itinerario: expediente.itinerario || '',
             total_pax: totalPaxTexto,
             estado: expediente.estado || 'peticion',
@@ -283,7 +236,7 @@ const Expedientes = () => {
           
           const { error } = await supabase
             .from('expedientes')
-            .upsert(expedienteParaSupabaseMapeado, { onConflict: 'id' })
+            .upsert(expedienteParaSupabaseMapeado, { onConflict: 'id_expediente' })
           
           if (error) {
             console.error('Error guardando expediente en Supabase:', error)
@@ -364,10 +317,10 @@ const Expedientes = () => {
       const expedienteParaSupabase = {
         cliente_id: newExpediente.clienteId ? String(newExpediente.clienteId) : '',
         cliente_nombre: newExpediente.clienteNombre || '',
-        responsable: newExpediente.responsable || '',
         destino: newExpediente.destino || '',
         telefono: newExpediente.telefono || '',
         email: newExpediente.email || '',
+        fecha_viaje: newExpediente.fechaInicio || '',
         itinerario: '',
         total_pax: '',
         estado: newExpediente.estado || 'peticion',
@@ -383,7 +336,7 @@ const Expedientes = () => {
       if (error) throw error
       
       // Actualizar estado local
-      const expedienteConId = { ...newExpediente, id: data.id }
+      const expedienteConId = { ...newExpediente, id: data.id_expediente, id_expediente: data.id_expediente }
       setExpedientes([...expedientes, expedienteConId])
       storage.set('expedientes', [...expedientes, expedienteConId])
       
@@ -447,7 +400,7 @@ const Expedientes = () => {
         const { error } = await supabase
           .from('expedientes')
           .delete()
-          .eq('id', id)
+          .eq('id_expediente', id)
         
         if (error) throw error
         
@@ -473,12 +426,12 @@ const Expedientes = () => {
       
       // Mapear campos al formato de Supabase - SOLO los campos permitidos
       const expedienteActualizadoParaSupabase = {
-        cliente_id: expedienteActualizado.clienteId ? String(expedienteActualizado.clienteId) : '',
-        cliente_nombre: expedienteActualizado.clienteNombre || '',
-        responsable: expedienteActualizado.responsable || '',
+        cliente_id: expedienteActualizado.cliente_id || (expedienteActualizado.clienteId ? String(expedienteActualizado.clienteId) : ''),
+        cliente_nombre: expedienteActualizado.cliente_nombre || expedienteActualizado.clienteNombre || '',
         destino: expedienteActualizado.destino || '',
         telefono: expedienteActualizado.telefono || '',
         email: expedienteActualizado.email || '',
+        fecha_viaje: expedienteActualizado.fecha_viaje || expedienteActualizado.fechaInicio || '',
         itinerario: expedienteActualizado.itinerario || '',
         total_pax: totalPaxTexto,
         estado: expedienteActualizado.estado || 'peticion',
@@ -488,7 +441,7 @@ const Expedientes = () => {
       const { error } = await supabase
         .from('expedientes')
         .update(expedienteActualizadoParaSupabase)
-        .eq('id', expedienteActualizado.id)
+        .eq('id_expediente', expedienteActualizado.id_expediente || expedienteActualizado.id)
       
       if (error) throw error
       
@@ -510,7 +463,7 @@ const Expedientes = () => {
       const { error } = await supabase
         .from('expedientes')
         .update({ estado: nuevoEstado })
-        .eq('id', id)
+        .eq('id_expediente', id)
       
       if (error) throw error
       
@@ -683,11 +636,9 @@ const Expedientes = () => {
           <table>
             <thead>
               <tr>
-                <th>Responsable</th>
-                <th>Nombre del Grupo</th>
+                <th>Cliente</th>
                 <th>Destino</th>
-                <th>Fecha Inicio</th>
-                <th>Fecha Fin</th>
+                <th>Fecha Viaje</th>
                 <th>Estado</th>
                 <th style="text-align: right;">Beneficio Neto</th>
               </tr>
@@ -696,17 +647,17 @@ const Expedientes = () => {
     `
 
     expedientesFiltrados.forEach(exp => {
-      const cliente = clientes.find(c => c.id === exp.clienteId)
+      const cliente = clientes.find(c => String(c.id) === String(exp.cliente_id || exp.clienteId))
       const beneficio = exp.cotizacion?.resultados?.beneficioNeto || 0
       const beneficioClass = beneficio >= 0 ? 'beneficio-positivo' : 'beneficio-negativo'
 
       html += `
         <tr>
-          <td>${exp.responsable || '-'}</td>
-          <td><strong>${cliente?.nombre || exp.clienteNombre || '-'}</strong></td>
+          <td>-</td>
+          <td><strong>${cliente?.nombre || exp.cliente_nombre || exp.clienteNombre || '-'}</strong></td>
           <td>${exp.destino || '-'}</td>
-          <td>${exp.fechaInicio ? formatearFecha(exp.fechaInicio) : '-'}</td>
-          <td>${exp.fechaFin ? formatearFecha(exp.fechaFin) : '-'}</td>
+          <td>${exp.fecha_viaje || exp.fechaInicio ? formatearFecha(exp.fecha_viaje || exp.fechaInicio) : '-'}</td>
+          <td>-</td>
           <td><span class="estado ${ESTADOS[exp.estado].cssClass}">${ESTADOS[exp.estado].label}</span></td>
           <td style="text-align: right;" class="${beneficioClass}">${beneficio.toFixed(2)}€</td>
         </tr>
@@ -760,14 +711,12 @@ const Expedientes = () => {
     if (!searchTermExpedientes.trim()) return true
     
     const term = searchTermExpedientes.toLowerCase()
-    const cliente = clientes.find(c => c.id === exp.clienteId)
-    const nombreCliente = cliente?.nombre || exp.clienteNombre || exp.nombre_grupo || ''
-    const responsable = exp.responsable || cliente?.responsable || ''
+    const cliente = clientes.find(c => String(c.id) === String(exp.cliente_id || exp.clienteId))
+    const nombreCliente = cliente?.nombre || exp.cliente_nombre || exp.clienteNombre || ''
     const destino = exp.destino || ''
     
     return (
       nombreCliente.toLowerCase().includes(term) ||
-      responsable.toLowerCase().includes(term) ||
       destino.toLowerCase().includes(term) ||
       exp.observaciones?.toLowerCase().includes(term)
     )
@@ -882,12 +831,11 @@ const Expedientes = () => {
               try {
                 if (!expediente || !expediente.id) return null
                 const estado = ESTADOS[expediente.estado || 'peticion'] || ESTADOS.peticion
-                const cliente = clientes.find(c => c.id === expediente.clienteId) || {}
-                const nombreGrupo = expediente.nombre_grupo || cliente.nombre || expediente.clienteNombre || 'GRUPO SIN NOMBRE'
-                const nombreResponsable = expediente.responsable || cliente.responsable || 'Sin responsable'
+                const cliente = clientes.find(c => String(c.id) === String(expediente.cliente_id || expediente.clienteId)) || {}
+                const nombreGrupo = expediente.cliente_nombre || expediente.clienteNombre || cliente.nombre || 'GRUPO SIN NOMBRE'
                 const destino = expediente.destino || 'Sin destino'
-                const fechaInicio = expediente.fechaInicio || ''
-                const fechaFin = expediente.fechaFin || ''
+                const fechaInicio = expediente.fecha_viaje || expediente.fechaInicio || ''
+                const fechaFin = ''
 
                 return (
                   <div key={expediente?.id || Math.random()} className={`card border-l-4 ${estado.badge.replace('bg-', 'border-')} hover:shadow-xl transition-shadow cursor-pointer`}
@@ -902,9 +850,6 @@ const Expedientes = () => {
                         <h2 className="text-2xl font-black text-navy-900 uppercase tracking-wide mb-1">
                           {nombreGrupo}
                         </h2>
-                        <span className="text-sm text-gray-600 block mb-2">
-                          👤 {nombreResponsable}
-                        </span>
                         <p className="text-base text-navy-600 font-medium">{destino}</p>
                     </div>
                       <button
@@ -950,7 +895,7 @@ const Expedientes = () => {
                     <div className="p-4">
                       <p className="text-red-800 font-bold">⚠️ Error en expediente</p>
                       <p className="text-red-600 text-sm mt-1">
-                        {expediente?.responsable || expediente?.destino || 'Expediente con datos incompletos'}
+                        {expediente?.destino || expediente?.cliente_nombre || expediente?.clienteNombre || 'Expediente con datos incompletos'}
                       </p>
                       <button
                         onClick={() => handleDeleteExpediente(expediente?.id)}
