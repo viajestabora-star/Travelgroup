@@ -316,7 +316,7 @@ const Expedientes = () => {
     
     // Guardar en Supabase primero
     try {
-      // Objeto exacto para Supabase - SOLO estos campos
+      // Objeto exacto para Supabase - SOLO estos campos exactos
       const expedienteParaSupabase = {
         cliente_id: finalClienteId ? String(finalClienteId) : '',
         cliente_nombre: finalClienteNombre || clienteInputValue.trim() || '',
