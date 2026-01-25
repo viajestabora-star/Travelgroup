@@ -1021,7 +1021,7 @@ const Expedientes = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <div className="flex justify-between items-center mb-2">
-                    <label className="label mb-0">Nombre del Grupo *</label>
+                    <label className="label mb-0">Nombre del Grupo</label>
                     <button
                       type="button"
                       onClick={() => setShowClienteModal(true)}
@@ -1040,7 +1040,6 @@ const Expedientes = () => {
                       onChange={(e) => handleClienteInputChange(e.target.value)}
                       onFocus={handleClienteInputFocus}
                       className="input-field pl-10"
-                      required
                     />
                   </div>
                   {showSuggestions && (
