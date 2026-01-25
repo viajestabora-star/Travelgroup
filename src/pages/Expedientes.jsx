@@ -261,31 +261,24 @@ const Expedientes = () => {
       // Guardar en Supabase (actualizar cada expediente)
       for (const expediente of dataToSave) {
         if (expediente.id) {
-          // Preparar datos para Supabase (excluir campos calculados o no necesarios)
-          const { cotizacion, pasajeros, cobros, pagos, documentos, cierre, clienteId, clienteNombre, ...expedienteParaSupabase } = expediente
-          
           // Extraer total_pax de la cotización como texto
           let totalPaxTexto = ''
-          if (cotizacion && cotizacion.resultados && cotizacion.resultados.totalPasajeros !== undefined) {
-            totalPaxTexto = String(cotizacion.resultados.totalPasajeros)
+          if (expediente.cotizacion && expediente.cotizacion.resultados && expediente.cotizacion.resultados.totalPasajeros !== undefined) {
+            totalPaxTexto = String(expediente.cotizacion.resultados.totalPasajeros)
           }
           
-          // Mapear campos al formato de Supabase
+          // Mapear campos al formato de Supabase - SOLO los campos permitidos
           const expedienteParaSupabaseMapeado = {
-            ...expedienteParaSupabase,
-            cliente_id: clienteId || null,
-            cliente_nombre: clienteNombre || '',
+            cliente_id: expediente.clienteId ? String(expediente.clienteId) : '',
+            cliente_nombre: expediente.clienteNombre || '',
+            responsable: expediente.responsable || '',
             destino: expediente.destino || '',
             telefono: expediente.telefono || '',
             email: expediente.email || '',
-            observaciones: expediente.observaciones || '',
+            itinerario: expediente.itinerario || '',
             total_pax: totalPaxTexto,
-            cotizacion: cotizacion ? JSON.stringify(cotizacion) : null,
-            pasajeros: pasajeros ? JSON.stringify(pasajeros) : null,
-            cobros: cobros ? JSON.stringify(cobros) : null,
-            pagos: pagos ? JSON.stringify(pagos) : null,
-            documentos: documentos ? JSON.stringify(documentos) : null,
-            cierre: cierre ? JSON.stringify(cierre) : null,
+            estado: expediente.estado || 'peticion',
+            observaciones: expediente.observaciones || '',
           }
           
           const { error } = await supabase
@@ -367,26 +360,18 @@ const Expedientes = () => {
     
     // Guardar en Supabase primero
     try {
-      // Mapear campos al formato de Supabase
+      // Mapear campos al formato de Supabase - SOLO los campos permitidos
       const expedienteParaSupabase = {
-        cliente_id: newExpediente.clienteId || null,
+        cliente_id: newExpediente.clienteId ? String(newExpediente.clienteId) : '',
         cliente_nombre: newExpediente.clienteNombre || '',
+        responsable: newExpediente.responsable || '',
         destino: newExpediente.destino || '',
         telefono: newExpediente.telefono || '',
         email: newExpediente.email || '',
-        observaciones: newExpediente.observaciones || '',
+        itinerario: '',
         total_pax: '',
-        responsable: newExpediente.responsable || '',
-        fechaInicio: newExpediente.fechaInicio || '',
-        fechaFin: newExpediente.fechaFin || '',
         estado: newExpediente.estado || 'peticion',
-        fechaCreacion: newExpediente.fechaCreacion,
-        cotizacion: null,
-        pasajeros: JSON.stringify([]),
-        cobros: JSON.stringify([]),
-        pagos: JSON.stringify([]),
-        documentos: JSON.stringify([]),
-        cierre: null,
+        observaciones: newExpediente.observaciones || '',
       }
       
       const { data, error } = await supabase
@@ -480,31 +465,24 @@ const Expedientes = () => {
 
   const actualizarExpediente = async (expedienteActualizado) => {
     try {
-      // Preparar datos para Supabase
-      const { cotizacion, pasajeros, cobros, pagos, documentos, cierre, clienteId, clienteNombre, ...expedienteParaSupabase } = expedienteActualizado
-      
       // Extraer total_pax de la cotización como texto
       let totalPaxTexto = ''
-      if (cotizacion && cotizacion.resultados && cotizacion.resultados.totalPasajeros !== undefined) {
-        totalPaxTexto = String(cotizacion.resultados.totalPasajeros)
+      if (expedienteActualizado.cotizacion && expedienteActualizado.cotizacion.resultados && expedienteActualizado.cotizacion.resultados.totalPasajeros !== undefined) {
+        totalPaxTexto = String(expedienteActualizado.cotizacion.resultados.totalPasajeros)
       }
       
-      // Mapear campos al formato de Supabase
+      // Mapear campos al formato de Supabase - SOLO los campos permitidos
       const expedienteActualizadoParaSupabase = {
-        ...expedienteParaSupabase,
-        cliente_id: clienteId || null,
-        cliente_nombre: clienteNombre || '',
+        cliente_id: expedienteActualizado.clienteId ? String(expedienteActualizado.clienteId) : '',
+        cliente_nombre: expedienteActualizado.clienteNombre || '',
+        responsable: expedienteActualizado.responsable || '',
         destino: expedienteActualizado.destino || '',
         telefono: expedienteActualizado.telefono || '',
         email: expedienteActualizado.email || '',
-        observaciones: expedienteActualizado.observaciones || '',
+        itinerario: expedienteActualizado.itinerario || '',
         total_pax: totalPaxTexto,
-        cotizacion: cotizacion ? JSON.stringify(cotizacion) : null,
-        pasajeros: pasajeros ? JSON.stringify(pasajeros) : null,
-        cobros: cobros ? JSON.stringify(cobros) : null,
-        pagos: pagos ? JSON.stringify(pagos) : null,
-        documentos: documentos ? JSON.stringify(documentos) : null,
-        cierre: cierre ? JSON.stringify(cierre) : null,
+        estado: expedienteActualizado.estado || 'peticion',
+        observaciones: expedienteActualizado.observaciones || '',
       }
       
       const { error } = await supabase
