@@ -264,6 +264,12 @@ const Expedientes = () => {
           // Preparar datos para Supabase (excluir campos calculados o no necesarios)
           const { cotizacion, pasajeros, cobros, pagos, documentos, cierre, clienteId, clienteNombre, ...expedienteParaSupabase } = expediente
           
+          // Extraer total_pax de la cotización como texto
+          let totalPaxTexto = ''
+          if (cotizacion && cotizacion.resultados && cotizacion.resultados.totalPasajeros !== undefined) {
+            totalPaxTexto = String(cotizacion.resultados.totalPasajeros)
+          }
+          
           // Mapear campos al formato de Supabase
           const expedienteParaSupabaseMapeado = {
             ...expedienteParaSupabase,
@@ -273,6 +279,7 @@ const Expedientes = () => {
             telefono: expediente.telefono || '',
             email: expediente.email || '',
             observaciones: expediente.observaciones || '',
+            total_pax: totalPaxTexto,
             cotizacion: cotizacion ? JSON.stringify(cotizacion) : null,
             pasajeros: pasajeros ? JSON.stringify(pasajeros) : null,
             cobros: cobros ? JSON.stringify(cobros) : null,
@@ -368,6 +375,7 @@ const Expedientes = () => {
         telefono: newExpediente.telefono || '',
         email: newExpediente.email || '',
         observaciones: newExpediente.observaciones || '',
+        total_pax: '',
         responsable: newExpediente.responsable || '',
         fechaInicio: newExpediente.fechaInicio || '',
         fechaFin: newExpediente.fechaFin || '',
@@ -475,6 +483,12 @@ const Expedientes = () => {
       // Preparar datos para Supabase
       const { cotizacion, pasajeros, cobros, pagos, documentos, cierre, clienteId, clienteNombre, ...expedienteParaSupabase } = expedienteActualizado
       
+      // Extraer total_pax de la cotización como texto
+      let totalPaxTexto = ''
+      if (cotizacion && cotizacion.resultados && cotizacion.resultados.totalPasajeros !== undefined) {
+        totalPaxTexto = String(cotizacion.resultados.totalPasajeros)
+      }
+      
       // Mapear campos al formato de Supabase
       const expedienteActualizadoParaSupabase = {
         ...expedienteParaSupabase,
@@ -484,6 +498,7 @@ const Expedientes = () => {
         telefono: expedienteActualizado.telefono || '',
         email: expedienteActualizado.email || '',
         observaciones: expedienteActualizado.observaciones || '',
+        total_pax: totalPaxTexto,
         cotizacion: cotizacion ? JSON.stringify(cotizacion) : null,
         pasajeros: pasajeros ? JSON.stringify(pasajeros) : null,
         cobros: cobros ? JSON.stringify(cobros) : null,
