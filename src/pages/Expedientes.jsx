@@ -220,18 +220,21 @@ const Expedientes = () => {
             totalPaxTexto = String(expediente.cotizacion.resultados.totalPasajeros)
           }
           
-          // Mapear campos al formato de Supabase - SOLO los campos permitidos
+          // Objeto exacto para Supabase - SOLO estos campos
           const expedienteParaSupabaseMapeado = {
             id_expediente: expediente.id_expediente || expediente.id,
-            cliente_id: expediente.cliente_id || (expediente.clienteId ? String(expediente.clienteId) : ''),
-            cliente_nombre: expediente.cliente_nombre || expediente.clienteNombre || '',
+            cliente_id: expediente.cliente_id || '',
+            cliente_nombre: expediente.cliente_nombre || '',
+            fecha_inicio: expediente.fecha_inicio || expediente.fechaInicio || '',
+            fecha_fin: expediente.fecha_fin || expediente.fechaFin || '',
             destino: expediente.destino || '',
             telefono: expediente.telefono || '',
             email: expediente.email || '',
             responsable: expediente.responsable || '',
-            fecha_inicio: expediente.fecha_inicio || expediente.fechaInicio || '',
-            fecha_fin: expediente.fecha_fin || expediente.fechaFin || '',
+            estado: expediente.estado || 'peticion',
             observaciones: expediente.observaciones || '',
+            itinerario: expediente.itinerario || '',
+            total_pax: totalPaxTexto,
           }
           
           const { error } = await supabase
@@ -313,17 +316,20 @@ const Expedientes = () => {
     
     // Guardar en Supabase primero
     try {
-      // Mapear campos al formato de Supabase - SOLO los campos permitidos
+      // Objeto exacto para Supabase - SOLO estos campos
       const expedienteParaSupabase = {
-        cliente_id: newExpediente.clienteId ? String(newExpediente.clienteId) : '',
-        cliente_nombre: newExpediente.clienteNombre || '',
-        destino: newExpediente.destino || '',
-        telefono: newExpediente.telefono || '',
-        email: newExpediente.email || '',
-        responsable: newExpediente.responsable || '',
-        fecha_inicio: newExpediente.fechaInicio || '',
-        fecha_fin: newExpediente.fechaFin || '',
-        observaciones: newExpediente.observaciones || '',
+        cliente_id: finalClienteId ? String(finalClienteId) : '',
+        cliente_nombre: finalClienteNombre || clienteInputValue.trim() || '',
+        fecha_inicio: expedienteForm.fechaInicio || '',
+        fecha_fin: expedienteForm.fechaFin || '',
+        destino: expedienteForm.destino || '',
+        telefono: expedienteForm.telefono || '',
+        email: expedienteForm.email || '',
+        responsable: expedienteForm.responsable || '',
+        estado: expedienteForm.estado || 'peticion',
+        observaciones: expedienteForm.observaciones || '',
+        itinerario: '',
+        total_pax: '',
       }
       
       const { data, error } = await supabase
@@ -423,17 +429,20 @@ const Expedientes = () => {
         totalPaxTexto = String(expedienteActualizado.cotizacion.resultados.totalPasajeros)
       }
       
-      // Mapear campos al formato de Supabase - SOLO los campos permitidos
+      // Objeto exacto para Supabase - SOLO estos campos
       const expedienteActualizadoParaSupabase = {
-        cliente_id: expedienteActualizado.cliente_id || (expedienteActualizado.clienteId ? String(expedienteActualizado.clienteId) : ''),
-        cliente_nombre: expedienteActualizado.cliente_nombre || expedienteActualizado.clienteNombre || '',
+        cliente_id: expedienteActualizado.cliente_id || '',
+        cliente_nombre: expedienteActualizado.cliente_nombre || '',
+        fecha_inicio: expedienteActualizado.fecha_inicio || expedienteActualizado.fechaInicio || '',
+        fecha_fin: expedienteActualizado.fecha_fin || expedienteActualizado.fechaFin || '',
         destino: expedienteActualizado.destino || '',
         telefono: expedienteActualizado.telefono || '',
         email: expedienteActualizado.email || '',
         responsable: expedienteActualizado.responsable || '',
-        fecha_inicio: expedienteActualizado.fecha_inicio || expedienteActualizado.fechaInicio || '',
-        fecha_fin: expedienteActualizado.fecha_fin || expedienteActualizado.fechaFin || '',
+        estado: expedienteActualizado.estado || 'peticion',
         observaciones: expedienteActualizado.observaciones || '',
+        itinerario: expedienteActualizado.itinerario || '',
+        total_pax: totalPaxTexto,
       }
       
       const { error } = await supabase
@@ -653,7 +662,7 @@ const Expedientes = () => {
       html += `
         <tr>
           <td>-</td>
-          <td><strong>${cliente?.nombre || exp.cliente_nombre || exp.clienteNombre || '-'}</strong></td>
+          <td><strong>${cliente?.nombre || exp.cliente_nombre || '-'}</strong></td>
           <td>${exp.destino || '-'}</td>
           <td>${exp.fecha_inicio || exp.fechaInicio ? formatearFecha(exp.fecha_inicio || exp.fechaInicio) : '-'}</td>
           <td>${exp.fecha_fin || exp.fechaFin ? formatearFecha(exp.fecha_fin || exp.fechaFin) : '-'}</td>
@@ -712,7 +721,7 @@ const Expedientes = () => {
     
     const term = searchTermExpedientes.toLowerCase()
     const cliente = clientes.find(c => String(c.id) === String(exp.cliente_id || exp.clienteId))
-    const nombreCliente = cliente?.nombre || exp.cliente_nombre || exp.clienteNombre || ''
+    const nombreCliente = cliente?.nombre || exp.cliente_nombre || ''
     const destino = exp.destino || ''
     
     return (
@@ -834,7 +843,7 @@ const Expedientes = () => {
                 if (!expediente || !expediente.id) return null
                 const estado = ESTADOS[expediente.estado || 'peticion'] || ESTADOS.peticion
                 const cliente = clientes.find(c => String(c.id) === String(expediente.cliente_id || expediente.clienteId)) || {}
-                const nombreGrupo = expediente.cliente_nombre || expediente.clienteNombre || cliente.nombre || 'GRUPO SIN NOMBRE'
+                const nombreGrupo = expediente.cliente_nombre || cliente.nombre || 'GRUPO SIN NOMBRE'
                 const destino = expediente.destino || 'Sin destino'
                 const fechaInicio = expediente.fecha_inicio || expediente.fechaInicio || ''
                 const fechaFin = expediente.fecha_fin || expediente.fechaFin || ''
@@ -897,7 +906,7 @@ const Expedientes = () => {
                     <div className="p-4">
                       <p className="text-red-800 font-bold">⚠️ Error en expediente</p>
                       <p className="text-red-600 text-sm mt-1">
-                        {expediente?.destino || expediente?.cliente_nombre || expediente?.clienteNombre || 'Expediente con datos incompletos'}
+                        {expediente?.destino || expediente?.cliente_nombre || 'Expediente con datos incompletos'}
                       </p>
                       <button
                         onClick={() => handleDeleteExpediente(expediente?.id)}
