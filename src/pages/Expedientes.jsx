@@ -260,16 +260,16 @@ const Expedientes = () => {
   const handleExpedienteSubmit = async (e) => {
     e.preventDefault()
 
-    let finalClienteId = expedienteForm.clienteId
-    let finalClienteNombre = expedienteForm.clienteNombre
+    // Crear cliente en Supabase si no existe
+    let clienteIdParaInsert = expedienteForm.clienteId ? String(expedienteForm.clienteId) : ''
+    let clienteNombreParaInsert = expedienteForm.clienteNombre || clienteInputValue.trim() || ''
 
-    // Crear cliente en Supabase y volver a cargar lista
-    if (!finalClienteId && clienteInputValue.trim()) {
+    if (!expedienteForm.clienteId && clienteInputValue.trim()) {
       const nuevoClienteSupabase = {
         nombre: clienteInputValue.trim(),
         responsable: expedienteForm.responsable || '',
         telefono: expedienteForm.telefono || '',
-        movil: expedienteForm.telefono || '', // Usar teléfono como móvil si no hay móvil específico
+        movil: expedienteForm.telefono || '',
         email: expedienteForm.email || '',
         cif_nif: '',
         direccion: '',
@@ -283,8 +283,8 @@ const Expedientes = () => {
         const { data, error } = await supabase.from('clientes').insert([nuevoClienteSupabase]).select().single()
         if (error) throw error
         await reloadClientes()
-        finalClienteId = data.id
-        finalClienteNombre = data.nombre
+        clienteIdParaInsert = String(data.id)
+        clienteNombreParaInsert = data.nombre
       } catch (err) {
         alert('⚠️ Error creando cliente en la base de datos. Revisa tu conexión.')
         return
@@ -294,8 +294,8 @@ const Expedientes = () => {
     // MAPEO LIMPIO: Variables correctas para jerarquía visual
     const newExpediente = {
       id: Date.now(),
-      clienteId: finalClienteId || null,
-      nombre_grupo: finalClienteNombre || clienteInputValue.trim() || '',
+      clienteId: expedienteForm.clienteId || null,
+      nombre_grupo: clienteNombreParaInsert,
       responsable: expedienteForm.responsable || '',
       telefono: expedienteForm.telefono || '',
       email: expedienteForm.email || '',
@@ -311,30 +311,28 @@ const Expedientes = () => {
       pagos: [],
       documentos: [],
       cierre: null,
-      clienteNombre: finalClienteNombre || clienteInputValue.trim() || '',
+      clienteNombre: clienteNombreParaInsert,
     }
     
     // Guardar en Supabase primero
     try {
-      // Objeto exacto para Supabase - SOLO estos campos exactos
-      const expedienteParaSupabase = {
-        cliente_id: finalClienteId ? String(finalClienteId) : '',
-        cliente_nombre: finalClienteNombre || clienteInputValue.trim() || '',
-        fecha_inicio: expedienteForm.fechaInicio || '',
-        fecha_fin: expedienteForm.fechaFin || '',
-        destino: expedienteForm.destino || '',
-        telefono: expedienteForm.telefono || '',
-        email: expedienteForm.email || '',
-        responsable: expedienteForm.responsable || '',
-        estado: expedienteForm.estado || 'peticion',
-        observaciones: expedienteForm.observaciones || '',
-        itinerario: '',
-        total_pax: '',
-      }
-      
+      // Objeto exacto para Supabase - usar nombres reales de la tabla directamente
       const { data, error } = await supabase
         .from('expedientes')
-        .insert([expedienteParaSupabase])
+        .insert([{
+          cliente_id: clienteIdParaInsert,
+          cliente_nombre: clienteNombreParaInsert,
+          fecha_inicio: expedienteForm.fechaInicio || '',
+          fecha_fin: expedienteForm.fechaFin || '',
+          destino: expedienteForm.destino || '',
+          telefono: expedienteForm.telefono || '',
+          email: expedienteForm.email || '',
+          responsable: expedienteForm.responsable || '',
+          estado: expedienteForm.estado || 'peticion',
+          observaciones: expedienteForm.observaciones || '',
+          itinerario: '',
+          total_pax: '',
+        }])
         .select()
         .single()
       
