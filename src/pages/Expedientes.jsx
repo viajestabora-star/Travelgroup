@@ -209,58 +209,42 @@ const Expedientes = () => {
 
   const saveExpedientes = async (data) => {
     try {
-      const dataToSave = Array.isArray(data) ? data : []
-      
-      // Guardar en Supabase (actualizar cada expediente)
+      const dataToSave = Array.isArray(data) ? data : [];
       for (const expediente of dataToSave) {
         if (expediente.id) {
-          // Extraer total_pax de la cotización como texto
-          let totalPaxTexto = ''
-          if (expediente.cotizacion && expediente.cotizacion.resultados && expediente.cotizacion.resultados.totalPasajeros !== undefined) {
-            totalPaxTexto = String(expediente.cotizacion.resultados.totalPasajeros)
-          }
-          
-          // Objeto exacto para Supabase - SOLO estos campos
-          const expedienteParaSupabaseMapeado = {
-            id_expediente: expediente.id_expediente || expediente.id,
-            cliente_id: expediente.cliente_id || '',
-            cliente_nombre: expediente.cliente_nombre || '',
-            fecha_inicio: expediente.fecha_inicio || expediente.fechaInicio || '',
-            fecha_fin: expediente.fecha_fin || expediente.fechaFin || '',
-            destino: expediente.destino || '',
-            telefono: expediente.telefono || '',
-            email: expediente.email || '',
-            responsable: expediente.responsable || '',
-            estado: expediente.estado || 'peticion',
-            observaciones: expediente.observaciones || '',
-            itinerario: expediente.itinerario || '',
-            total_pax: totalPaxTexto,
-          }
+          let totalPaxTexto = expediente.cotizacion?.resultados?.totalPasajeros 
+            ? String(expediente.cotizacion.resultados.totalPasajeros) 
+            : '';
           
           const { error } = await supabase
             .from('expedientes')
-            .upsert(expedienteParaSupabaseMapeado, { onConflict: 'id_expediente' })
-          
-          if (error) {
-            console.error('Error guardando expediente en Supabase:', error)
-          }
+            .upsert({
+              id_expediente: expediente.id_expediente || expediente.id,
+              cliente_id: String(expediente.cliente_id || expediente.clienteId || ''),
+              cliente_nombr: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
+              fecha_inicio: expediente.fecha_inicio || expediente.fechaInicio || '',
+              fecha_fin: expediente.fecha_fin || expediente.fechaFin || '',
+              destino: expediente.destino || '',
+              estado: expediente.estado || 'peticion',
+              responsable: expediente.responsable || '',
+              total_pax: totalPaxTexto
+            }, { onConflict: 'id_expediente' });
+          if (error) console.error('Error en sincronización:', error);
         }
       }
-      
-      // También guardar en localStorage como backup
-      storage.set('expedientes', dataToSave)
-      setExpedientes(dataToSave)
+      storage.set('expedientes', dataToSave);
+      setExpedientes(dataToSave);
     } catch (error) {
-      console.error('Error guardando expedientes:', error)
-      alert('⚠️ Error al guardar. Por favor, intenta de nuevo.')
+      console.error('Error guardando datos:', error);
     }
-  }const handleExpedienteSubmit = async (e) => {
+  }; // CIERRE CORRECTO DE SAVEEXPEDIENTES
+
+  const handleExpedienteSubmit = async (e) => {
     e.preventDefault();
-
     let finalId = expedienteForm.clienteId ? String(expedienteForm.clienteId) : '';
-    let finalNombre = expedienteForm.clienteNombre || clienteInputValue.trim() || '';
+    let finalNombre = expedienteForm.clienteNombre || clienteInputValue.trim() || 'Sin Nombre';
 
-    // 1. Crear cliente si es nuevo
+    // 1. Crear cliente si no existe
     if (!expedienteForm.clienteId && clienteInputValue.trim()) {
       try {
         const { data, error } = await supabase
@@ -272,28 +256,28 @@ const Expedientes = () => {
         finalNombre = data.nombre;
         await reloadClientes();
       } catch (err) {
-        alert('⚠️ Error creando cliente.');
+        console.error('Error creando cliente previo:', err);
         return;
       }
     }
 
-    // 2. OBJETO DE INSERCIÓN BLINDADO (Coincidencia exacta con tu tabla)
-    const datosInsertar = {
-      cliente_id: String(finalId),
-      cliente_nombr: String(finalNombre),
-      fecha_inicio: String(expedienteForm.fechaInicio || ''),
-      fecha_fin: String(expedienteForm.fechaFin || ''),
-      destino: String(expedienteForm.destino || ''),
-      telefono: String(expedienteForm.telefono || ''),
-      email: String(expedienteForm.email || ''),
-      responsable: String(expedienteForm.responsable || ''),
-      estado: String(expedienteForm.estado || 'peticion'),
-      observaciones: String(expedienteForm.observaciones || ''),
-      itinerario: '',
-      total_pax: ''
-    };
-
+    // 2. Insertar Expediente con mapeo a cliente_nombr
     try {
+      const datosInsertar = {
+        cliente_id: String(finalId),
+        cliente_nombr: String(finalNombre),
+        fecha_inicio: String(expedienteForm.fechaInicio || ''),
+        fecha_fin: String(expedienteForm.fechaFin || ''),
+        destino: String(expedienteForm.destino || ''),
+        telefono: String(expedienteForm.telefono || ''),
+        email: String(expedienteForm.email || ''),
+        responsable: String(expedienteForm.responsable || ''),
+        estado: String(expedienteForm.estado || 'peticion'),
+        observaciones: String(expedienteForm.observaciones || ''),
+        itinerario: '',
+        total_pax: ''
+      };
+
       const { data, error } = await supabase
         .from('expedientes')
         .insert([datosInsertar])
@@ -306,37 +290,25 @@ const Expedientes = () => {
       const expedienteLocal = { 
         ...datosInsertar, 
         id: data.id_expediente, 
-        id_expediente: data.id_expediente 
+        id_expediente: data.id_expediente,
+        clienteNombre: finalNombre,
+        fechaInicio: datosInsertar.fecha_inicio,
+        fechaFin: datosInsertar.fecha_fin
       };
-      setExpedientes(prev => [...prev, expedienteLocal]);
-      storage.set('expedientes', [...expedientes, expedienteLocal]);
+      
+      setExpedientes(prev => [expedienteLocal, ...prev]);
+      storage.set('expedientes', [expedienteLocal, ...expedientes]);
       
       setShowExpedienteModal(false);
       resetExpedienteForm();
       setClienteInputValue('');
+      setShowSuggestions(false);
+      alert('✅ Expediente creado con éxito');
     } catch (err) {
       console.error('ERROR TÉCNICO:', err);
-      alert('⚠️ No se pudo guardar. Revisa la consola (Opt+Cmd+J)');
+      alert('⚠️ No se pudo guardar. Revisa la consola.');
     }
-  };   
-      if (error) throw error
-      
-      // Actualizar estado local
-      const expedienteConId = { ...newExpediente, id: data.id_expediente, id_expediente: data.id_expediente }
-      setExpedientes([...expedientes, expedienteConId])
-      storage.set('expedientes', [...expedientes, expedienteConId])
-      
-      setShowExpedienteModal(false)
-      resetExpedienteForm()
-      setClienteInputValue('')
-      setShowSuggestions(false)
-    } catch (err) {
-      console.error('Error guardando expediente:', err)
-      alert('⚠️ Error guardando expediente en la base de datos. Revisa tu conexión.')
-    }
-  }
-
-  // NUEVA VERSIÓN: CREA CLIENTE TANTO EN SUPABASE COMO LOCAL
+  }; // CIERRE CORRECTO DE HANDLEEXPEDIENTESUBMIT  // NUEVA VERSIÓN: CREA CLIENTE TANTO EN SUPABASE COMO LOCAL
   const handleCrearCliente = async (e) => {
     e.preventDefault()
     const newCliente = {
