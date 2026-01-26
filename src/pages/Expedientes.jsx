@@ -316,23 +316,25 @@ const Expedientes = () => {
     
     // Guardar en Supabase primero
     try {
-      // Objeto exacto para Supabase - usar nombres reales de la tabla directamente
+      // Objeto limpio con solo las claves permitidas - todos los valores como strings
+      const datosInsertar = {
+        cliente_id: String(clienteIdParaInsert || ''),
+        cliente_nombre: String(clienteNombreParaInsert || ''),
+        fecha_inicio: String(expedienteForm.fechaInicio || ''),
+        fecha_fin: String(expedienteForm.fechaFin || ''),
+        destino: String(expedienteForm.destino || ''),
+        telefono: String(expedienteForm.telefono || ''),
+        email: String(expedienteForm.email || ''),
+        responsable: String(expedienteForm.responsable || ''),
+        estado: String(expedienteForm.estado || 'peticion'),
+        observaciones: String(expedienteForm.observaciones || ''),
+        itinerario: String(''),
+        total_pax: String(''),
+      }
+      
       const { data, error } = await supabase
         .from('expedientes')
-        .insert([{
-          cliente_id: clienteIdParaInsert,
-          cliente_nombre: clienteNombreParaInsert,
-          fecha_inicio: expedienteForm.fechaInicio || '',
-          fecha_fin: expedienteForm.fechaFin || '',
-          destino: expedienteForm.destino || '',
-          telefono: expedienteForm.telefono || '',
-          email: expedienteForm.email || '',
-          responsable: expedienteForm.responsable || '',
-          estado: expedienteForm.estado || 'peticion',
-          observaciones: expedienteForm.observaciones || '',
-          itinerario: '',
-          total_pax: '',
-        }])
+        .insert([datosInsertar])
         .select()
         .single()
       
