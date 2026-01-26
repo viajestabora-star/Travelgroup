@@ -1,0 +1,6 @@
+# ESTRUCTURA INVIOLABLE DE EXPEDIENTES
+- NUNCA simplifiques la tabla 'expedientes'.
+- Columnas obligatorias (14): id, id_expediente, cliente_nombre, itinerario, total_pax, cliente_id, destino, telefono, email, observaciones, responsable, fecha_inicio, fecha_fin, estado.
+- Lógica de Fechas: Visualización siempre DD/MM/YYYY. Envío a DB siempre YYYY-MM-DD.
+- El campo 'id_expediente' NO se envía en el INSERT (lo gestiona el Trigger SQL).
+- No asumas que los campos vacíos deben eliminarse; envía el objeto completo.

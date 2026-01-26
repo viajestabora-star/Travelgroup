@@ -6,6 +6,18 @@ const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
+// Función helper para normalizar tipos: minúsculas + sin tildes
+// Ejemplo: 'Autobús' -> 'autobus', 'Restaurante' -> 'restaurante'
+const normalizarTipo = (tipo) => {
+  if (!tipo) return '';
+  
+  return tipo
+    .toLowerCase()
+    .normalize('NFD') // Normaliza caracteres con tildes
+    .replace(/[\u0300-\u036f]/g, '') // Elimina diacríticos (tildes)
+    .trim();
+}
+
 const Proveedores = () => {
   const [proveedores, setProveedores] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -30,6 +42,67 @@ const Proveedores = () => {
 
   useEffect(() => { fetchProveedores() }, [])
 
+  // Función de migración de un solo uso para normalizar tipos existentes
+  // Ejecutar desde la consola del navegador: window.migrarTiposProveedores()
+  const migrarTiposProveedores = async () => {
+    try {
+      console.log('🔄 Iniciando migración de tipos de proveedores...\n');
+      
+      const { data: proveedores, error: fetchError } = await supabase
+        .from('proveedores')
+        .select('id, tipo, nombre_comercial');
+      
+      if (fetchError) {
+        console.error('❌ Error obteniendo proveedores:', fetchError);
+        return;
+      }
+      
+      if (!proveedores || proveedores.length === 0) {
+        console.log('ℹ️ No hay proveedores para migrar.');
+        return;
+      }
+      
+      const proveedoresAMigrar = proveedores
+        .map(p => ({
+          id: p.id,
+          nombre: p.nombre_comercial,
+          tipoOriginal: p.tipo,
+          tipoNormalizado: normalizarTipo(p.tipo)
+        }))
+        .filter(p => p.tipoOriginal !== p.tipoNormalizado);
+      
+      if (proveedoresAMigrar.length === 0) {
+        console.log('✅ Todos los tipos ya están normalizados.');
+        return;
+      }
+      
+      console.log(`📝 Actualizando ${proveedoresAMigrar.length} proveedores...\n`);
+      
+      let actualizados = 0;
+      for (const proveedor of proveedoresAMigrar) {
+        const { error } = await supabase
+          .from('proveedores')
+          .update({ tipo: proveedor.tipoNormalizado })
+          .eq('id', proveedor.id);
+        
+        if (!error) {
+          console.log(`✅ ${proveedor.nombre}: "${proveedor.tipoOriginal}" → "${proveedor.tipoNormalizado}"`);
+          actualizados++;
+        }
+      }
+      
+      console.log(`\n✅ Migración completada: ${actualizados} proveedores actualizados.`);
+      fetchProveedores(); // Refrescar lista
+    } catch (error) {
+      console.error('❌ Error en migración:', error);
+    }
+  }
+
+  // Exponer función globalmente para ejecutar desde consola
+  if (typeof window !== 'undefined') {
+    window.migrarTiposProveedores = migrarTiposProveedores;
+  }
+
   const fetchProveedores = async () => {
     const { data, error } = await supabase
       .from('proveedores')
@@ -40,9 +113,16 @@ const Proveedores = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    
+    // Normalizar el tipo antes de guardar: minúsculas + sin tildes
+    const datosParaGuardar = {
+      ...formData,
+      tipo: normalizarTipo(formData.tipo)
+    }
+    
     const action = editingId 
-      ? supabase.from('proveedores').update(formData).eq('id', editingId)
-      : supabase.from('proveedores').insert([formData])
+      ? supabase.from('proveedores').update(datosParaGuardar).eq('id', editingId)
+      : supabase.from('proveedores').insert([datosParaGuardar])
     
     const { error } = await action
     if (!error) { closeModal(); fetchProveedores(); }

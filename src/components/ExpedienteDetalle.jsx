@@ -3,6 +3,18 @@ import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 
+// Función helper para normalizar tipos: minúsculas + sin tildes
+// Ejemplo: 'Autobús' -> 'autobus', 'Restaurante' -> 'restaurante'
+const normalizarTipo = (tipo) => {
+  if (!tipo) return '';
+  
+  return tipo
+    .toLowerCase()
+    .normalize('NFD') // Normaliza caracteres con tildes
+    .replace(/[\u0300-\u036f]/g, '') // Elimina diacríticos (tildes)
+    .trim();
+}
+
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => {
   // ⚠️ BLINDAJE NIVEL 1: Verificar que expediente existe
   if (!expediente) {
@@ -119,7 +131,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // ============ FUNCIONES DE PROVEEDORES ============
   
   // Mapeo consistente de tipos de servicio a tipos de proveedor
+  // IMPORTANTE: Normaliza el tipo a minúsculas y sin tildes para coincidir con la DB estandarizada
   const mapearTipoServicioAProveedor = (tipoServicio) => {
+    // Primero intentar mapeo directo para mantener compatibilidad
     const mapa = {
       'Hotel': 'hotel',
       'Restaurante': 'restaurante',
@@ -130,7 +144,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       'Seguro': 'seguro',
       'Otros': 'otros'
     }
-    return mapa[tipoServicio] || tipoServicio.toLowerCase().replace(/[^a-z]/g, '')
+    
+    // Si está en el mapa, usar el valor mapeado (ya normalizado)
+    if (mapa[tipoServicio]) {
+      return mapa[tipoServicio];
+    }
+    
+    // Si no está en el mapa, normalizar directamente: minúsculas + sin tildes
+    return normalizarTipo(tipoServicio);
   }
   
   const crearProveedorInstantaneo = (nombreComercial, tipoServicio, servicioId) => {
