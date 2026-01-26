@@ -38,6 +38,7 @@ const Expedientes = () => {
   const [searchTermExpedientes, setSearchTermExpedientes] = useState('')
 
   const [expedienteForm, setExpedienteForm] = useState({
+    idExpediente: '',
     responsable: '',
     destino: '',
     fechaInicio: '',
@@ -272,9 +273,21 @@ const Expedientes = () => {
 
     // 2. Insertar Expediente con mapeo a cliente_nombre
     try {
+      // Validar que id_expediente esté presente (es obligatorio)
+      if (!expedienteForm.idExpediente || expedienteForm.idExpediente.trim() === '') {
+        alert('⚠️ El Identificador de Expediente es obligatorio');
+        return;
+      }
+
+      // Validar que cliente_nombre esté presente
+      if (!finalNombre || finalNombre.trim() === '') {
+        alert('⚠️ El nombre del cliente es obligatorio');
+        return;
+      }
+
       // Asegurar que todos los campos obligatorios estén presentes y no sean NULL
-      // NOTA: id_expediente NO se incluye en INSERT porque Supabase lo genera automáticamente
       const datosInsertar = {
+        id_expediente: String(expedienteForm.idExpediente.trim()),
         cliente_id: String(finalId || ''),
         cliente_nombre: String(finalNombre || ''),
         fecha_inicio: String(expedienteForm.fechaInicio || ''),
@@ -288,12 +301,6 @@ const Expedientes = () => {
         itinerario: String(expedienteForm.itinerario || ''),
         total_pax: String('')
       };
-
-      // Validar que los campos críticos no estén vacíos
-      if (!datosInsertar.cliente_nombre || datosInsertar.cliente_nombre.trim() === '') {
-        alert('⚠️ El nombre del cliente es obligatorio');
-        return;
-      }
 
       const { data, error } = await supabase
         .from('expedientes')
@@ -520,6 +527,7 @@ const Expedientes = () => {
 
   const resetExpedienteForm = () => {
     setExpedienteForm({
+      idExpediente: '',
       responsable: '',
       destino: '',
       fechaInicio: '',
@@ -946,6 +954,20 @@ const Expedientes = () => {
             </div>
             <form onSubmit={handleExpedienteSubmit} className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="label">Identificador de Expediente *</label>
+                  <input
+                    type="text"
+                    value={expedienteForm.idExpediente}
+                    onChange={(e) => setExpedienteForm({ ...expedienteForm, idExpediente: e.target.value })}
+                    className="input-field"
+                    placeholder="Ej: EXP-2024-001"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    ⚠️ Campo obligatorio. Identificador único del expediente.
+                  </p>
+                </div>
                 <div className="md:col-span-2">
                   <div className="flex justify-between items-center mb-2">
                     <label className="label mb-0">Nombre del Grupo</label>
