@@ -6,10 +6,47 @@ import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraer
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { createClient } from '@supabase/supabase-js'
 
+// Cliente de Supabase usando anon_key (publishable key)
+// NOTA: Esta key requiere políticas RLS (Row Level Security) configuradas en Supabase
+// Si recibes errores 403 o "Permission Denied", verifica las políticas RLS en la tabla
 const supabase = createClient(
   'https://gtwyqxfkpdwpakmgrkbu.supabase.co',
   'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
 )
+
+// Función helper para manejar errores de Supabase, especialmente errores de permisos
+const manejarErrorSupabase = (error, operacion = 'operación') => {
+  if (!error) return null;
+  
+  const errorCode = error.code || error.status || '';
+  const errorMessage = error.message || String(error);
+  
+  // Detectar errores de permisos (RLS)
+  if (
+    errorCode === '42501' || // PostgreSQL: insufficient_privilege
+    errorCode === 'PGRST301' || // PostgREST: Permission denied
+    errorCode === 403 ||
+    errorMessage.includes('Permission denied') ||
+    errorMessage.includes('permission denied') ||
+    errorMessage.includes('new row violates row-level security policy') ||
+    errorMessage.includes('violates row-level security')
+  ) {
+    console.error(`❌ Error de permisos (RLS) en ${operacion}:`, error);
+    return {
+      tipo: 'permisos',
+      mensaje: `🔒 Error de permisos: No tienes permisos para realizar esta ${operacion}. Verifica las políticas RLS en Supabase.`,
+      error: error
+    };
+  }
+  
+  // Otros errores
+  console.error(`❌ Error en ${operacion}:`, error);
+  return {
+    tipo: 'otro',
+    mensaje: `⚠️ Error en ${operacion}: ${errorMessage}`,
+    error: error
+  };
+}
 const ESTADOS = {
   peticion: { label: 'Petición', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', badge: 'bg-yellow-500', cssClass: 'peticion' },
   confirmado: { label: 'Confirmado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500', cssClass: 'confirmado' },
@@ -69,7 +106,12 @@ const Expedientes = () => {
     try {
       const { data, error } = await supabase.from('clientes').select('*')
       if (error) {
-        console.error('Error obteniendo clientes de Supabase:', error)
+        const errorInfo = manejarErrorSupabase(error, 'cargar clientes');
+        if (errorInfo) {
+          console.error(errorInfo.mensaje);
+        } else {
+          console.error('Error obteniendo clientes de Supabase:', error);
+        }
         return []
       }
       setClientes(Array.isArray(data) ? data : [])
@@ -108,9 +150,13 @@ const Expedientes = () => {
         .order('id_expediente', { ascending: false })
 
       if (error) {
-        console.error('Error cargando expedientes:', error)
-        alert('⚠️ Error cargando expedientes desde la nube. Revisa tu conexión.')
-        return
+        const errorInfo = manejarErrorSupabase(error, 'cargar expedientes');
+        if (errorInfo) {
+          alert(errorInfo.mensaje);
+        } else {
+          alert('⚠️ Error cargando expedientes desde la nube. Revisa tu conexión.');
+        }
+        return;
       }
 
       // Parsear campos de Supabase
@@ -240,13 +286,27 @@ const Expedientes = () => {
           const { error } = await supabase
             .from('expedientes')
             .upsert(datosParaSupabase, { onConflict: 'id_expediente' });
-          if (error) console.error('Error en sincronización:', error);
+          if (error) {
+            const errorInfo = manejarErrorSupabase(error, 'sincronizar expediente');
+            if (errorInfo) {
+              console.error(errorInfo.mensaje);
+            } else {
+              console.error('Error en sincronización:', error);
+            }
+          }
         } else {
           // INSERT sin id_expediente - el trigger de Supabase generará el ID automáticamente (formato: EXP. YYYY-XXX)
           const { error } = await supabase
             .from('expedientes')
             .insert([datosParaSupabase]);
-          if (error) console.error('Error en inserción:', error);
+          if (error) {
+            const errorInfo = manejarErrorSupabase(error, 'insertar expediente');
+            if (errorInfo) {
+              console.error(errorInfo.mensaje);
+            } else {
+              console.error('Error en inserción:', error);
+            }
+          }
         }
       }
       storage.set('expedientes', dataToSave);
@@ -264,11 +324,18 @@ const Expedientes = () => {
     // 1. Crear cliente si no existe
     if (!expedienteForm.clienteId && clienteInputValue.trim()) {
       try {
-        const { data, error } = await supabase
-          .from('clientes')
-          .insert([{ nombre: finalNombre, responsable: expedienteForm.responsable || '' }])
-          .select().single();
-        if (error) throw error;
+      const { data, error } = await supabase
+        .from('clientes')
+        .insert([{ nombre: finalNombre, responsable: expedienteForm.responsable || '' }])
+        .select().single();
+        if (error) {
+          const errorInfo = manejarErrorSupabase(error, 'crear cliente');
+          if (errorInfo) {
+            alert(errorInfo.mensaje);
+            return;
+          }
+          throw error;
+        }
         finalId = String(data.id);
         finalNombre = data.nombre;
         await reloadClientes();
@@ -319,7 +386,14 @@ const Expedientes = () => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        const errorInfo = manejarErrorSupabase(error, 'crear expediente');
+        if (errorInfo) {
+          alert(errorInfo.mensaje);
+          return;
+        }
+        throw error;
+      }
 
       // 3. Refrescar la lista completa desde Supabase para mostrar el ID generado por el trigger
       await loadData();
@@ -330,8 +404,13 @@ const Expedientes = () => {
       setShowSuggestions(false);
       alert(`✅ Expediente creado con éxito. ID: ${data.id_expediente}`);
     } catch (err) {
-      console.error('ERROR TÉCNICO:', err);
-      alert('⚠️ No se pudo guardar. Revisa la consola.');
+      const errorInfo = manejarErrorSupabase(err, 'crear expediente');
+      if (errorInfo) {
+        alert(errorInfo.mensaje);
+      } else {
+        console.error('ERROR TÉCNICO:', err);
+        alert('⚠️ No se pudo guardar. Revisa la consola.');
+      }
     }
   }
 
@@ -356,7 +435,14 @@ const Expedientes = () => {
     try {
       // Inserta en Supabase
       const { data, error } = await supabase.from('clientes').insert([newCliente]).select().single()
-      if (error) throw error
+      if (error) {
+        const errorInfo = manejarErrorSupabase(error, 'crear cliente');
+        if (errorInfo) {
+          alert(errorInfo.mensaje);
+          return;
+        }
+        throw error;
+      }
 
       // Actualiza el estado
       await reloadClientes()
@@ -387,7 +473,14 @@ const Expedientes = () => {
           .delete()
           .eq('id_expediente', id)
         
-        if (error) throw error
+        if (error) {
+          const errorInfo = manejarErrorSupabase(error, 'eliminar expediente');
+          if (errorInfo) {
+            alert(errorInfo.mensaje);
+            return;
+          }
+          throw error;
+        }
         
         // Actualizar estado local
         const nuevosExpedientes = expedientes.filter(exp => exp.id !== id)
@@ -435,7 +528,14 @@ const Expedientes = () => {
         .update(expedienteActualizadoParaSupabase)
         .eq('id_expediente', idExpediente)
       
-      if (error) throw error
+      if (error) {
+        const errorInfo = manejarErrorSupabase(error, 'actualizar expediente');
+        if (errorInfo) {
+          alert(errorInfo.mensaje);
+          return;
+        }
+        throw error;
+      }
       
       // Actualizar estado local
       const updated = expedientes.map(exp =>
@@ -457,7 +557,14 @@ const Expedientes = () => {
         .update({ estado: nuevoEstado })
         .eq('id_expediente', id)
       
-      if (error) throw error
+      if (error) {
+        const errorInfo = manejarErrorSupabase(error, 'cambiar estado');
+        if (errorInfo) {
+          alert(errorInfo.mensaje);
+          return;
+        }
+        throw error;
+      }
       
       // Actualizar estado local
       const updated = expedientes.map(exp =>
