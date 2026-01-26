@@ -318,16 +318,16 @@ const Expedientes = () => {
     try {
       // Objeto limpio con solo las claves permitidas - todos los valores como strings
       const datosInsertar = {
-        cliente_id: String(clienteIdParaInsert || ''),
-        cliente_nombre: String(clienteNombreParaInsert || ''),
-        fecha_inicio: String(expedienteForm.fechaInicio || ''),
-        fecha_fin: String(expedienteForm.fechaFin || ''),
-        destino: String(expedienteForm.destino || ''),
-        telefono: String(expedienteForm.telefono || ''),
-        email: String(expedienteForm.email || ''),
-        responsable: String(expedienteForm.responsable || ''),
-        estado: String(expedienteForm.estado || 'peticion'),
-        observaciones: String(expedienteForm.observaciones || ''),
+        cliente_id: String(clienteIdParaInsert ?? ''),
+        cliente_nombr: String(clienteNombreParaInsert ?? ''),
+        fecha_inicio: String(expedienteForm.fechaInicio ?? ''),
+        fecha_fin: String(expedienteForm.fechaFin ?? ''),
+        destino: String(expedienteForm.destino ?? ''),
+        telefono: String(expedienteForm.telefono ?? ''),
+        email: String(expedienteForm.email ?? ''),
+        responsable: String(expedienteForm.responsable ?? ''),
+        estado: String(expedienteForm.estado ?? 'peticion'),
+        observaciones: String(expedienteForm.observaciones ?? ''),
         itinerario: String(''),
         total_pax: String(''),
       }
