@@ -68,7 +68,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const [mostrarSugerencias, setMostrarSugerencias] = useState({}) // { servicioId: true/false }
   
   // Estados para Modal de Nuevo Proveedor
-  const [showModalNuevoProveedor, setShowModalNuevoProveedor] = useState(false)
+  const [isProveedorModalOpen, setIsProveedorModalOpen] = useState(false)
   const [proveedorFormData, setProveedorFormData] = useState({
     nombre_comercial: '',
     tipo: 'hotel',
@@ -232,6 +232,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }
   
   // Abrir modal para crear nuevo proveedor desde la cotización
+  // Eliminada lógica de insert directo - ahora solo abre el modal
   const abrirModalNuevoProveedor = (nombreComercial, tipoServicio, servicioId) => {
     const nombreLimpio = nombreComercial.trim()
     
@@ -243,9 +244,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     // Mapear tipo de servicio a tipo de proveedor
     const tipoProveedor = mapearTipoServicioAProveedor(tipoServicio)
     
-    // Pre-llenar el formulario con el nombre y tipo
+    // Pre-llenar el formulario con el nombre escrito como valor inicial
     setProveedorFormData({
-      nombre_comercial: nombreLimpio,
+      nombre_comercial: nombreLimpio, // Valor inicial del nombre escrito
       tipo: tipoProveedor,
       cif: '',
       persona_contacto: '',
@@ -263,8 +264,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     setServicioIdParaProveedor(servicioId)
     setTipoServicioParaProveedor(tipoServicio)
     
-    // Abrir el modal
-    setShowModalNuevoProveedor(true)
+    // Abrir el modal usando setIsProveedorModalOpen
+    setIsProveedorModalOpen(true)
   }
   
   // Guardar nuevo proveedor en Supabase y seleccionarlo automáticamente
@@ -316,7 +317,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }
       
       // Cerrar el modal y resetear el formulario
-      setShowModalNuevoProveedor(false)
+      setIsProveedorModalOpen(false)
       setProveedorFormData({
         nombre_comercial: '',
         tipo: 'hotel',
@@ -344,7 +345,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   // Cerrar modal de nuevo proveedor
   const cerrarModalNuevoProveedor = () => {
-    setShowModalNuevoProveedor(false)
+    setIsProveedorModalOpen(false)
     setProveedorFormData({
       nombre_comercial: '',
       tipo: 'hotel',
@@ -1737,9 +1738,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         </div>
         
         {/* Modal para crear nuevo proveedor desde la cotización */}
-        {showModalNuevoProveedor && (
-          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-6 text-left">
-            <div className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] overflow-y-auto shadow-2xl p-12 border-4 border-slate-900">
+        {isProveedorModalOpen && (
+          <div 
+            className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[9999] p-6 text-left"
+            onClick={(e) => {
+              // Cerrar modal si se hace clic fuera del contenido
+              if (e.target === e.currentTarget) {
+                cerrarModalNuevoProveedor()
+              }
+            }}
+          >
+            <div 
+              className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] overflow-y-auto shadow-2xl p-12 border-4 border-slate-900"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="flex justify-between items-center mb-10">
                 <h2 className="text-4xl font-[1000] italic uppercase tracking-tighter text-slate-900">
                   Nuevo Proveedor
