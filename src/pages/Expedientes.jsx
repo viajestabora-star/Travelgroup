@@ -328,8 +328,8 @@ const Expedientes = () => {
         responsable: String(expedienteForm.responsable ?? ''),
         estado: String(expedienteForm.estado ?? 'peticion'),
         observaciones: String(expedienteForm.observaciones ?? ''),
-        itinerario: String(''),
-        total_pax: String(''),
+        itinerario: '',
+        total_pax: ''
       }
       
       const { data, error } = await supabase
