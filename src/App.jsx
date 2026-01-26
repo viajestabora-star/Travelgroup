@@ -9,6 +9,7 @@ import Planning from './pages/Planning';
 import CRM from './pages/CRM';
 import Cierres from './pages/Cierres';
 import NotasTrabajo from './pages/NotasTrabajo'; // NUEVA PÁGINA
+import Composer from './pages/Composer';
 
 const USUARIOS_AUTORIZADOS = {
   'andres@viajestabora.com': { nombre: 'Andrés', rol: 'ADMIN' },
@@ -69,6 +70,7 @@ function App() {
           <Route path="planning" element={<Planning user={user} />} />
           <Route path="crm" element={<CRM user={user} />} />
           <Route path="notas" element={<NotasTrabajo user={user} />} /> {/* RUTA AÑADIDA */}
+          <Route path="composer" element={<Composer user={user} />} />
           <Route path="cierres" element={<Cierres user={user} />} />
         </Route>
       </Routes>

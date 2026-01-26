@@ -10,7 +10,8 @@ import {
   Menu, 
   X, 
   Plane, 
-  Truck 
+  Truck,
+  Edit3
 } from 'lucide-react'
 
 const Layout = () => {
@@ -25,6 +26,7 @@ const Layout = () => {
     { path: '/proveedores', icon: Truck, label: 'Proveedores' },
     { path: '/planning', icon: Calendar, label: `Planning ${ejercicioActual}` },
     { path: '/crm', icon: Plane, label: 'CRM / Captación' },
+    { path: '/composer', icon: Edit3, label: 'Composer' },
     { path: '/cierres', icon: Calculator, label: 'Cierres' }
   ]
 
