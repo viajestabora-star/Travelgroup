@@ -67,26 +67,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const [busquedaProveedor, setBusquedaProveedor] = useState({}) // { servicioId: 'texto búsqueda' }
   const [mostrarSugerencias, setMostrarSugerencias] = useState({}) // { servicioId: true/false }
   
-  // Estados para Modal de Nuevo Proveedor
-  const [isProveedorModalOpen, setIsProveedorModalOpen] = useState(false)
-  const [proveedorFormData, setProveedorFormData] = useState({
-    nombre_comercial: '',
-    tipo: 'hotel',
-    cif: '',
-    persona_contacto: '',
-    telefono: '',
-    email: '',
-    movil: '',
-    direccion: '',
-    poblacion: '',
-    provincia: '',
-    iban: '',
-    observaciones: ''
-  })
-  const [servicioIdParaProveedor, setServicioIdParaProveedor] = useState(null) // ID del servicio que está añadiendo el proveedor
-  const [tipoServicioParaProveedor, setTipoServicioParaProveedor] = useState(null) // Tipo de servicio para pre-llenar el tipo
+  // Estado para Modal de Nuevo Proveedor (simplificado)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [nombreProveedorInicial, setNombreProveedorInicial] = useState('')
+  const [tipoProveedorInicial, setTipoProveedorInicial] = useState('hotel')
+  const [servicioIdParaProveedor, setServicioIdParaProveedor] = useState(null)
   
-  // Cargar proveedores desde Supabase al montar
+  // Cargar proveedores desde Supabase al montar - RECUPERAR CARGA
   useEffect(() => {
     const cargarProveedores = async () => {
       try {
@@ -96,21 +83,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           .order('nombre_comercial', { ascending: true });
         
         if (error) {
-          // Fallback a localStorage si hay error
-          const proveedoresGuardados = storage.get('proveedores') || []
-          setProveedores(proveedoresGuardados);
-          return;
+          console.error('Error cargando proveedores:', error)
+          setProveedores([])
+          return
         }
         
         if (!data || !Array.isArray(data)) {
-          const proveedoresGuardados = storage.get('proveedores') || []
-          setProveedores(proveedoresGuardados);
-          return;
-        }
-        
-        if (data.length === 0) {
-          setProveedores([]);
-          return;
+          setProveedores([])
+          return
         }
         
         // Mapear campos de Supabase a formato interno
@@ -126,15 +106,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           cif: p.cif || ''
         }));
         
-        setProveedores(proveedoresMapeados);
-        
-        // También guardar en localStorage como backup
-        storage.set('proveedores', proveedoresMapeados);
+        setProveedores(proveedoresMapeados)
+        storage.set('proveedores', proveedoresMapeados)
         
       } catch (error) {
-        // Fallback a localStorage
-        const proveedoresGuardados = storage.get('proveedores') || []
-        setProveedores(proveedoresGuardados);
+        console.error('Error fatal cargando proveedores:', error)
+        setProveedores([])
       }
     };
     
@@ -231,137 +208,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     return normalizarTipo(tipoServicio);
   }
   
-  // Abrir modal para crear nuevo proveedor desde la cotización
-  // Eliminada lógica de insert directo - ahora solo abre el modal
-  const abrirModalNuevoProveedor = (nombreComercial, tipoServicio, servicioId) => {
-    const nombreLimpio = nombreComercial.trim()
+  // Función para abrir modal - SOLO abre el modal, NADA MÁS
+  const abrirModalProveedor = (nombreComercial, tipoServicio, servicioId) => {
+    const nombreLimpio = nombreComercial?.trim() || ''
+    const tipoProveedor = tipoServicio ? mapearTipoServicioAProveedor(tipoServicio) : 'hotel'
     
-    if (!nombreLimpio) {
-      alert('⚠️ El nombre del proveedor no puede estar vacío')
-      return
-    }
-    
-    // Mapear tipo de servicio a tipo de proveedor
-    const tipoProveedor = mapearTipoServicioAProveedor(tipoServicio)
-    
-    // Pre-llenar el formulario con el nombre escrito como valor inicial
-    setProveedorFormData({
-      nombre_comercial: nombreLimpio, // Valor inicial del nombre escrito
-      tipo: tipoProveedor,
-      cif: '',
-      persona_contacto: '',
-      telefono: '',
-      email: '',
-      movil: '',
-      direccion: '',
-      poblacion: '',
-      provincia: '',
-      iban: '',
-      observaciones: ''
-    })
-    
-    // Guardar el servicioId y tipoServicio para después seleccionar automáticamente
+    setNombreProveedorInicial(nombreLimpio)
+    setTipoProveedorInicial(tipoProveedor)
     setServicioIdParaProveedor(servicioId)
-    setTipoServicioParaProveedor(tipoServicio)
-    
-    // Abrir el modal usando setIsProveedorModalOpen
-    setIsProveedorModalOpen(true)
-  }
-  
-  // Guardar nuevo proveedor en Supabase y seleccionarlo automáticamente
-  const guardarNuevoProveedor = async (e) => {
-    e.preventDefault()
-    
-    try {
-      // Normalizar el tipo antes de guardar
-      const datosParaGuardar = {
-        ...proveedorFormData,
-        tipo: normalizarTipo(proveedorFormData.tipo)
-      }
-      
-      // Insertar en Supabase
-      const { data: nuevoProveedor, error } = await supabase
-        .from('proveedores')
-        .insert([datosParaGuardar])
-        .select()
-        .single()
-      
-      if (error) {
-        alert('Error al guardar proveedor: ' + error.message)
-        return
-      }
-      
-      // Mapear el proveedor de Supabase al formato interno
-      const proveedorMapeado = {
-        id: nuevoProveedor.id,
-        nombreComercial: nuevoProveedor.nombre_comercial || nuevoProveedor.nombreComercial || '',
-        nombreFiscal: nuevoProveedor.nombre_fiscal || nuevoProveedor.nombreFiscal || nuevoProveedor.nombre_comercial || '',
-        tipo: nuevoProveedor.tipo || '',
-        telefono: nuevoProveedor.telefono || nuevoProveedor.movil || '',
-        email: nuevoProveedor.email || '',
-        direccion: nuevoProveedor.direccion || '',
-        poblacion: nuevoProveedor.poblacion || '',
-        cif: nuevoProveedor.cif || ''
-      }
-      
-      // Actualizar la lista de proveedores
-      const proveedoresActualizados = [...proveedores, proveedorMapeado]
-      setProveedores(proveedoresActualizados)
-      storage.set('proveedores', proveedoresActualizados)
-      
-      // Seleccionar automáticamente el proveedor en la fila de la cotización
-      if (servicioIdParaProveedor) {
-        actualizarServicio(servicioIdParaProveedor, 'proveedorId', nuevoProveedor.id)
-        setBusquedaProveedor({ ...busquedaProveedor, [servicioIdParaProveedor]: proveedorMapeado.nombreComercial })
-        setMostrarSugerencias({ ...mostrarSugerencias, [servicioIdParaProveedor]: false })
-      }
-      
-      // Cerrar el modal y resetear el formulario
-      setIsProveedorModalOpen(false)
-      setProveedorFormData({
-        nombre_comercial: '',
-        tipo: 'hotel',
-        cif: '',
-        persona_contacto: '',
-        telefono: '',
-        email: '',
-        movil: '',
-        direccion: '',
-        poblacion: '',
-        provincia: '',
-        iban: '',
-        observaciones: ''
-      })
-      setServicioIdParaProveedor(null)
-      setTipoServicioParaProveedor(null)
-      
-      alert('✅ Proveedor creado y seleccionado correctamente')
-      
-    } catch (error) {
-      console.error('Error al guardar proveedor:', error)
-      alert('Error al guardar proveedor. Revisa la consola.')
-    }
-  }
-  
-  // Cerrar modal de nuevo proveedor
-  const cerrarModalNuevoProveedor = () => {
-    setIsProveedorModalOpen(false)
-    setProveedorFormData({
-      nombre_comercial: '',
-      tipo: 'hotel',
-      cif: '',
-      persona_contacto: '',
-      telefono: '',
-      email: '',
-      movil: '',
-      direccion: '',
-      poblacion: '',
-      provincia: '',
-      iban: '',
-      observaciones: ''
-    })
-    setServicioIdParaProveedor(null)
-    setTipoServicioParaProveedor(null)
+    setIsModalOpen(true)
   }
   
   const obtenerProveedorPorId = (id) => {
@@ -1158,30 +1013,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                       setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
                                     }}
                                     onKeyDown={(e) => {
-                                      // Si presiona Enter y hay texto, abrir modal en lugar de crear directamente
+                                      // Si presiona Enter y hay texto, abrir modal
                                       if (e.key === 'Enter' && busquedaProveedor[servicio.id]?.trim()) {
                                         e.preventDefault()
-                                        const inputValue = busquedaProveedor[servicio.id].trim()
-                                        if (inputValue) {
-                                          // NO crear directamente - solo abrir modal
-                                          setProveedorFormData({
-                                            nombre_comercial: inputValue,
-                                            tipo: mapearTipoServicioAProveedor(servicio.tipo),
-                                            cif: '',
-                                            persona_contacto: '',
-                                            telefono: '',
-                                            email: '',
-                                            movil: '',
-                                            direccion: '',
-                                            poblacion: '',
-                                            provincia: '',
-                                            iban: '',
-                                            observaciones: ''
-                                          })
-                                          setServicioIdParaProveedor(servicio.id)
-                                          setTipoServicioParaProveedor(servicio.tipo)
-                                          setIsProveedorModalOpen(true)
-                                        }
+                                        abrirModalProveedor(
+                                          busquedaProveedor[servicio.id],
+                                          servicio.tipo,
+                                          servicio.id
+                                        )
                                       }
                                     }}
                                     onFocus={() => {
@@ -1289,27 +1128,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                             {textoBusqueda && !yaExiste && (
                                               <button
                                                 onClick={() => {
-                                                  const inputValue = busquedaProveedor[servicio.id]?.trim() || ''
-                                                  // NO crear directamente en Supabase - solo abrir modal
-                                                  if (inputValue) {
-                                                    setProveedorFormData({
-                                                      nombre_comercial: inputValue,
-                                                      tipo: mapearTipoServicioAProveedor(servicio.tipo),
-                                                      cif: '',
-                                                      persona_contacto: '',
-                                                      telefono: '',
-                                                      email: '',
-                                                      movil: '',
-                                                      direccion: '',
-                                                      poblacion: '',
-                                                      provincia: '',
-                                                      iban: '',
-                                                      observaciones: ''
-                                                    })
-                                                    setServicioIdParaProveedor(servicio.id)
-                                                    setTipoServicioParaProveedor(servicio.tipo)
-                                                    setIsProveedorModalOpen(true)
-                                                  }
+                                                  // EL BOTÓN: Solo abre el modal, NADA MÁS
+                                                  abrirModalProveedor(
+                                                    busquedaProveedor[servicio.id],
+                                                    servicio.tipo,
+                                                    servicio.id
+                                                  )
                                                 }}
                                                 className="w-full text-left px-3 py-3 text-xs bg-green-50 hover:bg-green-100 text-green-800 font-bold border-t-2 border-green-300 flex items-center gap-2"
                                               >
@@ -1781,188 +1605,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           </div>
         </div>
         
-        {/* Modal para crear nuevo proveedor desde la cotización */}
-        {isProveedorModalOpen && (
-          <div 
-            className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[9999] p-6 text-left"
-            onClick={(e) => {
-              // Cerrar modal si se hace clic fuera del contenido
-              if (e.target === e.currentTarget) {
-                cerrarModalNuevoProveedor()
-              }
-            }}
-          >
-            <div 
-              className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] overflow-y-auto shadow-2xl p-12 border-4 border-slate-900"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex justify-between items-center mb-10">
-                <h2 className="text-4xl font-[1000] italic uppercase tracking-tighter text-slate-900">
-                  Nuevo Proveedor
-                </h2>
-                <button 
-                  onClick={cerrarModalNuevoProveedor} 
-                  className="p-4 bg-slate-100 rounded-full hover:bg-red-500 hover:text-white transition-all"
-                >
-                  <X size={32}/>
-                </button>
-              </div>
+        {/* Renderizado del Modal al final del JSX */}
+        {isModalOpen && (
+          <ProveedorFormModal 
+            onClose={() => setIsModalOpen(false)}
+            nombreInicial={nombreProveedorInicial}
+            tipoInicial={tipoProveedorInicial}
+            servicioId={servicioIdParaProveedor}
+            onProveedorCreado={(nuevoProveedor) => {
+              // Actualizar lista de proveedores
+              const proveedoresActualizados = [...proveedores, nuevoProveedor]
+              setProveedores(proveedoresActualizados)
+              storage.set('proveedores', proveedoresActualizados)
               
-              <form onSubmit={guardarNuevoProveedor} className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                    Nombre Comercial *
-                  </label>
-                  <input 
-                    required 
-                    className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-blue-100" 
-                    value={proveedorFormData.nombre_comercial} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, nombre_comercial: e.target.value})} 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                    Servicio
-                  </label>
-                  <select 
-                    className="w-full p-6 bg-slate-50 rounded-2xl font-black text-lg border-none" 
-                    value={proveedorFormData.tipo} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, tipo: e.target.value})}
-                  >
-                    <option value="hotel">HOTEL</option>
-                    <option value="restaurante">RESTAURANTE</option>
-                    <option value="autobus">AUTOBÚS</option>
-                    <option value="guia">GUÍA</option>
-                    <option value="guialocal">GUÍA LOCAL</option>
-                    <option value="entradas">TICKETS</option>
-                    <option value="seguro">SEGURO</option>
-                    <option value="otros">OTRO</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Persona Contacto
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                    value={proveedorFormData.persona_contacto} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, persona_contacto: e.target.value})} 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Email Reservas
-                  </label>
-                  <input 
-                    type="email" 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                    value={proveedorFormData.email} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, email: e.target.value})} 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Móvil WhatsApp
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                    value={proveedorFormData.movil} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, movil: e.target.value})} 
-                  />
-                </div>
-
-                <div className="md:col-span-3 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Dirección
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                    value={proveedorFormData.direccion} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, direccion: e.target.value})} 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Población
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                    value={proveedorFormData.poblacion} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, poblacion: e.target.value})} 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Provincia
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                    value={proveedorFormData.provincia} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, provincia: e.target.value})} 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    CIF
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                    value={proveedorFormData.cif} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, cif: e.target.value})} 
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Teléfono
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                    value={proveedorFormData.telefono} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, telefono: e.target.value})} 
-                  />
-                </div>
-                <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    IBAN
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none" 
-                    value={proveedorFormData.iban} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, iban: e.target.value})} 
-                  />
-                </div>
-
-                <div className="md:col-span-3 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Observaciones
-                  </label>
-                  <textarea 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none min-h-[100px]" 
-                    value={proveedorFormData.observaciones} 
-                    onChange={e => setProveedorFormData({...proveedorFormData, observaciones: e.target.value})} 
-                  />
-                </div>
-
-                <div className="md:col-span-3 flex gap-4 pt-10">
-                  <button 
-                    type="submit" 
-                    className="flex-[2] bg-slate-900 text-white py-8 rounded-[2rem] font-black italic uppercase text-2xl tracking-tighter shadow-2xl hover:bg-blue-600 transition-all"
-                  >
-                    Guardar y Seleccionar
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={cerrarModalNuevoProveedor} 
-                    className="flex-1 bg-slate-100 text-slate-400 py-8 rounded-[2rem] font-black uppercase italic"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
+              // Seleccionar automáticamente en la fila
+              if (servicioIdParaProveedor) {
+                actualizarServicio(servicioIdParaProveedor, 'proveedorId', nuevoProveedor.id)
+                setBusquedaProveedor({ ...busquedaProveedor, [servicioIdParaProveedor]: nuevoProveedor.nombreComercial })
+                setMostrarSugerencias({ ...mostrarSugerencias, [servicioIdParaProveedor]: false })
+              }
+              
+              setIsModalOpen(false)
+            }}
+          />
         )}
         
       </div>
@@ -1982,6 +1647,260 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     </div>
   )
   }
+}
+
+// Componente ProveedorFormModal - Simple para pruebas
+const ProveedorFormModal = ({ onClose, nombreInicial = '', tipoInicial = 'hotel', servicioId, onProveedorCreado }) => {
+  const [formData, setFormData] = useState({
+    nombre_comercial: nombreInicial,
+    tipo: tipoInicial,
+    cif: '',
+    persona_contacto: '',
+    telefono: '',
+    email: '',
+    movil: '',
+    direccion: '',
+    poblacion: '',
+    provincia: '',
+    iban: '',
+    observaciones: ''
+  })
+
+  const normalizarTipo = (tipo) => {
+    if (!tipo) return '';
+    return tipo
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    
+    try {
+      const datosParaGuardar = {
+        ...formData,
+        tipo: normalizarTipo(formData.tipo)
+      }
+      
+      const { data: nuevoProveedor, error } = await supabase
+        .from('proveedores')
+        .insert([datosParaGuardar])
+        .select()
+        .single()
+      
+      if (error) {
+        alert('Error al guardar proveedor: ' + error.message)
+        return
+      }
+      
+      // Mapear el proveedor de Supabase al formato interno
+      const proveedorMapeado = {
+        id: nuevoProveedor.id,
+        nombreComercial: nuevoProveedor.nombre_comercial || nuevoProveedor.nombreComercial || '',
+        nombreFiscal: nuevoProveedor.nombre_fiscal || nuevoProveedor.nombreFiscal || nuevoProveedor.nombre_comercial || '',
+        tipo: nuevoProveedor.tipo || '',
+        telefono: nuevoProveedor.telefono || nuevoProveedor.movil || '',
+        email: nuevoProveedor.email || '',
+        direccion: nuevoProveedor.direccion || '',
+        poblacion: nuevoProveedor.poblacion || '',
+        cif: nuevoProveedor.cif || ''
+      }
+      
+      if (onProveedorCreado) {
+        onProveedorCreado(proveedorMapeado)
+      }
+      
+      alert('✅ Proveedor creado correctamente')
+      
+    } catch (error) {
+      console.error('Error al guardar proveedor:', error)
+      alert('Error al guardar proveedor. Revisa la consola.')
+    }
+  }
+
+  return (
+    <div 
+      className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[9999] p-6 text-left"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose()
+        }
+      }}
+    >
+      <div 
+        className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] overflow-y-auto shadow-2xl p-12 border-4 border-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-center mb-10">
+          <h2 className="text-4xl font-[1000] italic uppercase tracking-tighter text-slate-900">
+            Nuevo Proveedor
+          </h2>
+          <button 
+            onClick={onClose} 
+            className="p-4 bg-slate-100 rounded-full hover:bg-red-500 hover:text-white transition-all"
+          >
+            <X size={32}/>
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="md:col-span-2 space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
+              Nombre Comercial *
+            </label>
+            <input 
+              required 
+              className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-blue-100" 
+              value={formData.nombre_comercial} 
+              onChange={e => setFormData({...formData, nombre_comercial: e.target.value})} 
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
+              Servicio
+            </label>
+            <select 
+              className="w-full p-6 bg-slate-50 rounded-2xl font-black text-lg border-none" 
+              value={formData.tipo} 
+              onChange={e => setFormData({...formData, tipo: e.target.value})}
+            >
+              <option value="hotel">HOTEL</option>
+              <option value="restaurante">RESTAURANTE</option>
+              <option value="autobus">AUTOBÚS</option>
+              <option value="guia">GUÍA</option>
+              <option value="guialocal">GUÍA LOCAL</option>
+              <option value="entradas">TICKETS</option>
+              <option value="seguro">SEGURO</option>
+              <option value="otros">OTRO</option>
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase">
+              Persona Contacto
+            </label>
+            <input 
+              className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+              value={formData.persona_contacto} 
+              onChange={e => setFormData({...formData, persona_contacto: e.target.value})} 
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase">
+              Email Reservas
+            </label>
+            <input 
+              type="email" 
+              className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+              value={formData.email} 
+              onChange={e => setFormData({...formData, email: e.target.value})} 
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase">
+              Móvil WhatsApp
+            </label>
+            <input 
+              className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+              value={formData.movil} 
+              onChange={e => setFormData({...formData, movil: e.target.value})} 
+            />
+          </div>
+
+          <div className="md:col-span-3 space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase">
+              Dirección
+            </label>
+            <input 
+              className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+              value={formData.direccion} 
+              onChange={e => setFormData({...formData, direccion: e.target.value})} 
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase">
+              Población
+            </label>
+            <input 
+              className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+              value={formData.poblacion} 
+              onChange={e => setFormData({...formData, poblacion: e.target.value})} 
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase">
+              Provincia
+            </label>
+            <input 
+              className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+              value={formData.provincia} 
+              onChange={e => setFormData({...formData, provincia: e.target.value})} 
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase">
+              CIF
+            </label>
+            <input 
+              className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+              value={formData.cif} 
+              onChange={e => setFormData({...formData, cif: e.target.value})} 
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase">
+              Teléfono
+            </label>
+            <input 
+              className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+              value={formData.telefono} 
+              onChange={e => setFormData({...formData, telefono: e.target.value})} 
+            />
+          </div>
+          <div className="md:col-span-2 space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase">
+              IBAN
+            </label>
+            <input 
+              className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none" 
+              value={formData.iban} 
+              onChange={e => setFormData({...formData, iban: e.target.value})} 
+            />
+          </div>
+
+          <div className="md:col-span-3 space-y-2">
+            <label className="text-xs font-black text-slate-400 uppercase">
+              Observaciones
+            </label>
+            <textarea 
+              className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none min-h-[100px]" 
+              value={formData.observaciones} 
+              onChange={e => setFormData({...formData, observaciones: e.target.value})} 
+            />
+          </div>
+
+          <div className="md:col-span-3 flex gap-4 pt-10">
+            <button 
+              type="submit" 
+              className="flex-[2] bg-slate-900 text-white py-8 rounded-[2rem] font-black italic uppercase text-2xl tracking-tighter shadow-2xl hover:bg-blue-600 transition-all"
+            >
+              Guardar y Seleccionar
+            </button>
+            <button 
+              type="button" 
+              onClick={onClose} 
+              className="flex-1 bg-slate-100 text-slate-400 py-8 rounded-[2rem] font-black uppercase italic"
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
 
 export default ExpedienteDetalle
