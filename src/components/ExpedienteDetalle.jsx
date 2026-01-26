@@ -67,60 +67,48 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const [busquedaProveedor, setBusquedaProveedor] = useState({}) // { servicioId: 'texto búsqueda' }
   const [mostrarSugerencias, setMostrarSugerencias] = useState({}) // { servicioId: true/false }
   
+  // Estados para Modal de Nuevo Proveedor
+  const [showModalNuevoProveedor, setShowModalNuevoProveedor] = useState(false)
+  const [proveedorFormData, setProveedorFormData] = useState({
+    nombre_comercial: '',
+    tipo: 'hotel',
+    cif: '',
+    persona_contacto: '',
+    telefono: '',
+    email: '',
+    movil: '',
+    direccion: '',
+    poblacion: '',
+    provincia: '',
+    iban: '',
+    observaciones: ''
+  })
+  const [servicioIdParaProveedor, setServicioIdParaProveedor] = useState(null) // ID del servicio que está añadiendo el proveedor
+  const [tipoServicioParaProveedor, setTipoServicioParaProveedor] = useState(null) // Tipo de servicio para pre-llenar el tipo
+  
   // Cargar proveedores desde Supabase al montar
   useEffect(() => {
     const cargarProveedores = async () => {
       try {
-        console.log('🔄 Cargando proveedores desde Supabase...');
-        
         const { data, error } = await supabase
           .from('proveedores')
           .select('*')
           .order('nombre_comercial', { ascending: true });
         
-        // LOG DETALLADO PARA DIAGNÓSTICO
-        console.log('📊 RESPUESTA DE SUPABASE:', {
-          data: data,
-          error: error,
-          tieneData: !!data,
-          esArray: Array.isArray(data),
-          longitud: data?.length || 0,
-          codigoError: error?.code,
-          mensajeError: error?.message,
-          statusError: error?.status,
-          detallesError: error
-        });
-        
         if (error) {
-          console.error('❌ ERROR DE SUPABASE:', {
-            code: error.code,
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            status: error.status
-          });
-          
-          // Si es error 403, es problema de permisos RLS
-          if (error.code === '42501' || error.code === 'PGRST301' || error.status === 403) {
-            console.error('🔒 ERROR DE PERMISOS (RLS): Verifica las políticas RLS en Supabase para la tabla proveedores');
-          }
-          
           // Fallback a localStorage si hay error
           const proveedoresGuardados = storage.get('proveedores') || []
-          console.log('📦 Usando proveedores de localStorage como fallback:', proveedoresGuardados.length);
           setProveedores(proveedoresGuardados);
           return;
         }
         
         if (!data || !Array.isArray(data)) {
-          console.warn('⚠️ Supabase devolvió datos inválidos:', data);
           const proveedoresGuardados = storage.get('proveedores') || []
           setProveedores(proveedoresGuardados);
           return;
         }
         
         if (data.length === 0) {
-          console.log('ℹ️ Supabase devolvió un array vacío. No hay proveedores en la base de datos.');
           setProveedores([]);
           return;
         }
@@ -138,19 +126,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           cif: p.cif || ''
         }));
         
-        console.log('✅ Proveedores cargados exitosamente:', {
-          total: proveedoresMapeados.length,
-          tipos: [...new Set(proveedoresMapeados.map(p => p.tipo))],
-          primeros3: proveedoresMapeados.slice(0, 3).map(p => ({ nombre: p.nombreComercial, tipo: p.tipo }))
-        });
-        
         setProveedores(proveedoresMapeados);
         
         // También guardar en localStorage como backup
         storage.set('proveedores', proveedoresMapeados);
         
       } catch (error) {
-        console.error('❌ Error fatal cargando proveedores:', error);
         // Fallback a localStorage
         const proveedoresGuardados = storage.get('proveedores') || []
         setProveedores(proveedoresGuardados);
@@ -250,54 +231,136 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     return normalizarTipo(tipoServicio);
   }
   
-  const crearProveedorInstantaneo = (nombreComercial, tipoServicio, servicioId) => {
+  // Abrir modal para crear nuevo proveedor desde la cotización
+  const abrirModalNuevoProveedor = (nombreComercial, tipoServicio, servicioId) => {
     const nombreLimpio = nombreComercial.trim()
     
     if (!nombreLimpio) {
       alert('⚠️ El nombre del proveedor no puede estar vacío')
-      return null
+      return
     }
     
     // Mapear tipo de servicio a tipo de proveedor
     const tipoProveedor = mapearTipoServicioAProveedor(tipoServicio)
     
-    // Verificar si ya existe
-    const existe = proveedores.find(
-      p => p.nombreComercial.toLowerCase() === nombreLimpio.toLowerCase() && 
-           p.tipo === tipoProveedor
-    )
-    
-    if (existe) {
-      console.log('ℹ️ Proveedor ya existe, usando existente:', existe.nombreComercial)
-      return existe.id
-    }
-    
-    // Crear nuevo proveedor
-    const proveedorNuevo = {
-      id: Date.now(),
-      nombreComercial: nombreLimpio,
-      nombreFiscal: nombreLimpio,
+    // Pre-llenar el formulario con el nombre y tipo
+    setProveedorFormData({
+      nombre_comercial: nombreLimpio,
       tipo: tipoProveedor,
+      cif: '',
+      persona_contacto: '',
       telefono: '',
       email: '',
+      movil: '',
       direccion: '',
       poblacion: '',
-      cif: '',
-    }
-    
-    const proveedoresActualizados = [...proveedores, proveedorNuevo]
-    setProveedores(proveedoresActualizados)
-    storage.set('proveedores', proveedoresActualizados)
-    
-    console.log('✅ Proveedor creado exitosamente:', {
-      nombre: nombreLimpio,
-      tipo: tipoProveedor,
-      id: proveedorNuevo.id
+      provincia: '',
+      iban: '',
+      observaciones: ''
     })
     
-    alert(`✅ Proveedor "${nombreLimpio}" creado como ${tipoServicio}`)
+    // Guardar el servicioId y tipoServicio para después seleccionar automáticamente
+    setServicioIdParaProveedor(servicioId)
+    setTipoServicioParaProveedor(tipoServicio)
     
-    return proveedorNuevo.id
+    // Abrir el modal
+    setShowModalNuevoProveedor(true)
+  }
+  
+  // Guardar nuevo proveedor en Supabase y seleccionarlo automáticamente
+  const guardarNuevoProveedor = async (e) => {
+    e.preventDefault()
+    
+    try {
+      // Normalizar el tipo antes de guardar
+      const datosParaGuardar = {
+        ...proveedorFormData,
+        tipo: normalizarTipo(proveedorFormData.tipo)
+      }
+      
+      // Insertar en Supabase
+      const { data: nuevoProveedor, error } = await supabase
+        .from('proveedores')
+        .insert([datosParaGuardar])
+        .select()
+        .single()
+      
+      if (error) {
+        alert('Error al guardar proveedor: ' + error.message)
+        return
+      }
+      
+      // Mapear el proveedor de Supabase al formato interno
+      const proveedorMapeado = {
+        id: nuevoProveedor.id,
+        nombreComercial: nuevoProveedor.nombre_comercial || nuevoProveedor.nombreComercial || '',
+        nombreFiscal: nuevoProveedor.nombre_fiscal || nuevoProveedor.nombreFiscal || nuevoProveedor.nombre_comercial || '',
+        tipo: nuevoProveedor.tipo || '',
+        telefono: nuevoProveedor.telefono || nuevoProveedor.movil || '',
+        email: nuevoProveedor.email || '',
+        direccion: nuevoProveedor.direccion || '',
+        poblacion: nuevoProveedor.poblacion || '',
+        cif: nuevoProveedor.cif || ''
+      }
+      
+      // Actualizar la lista de proveedores
+      const proveedoresActualizados = [...proveedores, proveedorMapeado]
+      setProveedores(proveedoresActualizados)
+      storage.set('proveedores', proveedoresActualizados)
+      
+      // Seleccionar automáticamente el proveedor en la fila de la cotización
+      if (servicioIdParaProveedor) {
+        actualizarServicio(servicioIdParaProveedor, 'proveedorId', nuevoProveedor.id)
+        setBusquedaProveedor({ ...busquedaProveedor, [servicioIdParaProveedor]: proveedorMapeado.nombreComercial })
+        setMostrarSugerencias({ ...mostrarSugerencias, [servicioIdParaProveedor]: false })
+      }
+      
+      // Cerrar el modal y resetear el formulario
+      setShowModalNuevoProveedor(false)
+      setProveedorFormData({
+        nombre_comercial: '',
+        tipo: 'hotel',
+        cif: '',
+        persona_contacto: '',
+        telefono: '',
+        email: '',
+        movil: '',
+        direccion: '',
+        poblacion: '',
+        provincia: '',
+        iban: '',
+        observaciones: ''
+      })
+      setServicioIdParaProveedor(null)
+      setTipoServicioParaProveedor(null)
+      
+      alert('✅ Proveedor creado y seleccionado correctamente')
+      
+    } catch (error) {
+      console.error('Error al guardar proveedor:', error)
+      alert('Error al guardar proveedor. Revisa la consola.')
+    }
+  }
+  
+  // Cerrar modal de nuevo proveedor
+  const cerrarModalNuevoProveedor = () => {
+    setShowModalNuevoProveedor(false)
+    setProveedorFormData({
+      nombre_comercial: '',
+      tipo: 'hotel',
+      cif: '',
+      persona_contacto: '',
+      telefono: '',
+      email: '',
+      movil: '',
+      direccion: '',
+      poblacion: '',
+      provincia: '',
+      iban: '',
+      observaciones: ''
+    })
+    setServicioIdParaProveedor(null)
+    setTipoServicioParaProveedor(null)
   }
   
   const obtenerProveedorPorId = (id) => {
@@ -340,10 +403,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   const calcularCotizacion = () => {
     try {
-      // LOG: Debugging para verificar reactividad
-      console.log('🔄 Recalculando cotización...', {
-        numServicios: servicios.length,
-        totalPasajeros: numTotalPasajeros,
         gratuidades: numGratuidades,
         precioVenta: precioVentaManual
       })
@@ -495,7 +554,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         gratuidades: parseInt(numGratuidades) || 0,
       }
     } catch (error) {
-      console.error('Error en cálculo de cotización:', error)
       return {
         costeBusPorPax: '0.00',
         costeGuiaPorPax: '0.00',
@@ -896,8 +954,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           // Convertir a formato español DD/MM/AAAA para guardar
                           const fechaEspañola = convertirISOAEspañol(fechaISO)
                           
-                          console.log('✅ Fecha de Inicio cambiada:', fechaISO, '→', fechaEspañola)
-                          
                           const expedienteActualizado = { 
                             ...expediente, 
                             fechaInicio: fechaEspañola // Guardar en formato español
@@ -927,8 +983,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           
                           // Convertir a formato español DD/MM/AAAA para guardar
                           const fechaEspañola = convertirISOAEspañol(fechaISO)
-                          
-                          console.log('✅ Fecha de Fin cambiada:', fechaISO, '→', fechaEspañola)
                           
                           const expedienteActualizado = { 
                             ...expediente, 
@@ -1135,13 +1189,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                         const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
                                         const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase()
                                         
-                                        console.log('🔍 Buscando proveedores:', {
-                                          tipoServicio: servicio.tipo,
-                                          tipoProveedor: tipoProveedorBuscado,
-                                          textoBusqueda,
-                                          totalProveedores: proveedores.length
-                                        })
-                                        
                                         // ============ COMBOBOX: MOSTRAR TODOS O FILTRADOS ============
                                         // COMPARACIÓN ROBUSTA: Normalizar ambos lados para evitar problemas de formato
                                         const proveedoresFiltrados = proveedores
@@ -1149,18 +1196,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                             // Normalizar ambos tipos para comparación robusta
                                             const tipoProveedorNormalizado = normalizarText(p.tipo);
                                             const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado);
-                                            
-                                            // Log de debugging para ver por qué no coinciden
-                                            if (proveedores.indexOf(p) < 3) { // Solo log de los primeros 3 para no saturar
-                                              console.log('🔍 Comparando:', {
-                                                proveedor: p.nombreComercial,
-                                                tipoProveedor: p.tipo,
-                                                tipoProveedorNormalizado: tipoProveedorNormalizado,
-                                                tipoBuscado: tipoProveedorBuscado,
-                                                tipoBuscadoNormalizado: tipoBuscadoNormalizado,
-                                                coinciden: tipoProveedorNormalizado === tipoBuscadoNormalizado
-                                              });
-                                            }
                                             
                                             const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado
                                             
@@ -1172,13 +1207,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                             return coincideTipo && coincideNombre
                                           })
                                           .sort((a, b) => a.nombreComercial.localeCompare(b.nombreComercial))
-                                        
-                                        console.log('📊 Proveedores filtrados:', proveedoresFiltrados.length, {
-                                          tipoBuscado: tipoProveedorBuscado,
-                                          tipoBuscadoNormalizado: normalizarText(tipoProveedorBuscado),
-                                          totalProveedores: proveedores.length,
-                                          tiposEnProveedores: [...new Set(proveedores.map(p => `${p.tipo} (normalizado: ${normalizarText(p.tipo)})`))]
-                                        })
                                         
                                         const yaExiste = proveedoresFiltrados.some(
                                           p => p.nombreComercial.toLowerCase() === textoBusqueda
@@ -1218,7 +1246,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                                   actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
                                                   setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
                                                   setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
-                                                  console.log('✅ Proveedor seleccionado:', proveedor.nombreComercial)
                                                 }}
                                                 className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100"
                                               >
@@ -1233,16 +1260,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                             {textoBusqueda && !yaExiste && (
                                               <button
                                                 onClick={() => {
-                                                  console.log('🆕 Creando proveedor:', busquedaProveedor[servicio.id])
-                                                  const nuevoId = crearProveedorInstantaneo(
+                                                  abrirModalNuevoProveedor(
                                                     busquedaProveedor[servicio.id],
                                                     servicio.tipo,
                                                     servicio.id
                                                   )
-                                                  if (nuevoId) {
-                                                    actualizarServicio(servicio.id, 'proveedorId', nuevoId)
-                                                    setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
-                                                  }
                                                 }}
                                                 className="w-full text-left px-3 py-3 text-xs bg-green-50 hover:bg-green-100 text-green-800 font-bold border-t-2 border-green-300 flex items-center gap-2"
                                               >
@@ -1713,6 +1735,179 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             
           </div>
         </div>
+        
+        {/* Modal para crear nuevo proveedor desde la cotización */}
+        {showModalNuevoProveedor && (
+          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-6 text-left">
+            <div className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] overflow-y-auto shadow-2xl p-12 border-4 border-slate-900">
+              <div className="flex justify-between items-center mb-10">
+                <h2 className="text-4xl font-[1000] italic uppercase tracking-tighter text-slate-900">
+                  Nuevo Proveedor
+                </h2>
+                <button 
+                  onClick={cerrarModalNuevoProveedor} 
+                  className="p-4 bg-slate-100 rounded-full hover:bg-red-500 hover:text-white transition-all"
+                >
+                  <X size={32}/>
+                </button>
+              </div>
+              
+              <form onSubmit={guardarNuevoProveedor} className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="md:col-span-2 space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                    Nombre Comercial *
+                  </label>
+                  <input 
+                    required 
+                    className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                    value={proveedorFormData.nombre_comercial} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, nombre_comercial: e.target.value})} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                    Servicio
+                  </label>
+                  <select 
+                    className="w-full p-6 bg-slate-50 rounded-2xl font-black text-lg border-none" 
+                    value={proveedorFormData.tipo} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, tipo: e.target.value})}
+                  >
+                    <option value="hotel">HOTEL</option>
+                    <option value="restaurante">RESTAURANTE</option>
+                    <option value="autobus">AUTOBÚS</option>
+                    <option value="guia">GUÍA</option>
+                    <option value="guialocal">GUÍA LOCAL</option>
+                    <option value="entradas">TICKETS</option>
+                    <option value="seguro">SEGURO</option>
+                    <option value="otros">OTRO</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Persona Contacto
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                    value={proveedorFormData.persona_contacto} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, persona_contacto: e.target.value})} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Email Reservas
+                  </label>
+                  <input 
+                    type="email" 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                    value={proveedorFormData.email} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, email: e.target.value})} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Móvil WhatsApp
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                    value={proveedorFormData.movil} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, movil: e.target.value})} 
+                  />
+                </div>
+
+                <div className="md:col-span-3 space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Dirección
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                    value={proveedorFormData.direccion} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, direccion: e.target.value})} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Población
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                    value={proveedorFormData.poblacion} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, poblacion: e.target.value})} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Provincia
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                    value={proveedorFormData.provincia} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, provincia: e.target.value})} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    CIF
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                    value={proveedorFormData.cif} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, cif: e.target.value})} 
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Teléfono
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                    value={proveedorFormData.telefono} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, telefono: e.target.value})} 
+                  />
+                </div>
+                <div className="md:col-span-2 space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    IBAN
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none" 
+                    value={proveedorFormData.iban} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, iban: e.target.value})} 
+                  />
+                </div>
+
+                <div className="md:col-span-3 space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Observaciones
+                  </label>
+                  <textarea 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none min-h-[100px]" 
+                    value={proveedorFormData.observaciones} 
+                    onChange={e => setProveedorFormData({...proveedorFormData, observaciones: e.target.value})} 
+                  />
+                </div>
+
+                <div className="md:col-span-3 flex gap-4 pt-10">
+                  <button 
+                    type="submit" 
+                    className="flex-[2] bg-slate-900 text-white py-8 rounded-[2rem] font-black italic uppercase text-2xl tracking-tighter shadow-2xl hover:bg-blue-600 transition-all"
+                  >
+                    Guardar y Seleccionar
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={cerrarModalNuevoProveedor} 
+                    className="flex-1 bg-slate-100 text-slate-400 py-8 rounded-[2rem] font-black uppercase italic"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
         
       </div>
     )

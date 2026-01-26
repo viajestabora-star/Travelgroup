@@ -422,17 +422,7 @@ const Expedientes = () => {
       // VERIFICACIÓN EXPLÍCITA: Asegurar que id_expediente NO esté en el objeto
       if ('id_expediente' in datosInsertar) {
         delete datosInsertar.id_expediente;
-        console.warn('⚠️ id_expediente fue eliminado del objeto de inserción');
       }
-
-      console.log('📤 Objeto a insertar en Supabase:', datosInsertar);
-      console.log('✅ Confirmado: id_expediente NO está en el objeto');
-      console.log('📅 Fechas convertidas a ISO:', {
-        fecha_inicio: datosInsertar.fecha_inicio,
-        fecha_fin: datosInsertar.fecha_fin,
-        original_inicio: expedienteForm.fechaInicio,
-        original_fin: expedienteForm.fechaFin
-      });
 
       // Insertar sin id_expediente - el trigger de Supabase lo generará automáticamente
       const { data, error } = await supabase
