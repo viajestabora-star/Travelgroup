@@ -1153,8 +1153,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                         : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')
                                     }
                                     onChange={(e) => {
-                                      setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: e.target.value })
+                                      const inputValue = e.target.value
+                                      setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue })
                                       setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
+                                    }}
+                                    onKeyDown={(e) => {
+                                      // Si presiona Enter y hay texto, abrir modal en lugar de crear directamente
+                                      if (e.key === 'Enter' && busquedaProveedor[servicio.id]?.trim()) {
+                                        e.preventDefault()
+                                        const inputValue = busquedaProveedor[servicio.id].trim()
+                                        if (inputValue) {
+                                          // NO crear directamente - solo abrir modal
+                                          setProveedorFormData({
+                                            nombre_comercial: inputValue,
+                                            tipo: mapearTipoServicioAProveedor(servicio.tipo),
+                                            cif: '',
+                                            persona_contacto: '',
+                                            telefono: '',
+                                            email: '',
+                                            movil: '',
+                                            direccion: '',
+                                            poblacion: '',
+                                            provincia: '',
+                                            iban: '',
+                                            observaciones: ''
+                                          })
+                                          setServicioIdParaProveedor(servicio.id)
+                                          setTipoServicioParaProveedor(servicio.tipo)
+                                          setIsProveedorModalOpen(true)
+                                        }
+                                      }
                                     }}
                                     onFocus={() => {
                                       // ============ COMBOBOX: MOSTRAR TODOS AL HACER CLIC ============
@@ -1261,11 +1289,27 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                             {textoBusqueda && !yaExiste && (
                                               <button
                                                 onClick={() => {
-                                                  abrirModalNuevoProveedor(
-                                                    busquedaProveedor[servicio.id],
-                                                    servicio.tipo,
-                                                    servicio.id
-                                                  )
+                                                  const inputValue = busquedaProveedor[servicio.id]?.trim() || ''
+                                                  // NO crear directamente en Supabase - solo abrir modal
+                                                  if (inputValue) {
+                                                    setProveedorFormData({
+                                                      nombre_comercial: inputValue,
+                                                      tipo: mapearTipoServicioAProveedor(servicio.tipo),
+                                                      cif: '',
+                                                      persona_contacto: '',
+                                                      telefono: '',
+                                                      email: '',
+                                                      movil: '',
+                                                      direccion: '',
+                                                      poblacion: '',
+                                                      provincia: '',
+                                                      iban: '',
+                                                      observaciones: ''
+                                                    })
+                                                    setServicioIdParaProveedor(servicio.id)
+                                                    setTipoServicioParaProveedor(servicio.tipo)
+                                                    setIsProveedorModalOpen(true)
+                                                  }
                                                 }}
                                                 className="w-full text-left px-3 py-3 text-xs bg-green-50 hover:bg-green-100 text-green-800 font-bold border-t-2 border-green-300 flex items-center gap-2"
                                               >
