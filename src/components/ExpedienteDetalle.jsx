@@ -2,6 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
+import { createClient } from '@supabase/supabase-js'
+
+// Cliente de Supabase para cargar proveedores
+const supabase = createClient(
+  'https://gtwyqxfkpdwpakmgrkbu.supabase.co',
+  'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
+)
 
 // Función helper para normalizar tipos: minúsculas + sin tildes
 // Ejemplo: 'Autobús' -> 'autobus', 'Restaurante' -> 'restaurante'
@@ -48,20 +55,97 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const [busquedaProveedor, setBusquedaProveedor] = useState({}) // { servicioId: 'texto búsqueda' }
   const [mostrarSugerencias, setMostrarSugerencias] = useState({}) // { servicioId: true/false }
   
-  // Cargar proveedores al montar
+  // Cargar proveedores desde Supabase al montar
   useEffect(() => {
-    try {
-      const proveedoresGuardados = storage.get('proveedores') || []
-      console.log('📦 Proveedores cargados:', {
-        total: proveedoresGuardados.length,
-        tipos: [...new Set(proveedoresGuardados.map(p => p.tipo))],
-        lista: proveedoresGuardados.map(p => ({ nombre: p.nombreComercial, tipo: p.tipo }))
-      })
-      setProveedores(proveedoresGuardados)
-    } catch (error) {
-      console.error('❌ Error cargando proveedores:', error)
-      setProveedores([])
-    }
+    const cargarProveedores = async () => {
+      try {
+        console.log('🔄 Cargando proveedores desde Supabase...');
+        
+        const { data, error } = await supabase
+          .from('proveedores')
+          .select('*')
+          .order('nombre_comercial', { ascending: true });
+        
+        // LOG DETALLADO PARA DIAGNÓSTICO
+        console.log('📊 RESPUESTA DE SUPABASE:', {
+          data: data,
+          error: error,
+          tieneData: !!data,
+          esArray: Array.isArray(data),
+          longitud: data?.length || 0,
+          codigoError: error?.code,
+          mensajeError: error?.message,
+          statusError: error?.status,
+          detallesError: error
+        });
+        
+        if (error) {
+          console.error('❌ ERROR DE SUPABASE:', {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            status: error.status
+          });
+          
+          // Si es error 403, es problema de permisos RLS
+          if (error.code === '42501' || error.code === 'PGRST301' || error.status === 403) {
+            console.error('🔒 ERROR DE PERMISOS (RLS): Verifica las políticas RLS en Supabase para la tabla proveedores');
+          }
+          
+          // Fallback a localStorage si hay error
+          const proveedoresGuardados = storage.get('proveedores') || []
+          console.log('📦 Usando proveedores de localStorage como fallback:', proveedoresGuardados.length);
+          setProveedores(proveedoresGuardados);
+          return;
+        }
+        
+        if (!data || !Array.isArray(data)) {
+          console.warn('⚠️ Supabase devolvió datos inválidos:', data);
+          const proveedoresGuardados = storage.get('proveedores') || []
+          setProveedores(proveedoresGuardados);
+          return;
+        }
+        
+        if (data.length === 0) {
+          console.log('ℹ️ Supabase devolvió un array vacío. No hay proveedores en la base de datos.');
+          setProveedores([]);
+          return;
+        }
+        
+        // Mapear campos de Supabase a formato interno
+        const proveedoresMapeados = data.map(p => ({
+          id: p.id,
+          nombreComercial: p.nombre_comercial || p.nombreComercial || '',
+          nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
+          tipo: p.tipo || '',
+          telefono: p.telefono || p.movil || '',
+          email: p.email || '',
+          direccion: p.direccion || '',
+          poblacion: p.poblacion || '',
+          cif: p.cif || ''
+        }));
+        
+        console.log('✅ Proveedores cargados exitosamente:', {
+          total: proveedoresMapeados.length,
+          tipos: [...new Set(proveedoresMapeados.map(p => p.tipo))],
+          primeros3: proveedoresMapeados.slice(0, 3).map(p => ({ nombre: p.nombreComercial, tipo: p.tipo }))
+        });
+        
+        setProveedores(proveedoresMapeados);
+        
+        // También guardar en localStorage como backup
+        storage.set('proveedores', proveedoresMapeados);
+        
+      } catch (error) {
+        console.error('❌ Error fatal cargando proveedores:', error);
+        // Fallback a localStorage
+        const proveedoresGuardados = storage.get('proveedores') || []
+        setProveedores(proveedoresGuardados);
+      }
+    };
+    
+    cargarProveedores();
   }, [])
   
   // Cerrar sugerencias al hacer clic fuera
