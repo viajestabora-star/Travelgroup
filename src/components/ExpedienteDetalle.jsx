@@ -69,8 +69,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   // Estado para Modal de Nuevo Proveedor (simplificado)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [nombreProveedorInicial, setNombreProveedorInicial] = useState('')
-  const [tipoProveedorInicial, setTipoProveedorInicial] = useState('hotel')
+  const [nombreNuevoProveedor, setNombreNuevoProveedor] = useState('')
+  const [tipoNuevoProveedor, setTipoNuevoProveedor] = useState('hotel')
   const [servicioIdParaProveedor, setServicioIdParaProveedor] = useState(null)
   
   // Cargar proveedores desde Supabase al montar - RECUPERAR CARGA
@@ -209,12 +209,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }
   
   // Función para abrir modal - SOLO abre el modal, NADA MÁS
-  const abrirModalProveedor = (nombreComercial, tipoServicio, servicioId) => {
-    const nombreLimpio = nombreComercial?.trim() || ''
-    const tipoProveedor = tipoServicio ? mapearTipoServicioAProveedor(tipoServicio) : 'hotel'
+  // NO hace insert, solo configura valores y abre modal
+  const abrirModalProveedor = (inputValue, tipoServicioActual, servicioId) => {
+    const nombreLimpio = inputValue?.trim() || ''
+    const tipoProveedor = tipoServicioActual ? mapearTipoServicioAProveedor(tipoServicioActual) : 'hotel'
     
-    setNombreProveedorInicial(nombreLimpio)
-    setTipoProveedorInicial(tipoProveedor)
+    // FLUJO CORRECTO: Solo configurar valores y abrir modal
+    setNombreNuevoProveedor(nombreLimpio)
+    setTipoNuevoProveedor(tipoProveedor)
     setServicioIdParaProveedor(servicioId)
     setIsModalOpen(true)
   }
@@ -1605,12 +1607,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           </div>
         </div>
         
-        {/* Renderizado del Modal al final del JSX */}
+        {/* Renderizado del Modal al final del JSX - Solo se activa cuando isModalOpen es verdadero */}
         {isModalOpen && (
           <ProveedorFormModal 
             onClose={() => setIsModalOpen(false)}
-            nombreInicial={nombreProveedorInicial}
-            tipoInicial={tipoProveedorInicial}
+            nombreInicial={nombreNuevoProveedor}
+            tipoInicial={tipoNuevoProveedor}
             servicioId={servicioIdParaProveedor}
             onProveedorCreado={(nuevoProveedor) => {
               // Actualizar lista de proveedores
