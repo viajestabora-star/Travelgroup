@@ -14,6 +14,50 @@ const supabase = createClient(
   'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
 )
 
+// Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
+// Esta función se usa SOLO al guardar datos en Supabase
+// El formato visual DD/MM/YYYY se mantiene en inputs y tablas para el usuario
+// Acepta fechas en formato DD/MM/YYYY o YYYY-MM-DD y siempre devuelve YYYY-MM-DD
+const convertirFechaAISO = (fecha) => {
+  if (!fecha || fecha.trim() === '') return '';
+  
+  // Si ya está en formato YYYY-MM-DD, devolverlo tal cual
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fecha.trim())) {
+    return fecha.trim();
+  }
+  
+  // Si está en formato DD/MM/YYYY, convertir a YYYY-MM-DD
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(fecha.trim())) {
+    try {
+      const [dia, mes, año] = fecha.trim().split('/');
+      return `${año}-${mes}-${dia}`;
+    } catch (error) {
+      console.error('Error convirtiendo fecha:', fecha, error);
+      return '';
+    }
+  }
+  
+  // Intentar parsear como Date y convertir a ISO
+  try {
+    const fechaDate = new Date(fecha);
+    if (!isNaN(fechaDate.getTime())) {
+      return fechaDate.toISOString().split('T')[0];
+    }
+  } catch (error) {
+    console.error('Error parseando fecha:', fecha, error);
+  }
+  
+  // Si no se puede convertir, intentar usar la función existente
+  try {
+    const fechaISO = convertirEspañolAISO(fecha);
+    if (fechaISO) return fechaISO;
+  } catch (error) {
+    console.error('Error usando convertirEspañolAISO:', fecha, error);
+  }
+  
+  return '';
+}
+
 // Función helper para manejar errores de Supabase, especialmente errores de permisos
 const manejarErrorSupabase = (error, operacion = 'operación') => {
   if (!error) return null;
@@ -264,11 +308,12 @@ const Expedientes = () => {
           : '';
         
         // Preparar datos para Supabase
+        // IMPORTANTE: Las fechas deben estar en formato YYYY-MM-DD para Supabase
         const datosParaSupabase = {
           cliente_id: String(expediente.cliente_id || expediente.clienteId || ''),
           cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
-          fecha_inicio: String(expediente.fecha_inicio || expediente.fechaInicio || ''),
-          fecha_fin: String(expediente.fecha_fin || expediente.fechaFin || ''),
+          fecha_inicio: convertirFechaAISO(expediente.fecha_inicio || expediente.fechaInicio || ''),
+          fecha_fin: convertirFechaAISO(expediente.fecha_fin || expediente.fechaFin || ''),
           destino: String(expediente.destino || ''),
           telefono: String(expediente.telefono || ''),
           email: String(expediente.email || ''),
@@ -355,11 +400,15 @@ const Expedientes = () => {
 
       // Asegurar que todos los campos obligatorios estén presentes y no sean NULL
       // NOTA: id_expediente NO se incluye porque Supabase lo genera automáticamente mediante trigger (formato: EXP. YYYY-XXX)
+      // 
+      // CONVERSIÓN DE FECHAS: El usuario ve y edita fechas en formato DD/MM/YYYY (formato visual)
+      // Justo antes de enviar a Supabase, convertimos a YYYY-MM-DD (formato requerido por Supabase)
+      // Esto corrige el error "date/time field value out of range" sin cambiar la experiencia visual
       const datosInsertar = {
         cliente_id: String(finalId || ''),
         cliente_nombre: String(finalNombre || ''),
-        fecha_inicio: String(expedienteForm.fechaInicio || ''),
-        fecha_fin: String(expedienteForm.fechaFin || ''),
+        fecha_inicio: convertirFechaAISO(expedienteForm.fechaInicio || ''), // Convierte DD/MM/YYYY → YYYY-MM-DD
+        fecha_fin: convertirFechaAISO(expedienteForm.fechaFin || ''), // Convierte DD/MM/YYYY → YYYY-MM-DD
         destino: String(expedienteForm.destino || ''),
         telefono: String(expedienteForm.telefono || ''),
         email: String(expedienteForm.email || ''),
@@ -378,6 +427,12 @@ const Expedientes = () => {
 
       console.log('📤 Objeto a insertar en Supabase:', datosInsertar);
       console.log('✅ Confirmado: id_expediente NO está en el objeto');
+      console.log('📅 Fechas convertidas a ISO:', {
+        fecha_inicio: datosInsertar.fecha_inicio,
+        fecha_fin: datosInsertar.fecha_fin,
+        original_inicio: expedienteForm.fechaInicio,
+        original_fin: expedienteForm.fechaFin
+      });
 
       // Insertar sin id_expediente - el trigger de Supabase lo generará automáticamente
       const { data, error } = await supabase
@@ -508,11 +563,12 @@ const Expedientes = () => {
       }
       
       // Objeto exacto para Supabase - Asegurar que todos los campos obligatorios estén presentes y no sean NULL
+      // IMPORTANTE: Las fechas deben estar en formato YYYY-MM-DD para Supabase
       const expedienteActualizadoParaSupabase = {
         cliente_id: String(expedienteActualizado.cliente_id || expedienteActualizado.clienteId || ''),
         cliente_nombre: String(expedienteActualizado.cliente_nombre || expedienteActualizado.clienteNombre || ''),
-        fecha_inicio: String(expedienteActualizado.fecha_inicio || expedienteActualizado.fechaInicio || ''),
-        fecha_fin: String(expedienteActualizado.fecha_fin || expedienteActualizado.fechaFin || ''),
+        fecha_inicio: convertirFechaAISO(expedienteActualizado.fecha_inicio || expedienteActualizado.fechaInicio || ''),
+        fecha_fin: convertirFechaAISO(expedienteActualizado.fecha_fin || expedienteActualizado.fechaFin || ''),
         destino: String(expedienteActualizado.destino || ''),
         telefono: String(expedienteActualizado.telefono || ''),
         email: String(expedienteActualizado.email || ''),
