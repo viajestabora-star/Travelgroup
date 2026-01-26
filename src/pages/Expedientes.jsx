@@ -38,7 +38,6 @@ const Expedientes = () => {
   const [searchTermExpedientes, setSearchTermExpedientes] = useState('')
 
   const [expedienteForm, setExpedienteForm] = useState({
-    idExpediente: '',
     responsable: '',
     destino: '',
     fechaInicio: '',
@@ -214,32 +213,40 @@ const Expedientes = () => {
       const dataToSave = Array.isArray(data) ? data : [];
       for (const expediente of dataToSave) {
         const idExpediente = expediente.id_expediente || expediente.id;
+        let totalPaxTexto = expediente.cotizacion?.resultados?.totalPasajeros 
+          ? String(expediente.cotizacion.resultados.totalPasajeros) 
+          : '';
+        
+        // Preparar datos para Supabase
+        const datosParaSupabase = {
+          cliente_id: String(expediente.cliente_id || expediente.clienteId || ''),
+          cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
+          fecha_inicio: String(expediente.fecha_inicio || expediente.fechaInicio || ''),
+          fecha_fin: String(expediente.fecha_fin || expediente.fechaFin || ''),
+          destino: String(expediente.destino || ''),
+          telefono: String(expediente.telefono || ''),
+          email: String(expediente.email || ''),
+          responsable: String(expediente.responsable || ''),
+          estado: String(expediente.estado || 'peticion'),
+          observaciones: String(expediente.observaciones || ''),
+          itinerario: String(expediente.itinerario || ''),
+          total_pax: String(totalPaxTexto)
+        };
+        
+        // Si tiene id_expediente, es un UPDATE (upsert)
+        // Si no tiene id_expediente, es un INSERT (el trigger de Supabase generará el ID automáticamente: EXP. YYYY-XXX)
         if (idExpediente) {
-          let totalPaxTexto = expediente.cotizacion?.resultados?.totalPasajeros 
-            ? String(expediente.cotizacion.resultados.totalPasajeros) 
-            : '';
-          
-          // Asegurar que todos los campos obligatorios estén presentes y no sean NULL
-          const datosParaSupabase = {
-            id_expediente: idExpediente,
-            cliente_id: String(expediente.cliente_id || expediente.clienteId || ''),
-            cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
-            fecha_inicio: String(expediente.fecha_inicio || expediente.fechaInicio || ''),
-            fecha_fin: String(expediente.fecha_fin || expediente.fechaFin || ''),
-            destino: String(expediente.destino || ''),
-            telefono: String(expediente.telefono || ''),
-            email: String(expediente.email || ''),
-            responsable: String(expediente.responsable || ''),
-            estado: String(expediente.estado || 'peticion'),
-            observaciones: String(expediente.observaciones || ''),
-            itinerario: String(expediente.itinerario || ''),
-            total_pax: String(totalPaxTexto)
-          };
-          
+          datosParaSupabase.id_expediente = idExpediente;
           const { error } = await supabase
             .from('expedientes')
             .upsert(datosParaSupabase, { onConflict: 'id_expediente' });
           if (error) console.error('Error en sincronización:', error);
+        } else {
+          // INSERT sin id_expediente - el trigger de Supabase generará el ID automáticamente (formato: EXP. YYYY-XXX)
+          const { error } = await supabase
+            .from('expedientes')
+            .insert([datosParaSupabase]);
+          if (error) console.error('Error en inserción:', error);
         }
       }
       storage.set('expedientes', dataToSave);
@@ -273,12 +280,6 @@ const Expedientes = () => {
 
     // 2. Insertar Expediente con mapeo a cliente_nombre
     try {
-      // Validar que id_expediente esté presente (es obligatorio)
-      if (!expedienteForm.idExpediente || expedienteForm.idExpediente.trim() === '') {
-        alert('⚠️ El Identificador de Expediente es obligatorio');
-        return;
-      }
-
       // Validar que cliente_nombre esté presente
       if (!finalNombre || finalNombre.trim() === '') {
         alert('⚠️ El nombre del cliente es obligatorio');
@@ -286,8 +287,8 @@ const Expedientes = () => {
       }
 
       // Asegurar que todos los campos obligatorios estén presentes y no sean NULL
+      // NOTA: id_expediente NO se incluye porque Supabase lo genera automáticamente mediante trigger (formato: EXP. YYYY-XXX)
       const datosInsertar = {
-        id_expediente: String(expedienteForm.idExpediente.trim()),
         cliente_id: String(finalId || ''),
         cliente_nombre: String(finalNombre || ''),
         fecha_inicio: String(expedienteForm.fechaInicio || ''),
@@ -302,6 +303,16 @@ const Expedientes = () => {
         total_pax: String('')
       };
 
+      // VERIFICACIÓN EXPLÍCITA: Asegurar que id_expediente NO esté en el objeto
+      if ('id_expediente' in datosInsertar) {
+        delete datosInsertar.id_expediente;
+        console.warn('⚠️ id_expediente fue eliminado del objeto de inserción');
+      }
+
+      console.log('📤 Objeto a insertar en Supabase:', datosInsertar);
+      console.log('✅ Confirmado: id_expediente NO está en el objeto');
+
+      // Insertar sin id_expediente - el trigger de Supabase lo generará automáticamente
       const { data, error } = await supabase
         .from('expedientes')
         .insert([datosInsertar])
@@ -310,24 +321,14 @@ const Expedientes = () => {
 
       if (error) throw error;
 
-      // 3. Actualizar estado local
-      const expedienteLocal = { 
-        ...datosInsertar, 
-        id: data.id_expediente, 
-        id_expediente: data.id_expediente,
-        clienteNombre: finalNombre,
-        fechaInicio: datosInsertar.fecha_inicio,
-        fechaFin: datosInsertar.fecha_fin
-      };
-      
-      setExpedientes(prev => [expedienteLocal, ...prev]);
-      storage.set('expedientes', [expedienteLocal, ...expedientes]);
+      // 3. Refrescar la lista completa desde Supabase para mostrar el ID generado por el trigger
+      await loadData();
       
       setShowExpedienteModal(false);
       resetExpedienteForm();
       setClienteInputValue('');
       setShowSuggestions(false);
-      alert('✅ Expediente creado con éxito');
+      alert(`✅ Expediente creado con éxito. ID: ${data.id_expediente}`);
     } catch (err) {
       console.error('ERROR TÉCNICO:', err);
       alert('⚠️ No se pudo guardar. Revisa la consola.');
@@ -527,7 +528,6 @@ const Expedientes = () => {
 
   const resetExpedienteForm = () => {
     setExpedienteForm({
-      idExpediente: '',
       responsable: '',
       destino: '',
       fechaInicio: '',
@@ -954,20 +954,6 @@ const Expedientes = () => {
             </div>
             <form onSubmit={handleExpedienteSubmit} className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="label">Identificador de Expediente *</label>
-                  <input
-                    type="text"
-                    value={expedienteForm.idExpediente}
-                    onChange={(e) => setExpedienteForm({ ...expedienteForm, idExpediente: e.target.value })}
-                    className="input-field"
-                    placeholder="Ej: EXP-2024-001"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    ⚠️ Campo obligatorio. Identificador único del expediente.
-                  </p>
-                </div>
                 <div className="md:col-span-2">
                   <div className="flex justify-between items-center mb-2">
                     <label className="label mb-0">Nombre del Grupo</label>
