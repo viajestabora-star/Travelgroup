@@ -48,6 +48,7 @@ const Expedientes = () => {
     email: '',
     estado: 'peticion',
     observaciones: '',
+    itinerario: '',
   })
 
   const [clienteForm, setClienteForm] = useState({
@@ -211,28 +212,32 @@ const Expedientes = () => {
     try {
       const dataToSave = Array.isArray(data) ? data : [];
       for (const expediente of dataToSave) {
-        if (expediente.id) {
+        const idExpediente = expediente.id_expediente || expediente.id;
+        if (idExpediente) {
           let totalPaxTexto = expediente.cotizacion?.resultados?.totalPasajeros 
             ? String(expediente.cotizacion.resultados.totalPasajeros) 
             : '';
           
+          // Asegurar que todos los campos obligatorios estén presentes y no sean NULL
+          const datosParaSupabase = {
+            id_expediente: idExpediente,
+            cliente_id: String(expediente.cliente_id || expediente.clienteId || ''),
+            cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
+            fecha_inicio: String(expediente.fecha_inicio || expediente.fechaInicio || ''),
+            fecha_fin: String(expediente.fecha_fin || expediente.fechaFin || ''),
+            destino: String(expediente.destino || ''),
+            telefono: String(expediente.telefono || ''),
+            email: String(expediente.email || ''),
+            responsable: String(expediente.responsable || ''),
+            estado: String(expediente.estado || 'peticion'),
+            observaciones: String(expediente.observaciones || ''),
+            itinerario: String(expediente.itinerario || ''),
+            total_pax: String(totalPaxTexto)
+          };
+          
           const { error } = await supabase
             .from('expedientes')
-            .upsert({
-              id_expediente: expediente.id_expediente || expediente.id,
-              cliente_id: String(expediente.cliente_id || expediente.clienteId || ''),
-              cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
-              fecha_inicio: String(expediente.fecha_inicio || expediente.fechaInicio || ''),
-              fecha_fin: String(expediente.fecha_fin || expediente.fechaFin || ''),
-              destino: String(expediente.destino || ''),
-              telefono: String(expediente.telefono || ''),
-              email: String(expediente.email || ''),
-              responsable: String(expediente.responsable || ''),
-              estado: String(expediente.estado || 'peticion'),
-              observaciones: String(expediente.observaciones || ''),
-              itinerario: String(expediente.itinerario || ''),
-              total_pax: String(totalPaxTexto)
-            }, { onConflict: 'id_expediente' });
+            .upsert(datosParaSupabase, { onConflict: 'id_expediente' });
           if (error) console.error('Error en sincronización:', error);
         }
       }
@@ -267,9 +272,11 @@ const Expedientes = () => {
 
     // 2. Insertar Expediente con mapeo a cliente_nombre
     try {
+      // Asegurar que todos los campos obligatorios estén presentes y no sean NULL
+      // NOTA: id_expediente NO se incluye en INSERT porque Supabase lo genera automáticamente
       const datosInsertar = {
-        cliente_id: String(finalId),
-        cliente_nombre: String(finalNombre),
+        cliente_id: String(finalId || ''),
+        cliente_nombre: String(finalNombre || ''),
         fecha_inicio: String(expedienteForm.fechaInicio || ''),
         fecha_fin: String(expedienteForm.fechaFin || ''),
         destino: String(expedienteForm.destino || ''),
@@ -278,9 +285,15 @@ const Expedientes = () => {
         responsable: String(expedienteForm.responsable || ''),
         estado: String(expedienteForm.estado || 'peticion'),
         observaciones: String(expedienteForm.observaciones || ''),
-        itinerario: String(''),
+        itinerario: String(expedienteForm.itinerario || ''),
         total_pax: String('')
       };
+
+      // Validar que los campos críticos no estén vacíos
+      if (!datosInsertar.cliente_nombre || datosInsertar.cliente_nombre.trim() === '') {
+        alert('⚠️ El nombre del cliente es obligatorio');
+        return;
+      }
 
       const { data, error } = await supabase
         .from('expedientes')
@@ -388,7 +401,12 @@ const Expedientes = () => {
         totalPaxTexto = String(expedienteActualizado.cotizacion.resultados.totalPasajeros)
       }
       
-      // Objeto exacto para Supabase - SOLO estos campos
+      const idExpediente = expedienteActualizado.id_expediente || expedienteActualizado.id;
+      if (!idExpediente) {
+        throw new Error('id_expediente es requerido para actualizar');
+      }
+      
+      // Objeto exacto para Supabase - Asegurar que todos los campos obligatorios estén presentes y no sean NULL
       const expedienteActualizadoParaSupabase = {
         cliente_id: String(expedienteActualizado.cliente_id || expedienteActualizado.clienteId || ''),
         cliente_nombre: String(expedienteActualizado.cliente_nombre || expedienteActualizado.clienteNombre || ''),
@@ -407,7 +425,7 @@ const Expedientes = () => {
       const { error } = await supabase
         .from('expedientes')
         .update(expedienteActualizadoParaSupabase)
-        .eq('id_expediente', expedienteActualizado.id_expediente || expedienteActualizado.id)
+        .eq('id_expediente', idExpediente)
       
       if (error) throw error
       
@@ -512,6 +530,7 @@ const Expedientes = () => {
       email: '',
       estado: 'peticion',
       observaciones: '',
+      itinerario: '',
     })
     setClienteInputValue('')
     setShowSuggestions(false)
@@ -1094,6 +1113,16 @@ const Expedientes = () => {
                     onChange={(e) => setExpedienteForm({ ...expedienteForm, observaciones: e.target.value })}
                     className="input-field"
                     rows="3"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="label">Itinerario</label>
+                  <textarea
+                    value={expedienteForm.itinerario}
+                    onChange={(e) => setExpedienteForm({ ...expedienteForm, itinerario: e.target.value })}
+                    className="input-field"
+                    rows="3"
+                    placeholder="Descripción del itinerario del viaje..."
                   />
                 </div>
               </div>
