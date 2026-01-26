@@ -22,6 +22,18 @@ const normalizarTipo = (tipo) => {
     .trim();
 }
 
+// Función helper para normalizar texto: minúsculas + sin tildes (uso general)
+// Usada para comparaciones robustas en filtros
+const normalizarText = (text) => {
+  if (!text) return '';
+  
+  return String(text)
+    .toLowerCase()
+    .normalize('NFD') // Normaliza caracteres con tildes
+    .replace(/[\u0300-\u036f]/g, '') // Elimina diacríticos (tildes)
+    .trim();
+}
+
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => {
   // ⚠️ BLINDAJE NIVEL 1: Verificar que expediente existe
   if (!expediente) {
@@ -1131,18 +1143,42 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                         })
                                         
                                         // ============ COMBOBOX: MOSTRAR TODOS O FILTRADOS ============
+                                        // COMPARACIÓN ROBUSTA: Normalizar ambos lados para evitar problemas de formato
                                         const proveedoresFiltrados = proveedores
                                           .filter(p => {
-                                            const coincideTipo = p.tipo === tipoProveedorBuscado
+                                            // Normalizar ambos tipos para comparación robusta
+                                            const tipoProveedorNormalizado = normalizarText(p.tipo);
+                                            const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado);
+                                            
+                                            // Log de debugging para ver por qué no coinciden
+                                            if (proveedores.indexOf(p) < 3) { // Solo log de los primeros 3 para no saturar
+                                              console.log('🔍 Comparando:', {
+                                                proveedor: p.nombreComercial,
+                                                tipoProveedor: p.tipo,
+                                                tipoProveedorNormalizado: tipoProveedorNormalizado,
+                                                tipoBuscado: tipoProveedorBuscado,
+                                                tipoBuscadoNormalizado: tipoBuscadoNormalizado,
+                                                coinciden: tipoProveedorNormalizado === tipoBuscadoNormalizado
+                                              });
+                                            }
+                                            
+                                            const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado
+                                            
                                             // Si no hay búsqueda, mostrar todos del tipo
                                             if (!textoBusqueda) return coincideTipo
+                                            
                                             // Si hay búsqueda, filtrar por nombre
                                             const coincideNombre = p.nombreComercial.toLowerCase().includes(textoBusqueda)
                                             return coincideTipo && coincideNombre
                                           })
                                           .sort((a, b) => a.nombreComercial.localeCompare(b.nombreComercial))
                                         
-                                        console.log('📊 Proveedores filtrados:', proveedoresFiltrados.length)
+                                        console.log('📊 Proveedores filtrados:', proveedoresFiltrados.length, {
+                                          tipoBuscado: tipoProveedorBuscado,
+                                          tipoBuscadoNormalizado: normalizarText(tipoProveedorBuscado),
+                                          totalProveedores: proveedores.length,
+                                          tiposEnProveedores: [...new Set(proveedores.map(p => `${p.tipo} (normalizado: ${normalizarText(p.tipo)})`))]
+                                        })
                                         
                                         const yaExiste = proveedoresFiltrados.some(
                                           p => p.nombreComercial.toLowerCase() === textoBusqueda
