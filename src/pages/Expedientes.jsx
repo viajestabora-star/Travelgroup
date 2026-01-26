@@ -254,90 +254,71 @@ const Expedientes = () => {
       console.error('Error guardando expedientes:', error)
       alert('⚠️ Error al guardar. Por favor, intenta de nuevo.')
     }
-  }
+  }const handleExpedienteSubmit = async (e) => {
+    e.preventDefault();
 
-  // CREAR/SELECCIONAR CLIENTE: Si no existe, lo crea en Supabase
-  const handleExpedienteSubmit = async (e) => {
-    e.preventDefault()
+    let finalId = expedienteForm.clienteId ? String(expedienteForm.clienteId) : '';
+    let finalNombre = expedienteForm.clienteNombre || clienteInputValue.trim() || '';
 
-    // Crear cliente en Supabase si no existe
-    let clienteIdParaInsert = expedienteForm.clienteId ? String(expedienteForm.clienteId) : ''
-    let clienteNombreParaInsert = expedienteForm.clienteNombre || clienteInputValue.trim() || ''
-
+    // 1. Crear cliente si es nuevo
     if (!expedienteForm.clienteId && clienteInputValue.trim()) {
-      const nuevoClienteSupabase = {
-        nombre: clienteInputValue.trim(),
-        responsable: expedienteForm.responsable || '',
-        telefono: expedienteForm.telefono || '',
-        movil: expedienteForm.telefono || '',
-        email: expedienteForm.email || '',
-        cif_nif: '',
-        direccion: '',
-        poblacion: '',
-        codigo_postal: '',
-        provincia: '',
-        bonificaciones: '',
-        gratuidades: '',
-      }
       try {
-        const { data, error } = await supabase.from('clientes').insert([nuevoClienteSupabase]).select().single()
-        if (error) throw error
-        await reloadClientes()
-        clienteIdParaInsert = String(data.id)
-        clienteNombreParaInsert = data.nombre
+        const { data, error } = await supabase
+          .from('clientes')
+          .insert([{ nombre: finalNombre, responsable: expedienteForm.responsable || '' }])
+          .select().single();
+        if (error) throw error;
+        finalId = String(data.id);
+        finalNombre = data.nombre;
+        await reloadClientes();
       } catch (err) {
-        alert('⚠️ Error creando cliente en la base de datos. Revisa tu conexión.')
-        return
+        alert('⚠️ Error creando cliente.');
+        return;
       }
     }
 
-    // MAPEO LIMPIO: Variables correctas para jerarquía visual
-    const newExpediente = {
-      id: Date.now(),
-      clienteId: expedienteForm.clienteId || null,
-      nombre_grupo: clienteNombreParaInsert,
-      responsable: expedienteForm.responsable || '',
-      telefono: expedienteForm.telefono || '',
-      email: expedienteForm.email || '',
-      destino: expedienteForm.destino || '',
-      fechaInicio: expedienteForm.fechaInicio || '',
-      fechaFin: expedienteForm.fechaFin || '',
-      estado: expedienteForm.estado || 'peticion',
-      observaciones: expedienteForm.observaciones || '',
-      fechaCreacion: new Date().toISOString(),
-      cotizacion: null,
-      pasajeros: [],
-      cobros: [],
-      pagos: [],
-      documentos: [],
-      cierre: null,
-      clienteNombre: clienteNombreParaInsert,
-    }
-    
-    // Guardar en Supabase primero
+    // 2. OBJETO DE INSERCIÓN BLINDADO (Coincidencia exacta con tu tabla)
+    const datosInsertar = {
+      cliente_id: String(finalId),
+      cliente_nombr: String(finalNombre),
+      fecha_inicio: String(expedienteForm.fechaInicio || ''),
+      fecha_fin: String(expedienteForm.fechaFin || ''),
+      destino: String(expedienteForm.destino || ''),
+      telefono: String(expedienteForm.telefono || ''),
+      email: String(expedienteForm.email || ''),
+      responsable: String(expedienteForm.responsable || ''),
+      estado: String(expedienteForm.estado || 'peticion'),
+      observaciones: String(expedienteForm.observaciones || ''),
+      itinerario: '',
+      total_pax: ''
+    };
+
     try {
-      // Objeto limpio con solo las claves permitidas - todos los valores como strings
-      const datosInsertar = {
-        cliente_id: String(clienteIdParaInsert ?? ''),
-        cliente_nombr: String(clienteNombreParaInsert ?? ''),
-        fecha_inicio: String(expedienteForm.fechaInicio ?? ''),
-        fecha_fin: String(expedienteForm.fechaFin ?? ''),
-        destino: String(expedienteForm.destino ?? ''),
-        telefono: String(expedienteForm.telefono ?? ''),
-        email: String(expedienteForm.email ?? ''),
-        responsable: String(expedienteForm.responsable ?? ''),
-        estado: String(expedienteForm.estado ?? 'peticion'),
-        observaciones: String(expedienteForm.observaciones ?? ''),
-        itinerario: '',
-        total_pax: ''
-      }
-      
       const { data, error } = await supabase
         .from('expedientes')
         .insert([datosInsertar])
         .select()
-        .single()
+        .single();
+
+      if (error) throw error;
+
+      // 3. Actualizar estado local
+      const expedienteLocal = { 
+        ...datosInsertar, 
+        id: data.id_expediente, 
+        id_expediente: data.id_expediente 
+      };
+      setExpedientes(prev => [...prev, expedienteLocal]);
+      storage.set('expedientes', [...expedientes, expedienteLocal]);
       
+      setShowExpedienteModal(false);
+      resetExpedienteForm();
+      setClienteInputValue('');
+    } catch (err) {
+      console.error('ERROR TÉCNICO:', err);
+      alert('⚠️ No se pudo guardar. Revisa la consola (Opt+Cmd+J)');
+    }
+  };   
       if (error) throw error
       
       // Actualizar estado local
