@@ -615,7 +615,7 @@ const Expedientes = () => {
       html += `
         <tr>
           <td>-</td>
-          <td><strong>${cliente?.nombre || exp.cliente_nombre || '-'}</strong></td>
+          <td><strong>${cliente?.nombre || exp.cliente_nombree || '-'}</strong></td>
           <td>${exp.destino || '-'}</td>
           <td>${exp.fecha_inicio || exp.fechaInicio ? formatearFecha(exp.fecha_inicio || exp.fechaInicio) : '-'}</td>
           <td>${exp.fecha_fin || exp.fechaFin ? formatearFecha(exp.fecha_fin || exp.fechaFin) : '-'}</td>
@@ -674,7 +674,7 @@ const Expedientes = () => {
     
     const term = searchTermExpedientes.toLowerCase()
     const cliente = clientes.find(c => String(c.id) === String(exp.cliente_id || exp.clienteId))
-    const nombreCliente = cliente?.nombre || exp.cliente_nombre || ''
+    const nombreCliente = cliente?.nombre || exp.cliente_nombree || ''
     const destino = exp.destino || ''
     
     return (
@@ -796,7 +796,7 @@ const Expedientes = () => {
                 if (!expediente || !expediente.id) return null
                 const estado = ESTADOS[expediente.estado || 'peticion'] || ESTADOS.peticion
                 const cliente = clientes.find(c => String(c.id) === String(expediente.cliente_id || expediente.clienteId)) || {}
-                const nombreGrupo = expediente.cliente_nombre || cliente.nombre || 'GRUPO SIN NOMBRE'
+                const nombreGrupo = expediente.cliente_nombree || cliente.nombre || 'GRUPO SIN NOMBRE'
                 const destino = expediente.destino || 'Sin destino'
                 const fechaInicio = expediente.fecha_inicio || expediente.fechaInicio || ''
                 const fechaFin = expediente.fecha_fin || expediente.fechaFin || ''
