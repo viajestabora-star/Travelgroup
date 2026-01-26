@@ -73,48 +73,49 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const [tipoNuevoProveedor, setTipoNuevoProveedor] = useState('hotel')
   const [servicioIdParaProveedor, setServicioIdParaProveedor] = useState(null)
   
+  // Función para cargar proveedores desde Supabase
+  const cargarProveedores = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('proveedores')
+        .select('*')
+        .order('nombre_comercial', { ascending: true });
+      
+      if (error) {
+        console.error('Error cargando proveedores:', error)
+        setProveedores([])
+        return
+      }
+      
+      if (!data || !Array.isArray(data)) {
+        setProveedores([])
+        return
+      }
+      
+      // Mapear campos de Supabase a formato interno
+      const proveedoresMapeados = data.map(p => ({
+        id: p.id,
+        nombreComercial: p.nombre_comercial || p.nombreComercial || '',
+        nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
+        tipo: p.tipo || '',
+        telefono: p.telefono || p.movil || '',
+        email: p.email || '',
+        direccion: p.direccion || '',
+        poblacion: p.poblacion || '',
+        cif: p.cif || ''
+      }));
+      
+      setProveedores(proveedoresMapeados)
+      storage.set('proveedores', proveedoresMapeados)
+      
+    } catch (error) {
+      console.error('Error fatal cargando proveedores:', error)
+      setProveedores([])
+    }
+  };
+  
   // Cargar proveedores desde Supabase al montar - RECUPERAR CARGA
   useEffect(() => {
-    const cargarProveedores = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('proveedores')
-          .select('*')
-          .order('nombre_comercial', { ascending: true });
-        
-        if (error) {
-          console.error('Error cargando proveedores:', error)
-          setProveedores([])
-          return
-        }
-        
-        if (!data || !Array.isArray(data)) {
-          setProveedores([])
-          return
-        }
-        
-        // Mapear campos de Supabase a formato interno
-        const proveedoresMapeados = data.map(p => ({
-          id: p.id,
-          nombreComercial: p.nombre_comercial || p.nombreComercial || '',
-          nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
-          tipo: p.tipo || '',
-          telefono: p.telefono || p.movil || '',
-          email: p.email || '',
-          direccion: p.direccion || '',
-          poblacion: p.poblacion || '',
-          cif: p.cif || ''
-        }));
-        
-        setProveedores(proveedoresMapeados)
-        storage.set('proveedores', proveedoresMapeados)
-        
-      } catch (error) {
-        console.error('Error fatal cargando proveedores:', error)
-        setProveedores([])
-      }
-    };
-    
     cargarProveedores();
   }, [])
   
@@ -999,58 +1000,66 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           {servicios.map(servicio => (
                             <tr key={servicio.id} className="border-t border-gray-200 hover:bg-gray-50">
                               {/* COLUMNA 1: PROVEEDOR CON BÚSQUEDA */}
-                              <td className="px-2 py-2 relative">
-                                <div className="relative">
-                                  {/* Input de búsqueda */}
-                                  <input
-                                    type="text"
-                                    value={
-                                      busquedaProveedor[servicio.id] !== undefined
-                                        ? busquedaProveedor[servicio.id]
-                                        : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')
-                                    }
-                                    onChange={(e) => {
-                                      const inputValue = e.target.value
-                                      setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue })
-                                      setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
-                                    }}
-                                    onKeyDown={(e) => {
-                                      // Si presiona Enter y hay texto, abrir modal
-                                      if (e.key === 'Enter' && busquedaProveedor[servicio.id]?.trim()) {
-                                        e.preventDefault()
-                                        abrirModalProveedor(
-                                          busquedaProveedor[servicio.id],
-                                          servicio.tipo,
-                                          servicio.id
-                                        )
+                              <td className="px-2 py-2">
+                                <div className="flex gap-1 items-center">
+                                  <div className="relative flex-1">
+                                    {/* Input de búsqueda - SOLO búsqueda, NO crea nada */}
+                                    <input
+                                      type="text"
+                                      value={
+                                        busquedaProveedor[servicio.id] !== undefined
+                                          ? busquedaProveedor[servicio.id]
+                                          : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')
                                       }
-                                    }}
-                                    onFocus={() => {
-                                      // ============ COMBOBOX: MOSTRAR TODOS AL HACER CLIC ============
-                                      setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
-                                      // Si no hay búsqueda, limpiar para mostrar todos los proveedores del tipo
-                                      if (!busquedaProveedor[servicio.id]) {
-                                        setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
-                                      }
-                                    }}
-                                    placeholder="Buscar o crear proveedor (opcional)..."
-                                    className="input-field text-xs w-full pr-8"
-                                  />
-                                  
-                                  {/* Botón limpiar */}
-                                  {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
-                                    <button
-                                      onClick={() => {
-                                        setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
-                                        actualizarServicio(servicio.id, 'proveedorId', null)
-                                        setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                      onChange={(e) => {
+                                        const inputValue = e.target.value
+                                        setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue })
+                                        setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
                                       }}
-                                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                                      title="Limpiar"
-                                    >
-                                      <X size={14} />
-                                    </button>
-                                  )}
+                                      onFocus={() => {
+                                        // ============ COMBOBOX: MOSTRAR TODOS AL HACER CLIC ============
+                                        setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
+                                        // Si no hay búsqueda, limpiar para mostrar todos los proveedores del tipo
+                                        if (!busquedaProveedor[servicio.id]) {
+                                          setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                        }
+                                      }}
+                                      placeholder="Buscar proveedor..."
+                                      className="input-field text-xs w-full pr-8"
+                                    />
+                                    
+                                    {/* Botón limpiar */}
+                                    {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
+                                      <button
+                                        onClick={() => {
+                                          setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                          actualizarServicio(servicio.id, 'proveedorId', null)
+                                          setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                        }}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                        title="Limpiar"
+                                      >
+                                        <X size={14} />
+                                      </button>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Botón '+' independiente para abrir modal completo */}
+                                  <button
+                                    onClick={() => {
+                                      // Abrir modal completo - NO crea nada, solo abre el modal
+                                      abrirModalProveedor(
+                                        busquedaProveedor[servicio.id] || '',
+                                        servicio.tipo,
+                                        servicio.id
+                                      )
+                                    }}
+                                    className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
+                                    title="Añadir nuevo proveedor"
+                                  >
+                                    <Plus size={16} />
+                                  </button>
+                                </div>
                                   
                                   {/* Lista de sugerencias */}
                                   {mostrarSugerencias[servicio.id] && (
@@ -1108,7 +1117,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                               </div>
                                             )}
                                             
-                                            {/* Lista de proveedores existentes */}
+                                            {/* Lista de proveedores existentes - SOLO selección, NO creación */}
                                             {proveedoresFiltrados.map(proveedor => (
                                               <button
                                                 key={proveedor.id}
@@ -1126,28 +1135,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                               </button>
                                             ))}
                                             
-                                            {/* Opción de crear nuevo si hay texto y no existe */}
-                                            {textoBusqueda && !yaExiste && (
-                                              <button
-                                                onClick={() => {
-                                                  // EL BOTÓN: Solo abre el modal, NADA MÁS
-                                                  abrirModalProveedor(
-                                                    busquedaProveedor[servicio.id],
-                                                    servicio.tipo,
-                                                    servicio.id
-                                                  )
-                                                }}
-                                                className="w-full text-left px-3 py-3 text-xs bg-green-50 hover:bg-green-100 text-green-800 font-bold border-t-2 border-green-300 flex items-center gap-2"
-                                              >
-                                                <span className="text-lg">➕</span>
-                                                <span>Añadir "{busquedaProveedor[servicio.id]}" como nuevo proveedor de {servicio.tipo}</span>
-                                              </button>
-                                            )}
-                                            
                                             {/* Mensaje cuando busca pero no encuentra */}
-                                            {proveedoresFiltrados.length === 0 && textoBusqueda && !yaExiste && (
+                                            {proveedoresFiltrados.length === 0 && textoBusqueda && (
                                               <div className="px-3 py-2 text-xs text-gray-500 text-center border-b border-gray-200">
                                                 No se encontró "{busquedaProveedor[servicio.id]}" en {servicio.tipo}
+                                                <br />
+                                                <span className="text-green-600 font-medium">Usa el botón + para añadir un nuevo proveedor</span>
                                               </div>
                                             )}
                                           </>
@@ -1614,16 +1607,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             nombreInicial={nombreNuevoProveedor}
             tipoInicial={tipoNuevoProveedor}
             servicioId={servicioIdParaProveedor}
-            onProveedorCreado={(nuevoProveedor) => {
-              // Actualizar lista de proveedores
-              const proveedoresActualizados = [...proveedores, nuevoProveedor]
-              setProveedores(proveedoresActualizados)
-              storage.set('proveedores', proveedoresActualizados)
+            onProveedorCreado={async (nuevoProveedor) => {
+              // REFRESH: Recargar lista completa de proveedores desde Supabase para obtener el nuevo ID
+              await cargarProveedores()
+              
+              // Buscar el proveedor recién creado en la lista actualizada
+              const proveedorActualizado = proveedores.find(p => 
+                p.nombreComercial.toLowerCase() === nuevoProveedor.nombreComercial.toLowerCase() &&
+                p.tipo === nuevoProveedor.tipo
+              ) || nuevoProveedor
               
               // Seleccionar automáticamente en la fila
               if (servicioIdParaProveedor) {
-                actualizarServicio(servicioIdParaProveedor, 'proveedorId', nuevoProveedor.id)
-                setBusquedaProveedor({ ...busquedaProveedor, [servicioIdParaProveedor]: nuevoProveedor.nombreComercial })
+                actualizarServicio(servicioIdParaProveedor, 'proveedorId', proveedorActualizado.id)
+                setBusquedaProveedor({ ...busquedaProveedor, [servicioIdParaProveedor]: proveedorActualizado.nombreComercial })
                 setMostrarSugerencias({ ...mostrarSugerencias, [servicioIdParaProveedor]: false })
               }
               
