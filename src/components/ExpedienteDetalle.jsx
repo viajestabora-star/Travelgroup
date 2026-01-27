@@ -657,161 +657,171 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             
             {/* TAB: Ficha del Grupo */}
             {tab === 'grupo' && (
-              <div className="max-w-4xl mx-auto">
-                <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200">
+              <div className="max-w-4xl mx-auto space-y-6">
+                {/* Tarjeta: Información del Grupo */}
+                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
                   <div className="flex justify-between items-center mb-6">
                     <div className="flex items-center gap-3">
                       <div className="p-3 bg-blue-100 rounded-lg">
                         <Users className="text-blue-600" size={28} />
-              </div>
+                      </div>
                       <div>
                         <h3 className="text-2xl font-bold text-navy-900">Información del Grupo</h3>
-                        <p className="text-gray-600">Datos del cliente y responsable</p>
+                        <p className="text-gray-600 text-sm">Datos del cliente y responsable</p>
                       </div>
                     </div>
                     
                     {!editandoCliente ? (
-                      <button onClick={iniciarEdicionCliente} className="btn-secondary flex items-center gap-2">
+                      <button 
+                        onClick={iniciarEdicionCliente} 
+                        className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
+                      >
                         Editar Cliente
                       </button>
                     ) : (
                       <div className="flex gap-2">
-                        <button onClick={cancelarEdicionCliente} className="btn-secondary">
+                        <button 
+                          onClick={cancelarEdicionCliente} 
+                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg font-semibold transition-colors"
+                        >
                           Cancelar
                         </button>
-                        <button onClick={guardarCambiosCliente} className="btn-primary flex items-center gap-2">
-                          <Save size={20} />
+                        <button 
+                          onClick={guardarCambiosCliente} 
+                          className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
+                        >
+                          <Save size={18} />
                           Guardar Cambios
                         </button>
-            </div>
-          )}
+                      </div>
+                    )}
                   </div>
                   
                   {/* FORMULARIO EDITABLE */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="label">Nombre del Grupo *</label>
+                      <label className="block text-xs text-gray-500 mb-2">Nombre del Grupo *</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.nombre || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, nombre: e.target.value })}
-                          className="input-field"
+                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                         />
                       ) : (
-                        <p className="text-lg font-medium text-gray-900">{grupo.nombre || '-'}</p>
+                        <p className="text-base font-medium text-gray-900 py-2">{grupo.nombre || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="label">CIF</label>
+                      <label className="block text-xs text-gray-500 mb-2">CIF</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.cif || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, cif: e.target.value })}
-                          className="input-field"
+                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                         />
                       ) : (
-                        <p className="text-lg font-medium text-gray-900">{grupo.cif || '-'}</p>
+                        <p className="text-base font-medium text-gray-900 py-2">{grupo.cif || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="label">Responsable</label>
+                      <label className="block text-xs text-gray-500 mb-2">Responsable</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.responsable || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, responsable: e.target.value })}
-                          className="input-field"
+                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                         />
                       ) : (
-                        <p className="text-lg font-medium text-gray-900">{grupo.responsable || '-'}</p>
+                        <p className="text-base font-medium text-gray-900 py-2">{grupo.responsable || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="label">Móvil</label>
+                      <label className="block text-xs text-gray-500 mb-2">Móvil</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.movilResponsable || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, movilResponsable: e.target.value })}
-                          className="input-field"
+                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                         />
                       ) : (
-                        <p className="text-lg font-medium text-gray-900">{grupo.movilResponsable || '-'}</p>
+                        <p className="text-base font-medium text-gray-900 py-2">{grupo.movilResponsable || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="label">Email</label>
+                      <label className="block text-xs text-gray-500 mb-2">Email</label>
                       {editandoCliente ? (
                         <input
                           type="email"
                           value={clienteEditado.email || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, email: e.target.value })}
-                          className="input-field"
+                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                         />
                       ) : (
-                        <p className="text-lg font-medium text-gray-900">{grupo.email || '-'}</p>
+                        <p className="text-base font-medium text-gray-900 py-2">{grupo.email || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="label">Nº de Socios</label>
+                      <label className="block text-xs text-gray-500 mb-2">Nº de Socios</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.nSocios || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, nSocios: e.target.value })}
-                          className="input-field"
+                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                         />
                       ) : (
-                        <p className="text-lg font-medium text-gray-900">{grupo.nSocios || '-'}</p>
+                        <p className="text-base font-medium text-gray-900 py-2">{grupo.nSocios || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="label">Población</label>
+                      <label className="block text-xs text-gray-500 mb-2">Población</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.poblacion || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, poblacion: e.target.value })}
-                          className="input-field"
+                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                         />
                       ) : (
-                        <p className="text-lg font-medium text-gray-900">{grupo.poblacion || '-'} {grupo.provincia && `(${grupo.provincia})`}</p>
+                        <p className="text-base font-medium text-gray-900 py-2">{grupo.poblacion || '-'} {grupo.provincia && `(${grupo.provincia})`}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="label">Provincia</label>
+                      <label className="block text-xs text-gray-500 mb-2">Provincia</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.provincia || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, provincia: e.target.value })}
-                          className="input-field"
+                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                         />
                       ) : (
-                        <p className="text-lg font-medium text-gray-900">{grupo.provincia || '-'}</p>
+                        <p className="text-base font-medium text-gray-900 py-2">{grupo.provincia || '-'}</p>
                       )}
                     </div>
                     
                     <div className="md:col-span-2">
-                      <label className="label">Dirección</label>
+                      <label className="block text-xs text-gray-500 mb-2">Dirección</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.direccion || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, direccion: e.target.value })}
-                          className="input-field"
+                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                         />
                       ) : (
-                        <p className="text-lg font-medium text-gray-900">{grupo.direccion || '-'}</p>
+                        <p className="text-base font-medium text-gray-900 py-2">{grupo.direccion || '-'}</p>
                       )}
                     </div>
                   </div>

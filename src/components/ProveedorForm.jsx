@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { Building2 } from 'lucide-react'
 
 // Cliente de Supabase (mismo proyecto que el resto de la app)
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
@@ -93,159 +94,200 @@ const ProveedorForm = ({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-8">
-      <div className="md:col-span-2 space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
-          Nombre Comercial *
-        </label>
-        <input
-          required
-          className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-blue-100"
-          value={formData.nombre_comercial}
-          onChange={e => setFormData({ ...formData, nombre_comercial: e.target.value })}
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
-          Servicio
-        </label>
-        <select
-          className="w-full p-6 bg-slate-50 rounded-2xl font-black text-lg border-none"
-          value={formData.tipo}
-          onChange={e => setFormData({ ...formData, tipo: e.target.value })}
-        >
-          <option value="hotel">HOTEL</option>
-          <option value="restaurante">RESTAURANTE</option>
-          <option value="autobus">AUTOBÚS</option>
-          <option value="guia">GUÍA</option>
-          <option value="guialocal">GUÍA LOCAL</option>
-          <option value="entradas">TICKETS</option>
-          <option value="seguro">SEGURO</option>
-          <option value="otros">OTRO</option>
-        </select>
+    <div className="space-y-6">
+      {/* Header con icono azul */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="p-3 bg-blue-100 rounded-lg">
+          <Building2 className="text-blue-600" size={28} />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold text-navy-900">Información del Proveedor</h2>
+          <p className="text-gray-600 text-sm">Datos del proveedor y contacto</p>
+        </div>
       </div>
 
-      <div className="space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase">
-          Persona Contacto
-        </label>
-        <input
-          className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-          value={formData.persona_contacto}
-          onChange={e => setFormData({ ...formData, persona_contacto: e.target.value })}
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase">
-          Email Reservas
-        </label>
-        <input
-          type="email"
-          className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-          value={formData.email}
-          onChange={e => setFormData({ ...formData, email: e.target.value })}
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase">
-          Móvil WhatsApp
-        </label>
-        <input
-          className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-          value={formData.movil}
-          onChange={e => setFormData({ ...formData, movil: e.target.value })}
-        />
-      </div>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Tarjeta: Información Principal */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-2">
+              <label className="block text-xs text-gray-500 mb-2">
+                Nombre Comercial *
+              </label>
+              <input
+                required
+                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                value={formData.nombre_comercial}
+                onChange={e => setFormData({ ...formData, nombre_comercial: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-2">
+                Servicio
+              </label>
+              <select
+                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                value={formData.tipo}
+                onChange={e => setFormData({ ...formData, tipo: e.target.value })}
+              >
+                <option value="hotel">Hotel</option>
+                <option value="restaurante">Restaurante</option>
+                <option value="autobus">Autobús</option>
+                <option value="guia">Guía</option>
+                <option value="guialocal">Guía Local</option>
+                <option value="entradas">Tickets</option>
+                <option value="seguro">Seguro</option>
+                <option value="otros">Otro</option>
+              </select>
+            </div>
+          </div>
+        </div>
 
-      <div className="md:col-span-3 space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase">
-          Dirección
-        </label>
-        <input
-          className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-          value={formData.direccion}
-          onChange={e => setFormData({ ...formData, direccion: e.target.value })}
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase">
-          Población
-        </label>
-        <input
-          className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-          value={formData.poblacion}
-          onChange={e => setFormData({ ...formData, poblacion: e.target.value })}
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase">
-          Provincia
-        </label>
-        <input
-          className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-          value={formData.provincia}
-          onChange={e => setFormData({ ...formData, provincia: e.target.value })}
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase">
-          CIF
-        </label>
-        <input
-          className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-          value={formData.cif}
-          onChange={e => setFormData({ ...formData, cif: e.target.value })}
-        />
-      </div>
+        {/* Tarjeta: Datos de Contacto */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+          <h3 className="text-lg font-semibold text-navy-900 mb-4">Datos de Contacto</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label className="block text-xs text-gray-500 mb-2">
+                Persona Contacto
+              </label>
+              <input
+                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                value={formData.persona_contacto}
+                onChange={e => setFormData({ ...formData, persona_contacto: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-2">
+                Email Reservas
+              </label>
+              <input
+                type="email"
+                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                value={formData.email}
+                onChange={e => setFormData({ ...formData, email: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-2">
+                Móvil WhatsApp
+              </label>
+              <input
+                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                value={formData.movil}
+                onChange={e => setFormData({ ...formData, movil: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-2">
+                Teléfono
+              </label>
+              <input
+                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                value={formData.telefono}
+                onChange={e => setFormData({ ...formData, telefono: e.target.value })}
+              />
+            </div>
+          </div>
+        </div>
 
-      <div className="space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase">
-          Teléfono
-        </label>
-        <input
-          className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-          value={formData.telefono}
-          onChange={e => setFormData({ ...formData, telefono: e.target.value })}
-        />
-      </div>
-      <div className="md:col-span-2 space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase">
-          IBAN
-        </label>
-        <input
-          className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none"
-          value={formData.iban}
-          onChange={e => setFormData({ ...formData, iban: e.target.value })}
-        />
-      </div>
+        {/* Tarjeta: Dirección */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+          <h3 className="text-lg font-semibold text-navy-900 mb-4">Dirección</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-3">
+              <label className="block text-xs text-gray-500 mb-2">
+                Dirección
+              </label>
+              <input
+                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                value={formData.direccion}
+                onChange={e => setFormData({ ...formData, direccion: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-2">
+                Población
+              </label>
+              <input
+                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                value={formData.poblacion}
+                onChange={e => setFormData({ ...formData, poblacion: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-2">
+                Provincia
+              </label>
+              <input
+                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                value={formData.provincia}
+                onChange={e => setFormData({ ...formData, provincia: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-2">
+                CIF
+              </label>
+              <input
+                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                value={formData.cif}
+                onChange={e => setFormData({ ...formData, cif: e.target.value })}
+              />
+            </div>
+          </div>
+        </div>
 
-      <div className="md:col-span-3 space-y-2">
-        <label className="text-xs font-black text-slate-400 uppercase">
-          Observaciones
-        </label>
-        <textarea
-          className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none min-h-[100px]"
-          value={formData.observaciones}
-          onChange={e => setFormData({ ...formData, observaciones: e.target.value })}
-        />
-      </div>
+        {/* Tarjeta: Información Bancaria */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+          <h3 className="text-lg font-semibold text-navy-900 mb-4">Información Bancaria</h3>
+          <div>
+            <label className="block text-xs text-gray-500 mb-2">
+              IBAN
+            </label>
+            <input
+              className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              value={formData.iban}
+              onChange={e => setFormData({ ...formData, iban: e.target.value })}
+            />
+          </div>
+        </div>
 
-      <div className="md:col-span-3 flex gap-4 pt-10">
-        <button
-          type="submit"
-          className="flex-[2] bg-slate-900 text-white py-8 rounded-[2rem] font-black italic uppercase text-2xl tracking-tighter shadow-2xl hover:bg-blue-600 transition-all"
-        >
-          {submitLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex-1 bg-slate-100 text-slate-400 py-8 rounded-[2rem] font-black uppercase italic"
-        >
-          Cancelar
-        </button>
-      </div>
-    </form>
+        {/* Tarjeta: Observaciones */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+          <h3 className="text-lg font-semibold text-navy-900 mb-4">Observaciones</h3>
+          <div>
+            <label className="block text-xs text-gray-500 mb-2">
+              Observaciones
+            </label>
+            <textarea
+              className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 min-h-[100px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              value={formData.observaciones}
+              onChange={e => setFormData({ ...formData, observaciones: e.target.value })}
+            />
+          </div>
+        </div>
+
+        {/* Botones */}
+        <div className="flex gap-4 pt-4">
+          <button
+            type="submit"
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-lg font-semibold transition-colors shadow-md"
+          >
+            {submitLabel}
+          </button>
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-semibold transition-colors"
+            >
+              Cancelar
+            </button>
+          )}
+        </div>
+      </form>
+    </div>
   )
 }
 
