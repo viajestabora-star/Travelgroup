@@ -1098,14 +1098,17 @@ const Expedientes = () => {
       {/* Modal Nuevo Expediente */}
       {showExpedienteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+          <div 
+            className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+            style={{ backgroundColor: 'white', color: 'black' }}
+          >
             <div className="p-6 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white z-10">
               <h2 className="text-2xl font-bold text-navy-900">Nuevo Expediente</h2>
               <button onClick={() => { setShowExpedienteModal(false); resetExpedienteForm(); }} className="text-gray-500 hover:text-gray-700">
                 <X size={24} />
               </button>
             </div>
-            <form onSubmit={handleExpedienteSubmit} className="p-6">
+            <form onSubmit={handleExpedienteSubmit} className="p-6" style={{ backgroundColor: 'white', color: 'black' }}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <div className="flex justify-between items-center mb-2">
@@ -1127,7 +1130,8 @@ const Expedientes = () => {
                       value={clienteInputValue}
                       onChange={(e) => handleClienteInputChange(e.target.value)}
                       onFocus={handleClienteInputFocus}
-                      className="input-field pl-10"
+                      className="input-field pl-10 bg-white text-black border-gray-200"
+                      style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                     />
                   </div>
                   {showSuggestions && (
@@ -1183,7 +1187,8 @@ const Expedientes = () => {
                     type="text"
                     value={expedienteForm.responsable}
                     onChange={(e) => setExpedienteForm({ ...expedienteForm, responsable: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                     placeholder="Nombre del responsable del viaje"
                   />
                   <p className="text-xs text-gray-500 mt-1">
@@ -1196,7 +1201,8 @@ const Expedientes = () => {
                     type="tel"
                     value={expedienteForm.telefono}
                     onChange={(e) => setExpedienteForm({ ...expedienteForm, telefono: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                     placeholder="Teléfono de contacto"
                   />
                   <p className="text-xs text-gray-500 mt-1">
@@ -1209,7 +1215,8 @@ const Expedientes = () => {
                     type="email"
                     value={expedienteForm.email}
                     onChange={(e) => setExpedienteForm({ ...expedienteForm, email: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                     placeholder="Email de contacto"
                   />
                   <p className="text-xs text-gray-500 mt-1">
@@ -1222,7 +1229,8 @@ const Expedientes = () => {
                     type="text"
                     value={expedienteForm.destino}
                     onChange={(e) => setExpedienteForm({ ...expedienteForm, destino: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                     placeholder="Ej: Galicia"
                   />
                 </div>
@@ -1236,7 +1244,8 @@ const Expedientes = () => {
                       const fechaEspañola = convertirISOAEspañol(fechaISO)
                       setExpedienteForm({ ...expedienteForm, fechaInicio: fechaEspañola })
                     }}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     📅 Determina el ejercicio (año) del expediente
@@ -1252,7 +1261,8 @@ const Expedientes = () => {
                       const fechaEspañola = convertirISOAEspañol(fechaISO)
                       setExpedienteForm({ ...expedienteForm, fechaFin: fechaEspañola })
                     }}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                 </div>
                 <div className="md:col-span-2">
@@ -1260,7 +1270,8 @@ const Expedientes = () => {
                   <select
                     value={expedienteForm.estado}
                     onChange={(e) => setExpedienteForm({ ...expedienteForm, estado: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   >
                     {Object.entries(ESTADOS).map(([key, estado]) => (
                       <option key={key} value={key}>{estado.label}</option>
@@ -1272,7 +1283,8 @@ const Expedientes = () => {
                   <textarea
                     value={expedienteForm.observaciones}
                     onChange={(e) => setExpedienteForm({ ...expedienteForm, observaciones: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                     rows="3"
                   />
                 </div>
@@ -1281,7 +1293,8 @@ const Expedientes = () => {
                   <textarea
                     value={expedienteForm.itinerario}
                     onChange={(e) => setExpedienteForm({ ...expedienteForm, itinerario: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                     rows="3"
                     placeholder="Descripción del itinerario del viaje..."
                   />
@@ -1303,14 +1316,17 @@ const Expedientes = () => {
       {/* Modal Crear Cliente */}
       {showClienteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full">
+          <div 
+            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full"
+            style={{ backgroundColor: 'white', color: 'black' }}
+          >
             <div className="p-6 border-b border-gray-200 flex justify-between items-center">
               <h2 className="text-2xl font-bold text-navy-900">Crear Nuevo Cliente</h2>
               <button onClick={() => setShowClienteModal(false)} className="text-gray-500 hover:text-gray-700">
                 <X size={24} />
               </button>
             </div>
-            <form onSubmit={handleCrearCliente} className="p-6">
+            <form onSubmit={handleCrearCliente} className="p-6" style={{ backgroundColor: 'white', color: 'black' }}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="label">Nombre del Grupo</label>
@@ -1318,7 +1334,8 @@ const Expedientes = () => {
                     type="text"
                     value={clienteForm.nombre}
                     onChange={(e) => setClienteForm({ ...clienteForm, nombre: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                 </div>
                 <div>
@@ -1327,7 +1344,8 @@ const Expedientes = () => {
                     type="text"
                     value={clienteForm.cif}
                     onChange={(e) => setClienteForm({ ...clienteForm, cif: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                 </div>
                 <div>
@@ -1336,7 +1354,8 @@ const Expedientes = () => {
                     type="number"
                     value={clienteForm.nSocios}
                     onChange={(e) => setClienteForm({ ...clienteForm, nSocios: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                 </div>
                 <div className="md:col-span-2">
@@ -1345,7 +1364,8 @@ const Expedientes = () => {
                     type="text"
                     value={clienteForm.responsable}
                     onChange={(e) => setClienteForm({ ...clienteForm, responsable: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                     placeholder="Se usará como responsable del expediente"
                   />
                 </div>
@@ -1355,7 +1375,8 @@ const Expedientes = () => {
                     type="text"
                     value={clienteForm.direccion}
                     onChange={(e) => setClienteForm({ ...clienteForm, direccion: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                 </div>
                 <div>
@@ -1364,7 +1385,8 @@ const Expedientes = () => {
                     type="text"
                     value={clienteForm.poblacion}
                     onChange={(e) => setClienteForm({ ...clienteForm, poblacion: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                 </div>
                 <div>
@@ -1373,7 +1395,8 @@ const Expedientes = () => {
                     type="text"
                     value={clienteForm.cp}
                     onChange={(e) => setClienteForm({ ...clienteForm, cp: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                 </div>
                 <div className="md:col-span-2">
@@ -1382,7 +1405,8 @@ const Expedientes = () => {
                     type="text"
                     value={clienteForm.provincia}
                     onChange={(e) => setClienteForm({ ...clienteForm, provincia: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                 </div>
                 <div>
@@ -1391,7 +1415,8 @@ const Expedientes = () => {
                     type="text"
                     value={clienteForm.telefono}
                     onChange={(e) => setClienteForm({ ...clienteForm, telefono: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                 </div>
                 <div>
@@ -1400,7 +1425,8 @@ const Expedientes = () => {
                     type="text"
                     value={clienteForm.email}
                     onChange={(e) => setClienteForm({ ...clienteForm, email: e.target.value })}
-                    className="input-field"
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
                 </div>
               </div>

@@ -689,7 +689,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   try {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl shadow-2xl max-w-7xl w-full h-[90vh] flex flex-col">
+        <div 
+          className="bg-white rounded-2xl shadow-2xl max-w-7xl w-full h-[90vh] flex flex-col"
+          style={{ backgroundColor: 'white', color: 'black' }}
+        >
           
           {/* HEADER con JERARQUÍA VISUAL ESTRICTA */}
           <div className="px-8 py-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-white">
@@ -738,7 +741,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         </div>
 
           {/* CONTENIDO */}
-          <div className="flex-1 overflow-y-auto p-8">
+          <div className="flex-1 overflow-y-auto p-8" style={{ backgroundColor: 'white', color: 'black' }}>
             
             {/* TAB: Ficha del Grupo */}
             {tab === 'grupo' && (
@@ -2049,7 +2052,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         {/* Renderizado del Modal al final del JSX - Solo se activa cuando showModal es verdadero */}
         {showModal && (
           <div
-            className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[9999] p-6 text-left"
+            className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-md flex items-center justify-center z-[9999] p-6 text-left"
             onClick={(e) => {
               if (e.target === e.currentTarget) {
                 setShowModal(false)
@@ -2057,7 +2060,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             }}
           >
             <div
-              className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] overflow-y-auto shadow-2xl p-12 border-4 border-slate-900"
+              className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] overflow-y-auto shadow-2xl p-12 border-4 border-gray-200"
+              style={{ backgroundColor: 'white', color: 'black' }}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex justify-between items-center mb-10">
