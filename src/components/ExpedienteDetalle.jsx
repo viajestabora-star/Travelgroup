@@ -146,6 +146,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     console.log('🚀 Componente montado, cargando proveedores...')
     cargarProveedores();
   }, [])
+
+  // Debug: Log cuando cambian los proveedores
+  useEffect(() => {
+    console.log('📊 Estado de proveedores actualizado:', {
+      total: proveedores.length,
+      proveedores: proveedores.map(p => ({ id: p.id, nombre: p.nombreComercial, tipo: p.tipo }))
+    })
+  }, [proveedores])
   
   // Cerrar sugerencias al hacer clic fuera
   useEffect(() => {
@@ -921,7 +929,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         onChange={(e) => setNumTotalPasajeros(e.target.value)}
                         onFocus={handleFocus}
                         onWheel={handleWheel}
-                        className="input-field"
+                        className="input-field bg-white text-black border-gray-300"
                         min="1"
                         tabIndex="1"
                       />
@@ -934,7 +942,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         onChange={(e) => setNumGratuidades(e.target.value)}
                         onFocus={handleFocus}
                         onWheel={handleWheel}
-                        className="input-field"
+                        className="input-field bg-white text-black border-gray-300"
                         min="0"
                         tabIndex="2"
                       />
@@ -947,7 +955,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         onChange={(e) => setNumDias(e.target.value)}
                         onFocus={handleFocus}
                         onWheel={handleWheel}
-                        className="input-field"
+                        className="input-field bg-white text-black border-gray-300"
                         min="1"
                         tabIndex="3"
                       />
@@ -960,7 +968,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         onChange={(e) => setBonificacionPorPersona(e.target.value)}
                         onFocus={handleFocus}
                         onWheel={handleWheel}
-                        className="input-field"
+                        className="input-field bg-white text-black border-gray-300"
                         step="0.01"
                         tabIndex="4"
                       />
@@ -973,7 +981,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         onChange={(e) => setPrecioVentaManual(e.target.value)}
                         onFocus={handleFocus}
                         onWheel={handleWheel}
-                        className="input-field border-2 border-green-400 bg-green-50 font-bold text-lg"
+                        className="input-field border-2 border-green-400 bg-white text-black font-bold text-lg"
                         step="0.01"
                         tabIndex="5"
                         placeholder="Ej: 380.00"
@@ -1024,96 +1032,112 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             <tr key={servicio.id} className="border-t border-gray-200 hover:bg-gray-50">
                               {/* COLUMNA 1: PROVEEDOR CON BÚSQUEDA */}
                               <td className="px-2 py-2">
-                                <div className="flex gap-1 items-center">
-                                  <div className="relative flex-1">
-                                    {/* Input de búsqueda - SOLO búsqueda, NO crea nada */}
-                                    <input
-                                      type="text"
-                                      value={
-                                        busquedaProveedor[servicio.id] !== undefined
-                                          ? busquedaProveedor[servicio.id]
-                                          : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')
-                                      }
-                                      onChange={(e) => {
-                                        const inputValue = e.target.value
-                                        setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue })
-                                        setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
-                                      }}
-                                      onFocus={() => {
-                                        // ============ COMBOBOX: MOSTRAR TODOS AL HACER CLIC ============
-                                        setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
-                                        // Si no hay búsqueda, limpiar para mostrar todos los proveedores del tipo
-                                        if (!busquedaProveedor[servicio.id]) {
-                                          setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                <div className="relative">
+                                  <div className="flex gap-1 items-center">
+                                    <div className="relative flex-1">
+                                      {/* Input de búsqueda - SOLO búsqueda, NO crea nada */}
+                                      <input
+                                        type="text"
+                                        value={
+                                          busquedaProveedor[servicio.id] !== undefined
+                                            ? busquedaProveedor[servicio.id]
+                                            : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')
                                         }
-                                      }}
-                                      placeholder="Buscar proveedor..."
-                                      className="input-field text-xs w-full pr-8"
-                                    />
-                                    
-                                    {/* Botón limpiar */}
-                                    {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
-                                      <button
-                                        onClick={() => {
-                                          setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
-                                          actualizarServicio(servicio.id, 'proveedorId', null)
-                                          setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                        onChange={(e) => {
+                                          const inputValue = e.target.value
+                                          setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue })
+                                          setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
                                         }}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                                        title="Limpiar"
-                                      >
-                                        <X size={14} />
-                                      </button>
-                                    )}
+                                        onFocus={() => {
+                                          // ============ COMBOBOX: MOSTRAR TODOS AL HACER CLIC ============
+                                          setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
+                                          // Si no hay búsqueda, limpiar para mostrar todos los proveedores del tipo
+                                          if (!busquedaProveedor[servicio.id]) {
+                                            setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                          }
+                                        }}
+                                        placeholder="Buscar proveedor..."
+                                        className="input-field text-xs w-full pr-8 bg-white text-black border-gray-300"
+                                      />
+                                      
+                                      {/* Botón limpiar */}
+                                      {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
+                                        <button
+                                          onClick={() => {
+                                            setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                            actualizarServicio(servicio.id, 'proveedorId', null)
+                                            setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                          }}
+                                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                                          title="Limpiar"
+                                        >
+                                          <X size={14} />
+                                        </button>
+                                      )}
+                                    </div>
+                                    
+                                    {/* Botón '+' independiente para abrir modal completo */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        // Abrir modal completo - NO crea nada, solo abre el modal
+                                        abrirModalProveedor(
+                                          busquedaProveedor[servicio.id] || '',
+                                          servicio.tipo,
+                                          servicio.id
+                                        )
+                                      }}
+                                      className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
+                                      title="Añadir nuevo proveedor"
+                                    >
+                                      <Plus size={16} />
+                                    </button>
                                   </div>
                                   
-                                  {/* Botón '+' independiente para abrir modal completo */}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      // Abrir modal completo - NO crea nada, solo abre el modal
-                                      abrirModalProveedor(
-                                        busquedaProveedor[servicio.id] || '',
-                                        servicio.tipo,
-                                        servicio.id
-                                      )
-                                    }}
-                                    className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
-                                    title="Añadir nuevo proveedor"
-                                  >
-                                    <Plus size={16} />
-                                  </button>
-                                </div>
-                                  
-                                  {/* Lista de sugerencias */}
+                                  {/* Lista de sugerencias - POSICIONAMIENTO ABSOLUTO CORRECTO */}
                                   {mostrarSugerencias[servicio.id] && (
-                                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto">
                                       {(() => {
                                         const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
-                                        const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase()
+                                        const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase().trim()
+                                        
+                                        console.log('🔍 Filtrado de proveedores:', {
+                                          totalProveedores: proveedores.length,
+                                          tipoServicio: servicio.tipo,
+                                          tipoProveedorBuscado,
+                                          textoBusqueda
+                                        })
                                         
                                         // ============ COMBOBOX: MOSTRAR TODOS O FILTRADOS ============
                                         // COMPARACIÓN ROBUSTA: Normalizar ambos lados para evitar problemas de formato
                                         const proveedoresFiltrados = proveedores
                                           .filter(p => {
                                             // Normalizar ambos tipos para comparación robusta
-                                            const tipoProveedorNormalizado = normalizarText(p.tipo);
-                                            const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado);
+                                            const tipoProveedorNormalizado = normalizarText(p.tipo || '');
+                                            const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado || '');
                                             
                                             const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado
                                             
-                                            // Si no hay búsqueda, mostrar todos del tipo
-                                            if (!textoBusqueda) return coincideTipo
+                                            console.log('🔍 Comparando tipos:', {
+                                              proveedor: p.nombreComercial,
+                                              tipoProveedor: p.tipo,
+                                              tipoProveedorNormalizado,
+                                              tipoBuscadoNormalizado,
+                                              coincideTipo
+                                            })
                                             
-                                            // Si hay búsqueda, filtrar por nombre
-                                            const coincideNombre = p.nombreComercial.toLowerCase().includes(textoBusqueda)
+                                            // Si no hay búsqueda de texto, mostrar todos del tipo
+                                            if (!textoBusqueda) {
+                                              return coincideTipo
+                                            }
+                                            
+                                            // Si hay búsqueda, filtrar por nombre Y tipo
+                                            const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda)
                                             return coincideTipo && coincideNombre
                                           })
-                                          .sort((a, b) => a.nombreComercial.localeCompare(b.nombreComercial))
+                                          .sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || ''))
                                         
-                                        const yaExiste = proveedoresFiltrados.some(
-                                          p => p.nombreComercial.toLowerCase() === textoBusqueda
-                                        )
+                                        console.log('✅ Proveedores filtrados:', proveedoresFiltrados.length, proveedoresFiltrados.map(p => p.nombreComercial))
                                         
                                         return (
                                           <>
@@ -1124,7 +1148,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                                   No hay proveedores de <strong>{servicio.tipo}</strong>
                                                 </p>
                                                 <p className="text-green-600 font-medium">
-                                                  💡 Escribe el nombre para añadir uno nuevo
+                                                  💡 Usa el botón + para añadir uno nuevo
                                                 </p>
                                               </div>
                                             )}
@@ -1133,38 +1157,35 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                             {proveedoresFiltrados.length === 0 && textoBusqueda && (
                                               <div className="px-3 py-3 text-xs text-center">
                                                 <p className="text-gray-600 mb-2">
-                                                  No se encontró "{busquedaProveedor[servicio.id]}"
+                                                  No se encontró "{busquedaProveedor[servicio.id]}" en {servicio.tipo}
                                                 </p>
                                                 <p className="text-green-600 font-medium">
-                                                  ➕ Haz clic abajo para crear nuevo proveedor
+                                                  ➕ Usa el botón + para crear nuevo proveedor
                                                 </p>
                                               </div>
                                             )}
                                             
                                             {/* Lista de proveedores existentes - SOLO selección, NO creación */}
-                                            {proveedoresFiltrados.map(proveedor => (
-                                              <button
-                                                key={proveedor.id}
-                                                onClick={() => {
-                                                  actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
-                                                  setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
-                                                  setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
-                                                }}
-                                                className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100"
-                                              >
-                                                <span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>
-                                                {proveedor.telefono && (
-                                                  <span className="text-gray-500">· {proveedor.telefono}</span>
-                                                )}
-                                              </button>
-                                            ))}
-                                            
-                                            {/* Mensaje cuando busca pero no encuentra */}
-                                            {proveedoresFiltrados.length === 0 && textoBusqueda && (
-                                              <div className="px-3 py-2 text-xs text-gray-500 text-center border-b border-gray-200">
-                                                No se encontró "{busquedaProveedor[servicio.id]}" en {servicio.tipo}
-                                                <br />
-                                                <span className="text-green-600 font-medium">Usa el botón + para añadir un nuevo proveedor</span>
+                                            {proveedoresFiltrados.length > 0 && (
+                                              <div className="py-1">
+                                                {proveedoresFiltrados.map(proveedor => (
+                                                  <button
+                                                    key={proveedor.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                      console.log('✅ Seleccionando proveedor:', proveedor)
+                                                      actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
+                                                      setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
+                                                      setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                                    }}
+                                                    className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
+                                                  >
+                                                    <span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>
+                                                    {proveedor.telefono && (
+                                                      <span className="text-gray-500">· {proveedor.telefono}</span>
+                                                    )}
+                                                  </button>
+                                                ))}
                                               </div>
                                             )}
                                           </>
@@ -1172,14 +1193,32 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                       })()}
                                     </div>
                                   )}
+                                </div>
                               </td>
                               
                               {/* COLUMNA 2: TIPO */}
                               <td className="px-2 py-2">
                                 <select
                                   value={servicio.tipo}
-                                  onChange={(e) => actualizarServicio(servicio.id, 'tipo', e.target.value)}
-                                  className="input-field text-xs w-full"
+                                  onChange={(e) => {
+                                    const nuevoTipo = e.target.value
+                                    actualizarServicio(servicio.id, 'tipo', nuevoTipo)
+                                    // Limpiar proveedor si cambia el tipo (porque el tipo debe coincidir)
+                                    if (servicio.proveedorId) {
+                                      const proveedorActual = obtenerProveedorPorId(servicio.proveedorId)
+                                      const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || '')
+                                      const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo)
+                                      
+                                      // Si el tipo del proveedor no coincide con el nuevo tipo, limpiar
+                                      if (tipoProveedorActual !== nuevoTipoProveedor) {
+                                        actualizarServicio(servicio.id, 'proveedorId', null)
+                                        setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                      }
+                                    }
+                                    // Mostrar sugerencias para el nuevo tipo
+                                    setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
+                                  }}
+                                  className="input-field text-xs w-full bg-white text-black border-gray-300"
                                 >
                                   <option>Hotel</option>
                                   <option>Restaurante</option>
@@ -1198,7 +1237,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   type="text"
                                   value={servicio.nombreEspecifico || ''}
                                   onChange={(e) => actualizarServicio(servicio.id, 'nombreEspecifico', e.target.value)}
-                                  className="input-field text-xs w-full"
+                                  className="input-field text-xs w-full bg-white text-black border-gray-300"
                                   placeholder="Ej: NH Ciudad de Valencia"
                                 />
                               </td>
@@ -1209,7 +1248,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   type="text"
                                   value={servicio.localizacion || ''}
                                   onChange={(e) => actualizarServicio(servicio.id, 'localizacion', e.target.value)}
-                                  className="input-field text-xs w-full"
+                                  className="input-field text-xs w-full bg-white text-black border-gray-300"
                                   placeholder="Ciudad/Zona"
                                 />
                               </td>
@@ -1221,7 +1260,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   onChange={(e) => actualizarServicio(servicio.id, 'costeUnitario', e.target.value)}
                                   onFocus={handleFocus}
                                   onWheel={handleWheel}
-                                  className="input-field text-xs text-right w-24"
+                                  className="input-field text-xs text-right w-24 bg-white text-black border-gray-300"
                                   step="0.01"
                                   placeholder="0.00"
                                 />
@@ -1236,7 +1275,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                     onChange={(e) => actualizarServicio(servicio.id, 'noches', e.target.value)}
                                     onFocus={handleFocus}
                                     onWheel={handleWheel}
-                                    className="input-field text-xs text-center w-16"
+                                    className="input-field text-xs text-center w-16 bg-white text-black border-gray-300"
                                     min="0"
                                     placeholder="0"
                                   />
@@ -1251,7 +1290,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   <select
                                     value={servicio.tipoCalculo || 'porPersona'}
                                     onChange={(e) => actualizarServicio(servicio.id, 'tipoCalculo', e.target.value)}
-                                    className="input-field text-xs"
+                                    className="input-field text-xs bg-white text-black border-gray-300"
                                   >
                                     <option value="porPersona">x Pax</option>
                                     <option value="porGrupo">÷ Pax</option>
@@ -1269,7 +1308,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   type="date"
                                   value={servicio.fechaRelease || ''}
                                   onChange={(e) => actualizarServicio(servicio.id, 'fechaRelease', e.target.value)}
-                                  className="input-field text-xs w-32"
+                                  className="input-field text-xs w-32 bg-white text-black border-gray-300"
                                 />
                               </td>
                               
