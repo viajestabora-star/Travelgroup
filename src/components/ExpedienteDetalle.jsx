@@ -659,22 +659,161 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             {tab === 'grupo' && (
               <div className="max-w-4xl mx-auto space-y-6">
                 {/* Tarjeta: Información del Grupo */}
-                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
-                  <div className="flex justify-between items-center mb-6">
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 bg-blue-100 rounded-lg">
-                        <Users className="text-blue-600" size={28} />
-                      </div>
-                      <div>
-                        <h3 className="text-2xl font-bold text-navy-900">Información del Grupo</h3>
-                        <p className="text-gray-600 text-sm">Datos del cliente y responsable</p>
-                      </div>
+                <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-3 bg-blue-100 rounded-lg">
+                      <Users className="text-blue-600" size={28} />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-bold text-navy-900">Información del Grupo</h3>
+                      <p className="text-gray-600 text-sm">Datos del cliente y responsable</p>
+                    </div>
+                  </div>
+                  
+                  {/* FORMULARIO EDITABLE */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div>
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Nombre del Grupo *</label>
+                      {editandoCliente ? (
+                        <input
+                          type="text"
+                          value={clienteEditado.nombre || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, nombre: e.target.value })}
+                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ backgroundColor: 'white', color: 'black' }}
+                        />
+                      ) : (
+                        <p className="text-base font-bold text-black py-2">{grupo.nombre || '-'}</p>
+                      )}
                     </div>
                     
+                    <div>
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>CIF</label>
+                      {editandoCliente ? (
+                        <input
+                          type="text"
+                          value={clienteEditado.cif || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, cif: e.target.value })}
+                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ backgroundColor: 'white', color: 'black' }}
+                        />
+                      ) : (
+                        <p className="text-base font-bold text-black py-2">{grupo.cif || '-'}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Responsable</label>
+                      {editandoCliente ? (
+                        <input
+                          type="text"
+                          value={clienteEditado.responsable || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, responsable: e.target.value })}
+                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ backgroundColor: 'white', color: 'black' }}
+                        />
+                      ) : (
+                        <p className="text-base font-bold text-black py-2">{grupo.responsable || '-'}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Móvil</label>
+                      {editandoCliente ? (
+                        <input
+                          type="text"
+                          value={clienteEditado.movilResponsable || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, movilResponsable: e.target.value })}
+                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ backgroundColor: 'white', color: 'black' }}
+                        />
+                      ) : (
+                        <p className="text-base font-bold text-black py-2">{grupo.movilResponsable || '-'}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Email</label>
+                      {editandoCliente ? (
+                        <input
+                          type="email"
+                          value={clienteEditado.email || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, email: e.target.value })}
+                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ backgroundColor: 'white', color: 'black' }}
+                        />
+                      ) : (
+                        <p className="text-base font-bold text-black py-2">{grupo.email || '-'}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Nº de Socios</label>
+                      {editandoCliente ? (
+                        <input
+                          type="text"
+                          value={clienteEditado.nSocios || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, nSocios: e.target.value })}
+                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ backgroundColor: 'white', color: 'black' }}
+                        />
+                      ) : (
+                        <p className="text-base font-bold text-black py-2">{grupo.nSocios || '-'}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Población</label>
+                      {editandoCliente ? (
+                        <input
+                          type="text"
+                          value={clienteEditado.poblacion || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, poblacion: e.target.value })}
+                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ backgroundColor: 'white', color: 'black' }}
+                        />
+                      ) : (
+                        <p className="text-base font-bold text-black py-2">{grupo.poblacion || '-'} {grupo.provincia && `(${grupo.provincia})`}</p>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Provincia</label>
+                      {editandoCliente ? (
+                        <input
+                          type="text"
+                          value={clienteEditado.provincia || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, provincia: e.target.value })}
+                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ backgroundColor: 'white', color: 'black' }}
+                        />
+                      ) : (
+                        <p className="text-base font-bold text-black py-2">{grupo.provincia || '-'}</p>
+                      )}
+                    </div>
+                    
+                    <div className="md:col-span-2">
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Dirección</label>
+                      {editandoCliente ? (
+                        <input
+                          type="text"
+                          value={clienteEditado.direccion || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, direccion: e.target.value })}
+                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ backgroundColor: 'white', color: 'black' }}
+                        />
+                      ) : (
+                        <p className="text-base font-bold text-black py-2">{grupo.direccion || '-'}</p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Botón Editar Cliente abajo a la derecha */}
+                  <div className="flex justify-end mt-6 pt-6 border-t border-gray-200">
                     {!editandoCliente ? (
                       <button 
                         onClick={iniciarEdicionCliente} 
-                        className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
+                        className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded-lg font-semibold transition-colors shadow-md"
                       >
                         Editar Cliente
                       </button>
@@ -682,148 +821,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <div className="flex gap-2">
                         <button 
                           onClick={cancelarEdicionCliente} 
-                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg font-semibold transition-colors"
+                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-6 rounded-lg font-semibold transition-colors"
                         >
                           Cancelar
                         </button>
                         <button 
                           onClick={guardarCambiosCliente} 
-                          className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
+                          className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
                         >
                           <Save size={18} />
                           Guardar Cambios
                         </button>
                       </div>
                     )}
-                  </div>
-                  
-                  {/* FORMULARIO EDITABLE */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-2">Nombre del Grupo *</label>
-                      {editandoCliente ? (
-                        <input
-                          type="text"
-                          value={clienteEditado.nombre || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, nombre: e.target.value })}
-                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                        />
-                      ) : (
-                        <p className="text-base font-medium text-gray-900 py-2">{grupo.nombre || '-'}</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-2">CIF</label>
-                      {editandoCliente ? (
-                        <input
-                          type="text"
-                          value={clienteEditado.cif || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, cif: e.target.value })}
-                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                        />
-                      ) : (
-                        <p className="text-base font-medium text-gray-900 py-2">{grupo.cif || '-'}</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-2">Responsable</label>
-                      {editandoCliente ? (
-                        <input
-                          type="text"
-                          value={clienteEditado.responsable || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, responsable: e.target.value })}
-                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                        />
-                      ) : (
-                        <p className="text-base font-medium text-gray-900 py-2">{grupo.responsable || '-'}</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-2">Móvil</label>
-                      {editandoCliente ? (
-                        <input
-                          type="text"
-                          value={clienteEditado.movilResponsable || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, movilResponsable: e.target.value })}
-                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                        />
-                      ) : (
-                        <p className="text-base font-medium text-gray-900 py-2">{grupo.movilResponsable || '-'}</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-2">Email</label>
-                      {editandoCliente ? (
-                        <input
-                          type="email"
-                          value={clienteEditado.email || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, email: e.target.value })}
-                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                        />
-                      ) : (
-                        <p className="text-base font-medium text-gray-900 py-2">{grupo.email || '-'}</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-2">Nº de Socios</label>
-                      {editandoCliente ? (
-                        <input
-                          type="text"
-                          value={clienteEditado.nSocios || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, nSocios: e.target.value })}
-                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                        />
-                      ) : (
-                        <p className="text-base font-medium text-gray-900 py-2">{grupo.nSocios || '-'}</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-2">Población</label>
-                      {editandoCliente ? (
-                        <input
-                          type="text"
-                          value={clienteEditado.poblacion || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, poblacion: e.target.value })}
-                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                        />
-                      ) : (
-                        <p className="text-base font-medium text-gray-900 py-2">{grupo.poblacion || '-'} {grupo.provincia && `(${grupo.provincia})`}</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-2">Provincia</label>
-                      {editandoCliente ? (
-                        <input
-                          type="text"
-                          value={clienteEditado.provincia || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, provincia: e.target.value })}
-                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                        />
-                      ) : (
-                        <p className="text-base font-medium text-gray-900 py-2">{grupo.provincia || '-'}</p>
-                      )}
-                    </div>
-                    
-                    <div className="md:col-span-2">
-                      <label className="block text-xs text-gray-500 mb-2">Dirección</label>
-                      {editandoCliente ? (
-                        <input
-                          type="text"
-                          value={clienteEditado.direccion || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, direccion: e.target.value })}
-                          className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                        />
-                      ) : (
-                        <p className="text-base font-medium text-gray-900 py-2">{grupo.direccion || '-'}</p>
-                      )}
-                    </div>
                   </div>
                 </div>
                 
@@ -843,7 +853,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="label text-base font-semibold">📅 Fecha de Inicio *</label>
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>📅 Fecha de Inicio *</label>
                       <input
                         type="date"
                         value={convertirEspañolAISO(expediente.fechaInicio) || ''}
@@ -860,7 +870,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }
                           onUpdate(expedienteActualizado)
                         }}
-                        className="input-field text-lg"
+                        style={{ backgroundColor: 'white', color: 'black', borderRadius: '8px', border: '1px solid #e5e7eb' }}
+                        className="w-full p-4 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                       />
                       <p className="text-xs text-gray-500 mt-1">
                         ⚡ Esta fecha determina el orden y el ejercicio (año) del expediente
@@ -873,7 +884,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                     </div>
                     
                     <div>
-                      <label className="label text-base font-semibold">📅 Fecha de Fin</label>
+                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>📅 Fecha de Fin</label>
                       <input
                         type="date"
                         value={convertirEspañolAISO(expediente.fechaFin) || ''}
@@ -890,7 +901,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }
                           onUpdate(expedienteActualizado)
                         }}
-                        className="input-field text-lg"
+                        style={{ backgroundColor: 'white', color: 'black', borderRadius: '8px', border: '1px solid #e5e7eb' }}
+                        className="w-full p-4 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                       />
                       <p className="text-xs text-gray-500 mt-1">
                         📆 Fecha de regreso o finalización del viaje
@@ -1318,7 +1330,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   type="date"
                                   value={servicio.fechaRelease || ''}
                                   onChange={(e) => actualizarServicio(servicio.id, 'fechaRelease', e.target.value)}
-                                  className="input-field text-xs w-32 bg-white text-black border-gray-300"
+                                  className="input-field text-xs w-32"
+                                  style={{ backgroundColor: 'white', color: 'black', borderRadius: '8px', border: '1px solid #e5e7eb' }}
                                 />
                               </td>
                               

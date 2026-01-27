@@ -94,7 +94,7 @@ const ProveedorForm = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
       {/* Header con icono azul */}
       <div className="flex items-center gap-3 mb-6">
         <div className="p-3 bg-blue-100 rounded-lg">
@@ -111,22 +111,24 @@ const ProveedorForm = ({
         <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2">
-              <label className="block text-xs text-gray-500 mb-2">
+              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
                 Nombre Comercial *
               </label>
               <input
                 required
-                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                style={{ backgroundColor: 'white', color: 'black' }}
                 value={formData.nombre_comercial}
                 onChange={e => setFormData({ ...formData, nombre_comercial: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-2">
+              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
                 Servicio
               </label>
               <select
-                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                style={{ backgroundColor: 'white', color: 'black' }}
                 value={formData.tipo}
                 onChange={e => setFormData({ ...formData, tipo: e.target.value })}
               >
@@ -148,42 +150,46 @@ const ProveedorForm = ({
           <h3 className="text-lg font-semibold text-navy-900 mb-4">Datos de Contacto</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <label className="block text-xs text-gray-500 mb-2">
+              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
                 Persona Contacto
               </label>
               <input
-                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                style={{ backgroundColor: 'white', color: 'black' }}
                 value={formData.persona_contacto}
                 onChange={e => setFormData({ ...formData, persona_contacto: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-2">
+              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
                 Email Reservas
               </label>
               <input
                 type="email"
-                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                style={{ backgroundColor: 'white', color: 'black' }}
                 value={formData.email}
                 onChange={e => setFormData({ ...formData, email: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-2">
+              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
                 Móvil WhatsApp
               </label>
               <input
-                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                style={{ backgroundColor: 'white', color: 'black' }}
                 value={formData.movil}
                 onChange={e => setFormData({ ...formData, movil: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-2">
+              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
                 Teléfono
               </label>
               <input
-                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                style={{ backgroundColor: 'white', color: 'black' }}
                 value={formData.telefono}
                 onChange={e => setFormData({ ...formData, telefono: e.target.value })}
               />
@@ -196,41 +202,45 @@ const ProveedorForm = ({
           <h3 className="text-lg font-semibold text-navy-900 mb-4">Dirección</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-3">
-              <label className="block text-xs text-gray-500 mb-2">
+              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
                 Dirección
               </label>
               <input
-                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                style={{ backgroundColor: 'white', color: 'black' }}
                 value={formData.direccion}
                 onChange={e => setFormData({ ...formData, direccion: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-2">
+              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
                 Población
               </label>
               <input
-                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                style={{ backgroundColor: 'white', color: 'black' }}
                 value={formData.poblacion}
                 onChange={e => setFormData({ ...formData, poblacion: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-2">
+              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
                 Provincia
               </label>
               <input
-                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                style={{ backgroundColor: 'white', color: 'black' }}
                 value={formData.provincia}
                 onChange={e => setFormData({ ...formData, provincia: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-2">
+              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
                 CIF
               </label>
               <input
-                className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                style={{ backgroundColor: 'white', color: 'black' }}
                 value={formData.cif}
                 onChange={e => setFormData({ ...formData, cif: e.target.value })}
               />
@@ -242,11 +252,12 @@ const ProveedorForm = ({
         <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
           <h3 className="text-lg font-semibold text-navy-900 mb-4">Información Bancaria</h3>
           <div>
-            <label className="block text-xs text-gray-500 mb-2">
+            <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
               IBAN
             </label>
             <input
-              className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              style={{ backgroundColor: 'white', color: 'black' }}
               value={formData.iban}
               onChange={e => setFormData({ ...formData, iban: e.target.value })}
             />
@@ -257,11 +268,12 @@ const ProveedorForm = ({
         <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
           <h3 className="text-lg font-semibold text-navy-900 mb-4">Observaciones</h3>
           <div>
-            <label className="block text-xs text-gray-500 mb-2">
+            <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
               Observaciones
             </label>
             <textarea
-              className="w-full p-4 bg-gray-50 rounded-lg border border-gray-200 text-gray-900 min-h-[100px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black min-h-[100px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              style={{ backgroundColor: 'white', color: 'black' }}
               value={formData.observaciones}
               onChange={e => setFormData({ ...formData, observaciones: e.target.value })}
             />

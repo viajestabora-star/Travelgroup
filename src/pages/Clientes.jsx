@@ -154,66 +154,189 @@ const Clientes = () => {
 
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-6 text-left">
-          <div className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] overflow-y-auto shadow-2xl p-12 border-4 border-slate-900">
-            <div className="flex justify-between items-center mb-10">
-              <h2 className="text-4xl font-[1000] italic uppercase tracking-tighter text-slate-900 text-left">Ficha de Cliente</h2>
-              <button onClick={closeModal} className="p-4 bg-slate-100 rounded-full hover:bg-red-500 hover:text-white transition-all"><X size={32}/></button>
+          <div 
+            className="w-full max-w-5xl max-h-[95vh] overflow-y-auto"
+            style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', border: '1px solid #f3f4f6' }}
+          >
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-3xl font-bold text-slate-900">Ficha de Cliente</h2>
+              <button onClick={closeModal} className="p-2 bg-gray-100 rounded-full hover:bg-red-500 hover:text-white transition-all"><X size={24}/></button>
             </div>
             
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-8">
-               <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-2">Nombre o Razón Social *</label>
-                  <input required className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-green-100" value={formData.nombre} onChange={e=>setFormData({...formData, nombre:e.target.value})} />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">CIF / NIF</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.cif_nif} onChange={e=>setFormData({...formData, cif_nif:e.target.value})} />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Teléfono de Contacto</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.telefono} onChange={e=>setFormData({...formData, telefono:e.target.value})} />
-               </div>
-               <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Email de Facturación / Envío</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.email} onChange={e=>setFormData({...formData, email:e.target.value})} />
-               </div>
-               <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Dirección</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.direccion} onChange={e=>setFormData({...formData, direccion:e.target.value})} />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Responsable</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.responsable} onChange={e=>setFormData({...formData, responsable:e.target.value})} />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Móvil</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.movil} onChange={e=>setFormData({...formData, movil:e.target.value})} />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Bonificaciones</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.bonificaciones} onChange={e=>setFormData({...formData, bonificaciones:e.target.value})} placeholder="Ej: 15€" />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Gratuidades</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.gratuidades} onChange={e=>setFormData({...formData, gratuidades:e.target.value})} placeholder="Ej: 1 plaza gratis por cada 25 de pago" />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Población</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.poblacion} onChange={e=>setFormData({...formData, poblacion:e.target.value})} />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Provincia</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none" value={formData.provincia} onChange={e=>setFormData({...formData, provincia:e.target.value})} />
-               </div>
-               <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-2">Observaciones del Cliente</label>
-                  <textarea className="w-full p-5 bg-slate-50 rounded-2xl font-medium border-none" rows="3" value={formData.observaciones} onChange={e=>setFormData({...formData, observaciones:e.target.value})} />
-               </div>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Nombre o Razón Social */}
+                <div className="md:col-span-2">
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    NOMBRE O RAZÓN SOCIAL *
+                  </label>
+                  <input 
+                    required 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '18px', fontWeight: 'bold' }}
+                    value={formData.nombre} 
+                    onChange={e=>setFormData({...formData, nombre:e.target.value})} 
+                  />
+                </div>
 
-               <div className="md:col-span-2 flex gap-4 pt-10">
-                  <button type="submit" className="flex-[2] bg-slate-900 text-white py-8 rounded-[2rem] font-[1000] italic uppercase text-2xl tracking-tighter shadow-2xl hover:bg-green-600 transition-all">Guardar Cliente Cloud</button>
-                  <button type="button" onClick={closeModal} className="flex-1 bg-slate-100 text-slate-400 py-8 rounded-[2rem] font-black uppercase italic">Descartar</button>
-               </div>
+                {/* CIF / NIF */}
+                <div>
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    CIF / NIF
+                  </label>
+                  <input 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    value={formData.cif_nif} 
+                    onChange={e=>setFormData({...formData, cif_nif:e.target.value})} 
+                  />
+                </div>
+
+                {/* Teléfono de Contacto */}
+                <div>
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    TELÉFONO DE CONTACTO
+                  </label>
+                  <input 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    value={formData.telefono} 
+                    onChange={e=>setFormData({...formData, telefono:e.target.value})} 
+                  />
+                </div>
+
+                {/* Email de Facturación / Envío */}
+                <div className="md:col-span-2">
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    EMAIL DE FACTURACIÓN / ENVÍO
+                  </label>
+                  <input 
+                    type="email"
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    value={formData.email} 
+                    onChange={e=>setFormData({...formData, email:e.target.value})} 
+                  />
+                </div>
+
+                {/* Dirección */}
+                <div className="md:col-span-2">
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    DIRECCIÓN
+                  </label>
+                  <input 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    value={formData.direccion} 
+                    onChange={e=>setFormData({...formData, direccion:e.target.value})} 
+                  />
+                </div>
+
+                {/* Responsable */}
+                <div>
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    RESPONSABLE
+                  </label>
+                  <input 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    value={formData.responsable} 
+                    onChange={e=>setFormData({...formData, responsable:e.target.value})} 
+                  />
+                </div>
+
+                {/* Móvil */}
+                <div>
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    MÓVIL
+                  </label>
+                  <input 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    value={formData.movil} 
+                    onChange={e=>setFormData({...formData, movil:e.target.value})} 
+                  />
+                </div>
+
+                {/* Bonificaciones */}
+                <div>
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    BONIFICACIONES
+                  </label>
+                  <input 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    value={formData.bonificaciones} 
+                    onChange={e=>setFormData({...formData, bonificaciones:e.target.value})} 
+                    placeholder="Ej: 15€" 
+                  />
+                </div>
+
+                {/* Gratuidades */}
+                <div>
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    GRATUIDADES
+                  </label>
+                  <input 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    value={formData.gratuidades} 
+                    onChange={e=>setFormData({...formData, gratuidades:e.target.value})} 
+                    placeholder="Ej: 1 plaza gratis por cada 25 de pago" 
+                  />
+                </div>
+
+                {/* Población */}
+                <div>
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    POBLACIÓN
+                  </label>
+                  <input 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    value={formData.poblacion} 
+                    onChange={e=>setFormData({...formData, poblacion:e.target.value})} 
+                  />
+                </div>
+
+                {/* Provincia */}
+                <div>
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    PROVINCIA
+                  </label>
+                  <input 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    value={formData.provincia} 
+                    onChange={e=>setFormData({...formData, provincia:e.target.value})} 
+                  />
+                </div>
+
+                {/* Observaciones del Cliente */}
+                <div className="md:col-span-2">
+                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                    OBSERVACIONES DEL CLIENTE
+                  </label>
+                  <textarea 
+                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold', minHeight: '100px' }}
+                    rows="3" 
+                    value={formData.observaciones} 
+                    onChange={e=>setFormData({...formData, observaciones:e.target.value})} 
+                  />
+                </div>
+              </div>
+
+              {/* Botón Guardar abajo a la derecha */}
+              <div className="flex justify-end mt-8 pt-6 border-t border-gray-200">
+                <button 
+                  type="submit" 
+                  className="bg-white text-blue-900 py-3 px-6 rounded-lg font-semibold transition-colors border-2 border-blue-900 hover:bg-blue-900 hover:text-white"
+                  style={{ borderColor: '#1e3a8a' }}
+                >
+                  Guardar Cliente
+                </button>
+              </div>
             </form>
           </div>
         </div>
