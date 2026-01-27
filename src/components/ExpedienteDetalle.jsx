@@ -659,10 +659,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             {tab === 'grupo' && (
               <div className="max-w-4xl mx-auto space-y-6">
                 {/* Tarjeta: Información del Grupo */}
-                <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
+                <div 
+                  className="bg-white p-8 rounded-2xl border border-gray-100"
+                  style={{ boxShadow: '0 10px 25px rgba(0,0,0,0.05), 0 5px 10px rgba(0,0,0,0.05)' }}
+                >
                   <div className="flex items-center gap-3 mb-6">
-                    <div className="p-3 bg-blue-100 rounded-lg">
-                      <Users className="text-blue-600" size={28} />
+                    <div className="p-3 bg-blue-100 rounded-full">
+                      <Users className="text-blue-600" size={24} />
                     </div>
                     <div>
                       <h3 className="text-2xl font-bold text-navy-900">Información del Grupo</h3>
@@ -673,137 +676,200 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   {/* FORMULARIO EDITABLE */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
-                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Nombre del Grupo *</label>
+                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Nombre del Grupo *</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.nombre || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, nombre: e.target.value })}
-                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ backgroundColor: 'white', color: 'black' }}
+                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ 
+                            backgroundColor: 'white', 
+                            color: '#111827', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb'
+                          }}
                         />
                       ) : (
-                        <p className="text-base font-bold text-black py-2">{grupo.nombre || '-'}</p>
+                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.nombre || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>CIF</label>
+                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>CIF</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.cif || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, cif: e.target.value })}
-                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ backgroundColor: 'white', color: 'black' }}
+                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ 
+                            backgroundColor: 'white', 
+                            color: '#111827', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb'
+                          }}
                         />
                       ) : (
-                        <p className="text-base font-bold text-black py-2">{grupo.cif || '-'}</p>
+                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.cif || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Responsable</label>
+                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Responsable</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.responsable || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, responsable: e.target.value })}
-                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ backgroundColor: 'white', color: 'black' }}
+                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ 
+                            backgroundColor: 'white', 
+                            color: '#111827', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb'
+                          }}
                         />
                       ) : (
-                        <p className="text-base font-bold text-black py-2">{grupo.responsable || '-'}</p>
+                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.responsable || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Móvil</label>
+                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Móvil</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.movilResponsable || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, movilResponsable: e.target.value })}
-                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ backgroundColor: 'white', color: 'black' }}
+                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ 
+                            backgroundColor: 'white', 
+                            color: '#111827', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb'
+                          }}
                         />
                       ) : (
-                        <p className="text-base font-bold text-black py-2">{grupo.movilResponsable || '-'}</p>
+                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.movilResponsable || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Email</label>
+                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Email</label>
                       {editandoCliente ? (
                         <input
                           type="email"
                           value={clienteEditado.email || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, email: e.target.value })}
-                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ backgroundColor: 'white', color: 'black' }}
+                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ 
+                            backgroundColor: 'white', 
+                            color: '#111827', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb'
+                          }}
                         />
                       ) : (
-                        <p className="text-base font-bold text-black py-2">{grupo.email || '-'}</p>
+                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.email || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Nº de Socios</label>
+                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Nº de Socios</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.nSocios || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, nSocios: e.target.value })}
-                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ backgroundColor: 'white', color: 'black' }}
+                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ 
+                            backgroundColor: 'white', 
+                            color: '#111827', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb'
+                          }}
                         />
                       ) : (
-                        <p className="text-base font-bold text-black py-2">{grupo.nSocios || '-'}</p>
+                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.nSocios || '-'}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Población</label>
+                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Población</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.poblacion || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, poblacion: e.target.value })}
-                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ backgroundColor: 'white', color: 'black' }}
+                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ 
+                            backgroundColor: 'white', 
+                            color: '#111827', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb'
+                          }}
                         />
                       ) : (
-                        <p className="text-base font-bold text-black py-2">{grupo.poblacion || '-'} {grupo.provincia && `(${grupo.provincia})`}</p>
+                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.poblacion || '-'} {grupo.provincia && `(${grupo.provincia})`}</p>
                       )}
                     </div>
                     
                     <div>
-                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Provincia</label>
+                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Provincia</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.provincia || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, provincia: e.target.value })}
-                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ backgroundColor: 'white', color: 'black' }}
+                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ 
+                            backgroundColor: 'white', 
+                            color: '#111827', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb'
+                          }}
                         />
                       ) : (
-                        <p className="text-base font-bold text-black py-2">{grupo.provincia || '-'}</p>
+                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.provincia || '-'}</p>
                       )}
                     </div>
                     
                     <div className="md:col-span-2">
-                      <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>Dirección</label>
+                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Dirección</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.direccion || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, direccion: e.target.value })}
-                          className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ backgroundColor: 'white', color: 'black' }}
+                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          style={{ 
+                            backgroundColor: 'white', 
+                            color: '#111827', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb'
+                          }}
                         />
                       ) : (
-                        <p className="text-base font-bold text-black py-2">{grupo.direccion || '-'}</p>
+                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.direccion || '-'}</p>
                       )}
                     </div>
                   </div>
@@ -813,7 +879,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                     {!editandoCliente ? (
                       <button 
                         onClick={iniciarEdicionCliente} 
-                        className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded-lg font-semibold transition-colors shadow-md"
+                        className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-lg font-semibold transition-colors shadow-md"
                       >
                         Editar Cliente
                       </button>
@@ -821,13 +887,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <div className="flex gap-2">
                         <button 
                           onClick={cancelarEdicionCliente} 
-                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-6 rounded-lg font-semibold transition-colors"
+                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-6 rounded-lg font-semibold transition-colors"
                         >
                           Cancelar
                         </button>
                         <button 
                           onClick={guardarCambiosCliente} 
-                          className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
+                          className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
                         >
                           <Save size={18} />
                           Guardar Cambios

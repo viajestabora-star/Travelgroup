@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone } from 'lucide-react'
+import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone, Users } from 'lucide-react'
 
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
@@ -156,10 +156,21 @@ const Clientes = () => {
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-6 text-left">
           <div 
             className="w-full max-w-5xl max-h-[95vh] overflow-y-auto"
-            style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', border: '1px solid #f3f4f6' }}
+            style={{ 
+              backgroundColor: 'white', 
+              padding: '32px', 
+              borderRadius: '24px', 
+              boxShadow: '0 10px 25px rgba(0,0,0,0.05), 0 5px 10px rgba(0,0,0,0.05)', 
+              border: '1px solid #f3f4f6' 
+            }}
           >
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-3xl font-bold text-slate-900">Ficha de Cliente</h2>
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-100 rounded-full">
+                  <Users className="text-blue-600" size={24} />
+                </div>
+                <h2 className="text-3xl font-bold text-slate-900">Ficha de Cliente</h2>
+              </div>
               <button onClick={closeModal} className="p-2 bg-gray-100 rounded-full hover:bg-red-500 hover:text-white transition-all"><X size={24}/></button>
             </div>
             
@@ -167,13 +178,20 @@ const Clientes = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Nombre o Razón Social */}
                 <div className="md:col-span-2">
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    NOMBRE O RAZÓN SOCIAL *
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Nombre o Razón Social *
                   </label>
                   <input 
                     required 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '18px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.nombre} 
                     onChange={e=>setFormData({...formData, nombre:e.target.value})} 
                   />
@@ -181,12 +199,19 @@ const Clientes = () => {
 
                 {/* CIF / NIF */}
                 <div>
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
                     CIF / NIF
                   </label>
                   <input 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.cif_nif} 
                     onChange={e=>setFormData({...formData, cif_nif:e.target.value})} 
                   />
@@ -194,12 +219,19 @@ const Clientes = () => {
 
                 {/* Teléfono de Contacto */}
                 <div>
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    TELÉFONO DE CONTACTO
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Teléfono de Contacto
                   </label>
                   <input 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.telefono} 
                     onChange={e=>setFormData({...formData, telefono:e.target.value})} 
                   />
@@ -207,13 +239,20 @@ const Clientes = () => {
 
                 {/* Email de Facturación / Envío */}
                 <div className="md:col-span-2">
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    EMAIL DE FACTURACIÓN / ENVÍO
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Email de Facturación / Envío
                   </label>
                   <input 
                     type="email"
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.email} 
                     onChange={e=>setFormData({...formData, email:e.target.value})} 
                   />
@@ -221,12 +260,19 @@ const Clientes = () => {
 
                 {/* Dirección */}
                 <div className="md:col-span-2">
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    DIRECCIÓN
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Dirección
                   </label>
                   <input 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.direccion} 
                     onChange={e=>setFormData({...formData, direccion:e.target.value})} 
                   />
@@ -234,12 +280,19 @@ const Clientes = () => {
 
                 {/* Responsable */}
                 <div>
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    RESPONSABLE
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Responsable
                   </label>
                   <input 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.responsable} 
                     onChange={e=>setFormData({...formData, responsable:e.target.value})} 
                   />
@@ -247,12 +300,19 @@ const Clientes = () => {
 
                 {/* Móvil */}
                 <div>
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    MÓVIL
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Móvil
                   </label>
                   <input 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.movil} 
                     onChange={e=>setFormData({...formData, movil:e.target.value})} 
                   />
@@ -260,12 +320,19 @@ const Clientes = () => {
 
                 {/* Bonificaciones */}
                 <div>
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    BONIFICACIONES
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Bonificaciones
                   </label>
                   <input 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.bonificaciones} 
                     onChange={e=>setFormData({...formData, bonificaciones:e.target.value})} 
                     placeholder="Ej: 15€" 
@@ -274,12 +341,19 @@ const Clientes = () => {
 
                 {/* Gratuidades */}
                 <div>
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    GRATUIDADES
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Gratuidades
                   </label>
                   <input 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.gratuidades} 
                     onChange={e=>setFormData({...formData, gratuidades:e.target.value})} 
                     placeholder="Ej: 1 plaza gratis por cada 25 de pago" 
@@ -288,12 +362,19 @@ const Clientes = () => {
 
                 {/* Población */}
                 <div>
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    POBLACIÓN
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Población
                   </label>
                   <input 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.poblacion} 
                     onChange={e=>setFormData({...formData, poblacion:e.target.value})} 
                   />
@@ -301,12 +382,19 @@ const Clientes = () => {
 
                 {/* Provincia */}
                 <div>
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    PROVINCIA
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Provincia
                   </label>
                   <input 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb'
+                    }}
                     value={formData.provincia} 
                     onChange={e=>setFormData({...formData, provincia:e.target.value})} 
                   />
@@ -314,12 +402,20 @@ const Clientes = () => {
 
                 {/* Observaciones del Cliente */}
                 <div className="md:col-span-2">
-                  <label className="block mb-2" style={{ color: '#9CA3AF', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                    OBSERVACIONES DEL CLIENTE
+                  <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>
+                    Observaciones del Cliente
                   </label>
                   <textarea 
-                    className="w-full p-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{ backgroundColor: 'white', color: '#111827', fontSize: '16px', fontWeight: 'bold', minHeight: '100px' }}
+                    className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{ 
+                      backgroundColor: 'white', 
+                      color: '#111827', 
+                      fontSize: '16px', 
+                      fontWeight: '600',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb',
+                      minHeight: '100px'
+                    }}
                     rows="3" 
                     value={formData.observaciones} 
                     onChange={e=>setFormData({...formData, observaciones:e.target.value})} 
@@ -331,8 +427,7 @@ const Clientes = () => {
               <div className="flex justify-end mt-8 pt-6 border-t border-gray-200">
                 <button 
                   type="submit" 
-                  className="bg-white text-blue-900 py-3 px-6 rounded-lg font-semibold transition-colors border-2 border-blue-900 hover:bg-blue-900 hover:text-white"
-                  style={{ borderColor: '#1e3a8a' }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-lg font-semibold transition-colors shadow-md"
                 >
                   Guardar Cliente
                 </button>
