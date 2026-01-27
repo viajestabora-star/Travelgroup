@@ -19,7 +19,14 @@ const USUARIOS_AUTORIZADOS = {
 const CLAVE_MAESTRA = 'tabora';
 
 function App() {
-  const [user, setUser] = useState(JSON.parse(localStorage.getItem('sesion_tabora')));
+  const [user, setUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('sesion_tabora');
+      return stored ? JSON.parse(stored) : null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
 

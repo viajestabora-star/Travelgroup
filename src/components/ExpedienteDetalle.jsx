@@ -262,10 +262,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   const calcularCotizacion = () => {
     try {
-        gratuidades: numGratuidades,
-        precioVenta: precioVentaManual
-      })
-      
       // Valores seguros
       const bonif = Math.max(0, parseFloat(bonificacionPorPersona) || 0)
       const dias = Math.max(1, parseInt(numDias) || 1)
@@ -1149,7 +1145,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                       })()}
                                     </div>
                                   )}
-                                </div>
                               </td>
                               
                               {/* COLUMNA 2: TIPO */}
