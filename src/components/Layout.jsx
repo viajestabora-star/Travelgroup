@@ -20,7 +20,7 @@ const Layout = () => {
 
   const menuItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/clientes', icon: Users, label: 'Gestión de Clientes' },
+    { path: '/clientes', icon: Users, label: 'Clientes' },
     { path: '/notas', icon: Briefcase, label: 'NOTAS DE TRABAJO' },
     { path: '/expedientes', icon: FileText, label: `Gestión ${ejercicioActual}` },
     { path: '/proveedores', icon: Truck, label: 'Proveedores' },

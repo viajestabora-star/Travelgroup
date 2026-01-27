@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { Users, Calculator, Calendar, TrendingUp, Briefcase, FileText, AlertTriangle, Clock } from 'lucide-react'
 import { storage } from '../utils/storage'
+import { createClient } from '@supabase/supabase-js'
+
+// Cliente de Supabase
+const supabase = createClient(
+  'https://gtwyqxfkpdwpakmgrkbu.supabase.co',
+  'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
+)
 
 const Dashboard = () => {
   const [stats, setStats] = useState({
@@ -10,22 +17,124 @@ const Dashboard = () => {
     visitasPendientes: 0,
   })
   const [alertasRelease, setAlertasRelease] = useState([])
+  const [proximosViajes, setProximosViajes] = useState([])
+  const [proximasVisitas, setProximasVisitas] = useState([])
+
+  // Cargar clientes desde Supabase
+  const cargarClientes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('clientes')
+        .select('id', { count: 'exact' })
+      
+      if (error) {
+        console.error('Error cargando clientes:', error)
+        // Fallback a localStorage
+        const clientes = storage.getClientes()
+        return clientes.length
+      }
+      
+      return data?.length || 0
+    } catch (error) {
+      console.error('Error fatal cargando clientes:', error)
+      // Fallback a localStorage
+      const clientes = storage.getClientes()
+      return clientes.length
+    }
+  }
+
+  // Cargar próximos viajes desde Supabase
+  const cargarProximosViajes = async () => {
+    try {
+      const hoy = new Date().toISOString().split('T')[0] // YYYY-MM-DD
+      
+      const { data, error } = await supabase
+        .from('expedientes')
+        .select('id_expediente, fecha_inicio, fecha_fin, cliente_nombre, destino, estado, responsable')
+        .gte('fecha_inicio', hoy)
+        .order('fecha_inicio', { ascending: true })
+        .limit(10)
+      
+      if (error) {
+        console.error('Error cargando próximos viajes:', error)
+        return []
+      }
+      
+      return (data || []).map(exp => ({
+        id: exp.id_expediente,
+        fechaInicio: exp.fecha_inicio,
+        fechaFin: exp.fecha_fin,
+        clienteNombre: exp.cliente_nombre,
+        destino: exp.destino,
+        estado: exp.estado,
+        responsable: exp.responsable
+      }))
+    } catch (error) {
+      console.error('Error fatal cargando próximos viajes:', error)
+      return []
+    }
+  }
+
+  // Cargar próximas visitas (expedientes con estado 'peticion')
+  const cargarProximasVisitas = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('expedientes')
+        .select('id_expediente, fecha_inicio, cliente_nombre, destino, estado, responsable, telefono, email')
+        .eq('estado', 'peticion')
+        .order('fecha_inicio', { ascending: true })
+        .limit(10)
+      
+      if (error) {
+        console.error('Error cargando próximas visitas:', error)
+        return []
+      }
+      
+      return (data || []).map(exp => ({
+        id: exp.id_expediente,
+        fechaInicio: exp.fecha_inicio,
+        clienteNombre: exp.cliente_nombre,
+        destino: exp.destino,
+        estado: exp.estado,
+        responsable: exp.responsable,
+        telefono: exp.telefono,
+        email: exp.email
+      }))
+    } catch (error) {
+      console.error('Error fatal cargando próximas visitas:', error)
+      return []
+    }
+  }
 
   useEffect(() => {
-    const clientes = storage.getClientes()
-    const expedientes = storage.get('expedientes') || []
-    const planning = storage.getPlanning()
-    const visitas = storage.getVisitas()
+    const cargarDatos = async () => {
+      // Cargar contador de clientes desde Supabase
+      const totalClientes = await cargarClientes()
+      
+      // Cargar expedientes desde localStorage como fallback
+      const expedientes = storage.get('expedientes') || []
+      const planning = storage.getPlanning()
+      const visitas = storage.getVisitas()
 
-    setStats({
-      totalClientes: clientes.length,
-      totalCotizaciones: expedientes.length,
-      proximosViajes: planning.length,
-      visitasPendientes: visitas.filter(v => !v.completada).length,
-    })
+      // Cargar próximos viajes y visitas desde Supabase
+      const viajes = await cargarProximosViajes()
+      const visitasPend = await cargarProximasVisitas()
 
-    // Calcular alertas de release
-    calcularAlertasRelease(expedientes)
+      setStats({
+        totalClientes,
+        totalCotizaciones: expedientes.length,
+        proximosViajes: viajes.length,
+        visitasPendientes: visitasPend.length,
+      })
+
+      setProximosViajes(viajes)
+      setProximasVisitas(visitasPend)
+
+      // Calcular alertas de release
+      calcularAlertasRelease(expedientes)
+    }
+
+    cargarDatos()
   }, [])
 
   const calcularAlertasRelease = (expedientes) => {
@@ -220,6 +329,98 @@ const Dashboard = () => {
             </a>
           </div>
         </div>
+      </div>
+
+      {/* Próximos Viajes */}
+      <div className="mt-8 card">
+        <h2 className="text-xl font-bold text-navy-900 mb-4 flex items-center gap-2">
+          <Calendar size={24} />
+          Próximos Viajes
+        </h2>
+        {proximosViajes.length === 0 ? (
+          <p className="text-gray-500 text-center py-8">No hay viajes próximos programados</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fecha Salida</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Cliente</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Destino</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Estado</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Responsable</th>
+                </tr>
+              </thead>
+              <tbody>
+                {proximosViajes.map((viaje) => {
+                  const fechaSalida = viaje.fechaInicio ? new Date(viaje.fechaInicio) : null
+                  const fechaFormateada = fechaSalida ? fechaSalida.toLocaleDateString('es-ES', { 
+                    day: '2-digit', 
+                    month: '2-digit', 
+                    year: 'numeric' 
+                  }) : '-'
+                  
+                  const estadoColors = {
+                    peticion: 'bg-yellow-100 text-yellow-800',
+                    confirmado: 'bg-green-100 text-green-800',
+                    finalizado: 'bg-blue-100 text-blue-800',
+                    cancelado: 'bg-red-100 text-red-800'
+                  }
+                  
+                  return (
+                    <tr key={viaje.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-3 px-4 text-sm">{fechaFormateada}</td>
+                      <td className="py-3 px-4 text-sm font-medium">{viaje.clienteNombre || '-'}</td>
+                      <td className="py-3 px-4 text-sm">{viaje.destino || '-'}</td>
+                      <td className="py-3 px-4 text-sm">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${estadoColors[viaje.estado] || 'bg-gray-100 text-gray-800'}`}>
+                          {viaje.estado || 'peticion'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-sm">{viaje.responsable || '-'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Próximas Visitas */}
+      <div className="mt-8 card">
+        <h2 className="text-xl font-bold text-navy-900 mb-4 flex items-center gap-2">
+          <Briefcase size={24} />
+          Próximas Visitas
+        </h2>
+        {proximasVisitas.length === 0 ? (
+          <p className="text-gray-500 text-center py-8">No hay visitas pendientes</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Cliente</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Destino</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Responsable</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Teléfono</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Email</th>
+                </tr>
+              </thead>
+              <tbody>
+                {proximasVisitas.map((visita) => (
+                  <tr key={visita.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="py-3 px-4 text-sm font-medium">{visita.clienteNombre || '-'}</td>
+                    <td className="py-3 px-4 text-sm">{visita.destino || '-'}</td>
+                    <td className="py-3 px-4 text-sm">{visita.responsable || '-'}</td>
+                    <td className="py-3 px-4 text-sm">{visita.telefono || '-'}</td>
+                    <td className="py-3 px-4 text-sm">{visita.email || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Info Banner */}
