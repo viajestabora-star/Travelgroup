@@ -68,8 +68,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const [busquedaProveedor, setBusquedaProveedor] = useState({}) // { servicioId: 'texto búsqueda' }
   const [mostrarSugerencias, setMostrarSugerencias] = useState({}) // { servicioId: true/false }
   
-  // Estado para Modal de Nuevo Proveedor (simplificado)
-  const [isModalOpen, setIsModalOpen] = useState(false)
+  // Estado para Modal de Nuevo Proveedor (reutiliza ProveedorForm)
+  const [showModal, setShowModal] = useState(false)
   const [nombreNuevoProveedor, setNombreNuevoProveedor] = useState('')
   const [tipoNuevoProveedor, setTipoNuevoProveedor] = useState('hotel')
   const [servicioIdParaProveedor, setServicioIdParaProveedor] = useState(null)
@@ -219,7 +219,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     setNombreNuevoProveedor(nombreLimpio)
     setTipoNuevoProveedor(tipoProveedor)
     setServicioIdParaProveedor(servicioId)
-    setIsModalOpen(true)
+    setShowModal(true)
   }
   
   const obtenerProveedorPorId = (id) => {
@@ -1046,6 +1046,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   
                                   {/* Botón '+' independiente para abrir modal completo */}
                                   <button
+                                    type="button"
                                     onClick={() => {
                                       // Abrir modal completo - NO crea nada, solo abre el modal
                                       abrirModalProveedor(
@@ -1600,13 +1601,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           </div>
         </div>
         
-        {/* Renderizado del Modal al final del JSX - Solo se activa cuando isModalOpen es verdadero */}
-        {isModalOpen && (
+        {/* Renderizado del Modal al final del JSX - Solo se activa cuando showModal es verdadero */}
+        {showModal && (
           <div
             className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[9999] p-6 text-left"
             onClick={(e) => {
               if (e.target === e.currentTarget) {
-                setIsModalOpen(false)
+                setShowModal(false)
               }
             }}
           >
@@ -1619,7 +1620,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   Nuevo Proveedor
                 </h2>
                 <button
-                  onClick={() => setIsModalOpen(false)}
+                  type="button"
+                  onClick={() => setShowModal(false)}
                   className="p-4 bg-slate-100 rounded-full hover:bg-red-500 hover:text-white transition-all"
                 >
                   <X size={32} />
@@ -1633,9 +1635,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   tipo: tipoNuevoProveedor
                 }}
                 submitLabel="Guardar y Seleccionar"
-                onCancel={() => setIsModalOpen(false)}
+                onCancel={() => setShowModal(false)}
                 onSaved={async (nuevoProveedor) => {
-                  // REFRESH: Recargar lista completa de proveedores desde Supabase para obtener el nuevo ID
+                  // onSuccess: refrescar lista de proveedores en la cotización
                   await cargarProveedores()
 
                   // Buscar el proveedor recién creado en la lista actualizada
@@ -1647,20 +1649,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           p.tipo === nuevoProveedor.tipo)
                     ) || nuevoProveedor
 
-                  // Seleccionar automáticamente en la fila
+                  // Seleccionar automáticamente en la fila actual de cotización
                   if (servicioIdParaProveedor) {
                     actualizarServicio(servicioIdParaProveedor, 'proveedorId', proveedorActualizado.id)
-                    setBusquedaProveedor({
-                      ...busquedaProveedor,
+                    setBusquedaProveedor(prev => ({
+                      ...prev,
                       [servicioIdParaProveedor]: proveedorActualizado.nombreComercial
-                    })
-                    setMostrarSugerencias({
-                      ...mostrarSugerencias,
+                    }))
+                    setMostrarSugerencias(prev => ({
+                      ...prev,
                       [servicioIdParaProveedor]: false
-                    })
+                    }))
                   }
 
-                  setIsModalOpen(false)
+                  setShowModal(false)
                 }}
               />
             </div>
