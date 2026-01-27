@@ -77,46 +77,73 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // Función para cargar proveedores desde Supabase
   const cargarProveedores = async () => {
     try {
+      console.log('🔄 Iniciando carga de proveedores desde Supabase...')
+      
       const { data, error } = await supabase
         .from('proveedores')
         .select('*')
         .order('nombre_comercial', { ascending: true });
       
       if (error) {
-        console.error('Error cargando proveedores:', error)
+        console.error('❌ Error cargando proveedores:', error)
+        alert(`Error cargando proveedores: ${error.message}`)
         setProveedores([])
         return
       }
       
+      console.log('📦 Datos recibidos de Supabase:', data)
+      console.log('📊 Cantidad de proveedores:', data?.length || 0)
+      
       if (!data || !Array.isArray(data)) {
+        console.warn('⚠️ No se recibieron datos o no es un array')
+        setProveedores([])
+        return
+      }
+      
+      if (data.length === 0) {
+        console.warn('⚠️ La tabla proveedores está vacía')
         setProveedores([])
         return
       }
       
       // Mapear campos de Supabase a formato interno
-      const proveedoresMapeados = data.map(p => ({
-        id: p.id,
-        nombreComercial: p.nombre_comercial || p.nombreComercial || '',
-        nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
-        tipo: p.tipo || '',
-        telefono: p.telefono || p.movil || '',
-        email: p.email || '',
-        direccion: p.direccion || '',
-        poblacion: p.poblacion || '',
-        cif: p.cif || ''
-      }));
+      const proveedoresMapeados = data.map(p => {
+        const proveedorMapeado = {
+          id: p.id,
+          nombreComercial: p.nombre_comercial || p.nombreComercial || '',
+          nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
+          tipo: p.tipo || '',
+          telefono: p.telefono || p.movil || '',
+          email: p.email || '',
+          direccion: p.direccion || '',
+          poblacion: p.poblacion || '',
+          cif: p.cif || ''
+        }
+        console.log('🔍 Proveedor mapeado:', proveedorMapeado)
+        return proveedorMapeado
+      });
       
+      console.log('✅ Proveedores mapeados correctamente:', proveedoresMapeados.length)
       setProveedores(proveedoresMapeados)
-      storage.set('proveedores', proveedoresMapeados)
+      
+      // Guardar en localStorage como backup
+      try {
+        storage.set('proveedores', proveedoresMapeados)
+        console.log('💾 Proveedores guardados en localStorage')
+      } catch (storageError) {
+        console.warn('⚠️ Error guardando en localStorage:', storageError)
+      }
       
     } catch (error) {
-      console.error('Error fatal cargando proveedores:', error)
+      console.error('❌ Error fatal cargando proveedores:', error)
+      alert(`Error fatal: ${error.message}`)
       setProveedores([])
     }
   };
   
-  // Cargar proveedores desde Supabase al montar - RECUPERAR CARGA
+  // Cargar proveedores desde Supabase al montar
   useEffect(() => {
+    console.log('🚀 Componente montado, cargando proveedores...')
     cargarProveedores();
   }, [])
   
