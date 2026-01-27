@@ -94,10 +94,18 @@ const ProveedorForm = ({
   }
 
   return (
-    <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
+    <div 
+      style={{ 
+        background: 'white', 
+        padding: '32px', 
+        borderRadius: '24px', 
+        boxShadow: '0 20px 25px -5px rgba(0,0,0,0.05), 0 10px 10px -5px rgba(0,0,0,0.04)',
+        border: '1px solid #f1f5f9'
+      }}
+    >
       {/* Header con icono azul */}
       <div className="flex items-center gap-3 mb-6">
-        <div className="p-3 bg-blue-100 rounded-lg">
+        <div className="p-3 bg-blue-100 rounded-full">
           <Building2 className="text-blue-600" size={28} />
         </div>
         <div>
@@ -108,27 +116,43 @@ const ProveedorForm = ({
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Tarjeta: Información Principal */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)', marginBottom: '16px', border: '1px solid #f1f5f9' }}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2">
-              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Nombre Comercial *
               </label>
               <input
                 required
-                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                style={{ backgroundColor: 'white', color: 'black' }}
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
                 value={formData.nombre_comercial}
                 onChange={e => setFormData({ ...formData, nombre_comercial: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Servicio
               </label>
               <select
-                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                style={{ backgroundColor: 'white', color: 'black' }}
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
                 value={formData.tipo}
                 onChange={e => setFormData({ ...formData, tipo: e.target.value })}
               >
@@ -146,50 +170,82 @@ const ProveedorForm = ({
         </div>
 
         {/* Tarjeta: Datos de Contacto */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)', marginBottom: '16px', border: '1px solid #f1f5f9' }}>
           <h3 className="text-lg font-semibold text-navy-900 mb-4">Datos de Contacto</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Persona Contacto
               </label>
               <input
-                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                style={{ backgroundColor: 'white', color: 'black' }}
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
                 value={formData.persona_contacto}
                 onChange={e => setFormData({ ...formData, persona_contacto: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Email Reservas
               </label>
               <input
                 type="email"
-                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                style={{ backgroundColor: 'white', color: 'black' }}
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
                 value={formData.email}
                 onChange={e => setFormData({ ...formData, email: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Móvil WhatsApp
               </label>
               <input
-                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                style={{ backgroundColor: 'white', color: 'black' }}
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
                 value={formData.movil}
                 onChange={e => setFormData({ ...formData, movil: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Teléfono
               </label>
               <input
-                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                style={{ backgroundColor: 'white', color: 'black' }}
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
                 value={formData.telefono}
                 onChange={e => setFormData({ ...formData, telefono: e.target.value })}
               />
@@ -198,49 +254,81 @@ const ProveedorForm = ({
         </div>
 
         {/* Tarjeta: Dirección */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)', marginBottom: '16px', border: '1px solid #f1f5f9' }}>
           <h3 className="text-lg font-semibold text-navy-900 mb-4">Dirección</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-3">
-              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Dirección
               </label>
               <input
-                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                style={{ backgroundColor: 'white', color: 'black' }}
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
                 value={formData.direccion}
                 onChange={e => setFormData({ ...formData, direccion: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Población
               </label>
               <input
-                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                style={{ backgroundColor: 'white', color: 'black' }}
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
                 value={formData.poblacion}
                 onChange={e => setFormData({ ...formData, poblacion: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Provincia
               </label>
               <input
-                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                style={{ backgroundColor: 'white', color: 'black' }}
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
                 value={formData.provincia}
                 onChange={e => setFormData({ ...formData, provincia: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 CIF
               </label>
               <input
-                className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                style={{ backgroundColor: 'white', color: 'black' }}
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
                 value={formData.cif}
                 onChange={e => setFormData({ ...formData, cif: e.target.value })}
               />
@@ -249,15 +337,23 @@ const ProveedorForm = ({
         </div>
 
         {/* Tarjeta: Información Bancaria */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)', marginBottom: '16px', border: '1px solid #f1f5f9' }}>
           <h3 className="text-lg font-semibold text-navy-900 mb-4">Información Bancaria</h3>
           <div>
-            <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+            <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               IBAN
             </label>
             <input
-              className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-              style={{ backgroundColor: 'white', color: 'black' }}
+              className="w-full p-4 transition-all font-mono"
+              style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#3b82f6'
+                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e2e8f0'
+                e.target.style.boxShadow = 'none'
+              }}
               value={formData.iban}
               onChange={e => setFormData({ ...formData, iban: e.target.value })}
             />
@@ -265,15 +361,23 @@ const ProveedorForm = ({
         </div>
 
         {/* Tarjeta: Observaciones */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)', marginBottom: '16px', border: '1px solid #f1f5f9' }}>
           <h3 className="text-lg font-semibold text-navy-900 mb-4">Observaciones</h3>
           <div>
-            <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>
+            <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Observaciones
             </label>
             <textarea
-              className="w-full p-4 bg-white rounded-lg border border-gray-200 text-black min-h-[100px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-              style={{ backgroundColor: 'white', color: 'black' }}
+              className="w-full p-4 transition-all min-h-[100px]"
+              style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#3b82f6'
+                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e2e8f0'
+                e.target.style.boxShadow = 'none'
+              }}
               value={formData.observaciones}
               onChange={e => setFormData({ ...formData, observaciones: e.target.value })}
             />

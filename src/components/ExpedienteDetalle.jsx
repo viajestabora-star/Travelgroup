@@ -658,10 +658,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             {/* TAB: Ficha del Grupo */}
             {tab === 'grupo' && (
               <div className="max-w-4xl mx-auto space-y-6">
-                {/* Tarjeta: Información del Grupo */}
+                {/* Contenedor principal */}
                 <div 
-                  className="bg-white p-8 rounded-2xl border border-gray-100"
-                  style={{ boxShadow: '0 10px 25px rgba(0,0,0,0.05), 0 5px 10px rgba(0,0,0,0.05)' }}
+                  style={{ 
+                    background: 'white', 
+                    padding: '32px', 
+                    borderRadius: '24px', 
+                    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.05), 0 10px 10px -5px rgba(0,0,0,0.04)',
+                    border: '1px solid #f1f5f9'
+                  }}
                 >
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-3 bg-blue-100 rounded-full">
@@ -672,210 +677,283 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <p className="text-gray-600 text-sm">Datos del cliente y responsable</p>
                     </div>
                   </div>
-                  
-                  {/* FORMULARIO EDITABLE */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <div>
-                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Nombre del Grupo *</label>
+
+                  {/* Rejilla limpia */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="md:col-span-2">
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Nombre del Grupo *</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.nombre || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, nombre: e.target.value })}
-                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          className="w-full p-4 transition-all"
                           style={{ 
-                            backgroundColor: 'white', 
-                            color: '#111827', 
+                            backgroundColor: '#f8fafc', 
+                            color: '#0f172a', 
                             fontSize: '16px', 
                             fontWeight: '600',
                             borderRadius: '12px',
-                            border: '1px solid #e5e7eb'
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
                           }}
                         />
                       ) : (
-                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.nombre || '-'}</p>
+                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.nombre || '-'}</p>
                       )}
                     </div>
-                    
                     <div>
-                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>CIF</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>CIF</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.cif || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, cif: e.target.value })}
-                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          className="w-full p-4 transition-all"
                           style={{ 
-                            backgroundColor: 'white', 
-                            color: '#111827', 
+                            backgroundColor: '#f8fafc', 
+                            color: '#0f172a', 
                             fontSize: '16px', 
                             fontWeight: '600',
                             borderRadius: '12px',
-                            border: '1px solid #e5e7eb'
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
                           }}
                         />
                       ) : (
-                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.cif || '-'}</p>
+                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.cif || '-'}</p>
                       )}
                     </div>
-                    
                     <div>
-                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Responsable</label>
-                      {editandoCliente ? (
-                        <input
-                          type="text"
-                          value={clienteEditado.responsable || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, responsable: e.target.value })}
-                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ 
-                            backgroundColor: 'white', 
-                            color: '#111827', 
-                            fontSize: '16px', 
-                            fontWeight: '600',
-                            borderRadius: '12px',
-                            border: '1px solid #e5e7eb'
-                          }}
-                        />
-                      ) : (
-                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.responsable || '-'}</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Móvil</label>
-                      {editandoCliente ? (
-                        <input
-                          type="text"
-                          value={clienteEditado.movilResponsable || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, movilResponsable: e.target.value })}
-                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ 
-                            backgroundColor: 'white', 
-                            color: '#111827', 
-                            fontSize: '16px', 
-                            fontWeight: '600',
-                            borderRadius: '12px',
-                            border: '1px solid #e5e7eb'
-                          }}
-                        />
-                      ) : (
-                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.movilResponsable || '-'}</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Email</label>
-                      {editandoCliente ? (
-                        <input
-                          type="email"
-                          value={clienteEditado.email || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, email: e.target.value })}
-                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                          style={{ 
-                            backgroundColor: 'white', 
-                            color: '#111827', 
-                            fontSize: '16px', 
-                            fontWeight: '600',
-                            borderRadius: '12px',
-                            border: '1px solid #e5e7eb'
-                          }}
-                        />
-                      ) : (
-                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.email || '-'}</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Nº de Socios</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Nº de Socios</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.nSocios || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, nSocios: e.target.value })}
-                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          className="w-full p-4 transition-all"
                           style={{ 
-                            backgroundColor: 'white', 
-                            color: '#111827', 
+                            backgroundColor: '#f8fafc', 
+                            color: '#0f172a', 
                             fontSize: '16px', 
                             fontWeight: '600',
                             borderRadius: '12px',
-                            border: '1px solid #e5e7eb'
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
                           }}
                         />
                       ) : (
-                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.nSocios || '-'}</p>
+                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.nSocios || '-'}</p>
                       )}
                     </div>
-                    
                     <div>
-                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Población</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Responsable</label>
                       {editandoCliente ? (
                         <input
                           type="text"
-                          value={clienteEditado.poblacion || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, poblacion: e.target.value })}
-                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          value={clienteEditado.responsable || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, responsable: e.target.value })}
+                          className="w-full p-4 transition-all"
                           style={{ 
-                            backgroundColor: 'white', 
-                            color: '#111827', 
+                            backgroundColor: '#f8fafc', 
+                            color: '#0f172a', 
                             fontSize: '16px', 
                             fontWeight: '600',
                             borderRadius: '12px',
-                            border: '1px solid #e5e7eb'
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
                           }}
                         />
                       ) : (
-                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.poblacion || '-'} {grupo.provincia && `(${grupo.provincia})`}</p>
+                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.responsable || '-'}</p>
                       )}
                     </div>
-                    
                     <div>
-                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Provincia</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Móvil</label>
                       {editandoCliente ? (
                         <input
                           type="text"
-                          value={clienteEditado.provincia || ''}
-                          onChange={(e) => setClienteEditado({ ...clienteEditado, provincia: e.target.value })}
-                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          value={clienteEditado.movilResponsable || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, movilResponsable: e.target.value })}
+                          className="w-full p-4 transition-all"
                           style={{ 
-                            backgroundColor: 'white', 
-                            color: '#111827', 
+                            backgroundColor: '#f8fafc', 
+                            color: '#0f172a', 
                             fontSize: '16px', 
                             fontWeight: '600',
                             borderRadius: '12px',
-                            border: '1px solid #e5e7eb'
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
                           }}
                         />
                       ) : (
-                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.provincia || '-'}</p>
+                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.movilResponsable || '-'}</p>
                       )}
                     </div>
-                    
                     <div className="md:col-span-2">
-                      <label className="block mb-2" style={{ color: '#6B7280', fontSize: '12px', fontWeight: '500' }}>Dirección</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Email</label>
+                      {editandoCliente ? (
+                        <input
+                          type="email"
+                          value={clienteEditado.email || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, email: e.target.value })}
+                          className="w-full p-4 transition-all"
+                          style={{ 
+                            backgroundColor: '#f8fafc', 
+                            color: '#0f172a', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
+                          }}
+                        />
+                      ) : (
+                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.email || '-'}</p>
+                      )}
+                    </div>
+                    <div className="md:col-span-2">
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Dirección</label>
                       {editandoCliente ? (
                         <input
                           type="text"
                           value={clienteEditado.direccion || ''}
                           onChange={(e) => setClienteEditado({ ...clienteEditado, direccion: e.target.value })}
-                          className="w-full p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          className="w-full p-4 transition-all"
                           style={{ 
-                            backgroundColor: 'white', 
-                            color: '#111827', 
+                            backgroundColor: '#f8fafc', 
+                            color: '#0f172a', 
                             fontSize: '16px', 
                             fontWeight: '600',
                             borderRadius: '12px',
-                            border: '1px solid #e5e7eb'
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
                           }}
                         />
                       ) : (
-                        <p className="text-base py-2" style={{ color: '#111827', fontWeight: '600' }}>{grupo.direccion || '-'}</p>
+                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.direccion || '-'}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Población</label>
+                      {editandoCliente ? (
+                        <input
+                          type="text"
+                          value={clienteEditado.poblacion || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, poblacion: e.target.value })}
+                          className="w-full p-4 transition-all"
+                          style={{ 
+                            backgroundColor: '#f8fafc', 
+                            color: '#0f172a', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
+                          }}
+                        />
+                      ) : (
+                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.poblacion || '-'} {grupo.provincia && `(${grupo.provincia})`}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Provincia</label>
+                      {editandoCliente ? (
+                        <input
+                          type="text"
+                          value={clienteEditado.provincia || ''}
+                          onChange={(e) => setClienteEditado({ ...clienteEditado, provincia: e.target.value })}
+                          className="w-full p-4 transition-all"
+                          style={{ 
+                            backgroundColor: '#f8fafc', 
+                            color: '#0f172a', 
+                            fontSize: '16px', 
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
+                          }}
+                        />
+                      ) : (
+                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.provincia || '-'}</p>
                       )}
                     </div>
                   </div>
                   
                   {/* Botón Editar Cliente abajo a la derecha */}
-                  <div className="flex justify-end mt-6 pt-6 border-t border-gray-200">
+                  <div className="flex justify-end mt-6 pt-6 border-t" style={{ borderColor: '#f1f5f9' }}>
                     {!editandoCliente ? (
                       <button 
                         onClick={iniciarEdicionCliente} 
@@ -936,8 +1014,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }
                           onUpdate(expedienteActualizado)
                         }}
-                        style={{ backgroundColor: 'white', color: 'black', borderRadius: '8px', border: '1px solid #e5e7eb' }}
-                        className="w-full p-4 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                        style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                        className="w-full p-4 text-lg transition-all"
+                        onFocus={(e) => {
+                          e.target.style.borderColor = '#3b82f6'
+                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#e2e8f0'
+                          e.target.style.boxShadow = 'none'
+                        }}
                       />
                       <p className="text-xs text-gray-500 mt-1">
                         ⚡ Esta fecha determina el orden y el ejercicio (año) del expediente
@@ -967,8 +1053,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }
                           onUpdate(expedienteActualizado)
                         }}
-                        style={{ backgroundColor: 'white', color: 'black', borderRadius: '8px', border: '1px solid #e5e7eb' }}
-                        className="w-full p-4 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                        style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                        className="w-full p-4 text-lg transition-all"
+                        onFocus={(e) => {
+                          e.target.style.borderColor = '#3b82f6'
+                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#e2e8f0'
+                          e.target.style.boxShadow = 'none'
+                        }}
                       />
                       <p className="text-xs text-gray-500 mt-1">
                         📆 Fecha de regreso o finalización del viaje
@@ -1015,9 +1109,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         type="number"
                         value={numTotalPasajeros}
                         onChange={(e) => setNumTotalPasajeros(e.target.value)}
-                        onFocus={handleFocus}
+                        onFocus={(e) => {
+                          handleFocus(e)
+                          e.target.style.borderColor = '#3b82f6'
+                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#e2e8f0'
+                          e.target.style.boxShadow = 'none'
+                        }}
                         onWheel={handleWheel}
-                        className="input-field bg-white text-black border-gray-300"
+                        className="input-field transition-all"
+                        style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                         min="1"
                         tabIndex="1"
                       />
@@ -1028,9 +1131,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         type="number"
                         value={numGratuidades}
                         onChange={(e) => setNumGratuidades(e.target.value)}
-                        onFocus={handleFocus}
+                        onFocus={(e) => {
+                          handleFocus(e)
+                          e.target.style.borderColor = '#3b82f6'
+                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#e2e8f0'
+                          e.target.style.boxShadow = 'none'
+                        }}
                         onWheel={handleWheel}
-                        className="input-field bg-white text-black border-gray-300"
+                        className="input-field transition-all"
+                        style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                         min="0"
                         tabIndex="2"
                       />
@@ -1041,9 +1153,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         type="number"
                         value={numDias}
                         onChange={(e) => setNumDias(e.target.value)}
-                        onFocus={handleFocus}
+                        onFocus={(e) => {
+                          handleFocus(e)
+                          e.target.style.borderColor = '#3b82f6'
+                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#e2e8f0'
+                          e.target.style.boxShadow = 'none'
+                        }}
                         onWheel={handleWheel}
-                        className="input-field bg-white text-black border-gray-300"
+                        className="input-field transition-all"
+                        style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                         min="1"
                         tabIndex="3"
                       />
@@ -1054,9 +1175,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         type="number"
                         value={bonificacionPorPersona}
                         onChange={(e) => setBonificacionPorPersona(e.target.value)}
-                        onFocus={handleFocus}
+                        onFocus={(e) => {
+                          handleFocus(e)
+                          e.target.style.borderColor = '#3b82f6'
+                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#e2e8f0'
+                          e.target.style.boxShadow = 'none'
+                        }}
                         onWheel={handleWheel}
-                        className="input-field bg-white text-black border-gray-300"
+                        className="input-field transition-all"
+                        style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                         step="0.01"
                         tabIndex="4"
                       />
@@ -1067,9 +1197,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         type="number"
                         value={precioVentaManual}
                         onChange={(e) => setPrecioVentaManual(e.target.value)}
-                        onFocus={handleFocus}
+                        onFocus={(e) => {
+                          handleFocus(e)
+                          e.target.style.borderColor = '#3b82f6'
+                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#e2e8f0'
+                          e.target.style.boxShadow = 'none'
+                        }}
                         onWheel={handleWheel}
-                        className="input-field border-2 border-green-400 bg-white text-black font-bold text-lg"
+                        className="input-field transition-all font-bold text-lg"
+                        style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                         step="0.01"
                         tabIndex="5"
                         placeholder="Ej: 380.00"
@@ -1145,7 +1284,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                           }
                                         }}
                                         placeholder="Buscar proveedor..."
-                                        className="input-field text-xs w-full pr-8 bg-white text-black border-gray-300"
+                                        className="input-field text-xs w-full pr-8 transition-all"
+                                        style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                        onFocus={(e) => {
+                                          e.target.style.borderColor = '#3b82f6'
+                                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                        }}
+                                        onBlur={(e) => {
+                                          e.target.style.borderColor = '#e2e8f0'
+                                          e.target.style.boxShadow = 'none'
+                                        }}
                                       />
                                       
                                       {/* Botón limpiar */}
@@ -1306,7 +1454,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                     // Mostrar sugerencias para el nuevo tipo
                                     setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
                                   }}
-                                  className="input-field text-xs w-full bg-white text-black border-gray-300"
+                                  className="input-field text-xs w-full transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                  onFocus={(e) => {
+                                    e.target.style.borderColor = '#3b82f6'
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                  }}
                                 >
                                   <option>Hotel</option>
                                   <option>Restaurante</option>
@@ -1325,7 +1482,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   type="text"
                                   value={servicio.nombreEspecifico || ''}
                                   onChange={(e) => actualizarServicio(servicio.id, 'nombreEspecifico', e.target.value)}
-                                  className="input-field text-xs w-full bg-white text-black border-gray-300"
+                                  className="input-field text-xs w-full transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                  onFocus={(e) => {
+                                    e.target.style.borderColor = '#3b82f6'
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                  }}
                                   placeholder="Ej: NH Ciudad de Valencia"
                                 />
                               </td>
@@ -1336,7 +1502,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   type="text"
                                   value={servicio.localizacion || ''}
                                   onChange={(e) => actualizarServicio(servicio.id, 'localizacion', e.target.value)}
-                                  className="input-field text-xs w-full bg-white text-black border-gray-300"
+                                  className="input-field text-xs w-full transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                  onFocus={(e) => {
+                                    e.target.style.borderColor = '#3b82f6'
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                  }}
                                   placeholder="Ciudad/Zona"
                                 />
                               </td>
@@ -1346,9 +1521,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   type="number"
                                   value={servicio.costeUnitario}
                                   onChange={(e) => actualizarServicio(servicio.id, 'costeUnitario', e.target.value)}
-                                  onFocus={handleFocus}
+                                  onFocus={(e) => {
+                                    handleFocus(e)
+                                    e.target.style.borderColor = '#3b82f6'
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                  }}
                                   onWheel={handleWheel}
-                                  className="input-field text-xs text-right w-24 bg-white text-black border-gray-300"
+                                  className="input-field text-xs text-right w-24 transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                                   step="0.01"
                                   placeholder="0.00"
                                 />
@@ -1361,9 +1545,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                     type="number"
                                     value={servicio.noches || 0}
                                     onChange={(e) => actualizarServicio(servicio.id, 'noches', e.target.value)}
-                                    onFocus={handleFocus}
+                                    onFocus={(e) => {
+                                      handleFocus(e)
+                                      e.target.style.borderColor = '#3b82f6'
+                                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                    }}
+                                    onBlur={(e) => {
+                                      e.target.style.borderColor = '#e2e8f0'
+                                      e.target.style.boxShadow = 'none'
+                                    }}
                                     onWheel={handleWheel}
-                                    className="input-field text-xs text-center w-16 bg-white text-black border-gray-300"
+                                    className="input-field text-xs text-center w-16 transition-all"
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                                     min="0"
                                     placeholder="0"
                                   />
@@ -1378,7 +1571,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   <select
                                     value={servicio.tipoCalculo || 'porPersona'}
                                     onChange={(e) => actualizarServicio(servicio.id, 'tipoCalculo', e.target.value)}
-                                    className="input-field text-xs bg-white text-black border-gray-300"
+                                    className="input-field text-xs transition-all"
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                    onFocus={(e) => {
+                                      e.target.style.borderColor = '#3b82f6'
+                                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                    }}
+                                    onBlur={(e) => {
+                                      e.target.style.borderColor = '#e2e8f0'
+                                      e.target.style.boxShadow = 'none'
+                                    }}
                                   >
                                     <option value="porPersona">x Pax</option>
                                     <option value="porGrupo">÷ Pax</option>
@@ -1396,8 +1598,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   type="date"
                                   value={servicio.fechaRelease || ''}
                                   onChange={(e) => actualizarServicio(servicio.id, 'fechaRelease', e.target.value)}
-                                  className="input-field text-xs w-32"
-                                  style={{ backgroundColor: 'white', color: 'black', borderRadius: '8px', border: '1px solid #e5e7eb' }}
+                                  className="input-field text-xs w-32 transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                  onFocus={(e) => {
+                                    e.target.style.borderColor = '#3b82f6'
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                  }}
                                 />
                               </td>
                               
