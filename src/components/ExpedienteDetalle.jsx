@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
@@ -54,6 +54,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // Estados
   const [tab, setTab] = useState('grupo')
   const [editandoCliente, setEditandoCliente] = useState(false)
+  
+  // Ref para rastrear si ya se inicializaron los servicios automáticamente
+  const serviciosInicializados = useRef(false)
   
   // Estados para Cotización (CON VALORES SEGUROS)
   const [servicios, setServicios] = useState(expediente?.cotizacion?.servicios || [])
@@ -166,6 +169,88 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+  
+  // ============ INICIALIZACIÓN AUTOMÁTICA DE SERVICIOS ============
+  // Carga automática: Si la lista de servicios está vacía, inicializar con 5 servicios básicos
+  useEffect(() => {
+    // Verificar si el expediente tiene servicios guardados
+    const serviciosGuardados = expediente?.cotizacion?.servicios || []
+    
+    // Solo ejecutar si no hay servicios guardados (array vacío o undefined)
+    // y si no se han inicializado ya para este expediente
+    if ((!serviciosGuardados || serviciosGuardados.length === 0) && !serviciosInicializados.current) {
+      const timestamp = Date.now()
+      const serviciosIniciales = [
+        {
+          id: timestamp + 1,
+          proveedorId: null,
+          tipo: 'Autobús',
+          nombreEspecifico: '',
+          localizacion: '',
+          costeUnitario: 0,
+          noches: 0,
+          fechaRelease: '',
+          tipoCalculo: 'porPersona', // Autobús siempre divide entre pasajeros
+        },
+        {
+          id: timestamp + 2,
+          proveedorId: null,
+          tipo: 'Hotel',
+          nombreEspecifico: '',
+          localizacion: '',
+          costeUnitario: 0,
+          noches: 1,
+          fechaRelease: '',
+          tipoCalculo: 'porPersona',
+        },
+        {
+          id: timestamp + 3,
+          proveedorId: null,
+          tipo: 'Guía',
+          nombreEspecifico: '',
+          localizacion: '',
+          costeUnitario: 0,
+          noches: 0,
+          fechaRelease: '',
+          tipoCalculo: 'porPersona', // Guía siempre divide entre pasajeros
+        },
+        {
+          id: timestamp + 4,
+          proveedorId: null,
+          tipo: 'Seguro',
+          nombreEspecifico: '',
+          localizacion: '',
+          costeUnitario: 0,
+          noches: 0,
+          fechaRelease: '',
+          tipoCalculo: 'porPersona',
+        },
+        {
+          id: timestamp + 5,
+          proveedorId: null,
+          tipo: 'Restaurante',
+          nombreEspecifico: '',
+          localizacion: '',
+          costeUnitario: 0,
+          noches: 0,
+          fechaRelease: '',
+          tipoCalculo: 'porPersona', // Por defecto, puede cambiarse a 'porGrupo'
+        },
+      ]
+      
+      console.log('🔄 Inicializando servicios automáticamente:', serviciosIniciales)
+      setServicios(serviciosIniciales)
+      serviciosInicializados.current = true // Marcar como inicializado
+    } else if (serviciosGuardados && serviciosGuardados.length > 0) {
+      // Si hay servicios guardados, marcar como inicializado para no ejecutar de nuevo
+      serviciosInicializados.current = true
+    }
+  }, [expediente?.id, expediente?.cotizacion?.servicios]) // Ejecutar cuando cambie el expediente (por ID) o sus servicios guardados
+  
+  // Resetear el flag cuando cambie el expediente (por ID)
+  useEffect(() => {
+    serviciosInicializados.current = false
+  }, [expediente?.id])
   
   // ============ UX: HANDLERS PARA INPUTS ============
   
