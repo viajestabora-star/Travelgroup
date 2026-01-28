@@ -3,7 +3,7 @@ import { FileText, Plus, Trash2, X, Search, UserPlus, Download, Calendar } from 
 import { storage } from '../utils/storage'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
-import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
+import { getEjercicioActual, subscribeToEjercicioChanges, setEjercicioActual, getAñosDisponibles } from '../utils/ejercicioGlobal'
 import { createClient } from '@supabase/supabase-js'
 
 // Cliente de Supabase usando anon_key (publishable key)
@@ -567,6 +567,8 @@ const Expedientes = () => {
         observaciones: String(expedienteActualizado.observaciones || ''),
         itinerario: String(expedienteActualizado.itinerario || ''),
         total_pax: String(totalPaxTexto),
+        // NUEVO: Guardar cotización completa como JSON
+        cotizacion: expedienteActualizado.cotizacion ? JSON.stringify(expedienteActualizado.cotizacion) : null,
       }
       
       const { error } = await supabase
@@ -903,14 +905,30 @@ const Expedientes = () => {
         </div>
       </div>
 
-      {/* ==================== CONTADOR DE EXPEDIENTES ==================== */}
+      {/* ==================== SELECTOR DE AÑO Y CONTADOR ==================== */}
       <div className="mb-6 p-4 bg-gradient-to-r from-navy-50 to-blue-50 rounded-xl border border-navy-200">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <Calendar className="text-navy-600" size={24} />
             <div>
-              <p className="text-sm font-medium text-gray-700">Ejercicio {ejercicioActual}</p>
-              <p className="text-xs text-gray-500">
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-gray-700">Ejercicio:</label>
+                <select
+                  value={ejercicioActual}
+                  onChange={(e) => {
+                    const nuevoEjercicio = parseInt(e.target.value)
+                    setEjercicioActual(nuevoEjercicio) // Actualizar estado local
+                    setEjercicioActual(nuevoEjercicio) // Guardar en localStorage y disparar evento global
+                  }}
+                  className="px-3 py-2 border-2 border-navy-300 rounded-lg bg-white text-navy-900 font-semibold focus:outline-none focus:ring-2 focus:ring-navy-500"
+                  style={{ backgroundColor: 'white', color: '#0f172a' }}
+                >
+                  {getAñosDisponibles().map(año => (
+                    <option key={año} value={año}>{año}</option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
                 {searchTermExpedientes 
                   ? `Buscando: "${searchTermExpedientes}" - ${expedientesFiltradosPorEjercicio.length} resultado${expedientesFiltradosPorEjercicio.length !== 1 ? 's' : ''}`
                   : `Vista de expedientes del año seleccionado`

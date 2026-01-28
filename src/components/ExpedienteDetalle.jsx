@@ -1332,13 +1332,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <thead className="bg-gray-50">
                           <tr>
                             <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Proveedor</th>
-                            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Tipo</th>
-                            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Nombre Específico</th>
-                            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Localización</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Coste (€)</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Noches</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Tipo Cálculo</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Release</th>
+                            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Servicio</th>
+                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Cantidad</th>
+                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Precio (€)</th>
+                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Total (€)</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Acciones</th>
                           </tr>
                         </thead>
@@ -1520,7 +1517,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 </div>
                               </td>
                               
-                              {/* COLUMNA 2: TIPO */}
+                              {/* COLUMNA 2: SERVICIO (TIPO) */}
                               <td className="px-2 py-2">
                                 <select
                                   value={servicio.tipo}
@@ -1564,46 +1561,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 </select>
                               </td>
                               
-                              {/* COLUMNA 3: NOMBRE ESPECÍFICO */}
-                              <td className="px-2 py-2">
-                                <input
-                                  type="text"
-                                  value={servicio.nombreEspecifico || ''}
-                                  onChange={(e) => actualizarServicio(servicio.id, 'nombreEspecifico', e.target.value)}
-                                  className="input-field text-xs w-full transition-all"
-                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                                  onFocus={(e) => {
-                                    e.target.style.borderColor = '#3b82f6'
-                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                  }}
-                                  onBlur={(e) => {
-                                    e.target.style.borderColor = '#e2e8f0'
-                                    e.target.style.boxShadow = 'none'
-                                  }}
-                                  placeholder="Ej: NH Ciudad de Valencia"
-                                />
+                              {/* COLUMNA 3: CANTIDAD (Noches para Hotel, 1 para otros) */}
+                              <td className="px-2 py-2 text-center">
+                                {servicio.tipo === 'Hotel' ? (
+                                  <input
+                                    type="number"
+                                    value={servicio.noches || 1}
+                                    onChange={(e) => actualizarServicio(servicio.id, 'noches', e.target.value)}
+                                    onFocus={(e) => {
+                                      handleFocus(e)
+                                      e.target.style.borderColor = '#3b82f6'
+                                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                    }}
+                                    onBlur={(e) => {
+                                      e.target.style.borderColor = '#e2e8f0'
+                                      e.target.style.boxShadow = 'none'
+                                    }}
+                                    onWheel={handleWheel}
+                                    className="input-field text-xs text-center w-20 transition-all"
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                    min="1"
+                                    placeholder="1"
+                                  />
+                                ) : (
+                                  <span className="text-gray-600 text-xs font-medium">1</span>
+                                )}
                               </td>
                               
-                              {/* COLUMNA 4: LOCALIZACIÓN */}
-                              <td className="px-2 py-2">
-                                <input
-                                  type="text"
-                                  value={servicio.localizacion || ''}
-                                  onChange={(e) => actualizarServicio(servicio.id, 'localizacion', e.target.value)}
-                                  className="input-field text-xs w-full transition-all"
-                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                                  onFocus={(e) => {
-                                    e.target.style.borderColor = '#3b82f6'
-                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                  }}
-                                  onBlur={(e) => {
-                                    e.target.style.borderColor = '#e2e8f0'
-                                    e.target.style.boxShadow = 'none'
-                                  }}
-                                  placeholder="Ciudad/Zona"
-                                />
-                              </td>
-                              {/* COLUMNA 5: COSTE */}
+                              {/* COLUMNA 4: PRECIO */}
                               <td className="px-2 py-2">
                                 <input
                                   type="number"
@@ -1619,87 +1604,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                     e.target.style.boxShadow = 'none'
                                   }}
                                   onWheel={handleWheel}
-                                  className="input-field text-xs text-right w-24 transition-all"
+                                  className="input-field text-xs text-right w-28 transition-all"
                                   style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                                   step="0.01"
                                   placeholder="0.00"
                                 />
                               </td>
                               
-                              {/* COLUMNA 6: NOCHES */}
-                              <td className="px-2 py-2">
-                                {servicio.tipo === 'Hotel' ? (
-                                  <input
-                                    type="number"
-                                    value={servicio.noches || 0}
-                                    onChange={(e) => actualizarServicio(servicio.id, 'noches', e.target.value)}
-                                    onFocus={(e) => {
-                                      handleFocus(e)
-                                      e.target.style.borderColor = '#3b82f6'
-                                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                    }}
-                                    onBlur={(e) => {
-                                      e.target.style.borderColor = '#e2e8f0'
-                                      e.target.style.boxShadow = 'none'
-                                    }}
-                                    onWheel={handleWheel}
-                                    className="input-field text-xs text-center w-16 transition-all"
-                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                                    min="0"
-                                    placeholder="0"
-                                  />
-                                ) : (
-                                  <span className="text-gray-400 text-xs">-</span>
-                                )}
+                              {/* COLUMNA 5: TOTAL (Calculado: Precio × Cantidad) */}
+                              <td className="px-2 py-2 text-center">
+                                <span className="text-gray-900 text-sm font-semibold">
+                                  {((parseFloat(servicio.costeUnitario) || 0) * (servicio.tipo === 'Hotel' ? (parseInt(servicio.noches) || 1) : 1)).toFixed(2)}€
+                                </span>
                               </td>
                               
-                              {/* COLUMNA 7: TIPO CÁLCULO */}
-                              <td className="px-2 py-2">
-                                {['Guía Local', 'Restaurante', 'Otros'].includes(servicio.tipo) ? (
-                                  <select
-                                    value={servicio.tipoCalculo || 'porPersona'}
-                                    onChange={(e) => actualizarServicio(servicio.id, 'tipoCalculo', e.target.value)}
-                                    className="input-field text-xs transition-all"
-                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                                    onFocus={(e) => {
-                                      e.target.style.borderColor = '#3b82f6'
-                                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                    }}
-                                    onBlur={(e) => {
-                                      e.target.style.borderColor = '#e2e8f0'
-                                      e.target.style.boxShadow = 'none'
-                                    }}
-                                  >
-                                    <option value="porPersona">x Pax</option>
-                                    <option value="porGrupo">÷ Pax</option>
-                                  </select>
-                                ) : (
-                                  <span className="text-gray-400 text-xs">
-                                    {servicio.tipo === 'Autobús' || servicio.tipo === 'Guía' ? '÷ Pax' : 'x Pax'}
-                                  </span>
-                                )}
-                              </td>
-                              
-                              {/* COLUMNA 8: FECHA RELEASE */}
-                              <td className="px-2 py-2">
-                                <input
-                                  type="date"
-                                  value={servicio.fechaRelease || ''}
-                                  onChange={(e) => actualizarServicio(servicio.id, 'fechaRelease', e.target.value)}
-                                  className="input-field text-xs w-32 transition-all"
-                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                                  onFocus={(e) => {
-                                    e.target.style.borderColor = '#3b82f6'
-                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                  }}
-                                  onBlur={(e) => {
-                                    e.target.style.borderColor = '#e2e8f0'
-                                    e.target.style.boxShadow = 'none'
-                                  }}
-                                />
-                              </td>
-                              
-                              {/* COLUMNA 9: ACCIONES */}
+                              {/* COLUMNA 6: ACCIONES */}
                               <td className="px-2 py-2 text-center">
                                 <button
                                   onClick={() => eliminarServicio(servicio.id)}
