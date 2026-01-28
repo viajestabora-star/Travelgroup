@@ -255,8 +255,9 @@ const Expedientes = () => {
           // Datos básicos
           cliente_id: exp.cliente_id || '',
           clienteId: exp.cliente_id || null, // Compatibilidad interna
-          cliente_nombre: exp.cliente_nombre || '',
-          clienteNombre: exp.cliente_nombre || '',
+          // Nombre de cliente solo para mostrar (se leerá si existe, pero no se vuelve a escribir a Supabase)
+          cliente_nombre: exp.cliente_nombre || exp.cliente_name || '',
+          clienteNombre: exp.cliente_nombre || exp.cliente_name || '',
           fecha_inicio: exp.fecha_inicio || '',
           fecha_fin: exp.fecha_fin || '',
           fechaInicio: exp.fecha_inicio || '',
@@ -268,6 +269,9 @@ const Expedientes = () => {
           estado: exp.estado || 'peticion',
           observaciones: exp.observaciones || '',
           itinerario: exp.itinerario || '',
+
+          // Ejercicio (año) guardado en la tabla o derivado de la fecha de inicio
+          ejercicio: exp.ejercicio || extraerAño(exp.fecha_inicio || '') || getEjercicioActual(),
 
           // Parámetros de cotización resumidos en columnas planas
           total_pax: exp.total_pax || null,
@@ -365,8 +369,8 @@ const Expedientes = () => {
         // Preparar datos para Supabase
         // IMPORTANTE: Las fechas deben estar en formato YYYY-MM-DD para Supabase
         const datosParaSupabase = {
+          // Clave foránea al cliente: siempre enviar solo el UUID
           cliente_id: String(expediente.cliente_id || expediente.clienteId || ''),
-          cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
           fecha_inicio: convertirFechaAISO(expediente.fecha_inicio || expediente.fechaInicio || ''),
           fecha_fin: convertirFechaAISO(expediente.fecha_fin || expediente.fechaFin || ''),
           destino: String(expediente.destino || ''),
@@ -376,6 +380,12 @@ const Expedientes = () => {
           estado: String(expediente.estado || 'peticion'),
           observaciones: String(expediente.observaciones || ''),
           itinerario: String(expediente.itinerario || ''),
+          // Ejercicio asociado al expediente
+          ejercicio: Number(
+            expediente.ejercicio ||
+            extraerAño(expediente.fecha_inicio || expediente.fechaInicio || '') ||
+            getEjercicioActual()
+          ),
           // Mantener total_pax si ya existe (texto o número)
           total_pax: expediente.total_pax !== undefined
             ? String(expediente.total_pax)
@@ -473,8 +483,8 @@ const Expedientes = () => {
       // Justo antes de enviar a Supabase, convertimos a YYYY-MM-DD (formato requerido por Supabase)
       // Esto corrige el error "date/time field value out of range" sin cambiar la experiencia visual
       const datosInsertar = {
+        // Clave foránea: solo UUID del cliente
         cliente_id: String(finalId || ''),
-        cliente_nombre: String(finalNombre || ''),
         fecha_inicio: convertirFechaAISO(expedienteForm.fechaInicio || ''), // Convierte DD/MM/YYYY → YYYY-MM-DD
         fecha_fin: convertirFechaAISO(expedienteForm.fechaFin || ''), // Convierte DD/MM/YYYY → YYYY-MM-DD
         destino: String(expedienteForm.destino || ''),
@@ -484,6 +494,8 @@ const Expedientes = () => {
         estado: String(expedienteForm.estado || 'peticion'),
         observaciones: String(expedienteForm.observaciones || ''),
         itinerario: String(expedienteForm.itinerario || ''),
+        // Ejercicio tomado del selector global
+        ejercicio: Number(ejercicioActual),
         total_pax: String(''),
         // Número de expediente generado automáticamente (no editable)
         numero_expediente: numeroExpediente
@@ -625,8 +637,8 @@ const Expedientes = () => {
       // Objeto exacto para Supabase - Asegurar que todos los campos obligatorios estén presentes y no sean NULL
       // IMPORTANTE: Las fechas deben estar en formato YYYY-MM-DD para Supabase
       const expedienteActualizadoParaSupabase = {
+        // Clave foránea al cliente
         cliente_id: String(expedienteActualizado.cliente_id || expedienteActualizado.clienteId || ''),
-        cliente_nombre: String(expedienteActualizado.cliente_nombre || expedienteActualizado.clienteNombre || ''),
         fecha_inicio: convertirFechaAISO(expedienteActualizado.fecha_inicio || expedienteActualizado.fechaInicio || ''),
         fecha_fin: convertirFechaAISO(expedienteActualizado.fecha_fin || expedienteActualizado.fechaFin || ''),
         destino: String(expedienteActualizado.destino || ''),
@@ -636,6 +648,12 @@ const Expedientes = () => {
         estado: String(expedienteActualizado.estado || 'peticion'),
         observaciones: String(expedienteActualizado.observaciones || ''),
         itinerario: String(expedienteActualizado.itinerario || ''),
+        // Ejercicio guardado en la tabla
+        ejercicio: Number(
+          expedienteActualizado.ejercicio ||
+          extraerAño(expedienteActualizado.fecha_inicio || expedienteActualizado.fechaInicio || '') ||
+          getEjercicioActual()
+        ),
         total_pax: String(totalPaxTexto),
         // NUEVO MODELO: pax_pago separado para reflejar pasajeros de pago
         pax_pago: expedienteActualizado.pax_pago !== undefined
