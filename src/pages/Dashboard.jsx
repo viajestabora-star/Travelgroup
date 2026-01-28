@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { Users, Calculator, Calendar, TrendingUp, Briefcase, FileText, AlertTriangle, Clock } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { createClient } from '@supabase/supabase-js'
+import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
+import { extraerAño } from '../utils/dateNormalizer'
 
 // Cliente de Supabase
 const supabase = createClient(
@@ -10,6 +12,7 @@ const supabase = createClient(
 )
 
 const Dashboard = () => {
+  const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [stats, setStats] = useState({
     totalClientes: 0,
     totalCotizaciones: 0,
@@ -19,6 +22,15 @@ const Dashboard = () => {
   const [alertasRelease, setAlertasRelease] = useState([])
   const [proximosViajes, setProximosViajes] = useState([])
   const [proximasVisitas, setProximasVisitas] = useState([])
+
+  // Sincronizar con cambios globales del ejercicio
+  useEffect(() => {
+    const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
+      console.log('📅 Dashboard: Ejercicio cambiado a', nuevoEjercicio)
+      setEjercicioActual(nuevoEjercicio)
+    })
+    return unsubscribe
+  }, [])
 
   // Cargar clientes desde Supabase
   const cargarClientes = async () => {
@@ -43,15 +55,60 @@ const Dashboard = () => {
     }
   }
 
-  // Cargar próximos viajes desde Supabase
-  const cargarProximosViajes = async () => {
+  // Cargar contador de expedientes del año seleccionado
+  const cargarExpedientesDelAño = async (año) => {
+    try {
+      // Calcular rango de fechas para el año seleccionado
+      const inicioAño = `${año}-01-01`
+      const finAño = `${año}-12-31`
+      
+      const { data, error } = await supabase
+        .from('expedientes')
+        .select('id_expediente', { count: 'exact' })
+        .gte('fecha_inicio', inicioAño)
+        .lte('fecha_inicio', finAño)
+      
+      if (error) {
+        console.error('Error cargando expedientes del año:', error)
+        // Fallback a localStorage
+        const expedientes = storage.get('expedientes') || []
+        return expedientes.filter(exp => {
+          const fechaInicio = exp.fecha_inicio || exp.fechaInicio
+          if (!fechaInicio) return false
+          const añoExpediente = extraerAño(fechaInicio)
+          return añoExpediente === año
+        }).length
+      }
+      
+      return data?.length || 0
+    } catch (error) {
+      console.error('Error fatal cargando expedientes del año:', error)
+      // Fallback a localStorage
+      const expedientes = storage.get('expedientes') || []
+      return expedientes.filter(exp => {
+        const fechaInicio = exp.fecha_inicio || exp.fechaInicio
+        if (!fechaInicio) return false
+        const añoExpediente = extraerAño(fechaInicio)
+        return añoExpediente === año
+      }).length
+    }
+  }
+
+  // Cargar próximos viajes desde Supabase (filtrado por año seleccionado)
+  const cargarProximosViajes = async (año) => {
     try {
       const hoy = new Date().toISOString().split('T')[0] // YYYY-MM-DD
+      
+      // Calcular rango de fechas para el año seleccionado
+      const inicioAño = `${año}-01-01`
+      const finAño = `${año}-12-31`
       
       const { data, error } = await supabase
         .from('expedientes')
         .select('id_expediente, fecha_inicio, fecha_fin, cliente_nombre, destino, estado, responsable')
-        .gte('fecha_inicio', hoy)
+        .gte('fecha_inicio', hoy) // Solo futuros
+        .gte('fecha_inicio', inicioAño) // Del año seleccionado en adelante
+        .lte('fecha_inicio', finAño) // Hasta fin del año seleccionado
         .order('fecha_inicio', { ascending: true })
         .limit(10)
       
@@ -75,13 +132,19 @@ const Dashboard = () => {
     }
   }
 
-  // Cargar próximas visitas (expedientes con estado 'peticion')
-  const cargarProximasVisitas = async () => {
+  // Cargar próximas visitas (expedientes con estado 'peticion' del año seleccionado)
+  const cargarProximasVisitas = async (año) => {
     try {
+      // Calcular rango de fechas para el año seleccionado
+      const inicioAño = `${año}-01-01`
+      const finAño = `${año}-12-31`
+      
       const { data, error } = await supabase
         .from('expedientes')
         .select('id_expediente, fecha_inicio, cliente_nombre, destino, estado, responsable, telefono, email')
         .eq('estado', 'peticion')
+        .gte('fecha_inicio', inicioAño)
+        .lte('fecha_inicio', finAño)
         .order('fecha_inicio', { ascending: true })
         .limit(10)
       
@@ -108,21 +171,24 @@ const Dashboard = () => {
 
   useEffect(() => {
     const cargarDatos = async () => {
-      // Cargar contador de clientes desde Supabase
+      // Cargar contador de clientes desde Supabase (sin filtro de año - total acumulado)
       const totalClientes = await cargarClientes()
       
-      // Cargar expedientes desde localStorage como fallback
+      // Cargar contador de expedientes del año seleccionado
+      const totalExpedientes = await cargarExpedientesDelAño(ejercicioActual)
+      
+      // Cargar expedientes desde localStorage como fallback para alertas
       const expedientes = storage.get('expedientes') || []
       const planning = storage.getPlanning()
       const visitas = storage.getVisitas()
 
-      // Cargar próximos viajes y visitas desde Supabase
-      const viajes = await cargarProximosViajes()
-      const visitasPend = await cargarProximasVisitas()
+      // Cargar próximos viajes y visitas desde Supabase (filtrados por año)
+      const viajes = await cargarProximosViajes(ejercicioActual)
+      const visitasPend = await cargarProximasVisitas(ejercicioActual)
 
       setStats({
         totalClientes,
-        totalCotizaciones: expedientes.length,
+        totalCotizaciones: totalExpedientes,
         proximosViajes: viajes.length,
         visitasPendientes: visitasPend.length,
       })
@@ -130,12 +196,18 @@ const Dashboard = () => {
       setProximosViajes(viajes)
       setProximasVisitas(visitasPend)
 
-      // Calcular alertas de release
-      calcularAlertasRelease(expedientes)
+      // Calcular alertas de release (solo del año seleccionado)
+      const expedientesDelAño = expedientes.filter(exp => {
+        const fechaInicio = exp.fecha_inicio || exp.fechaInicio
+        if (!fechaInicio) return false
+        const añoExpediente = extraerAño(fechaInicio)
+        return añoExpediente === ejercicioActual
+      })
+      calcularAlertasRelease(expedientesDelAño)
     }
 
     cargarDatos()
-  }, [])
+  }, [ejercicioActual]) // Recargar cuando cambie el ejercicio
 
   const calcularAlertasRelease = (expedientes) => {
     const hoy = new Date()
