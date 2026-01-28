@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Outlet, NavLink } from 'react-router-dom'
 import { 
   LayoutDashboard, 
@@ -13,16 +13,25 @@ import {
   Truck,
   Edit3
 } from 'lucide-react'
+import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
 const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const ejercicioActual = new Date().getFullYear() // Año automático sin errores de utils
+  const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
+
+  // Sincronizar con cambios globales del ejercicio
+  useEffect(() => {
+    const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
+      setEjercicioActual(nuevoEjercicio)
+    })
+    return unsubscribe
+  }, [])
 
   const menuItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/clientes', icon: Users, label: 'Clientes' },
     { path: '/notas', icon: Briefcase, label: 'NOTAS DE TRABAJO' },
-    { path: '/expedientes', icon: FileText, label: `Gestión ${ejercicioActual}` },
+    { path: '/expedientes', icon: FileText, label: `Expedientes ${ejercicioActual}` },
     { path: '/proveedores', icon: Truck, label: 'Proveedores' },
     { path: '/planning', icon: Calendar, label: `Planning ${ejercicioActual}` },
     { path: '/crm', icon: Plane, label: 'CRM / Captación' },

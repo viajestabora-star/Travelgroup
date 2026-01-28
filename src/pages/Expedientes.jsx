@@ -879,7 +879,24 @@ const Expedientes = () => {
           <h1 className="text-3xl font-bold text-navy-900 mb-2">Gestión de Expedientes</h1>
           <p className="text-gray-600">Sistema completo con estados y seguimiento</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700">Ejercicio:</label>
+            <select
+              value={ejercicioActual}
+              onChange={(e) => {
+                const nuevoEjercicio = parseInt(e.target.value)
+                setEjercicioActual(nuevoEjercicio) // Actualizar estado local
+                setEjercicioActual(nuevoEjercicio) // Guardar en localStorage y disparar evento global
+              }}
+              className="px-3 py-2 border-2 border-navy-300 rounded-lg bg-white text-navy-900 font-semibold focus:outline-none focus:ring-2 focus:ring-navy-500"
+              style={{ backgroundColor: 'white', color: '#0f172a' }}
+            >
+              {getAñosDisponibles().map(año => (
+                <option key={año} value={año}>{año}</option>
+              ))}
+            </select>
+          </div>
           <button onClick={() => setShowExportModal(true)} className="btn-secondary flex items-center gap-2">
             <Download size={20} />
             Exportar Trimestre
@@ -905,30 +922,14 @@ const Expedientes = () => {
         </div>
       </div>
 
-      {/* ==================== SELECTOR DE AÑO Y CONTADOR ==================== */}
+      {/* ==================== CONTADOR DE EXPEDIENTES ==================== */}
       <div className="mb-6 p-4 bg-gradient-to-r from-navy-50 to-blue-50 rounded-xl border border-navy-200">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <Calendar className="text-navy-600" size={24} />
             <div>
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-gray-700">Ejercicio:</label>
-                <select
-                  value={ejercicioActual}
-                  onChange={(e) => {
-                    const nuevoEjercicio = parseInt(e.target.value)
-                    setEjercicioActual(nuevoEjercicio) // Actualizar estado local
-                    setEjercicioActual(nuevoEjercicio) // Guardar en localStorage y disparar evento global
-                  }}
-                  className="px-3 py-2 border-2 border-navy-300 rounded-lg bg-white text-navy-900 font-semibold focus:outline-none focus:ring-2 focus:ring-navy-500"
-                  style={{ backgroundColor: 'white', color: '#0f172a' }}
-                >
-                  {getAñosDisponibles().map(año => (
-                    <option key={año} value={año}>{año}</option>
-                  ))}
-                </select>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-sm font-medium text-gray-700">Ejercicio {ejercicioActual}</p>
+              <p className="text-xs text-gray-500">
                 {searchTermExpedientes 
                   ? `Buscando: "${searchTermExpedientes}" - ${expedientesFiltradosPorEjercicio.length} resultado${expedientesFiltradosPorEjercicio.length !== 1 ? 's' : ''}`
                   : `Vista de expedientes del año seleccionado`
