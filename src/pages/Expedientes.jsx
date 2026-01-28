@@ -3,7 +3,7 @@ import { FileText, Plus, Trash2, X, Search, UserPlus, Download, Calendar } from 
 import { storage } from '../utils/storage'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
-import { getEjercicioActual, subscribeToEjercicioChanges, setEjercicioActual, getAñosDisponibles } from '../utils/ejercicioGlobal'
+import { getEjercicioActual, subscribeToEjercicioChanges, setEjercicioActual as guardarEjercicioGlobal, getAñosDisponibles } from '../utils/ejercicioGlobal'
 import { createClient } from '@supabase/supabase-js'
 
 // Cliente de Supabase usando anon_key (publishable key)
@@ -886,8 +886,8 @@ const Expedientes = () => {
               value={ejercicioActual}
               onChange={(e) => {
                 const nuevoEjercicio = parseInt(e.target.value)
-                setEjercicioActual(nuevoEjercicio) // Actualizar estado local
-                setEjercicioActual(nuevoEjercicio) // Guardar en localStorage y disparar evento global
+                setEjercicioActual(nuevoEjercicio) // Actualizar estado local de React
+                guardarEjercicioGlobal(nuevoEjercicio) // Guardar en localStorage y disparar evento global
               }}
               className="px-3 py-2 border-2 border-navy-300 rounded-lg bg-white text-navy-900 font-semibold focus:outline-none focus:ring-2 focus:ring-navy-500"
               style={{ backgroundColor: 'white', color: '#0f172a' }}

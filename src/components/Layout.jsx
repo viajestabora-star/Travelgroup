@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Outlet, NavLink } from 'react-router-dom'
 import { 
   LayoutDashboard, 
@@ -22,12 +22,14 @@ const Layout = () => {
   // Sincronizar con cambios globales del ejercicio
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
+      console.log('📅 Layout: Ejercicio cambiado a', nuevoEjercicio)
       setEjercicioActual(nuevoEjercicio)
     })
     return unsubscribe
   }, [])
 
-  const menuItems = [
+  // Recalcular menuItems cuando cambie el ejercicio
+  const menuItems = useMemo(() => [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/clientes', icon: Users, label: 'Clientes' },
     { path: '/notas', icon: Briefcase, label: 'NOTAS DE TRABAJO' },
@@ -37,7 +39,7 @@ const Layout = () => {
     { path: '/crm', icon: Plane, label: 'CRM / Captación' },
     { path: '/composer', icon: Edit3, label: 'Composer' },
     { path: '/cierres', icon: Calculator, label: 'Cierres' }
-  ]
+  ], [ejercicioActual])
 
   return (
     <div className="flex h-screen bg-gray-50">
