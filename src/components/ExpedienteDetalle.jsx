@@ -35,6 +35,15 @@ const normalizarText = (text) => {
     .trim();
 }
 
+// Generador sencillo de UUID v4 (para servicios de cotización locales y Supabase)
+const generarUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => {
   // ⚠️ BLINDAJE NIVEL 1: Verificar que expediente existe
   if (!expediente) {
@@ -58,13 +67,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // Ref para rastrear si ya se inicializaron los servicios automáticamente
   const serviciosInicializados = useRef(false)
   
-  // Estados para Cotización (CON VALORES SEGUROS)
-  const [servicios, setServicios] = useState(expediente?.cotizacion?.servicios || [])
-  const [numTotalPasajeros, setNumTotalPasajeros] = useState(expediente?.cotizacion?.numTotalPasajeros || 1)
-  const [numGratuidades, setNumGratuidades] = useState(expediente?.cotizacion?.numGratuidades || 0)
-  const [numDias, setNumDias] = useState(expediente?.cotizacion?.numDias || 1)
-  const [bonificacionPorPersona, setBonificacionPorPersona] = useState(expediente?.cotizacion?.bonificacionPorPersona || 0)
-  const [precioVentaManual, setPrecioVentaManual] = useState(expediente?.cotizacion?.precioVentaManual || 0) // NUEVO: Precio manual
+  // Estados para Cotización (CON VALORES SEGUROS, sin usar columna JSON cotizacion)
+  const [servicios, setServicios] = useState([]) // Se cargan desde servicios_cotizacion
+  const [numTotalPasajeros, setNumTotalPasajeros] = useState(
+    expediente?.total_pax || expediente?.pax_pago || 1
+  )
+  const [numGratuidades, setNumGratuidades] = useState(
+    expediente?.gratuidades || 0
+  )
+  const [numDias, setNumDias] = useState(1)
+  const [bonificacionPorPersona, setBonificacionPorPersona] = useState(0)
+  const [precioVentaManual, setPrecioVentaManual] = useState(0) // Precio manual €/pax
   
   // Estados para Proveedores
   const [proveedores, setProveedores] = useState([])
@@ -112,15 +125,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // Mapear campos de Supabase a formato interno
       const proveedoresMapeados = data.map(p => {
         const proveedorMapeado = {
-          id: p.id,
-          nombreComercial: p.nombre_comercial || p.nombreComercial || '',
-          nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
-          tipo: p.tipo || '',
-          telefono: p.telefono || p.movil || '',
-          email: p.email || '',
-          direccion: p.direccion || '',
-          poblacion: p.poblacion || '',
-          cif: p.cif || ''
+        id: p.id,
+        nombreComercial: p.nombre_comercial || p.nombreComercial || '',
+        nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
+        tipo: p.tipo || '',
+        telefono: p.telefono || p.movil || '',
+        email: p.email || '',
+        direccion: p.direccion || '',
+        poblacion: p.poblacion || '',
+        cif: p.cif || ''
         }
         console.log('🔍 Proveedor mapeado:', proveedorMapeado)
         return proveedorMapeado
@@ -131,7 +144,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       
       // Guardar en localStorage como backup
       try {
-        storage.set('proveedores', proveedoresMapeados)
+      storage.set('proveedores', proveedoresMapeados)
         console.log('💾 Proveedores guardados en localStorage')
       } catch (storageError) {
         console.warn('⚠️ Error guardando en localStorage:', storageError)
@@ -170,87 +183,127 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
   
-  // ============ INICIALIZACIÓN AUTOMÁTICA DE SERVICIOS ============
+  // ============ CARGA DE SERVICIOS DESDE SUPABASE (servicios_cotizacion) ============
+  useEffect(() => {
+    const cargarServiciosDesdeSupabase = async () => {
+      try {
+        const expedienteId = expediente.id
+        if (!expedienteId) {
+          console.warn('⚠️ Expediente sin ID, no se pueden cargar servicios_cotizacion')
+          return
+        }
+
+        console.log('🔄 Cargando servicios_cotizacion para expediente', expedienteId)
+
+        const { data, error } = await supabase
+          .from('servicios_cotizacion')
+          .select('*')
+          .eq('expediente_id', expedienteId)
+          .order('id', { ascending: true })
+
+        if (error) {
+          console.error('❌ Error cargando servicios_cotizacion:', error)
+          return
+        }
+
+        if (Array.isArray(data) && data.length > 0) {
+          const mapeados = data.map(row => ({
+            // Usamos el UUID de la fila como ID único del servicio
+            id: row.id || generarUUID(),
+            proveedorId: row.proveedor_id || null,
+            tipo: row.tipo_servicio || row.tipo || 'Hotel',
+            nombreEspecifico: row.nombre_especifico || '',
+            localizacion: row.localizacion || '',
+            costeUnitario: row.coste_unitario || 0,
+            noches: row.noches || 0,
+            fechaRelease: row.fecha_release || '',
+            tipoCalculo: row.tipo_calculo || 'porPersona', // 'porPersona' o 'porGrupo'
+          }))
+
+          setServicios(mapeados)
+          serviciosInicializados.current = true
+          return
+        }
+
+        // Si no hay servicios guardados en la tabla, dejaremos que se auto-inicialicen
+        serviciosInicializados.current = false
+      } catch (err) {
+        console.error('Error inesperado cargando servicios_cotizacion:', err)
+      }
+    }
+
+    cargarServiciosDesdeSupabase()
+  }, [expediente?.id])
+
+  // ============ INICIALIZACIÓN AUTOMÁTICA DE SERVICIOS SI NO HAY NADA EN BD ============
   // Carga automática: Si la lista de servicios está vacía, inicializar con 5 servicios básicos
   useEffect(() => {
-    // Verificar si el expediente tiene servicios guardados
-    const serviciosGuardados = expediente?.cotizacion?.servicios || []
-    
-    // Solo ejecutar si no hay servicios guardados (array vacío o undefined)
-    // y si no se han inicializado ya para este expediente
-    if ((!serviciosGuardados || serviciosGuardados.length === 0) && !serviciosInicializados.current) {
-      const timestamp = Date.now()
-      const serviciosIniciales = [
-        {
-          id: timestamp + 1,
-          proveedorId: null,
-          tipo: 'Autobús',
-          nombreEspecifico: '',
-          localizacion: '',
-          costeUnitario: 0,
-          noches: 0,
-          fechaRelease: '',
-          tipoCalculo: 'porPersona', // Autobús siempre divide entre pasajeros
-        },
-        {
-          id: timestamp + 2,
-          proveedorId: null,
-          tipo: 'Hotel',
-          nombreEspecifico: '',
-          localizacion: '',
-          costeUnitario: 0,
-          noches: 1,
-          fechaRelease: '',
-          tipoCalculo: 'porPersona',
-        },
-        {
-          id: timestamp + 3,
-          proveedorId: null,
-          tipo: 'Guía',
-          nombreEspecifico: '',
-          localizacion: '',
-          costeUnitario: 0,
-          noches: 0,
-          fechaRelease: '',
-          tipoCalculo: 'porPersona', // Guía siempre divide entre pasajeros
-        },
-        {
-          id: timestamp + 4,
-          proveedorId: null,
-          tipo: 'Seguro',
-          nombreEspecifico: '',
-          localizacion: '',
-          costeUnitario: 0,
-          noches: 0,
-          fechaRelease: '',
-          tipoCalculo: 'porPersona',
-        },
-        {
-          id: timestamp + 5,
-          proveedorId: null,
-          tipo: 'Restaurante',
-          nombreEspecifico: '',
-          localizacion: '',
-          costeUnitario: 0,
-          noches: 0,
-          fechaRelease: '',
-          tipoCalculo: 'porPersona', // Por defecto, puede cambiarse a 'porGrupo'
-        },
-      ]
-      
-      console.log('🔄 Inicializando servicios automáticamente:', serviciosIniciales)
-      setServicios(serviciosIniciales)
-      serviciosInicializados.current = true // Marcar como inicializado
-    } else if (serviciosGuardados && serviciosGuardados.length > 0) {
-      // Si hay servicios guardados, marcar como inicializado para no ejecutar de nuevo
-      serviciosInicializados.current = true
-    }
-  }, [expediente?.id, expediente?.cotizacion?.servicios]) // Ejecutar cuando cambie el expediente (por ID) o sus servicios guardados
-  
-  // Resetear el flag cuando cambie el expediente (por ID)
-  useEffect(() => {
-    serviciosInicializados.current = false
-  }, [expediente?.id])
+    if (serviciosInicializados.current) return
+    if (!servicios || servicios.length > 0) return
+
+    const timestamp = Date.now()
+    const serviciosIniciales = [
+      {
+        id: generarUUID(),
+        proveedorId: null,
+        tipo: 'Autobús',
+        nombreEspecifico: '',
+        localizacion: '',
+        costeUnitario: 0,
+        noches: 0,
+        fechaRelease: '',
+        tipoCalculo: 'porGrupo', // Autobús: total a dividir entre pax_pago
+      },
+      {
+        id: generarUUID(),
+        proveedorId: null,
+        tipo: 'Hotel',
+        nombreEspecifico: '',
+        localizacion: '',
+        costeUnitario: 0,
+        noches: 1,
+        fechaRelease: '',
+        tipoCalculo: 'porPersona',
+      },
+      {
+        id: generarUUID(),
+        proveedorId: null,
+        tipo: 'Guía',
+        nombreEspecifico: '',
+        localizacion: '',
+        costeUnitario: 0,
+        noches: 0,
+        fechaRelease: '',
+        tipoCalculo: 'porGrupo', // Guía: total a dividir entre pax_pago
+      },
+      {
+        id: generarUUID(),
+        proveedorId: null,
+        tipo: 'Seguro',
+        nombreEspecifico: '',
+        localizacion: '',
+        costeUnitario: 0,
+        noches: 0,
+        fechaRelease: '',
+        tipoCalculo: 'porPersona',
+      },
+      {
+        id: generarUUID(),
+        proveedorId: null,
+        tipo: 'Restaurante',
+        nombreEspecifico: '',
+        localizacion: '',
+        costeUnitario: 0,
+        noches: 0,
+        fechaRelease: '',
+        tipoCalculo: 'porPersona', // Por defecto, puede cambiarse a 'porGrupo'
+      },
+    ]
+
+    console.log('🔄 Inicializando servicios automáticamente (sin registros en BD):', serviciosIniciales)
+    setServicios(serviciosIniciales)
+    serviciosInicializados.current = true // Marcar como inicializado
+  }, [servicios])
   
   // ============ UX: HANDLERS PARA INPUTS ============
   
@@ -350,7 +403,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   const añadirServicio = () => {
     const nuevoServicio = {
-      id: Date.now(),
+      id: generarUUID(),
       proveedorId: null, // ID del proveedor seleccionado
       tipo: 'Hotel',
       nombreEspecifico: '', // Nombre libre (ej: "NH Ciudad de Valencia")
@@ -565,34 +618,85 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }, [servicios, numTotalPasajeros, numGratuidades, numDias, bonificacionPorPersona, precioVentaManual])
 
   // ============ GUARDAR COTIZACIÓN ============
-  
-  const guardarCotizacion = () => {
+  // Nuevo modelo: guarda parámetros en la tabla expedientes (total_pax, pax_pago, etc.)
+  // y los servicios en la tabla servicios_cotizacion (uno por fila de la tabla de servicios)
+  const guardarCotizacion = async () => {
     if (!window.confirm('¿Desea guardar los cambios en la cotización?')) {
       return
     }
     
-    const expedienteActualizado = {
-      ...expediente,
-      cotizacion: {
-        servicios,
-        numTotalPasajeros,
-        numGratuidades,
-        numDias,
-        bonificacionPorPersona,
-        precioVentaManual, // NUEVO: Precio manual en lugar de margen porcentual
-        resultados: {
-          costeRealPorPersona: parseFloat(resultados.costeRealPorPersona),
-          precioVentaPorPersona: parseFloat(resultados.precioVentaPorPersona),
-          margenPorPersona: parseFloat(resultados.margenPorPersona), // NUEVO: Margen informativo
-          margenPorcentaje: parseFloat(resultados.margenPorcentaje),
-          beneficioTotal: parseFloat(resultados.beneficioTotal),
-          totalIngresos: parseFloat(resultados.precioVentaTotal),
-          totalGastos: parseFloat(resultados.costeTotalViaje),
+    try {
+      const expedienteId = expediente.id
+      if (!expedienteId) {
+        alert('⚠️ No se puede guardar la cotización: el expediente no tiene ID (UUID).')
+        return
+      }
+
+      // 1) Guardar parámetros principales en la tabla expedientes (modelo plano)
+      const { error: errorExpediente } = await supabase
+        .from('expedientes')
+        .update({
+          total_pax: String(totalPax),
+          pax_pago: String(paxPago),
+          // Se podrían añadir más columnas específicas si existen (ej: dias, bonificacion, precio_venta_pax)
+        })
+        .eq('id', expedienteId)
+
+      if (errorExpediente) {
+        console.error('❌ Error guardando parámetros de cotización en expedientes:', errorExpediente)
+        alert('⚠️ Error guardando parámetros de cotización en la tabla expedientes.')
+        return
+      }
+
+      // 2) Sincronizar servicios en la tabla servicios_cotizacion
+      // Estrategia simple y robusta: borrar los existentes del expediente y reinsertar el estado actual
+      const { error: errorDelete } = await supabase
+        .from('servicios_cotizacion')
+        .delete()
+        .eq('expediente_id', expedienteId)
+
+      if (errorDelete) {
+        console.error('❌ Error borrando servicios_cotizacion anteriores:', errorDelete)
+        alert('⚠️ Error limpiando servicios anteriores en servicios_cotizacion.')
+        return
+      }
+
+      const serviciosParaGuardar = servicios.map(s => ({
+        id: s.id || generarUUID(), // UUID (string) seguro para la nueva tabla
+        expediente_id: expedienteId,
+        proveedor_id: s.proveedorId || null,
+        tipo_servicio: s.tipo,
+        coste_unitario: parseFloat(s.costeUnitario) || 0,
+        noches: parseInt(s.noches) || 0,
+        tipo_calculo: s.tipoCalculo || 'porPersona', // 'porPersona' = Precio por Persona, 'porGrupo' = Total a dividir
+        fecha_release: s.fechaRelease || null,
+      }))
+
+      if (serviciosParaGuardar.length > 0) {
+        const { error: errorUpsert } = await supabase
+          .from('servicios_cotizacion')
+          .upsert(serviciosParaGuardar, { onConflict: 'id' })
+
+        if (errorUpsert) {
+          console.error('❌ Error guardando servicios_cotizacion:', errorUpsert)
+          alert('⚠️ Error guardando servicios de la cotización en la base de datos.')
+          return
         }
       }
+
+      // 3) Actualizar el expediente en memoria (sin columna JSON cotizacion)
+      const expedienteActualizado = {
+        ...expediente,
+        total_pax: totalPax,
+        pax_pago: paxPago,
     }
     onUpdate(expedienteActualizado)
+
     alert('✅ Cotización guardada correctamente')
+    } catch (error) {
+      console.error('Error inesperado guardando cotización:', error)
+      alert('⚠️ Error inesperado al guardar la cotización. Revisa la consola.')
+    }
   }
 
   // ============ GUARDAR HABITACIONES ============
@@ -702,6 +806,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                 <h1 className="text-3xl font-black text-navy-900 uppercase mb-1">
                   {expediente.nombre_grupo || expediente.clienteNombre || grupo.nombre || 'SIN NOMBRE DE GRUPO'}
                 </h1>
+                {/* Número de expediente en solo lectura */}
+                {expediente.numero_expediente && (
+                  <p className="text-xs font-mono text-gray-500 mb-1">
+                    Nº Expediente: {expediente.numero_expediente}
+                  </p>
+                )}
                 {/* REGLA: Responsable = PEQUEÑO DEBAJO */}
                 <p className="text-sm text-gray-600 mb-2">
                   👤 {expediente.cliente_responsable || expediente.responsable || grupo.responsable || 'Sin Responsable'}
@@ -759,13 +869,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-3 bg-blue-100 rounded-full">
                       <Users className="text-blue-600" size={24} />
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-bold text-navy-900">Información del Grupo</h3>
+              </div>
+                      <div>
+                        <h3 className="text-2xl font-bold text-navy-900">Información del Grupo</h3>
                       <p className="text-gray-600 text-sm">Datos del cliente y responsable</p>
+                      </div>
                     </div>
-                  </div>
-
+                    
                   {/* Rejilla limpia */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="md:col-span-2">
@@ -1038,8 +1148,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.provincia || '-'}</p>
                       )}
                     </div>
-                  </div>
-                  
+                    </div>
+                    
                   {/* Botón Editar Cliente abajo a la derecha */}
                   <div className="flex justify-end mt-6 pt-6 border-t" style={{ borderColor: '#f1f5f9' }}>
                     {!editandoCliente ? (
@@ -1334,7 +1444,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Proveedor</th>
                             <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Servicio</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Cantidad</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Precio (€)</th>
+                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Precio</th>
+                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Modo</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Total (€)</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Acciones</th>
                           </tr>
@@ -1345,30 +1456,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                               {/* COLUMNA 1: PROVEEDOR CON BÚSQUEDA */}
                               <td className="px-2 py-2">
                                 <div className="relative">
-                                  <div className="flex gap-1 items-center">
-                                    <div className="relative flex-1">
-                                      {/* Input de búsqueda - SOLO búsqueda, NO crea nada */}
-                                      <input
-                                        type="text"
-                                        value={
-                                          busquedaProveedor[servicio.id] !== undefined
-                                            ? busquedaProveedor[servicio.id]
-                                            : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')
+                                <div className="flex gap-1 items-center">
+                                  <div className="relative flex-1">
+                                    {/* Input de búsqueda - SOLO búsqueda, NO crea nada */}
+                                    <input
+                                      type="text"
+                                      value={
+                                        busquedaProveedor[servicio.id] !== undefined
+                                          ? busquedaProveedor[servicio.id]
+                                          : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')
+                                      }
+                                      onChange={(e) => {
+                                        const inputValue = e.target.value
+                                        setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue })
+                                        setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
+                                      }}
+                                      onFocus={() => {
+                                        // ============ COMBOBOX: MOSTRAR TODOS AL HACER CLIC ============
+                                        setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
+                                        // Si no hay búsqueda, limpiar para mostrar todos los proveedores del tipo
+                                        if (!busquedaProveedor[servicio.id]) {
+                                          setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
                                         }
-                                        onChange={(e) => {
-                                          const inputValue = e.target.value
-                                          setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue })
-                                          setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
-                                        }}
-                                        onFocus={() => {
-                                          // ============ COMBOBOX: MOSTRAR TODOS AL HACER CLIC ============
-                                          setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
-                                          // Si no hay búsqueda, limpiar para mostrar todos los proveedores del tipo
-                                          if (!busquedaProveedor[servicio.id]) {
-                                            setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
-                                          }
-                                        }}
-                                        placeholder="Buscar proveedor..."
+                                      }}
+                                      placeholder="Buscar proveedor..."
                                         className="input-field text-xs w-full pr-8 transition-all"
                                         style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                                         onFocus={(e) => {
@@ -1379,41 +1490,41 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                           e.target.style.borderColor = '#e2e8f0'
                                           e.target.style.boxShadow = 'none'
                                         }}
-                                      />
-                                      
-                                      {/* Botón limpiar */}
-                                      {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
-                                        <button
-                                          onClick={() => {
-                                            setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
-                                            actualizarServicio(servicio.id, 'proveedorId', null)
-                                            setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
-                                          }}
-                                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
-                                          title="Limpiar"
-                                        >
-                                          <X size={14} />
-                                        </button>
-                                      )}
-                                    </div>
+                                    />
                                     
-                                    {/* Botón '+' independiente para abrir modal completo */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        // Abrir modal completo - NO crea nada, solo abre el modal
-                                        abrirModalProveedor(
-                                          busquedaProveedor[servicio.id] || '',
-                                          servicio.tipo,
-                                          servicio.id
-                                        )
-                                      }}
-                                      className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
-                                      title="Añadir nuevo proveedor"
-                                    >
-                                      <Plus size={16} />
-                                    </button>
+                                    {/* Botón limpiar */}
+                                    {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
+                                      <button
+                                        onClick={() => {
+                                          setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                          actualizarServicio(servicio.id, 'proveedorId', null)
+                                          setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                        }}
+                                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                                        title="Limpiar"
+                                      >
+                                        <X size={14} />
+                                      </button>
+                                    )}
                                   </div>
+                                  
+                                  {/* Botón '+' independiente para abrir modal completo */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // Abrir modal completo - NO crea nada, solo abre el modal
+                                      abrirModalProveedor(
+                                        busquedaProveedor[servicio.id] || '',
+                                        servicio.tipo,
+                                        servicio.id
+                                      )
+                                    }}
+                                    className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
+                                    title="Añadir nuevo proveedor"
+                                  >
+                                    <Plus size={16} />
+                                  </button>
+                                </div>
                                   
                                   {/* Lista de sugerencias - POSICIONAMIENTO ABSOLUTO CORRECTO */}
                                   {mostrarSugerencias[servicio.id] && (
@@ -1489,24 +1600,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                             {/* Lista de proveedores existentes - SOLO selección, NO creación */}
                                             {proveedoresFiltrados.length > 0 && (
                                               <div className="py-1">
-                                                {proveedoresFiltrados.map(proveedor => (
-                                                  <button
-                                                    key={proveedor.id}
+                                            {proveedoresFiltrados.map(proveedor => (
+                                              <button
+                                                key={proveedor.id}
                                                     type="button"
-                                                    onClick={() => {
+                                                onClick={() => {
                                                       console.log('✅ Seleccionando proveedor:', proveedor)
-                                                      actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
-                                                      setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
-                                                      setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
-                                                    }}
+                                                  actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
+                                                  setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
+                                                  setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                                }}
                                                     className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
-                                                  >
-                                                    <span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>
-                                                    {proveedor.telefono && (
-                                                      <span className="text-gray-500">· {proveedor.telefono}</span>
-                                                    )}
-                                                  </button>
-                                                ))}
+                                              >
+                                                <span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>
+                                                {proveedor.telefono && (
+                                                  <span className="text-gray-500">· {proveedor.telefono}</span>
+                                                )}
+                                              </button>
+                                            ))}
                                               </div>
                                             )}
                                           </>
@@ -1564,7 +1675,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                               {/* COLUMNA 3: CANTIDAD (Noches para Hotel, 1 para otros) */}
                               <td className="px-2 py-2 text-center">
                                 {servicio.tipo === 'Hotel' ? (
-                                  <input
+                                <input
                                     type="number"
                                     value={servicio.noches || 1}
                                     onChange={(e) => actualizarServicio(servicio.id, 'noches', e.target.value)}
@@ -1610,15 +1721,50 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   placeholder="0.00"
                                 />
                               </td>
+
+                              {/* COLUMNA 5: MODO DE PRECIO (Precio por Persona / Total a dividir) */}
+                              <td className="px-2 py-2 text-center">
+                                <select
+                                  value={servicio.tipoCalculo || 'porPersona'}
+                                  onChange={(e) => actualizarServicio(servicio.id, 'tipoCalculo', e.target.value)}
+                                  className="input-field text-[10px] w-full transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                  onFocus={(e) => {
+                                    e.target.style.borderColor = '#3b82f6'
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                  }}
+                                >
+                                  <option value="porPersona">Precio por Persona</option>
+                                  <option value="porGrupo">Total a dividir</option>
+                                </select>
+                              </td>
                               
-                              {/* COLUMNA 5: TOTAL (Calculado: Precio × Cantidad) */}
+                              {/* COLUMNA 6: TOTAL (Calculado según modo de precio) */}
                               <td className="px-2 py-2 text-center">
                                 <span className="text-gray-900 text-sm font-semibold">
-                                  {((parseFloat(servicio.costeUnitario) || 0) * (servicio.tipo === 'Hotel' ? (parseInt(servicio.noches) || 1) : 1)).toFixed(2)}€
+                                  {(() => {
+                                    const coste = parseFloat(servicio.costeUnitario) || 0
+                                    const noches = servicio.tipo === 'Hotel' ? (parseInt(servicio.noches) || 1) : 1
+                                    const modo = servicio.tipoCalculo || 'porPersona'
+
+                                    // Si el modo es "Total a dividir", mostramos el total introducido (grupo)
+                                    // Si el modo es "Precio por Persona", mostramos coste * paxPago (total del grupo)
+                                    if (modo === 'porGrupo') {
+                                      return coste.toFixed(2) + '€'
+                                    }
+
+                                    // Precio por Persona → total de la fila = precio_pax × pax_pago
+                                    const totalGrupo = coste * paxPago * (servicio.tipo === 'Hotel' ? noches : 1)
+                                    return totalGrupo.toFixed(2) + '€'
+                                  })()}
                                 </span>
                               </td>
                               
-                              {/* COLUMNA 6: ACCIONES */}
+                              {/* COLUMNA 7: ACCIONES */}
                               <td className="px-2 py-2 text-center">
                                 <button
                                   onClick={() => eliminarServicio(servicio.id)}

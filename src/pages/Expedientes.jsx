@@ -91,6 +91,45 @@ const manejarErrorSupabase = (error, operacion = 'operación') => {
     error: error
   };
 }
+// ============================================================================
+// GENERACIÓN AUTOMÁTICA DEL NÚMERO DE EXPEDIENTE
+// Formato: YYYY-000 (ej: 2026-001)
+// ============================================================================
+const obtenerSiguienteNumeroExpediente = async (año) => {
+  try {
+    // Buscar el número más alto que empiece por ese año en Supabase
+    const { data, error } = await supabase
+      .from('expedientes')
+      .select('numero_expediente')
+      .ilike('numero_expediente', `${año}-%`)
+      .order('numero_expediente', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error('❌ Error obteniendo último numero_expediente:', error);
+      // Fallback seguro
+      return `${año}-001`;
+    }
+
+    let siguienteSecuencia = 1;
+
+    if (Array.isArray(data) && data.length > 0 && data[0]?.numero_expediente) {
+      const partes = String(data[0].numero_expediente).split('-');
+      if (partes.length === 2) {
+        const numeroActual = parseInt(partes[1], 10);
+        if (!isNaN(numeroActual) && numeroActual >= 0) {
+          siguienteSecuencia = numeroActual + 1;
+        }
+      }
+    }
+
+    const sufijo = String(siguienteSecuencia).padStart(3, '0');
+    return `${año}-${sufijo}`;
+  } catch (err) {
+    console.error('❌ Error inesperado generando numero_expediente:', err);
+    return `${año}-001`;
+  }
+};
 const ESTADOS = {
   peticion: { label: 'Petición', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', badge: 'bg-yellow-500', cssClass: 'peticion' },
   confirmado: { label: 'Confirmado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500', cssClass: 'confirmado' },
@@ -187,11 +226,11 @@ const Expedientes = () => {
   // Cargar expedientes desde Supabase
   const loadData = async () => {
     try {
-      // Lee expedientes de Supabase - traer solo las columnas que existen
+      // Lee expedientes de Supabase - usar select('*') para evitar errores de columnas
       const { data: cloudData, error } = await supabase
         .from('expedientes')
-        .select('id_expediente, fecha_inicio, fecha_fin, cliente_nombre, cliente_id, destino, telefono, email, responsable, observaciones, estado')
-        .order('id_expediente', { ascending: false })
+        .select('*')
+        .order('id', { ascending: false })
 
       if (error) {
         const errorInfo = manejarErrorSupabase(error, 'cargar expedientes');
@@ -206,38 +245,47 @@ const Expedientes = () => {
       // Parsear campos de Supabase
       const expedientesParseados = (cloudData || []).map(exp => {
         // Mapear campos de Supabase a formato interno
-        const expedienteParseado = {
-          id: exp.id_expediente,
+        return {
+          // 🔑 ID UUID (string) - La PK es 'id'
+          id: exp.id,
+
+          // Número de expediente correlativo (YYYY-000)
+          numero_expediente: exp.numero_expediente || '',
+
+          // Datos básicos
           cliente_id: exp.cliente_id || '',
-          clienteId: exp.cliente_id || null, // Para compatibilidad interna
+          clienteId: exp.cliente_id || null, // Compatibilidad interna
           cliente_nombre: exp.cliente_nombre || '',
-          clienteNombre: exp.cliente_nombre || '', // Para compatibilidad interna
+          clienteNombre: exp.cliente_nombre || '',
           fecha_inicio: exp.fecha_inicio || '',
           fecha_fin: exp.fecha_fin || '',
-          fechaInicio: exp.fecha_inicio || '', // Para compatibilidad interna
-          fechaFin: exp.fecha_fin || '', // Para compatibilidad interna
+          fechaInicio: exp.fecha_inicio || '',
+          fechaFin: exp.fecha_fin || '',
           destino: exp.destino || '',
           telefono: exp.telefono || '',
           email: exp.email || '',
           responsable: exp.responsable || '',
           estado: exp.estado || 'peticion',
           observaciones: exp.observaciones || '',
+          itinerario: exp.itinerario || '',
+
+          // Parámetros de cotización resumidos en columnas planas
+          total_pax: exp.total_pax || null,
+          pax_pago: exp.pax_pago || null,
+
           // Campos por defecto para compatibilidad
-          cotizacion: null,
           pasajeros: [],
           cobros: [],
           pagos: [],
           documentos: [],
           cierre: null,
         }
-        
-        return expedienteParseado
       })
 
       const expedientesNormalizados = normalizarExpedientes(expedientesParseados)
       setExpedientes(expedientesNormalizados)
       
-      // También guardar en localStorage como backup
+      // También guardar en localStorage como backup (estructura limpia sin cotizacion JSON)
       if (expedientesParseados && expedientesParseados.length > 0) {
         storage.set('expedientes', expedientesParseados)
       }
@@ -246,8 +294,17 @@ const Expedientes = () => {
       fetchClientesFromSupabase()
     } catch (error) {
       console.error('Error cargando datos:', error)
-      // Fallback a localStorage si hay error
-      const localData = storage.get('expedientes') || []
+      // Fallback a localStorage si hay error - limpiar estructura antigua si existe
+      const localData = (storage.get('expedientes') || []).map(exp => ({
+        ...exp,
+        // Asegurar que tenga los campos necesarios y limpiar cotizacion JSON antigua
+        itinerario: exp.itinerario || '',
+        observaciones: exp.observaciones || '',
+        total_pax: exp.total_pax || null,
+        pax_pago: exp.pax_pago || null,
+        // Eliminar cualquier referencia a cotizacion JSON antigua
+        cotizacion: undefined
+      }))
       setExpedientes(normalizarExpedientes(localData))
     }
   }
@@ -300,13 +357,11 @@ const Expedientes = () => {
 
   const saveExpedientes = async (data) => {
     try {
-      const dataToSave = Array.isArray(data) ? data : [];
+      const dataToSave = Array.isArray(data) ? data : []
+
       for (const expediente of dataToSave) {
-        const idExpediente = expediente.id_expediente || expediente.id;
-        let totalPaxTexto = expediente.cotizacion?.resultados?.totalPasajeros 
-          ? String(expediente.cotizacion.resultados.totalPasajeros) 
-          : '';
-        
+        const idExpediente = expediente.id
+
         // Preparar datos para Supabase
         // IMPORTANTE: Las fechas deben estar en formato YYYY-MM-DD para Supabase
         const datosParaSupabase = {
@@ -321,41 +376,51 @@ const Expedientes = () => {
           estado: String(expediente.estado || 'peticion'),
           observaciones: String(expediente.observaciones || ''),
           itinerario: String(expediente.itinerario || ''),
-          total_pax: String(totalPaxTexto)
-        };
+          // Mantener total_pax si ya existe (texto o número)
+          total_pax: expediente.total_pax !== undefined
+            ? String(expediente.total_pax)
+            : null,
+          // Nuevo campo UUID-safe para pasajeros de pago (si existe en el expediente)
+          pax_pago: expediente.pax_pago !== undefined
+            ? String(expediente.pax_pago)
+            : null,
+          // Mantener número de expediente si existe
+          numero_expediente: expediente.numero_expediente || null,
+        }
         
-        // Si tiene id_expediente, es un UPDATE (upsert)
-        // Si no tiene id_expediente, es un INSERT (el trigger de Supabase generará el ID automáticamente: EXP. YYYY-XXX)
+        // Si tiene id (UUID), es un UPDATE (upsert)
+        // Si no tiene id, es un INSERT (Supabase generará el UUID automáticamente)
         if (idExpediente) {
-          datosParaSupabase.id_expediente = idExpediente;
+          datosParaSupabase.id = idExpediente
           const { error } = await supabase
             .from('expedientes')
-            .upsert(datosParaSupabase, { onConflict: 'id_expediente' });
+            .upsert(datosParaSupabase, { onConflict: 'id' })
           if (error) {
-            const errorInfo = manejarErrorSupabase(error, 'sincronizar expediente');
+            const errorInfo = manejarErrorSupabase(error, 'sincronizar expediente')
             if (errorInfo) {
-              console.error(errorInfo.mensaje);
+              console.error(errorInfo.mensaje)
             } else {
-              console.error('Error en sincronización:', error);
+              console.error('Error en sincronización:', error)
             }
           }
         } else {
-          // INSERT sin id_expediente - el trigger de Supabase generará el ID automáticamente (formato: EXP. YYYY-XXX)
+          // INSERT sin id - Supabase generará el UUID automáticamente
           const { error } = await supabase
             .from('expedientes')
-            .insert([datosParaSupabase]);
+            .insert([datosParaSupabase])
           if (error) {
-            const errorInfo = manejarErrorSupabase(error, 'insertar expediente');
+            const errorInfo = manejarErrorSupabase(error, 'insertar expediente')
             if (errorInfo) {
-              console.error(errorInfo.mensaje);
+              console.error(errorInfo.mensaje)
             } else {
-              console.error('Error en inserción:', error);
+              console.error('Error en inserción:', error)
             }
           }
         }
       }
-      storage.set('expedientes', dataToSave);
-      setExpedientes(dataToSave);
+
+      storage.set('expedientes', dataToSave)
+      setExpedientes(dataToSave)
     } catch (error) {
       console.error('Error guardando datos:', error);
     }
@@ -398,9 +463,12 @@ const Expedientes = () => {
         return;
       }
 
+      // Generar número de expediente según el ejercicio seleccionado en el selector global
+      const numeroExpediente = await obtenerSiguienteNumeroExpediente(ejercicioActual);
+
       // Asegurar que todos los campos obligatorios estén presentes y no sean NULL
-      // NOTA: id_expediente NO se incluye porque Supabase lo genera automáticamente mediante trigger (formato: EXP. YYYY-XXX)
-      // 
+      // NOTA: id NO se incluye porque Supabase lo genera automáticamente (UUID)
+      //
       // CONVERSIÓN DE FECHAS: El usuario ve y edita fechas en formato DD/MM/YYYY (formato visual)
       // Justo antes de enviar a Supabase, convertimos a YYYY-MM-DD (formato requerido por Supabase)
       // Esto corrige el error "date/time field value out of range" sin cambiar la experiencia visual
@@ -416,15 +484,17 @@ const Expedientes = () => {
         estado: String(expedienteForm.estado || 'peticion'),
         observaciones: String(expedienteForm.observaciones || ''),
         itinerario: String(expedienteForm.itinerario || ''),
-        total_pax: String('')
+        total_pax: String(''),
+        // Número de expediente generado automáticamente (no editable)
+        numero_expediente: numeroExpediente
       };
 
-      // VERIFICACIÓN EXPLÍCITA: Asegurar que id_expediente NO esté en el objeto
-      if ('id_expediente' in datosInsertar) {
-        delete datosInsertar.id_expediente;
+      // VERIFICACIÓN EXPLÍCITA: Asegurar que id NO esté en el objeto
+      if ('id' in datosInsertar) {
+        delete datosInsertar.id;
       }
 
-      // Insertar sin id_expediente - el trigger de Supabase lo generará automáticamente
+      // Insertar sin id - Supabase generará automáticamente el UUID
       const { data, error } = await supabase
         .from('expedientes')
         .insert([datosInsertar])
@@ -440,14 +510,14 @@ const Expedientes = () => {
         throw error;
       }
 
-      // 3. Refrescar la lista completa desde Supabase para mostrar el ID generado por el trigger
+      // 3. Refrescar la lista completa desde Supabase para mostrar el ID generado
       await loadData();
       
       setShowExpedienteModal(false);
       resetExpedienteForm();
       setClienteInputValue('');
       setShowSuggestions(false);
-      alert(`✅ Expediente creado con éxito. ID: ${data.id_expediente}`);
+      alert(`✅ Expediente creado con éxito. ID: ${data.id}`);
     } catch (err) {
       const errorInfo = manejarErrorSupabase(err, 'crear expediente');
       if (errorInfo) {
@@ -516,7 +586,7 @@ const Expedientes = () => {
         const { error } = await supabase
           .from('expedientes')
           .delete()
-          .eq('id_expediente', id)
+          .eq('id', id)
         
         if (error) {
           const errorInfo = manejarErrorSupabase(error, 'eliminar expediente');
@@ -541,15 +611,15 @@ const Expedientes = () => {
 
   const actualizarExpediente = async (expedienteActualizado) => {
     try {
-      // Extraer total_pax de la cotización como texto
+      // Extraer total_pax desde el propio expediente (modelo plano, sin JSON cotizacion)
       let totalPaxTexto = ''
-      if (expedienteActualizado.cotizacion && expedienteActualizado.cotizacion.resultados && expedienteActualizado.cotizacion.resultados.totalPasajeros !== undefined) {
-        totalPaxTexto = String(expedienteActualizado.cotizacion.resultados.totalPasajeros)
+      if (expedienteActualizado.total_pax !== undefined && expedienteActualizado.total_pax !== null) {
+        totalPaxTexto = String(expedienteActualizado.total_pax)
       }
       
-      const idExpediente = expedienteActualizado.id_expediente || expedienteActualizado.id;
+      const idExpediente = expedienteActualizado.id
       if (!idExpediente) {
-        throw new Error('id_expediente es requerido para actualizar');
+        throw new Error('id es requerido para actualizar')
       }
       
       // Objeto exacto para Supabase - Asegurar que todos los campos obligatorios estén presentes y no sean NULL
@@ -567,14 +637,18 @@ const Expedientes = () => {
         observaciones: String(expedienteActualizado.observaciones || ''),
         itinerario: String(expedienteActualizado.itinerario || ''),
         total_pax: String(totalPaxTexto),
-        // NUEVO: Guardar cotización completa como JSON
-        cotizacion: expedienteActualizado.cotizacion ? JSON.stringify(expedienteActualizado.cotizacion) : null,
+        // NUEVO MODELO: pax_pago separado para reflejar pasajeros de pago
+        pax_pago: expedienteActualizado.pax_pago !== undefined
+          ? String(expedienteActualizado.pax_pago)
+          : null,
+        // Mantener número de expediente (no editable en UI, solo sincronización)
+        numero_expediente: expedienteActualizado.numero_expediente || null,
       }
       
       const { error } = await supabase
         .from('expedientes')
         .update(expedienteActualizadoParaSupabase)
-        .eq('id_expediente', idExpediente)
+        .eq('id', idExpediente)
       
       if (error) {
         const errorInfo = manejarErrorSupabase(error, 'actualizar expediente');
@@ -603,7 +677,7 @@ const Expedientes = () => {
       const { error } = await supabase
         .from('expedientes')
         .update({ estado: nuevoEstado })
-        .eq('id_expediente', id)
+        .eq('id', id)
       
       if (error) {
         const errorInfo = manejarErrorSupabase(error, 'cambiar estado');
@@ -797,8 +871,10 @@ const Expedientes = () => {
 
     expedientesFiltrados.forEach(exp => {
       const cliente = clientes.find(c => String(c.id) === String(exp.cliente_id || exp.clienteId))
-      const beneficio = exp.cotizacion?.resultados?.beneficioNeto || 0
-      const beneficioClass = beneficio >= 0 ? 'beneficio-positivo' : 'beneficio-negativo'
+      // Modelo nuevo: la antigua columna JSON "cotizacion" ya no existe.
+      // De momento, el beneficio se marca como 0 hasta que se conecte al nuevo sistema de cierres.
+      const beneficio = 0
+      const beneficioClass = 'beneficio-positivo'
 
       html += `
         <tr>
@@ -813,7 +889,7 @@ const Expedientes = () => {
       `
     })
 
-    const totalBeneficio = expedientesFiltrados.reduce((sum, exp) => sum + (exp.cotizacion?.resultados?.beneficioNeto || 0), 0)
+    const totalBeneficio = expedientesFiltrados.reduce((sum) => sum + 0, 0)
 
     html += `
             </tbody>
