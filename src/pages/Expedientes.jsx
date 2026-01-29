@@ -162,7 +162,7 @@ const Expedientes = () => {
     destino: '',
     fechaInicio: '',
     fechaFin: '',
-    clienteId: '',
+    clienteId: null, // Usar null para números, no '' (string vacío)
     clienteNombre: '',
     telefono: '',
     email: '',
@@ -464,11 +464,22 @@ const Expedientes = () => {
       }
     }
 
-    // Validar que finalId sea un número entero válido
-    const clienteIdNumero = finalId ? parseInt(String(finalId), 10) : null;
-    if (finalId && (isNaN(clienteIdNumero) || clienteIdNumero <= 0)) {
-      alert(`⚠️ ERROR: El ID del cliente (${finalId}) no es un número válido. Por favor, selecciona un cliente válido de la lista.`);
-      console.error('❌ Intento de enviar ID inválido a Supabase:', finalId);
+    // VALIDACIÓN CRÍTICA: cliente_id es OBLIGATORIO y debe ser un número entero válido
+    // Convertir a número entero de forma forzada
+    let clienteIdNumero = null;
+    if (finalId !== null && finalId !== undefined && finalId !== '') {
+      clienteIdNumero = parseInt(String(finalId), 10);
+      if (isNaN(clienteIdNumero) || clienteIdNumero <= 0) {
+        alert(`⚠️ ERROR CRÍTICO: El ID del cliente (${finalId}) no es un número válido. Por favor, selecciona un cliente válido de la lista.`);
+        console.error('❌ Intento de enviar ID inválido a Supabase:', finalId);
+        return;
+      }
+    }
+    
+    // VALIDACIÓN OBLIGATORIA: Un expediente NO puede ir sin cliente
+    if (!clienteIdNumero || clienteIdNumero <= 0) {
+      alert('⚠️ ERROR CRÍTICO: Debes seleccionar un cliente antes de crear el expediente. Un expediente no puede ir sin cliente.');
+      console.error('❌ Intento de crear expediente sin cliente_id válido');
       return;
     }
 
@@ -486,8 +497,9 @@ const Expedientes = () => {
       // CONVERSIÓN DE FECHAS: El usuario ve y edita fechas en formato DD/MM/YYYY (formato visual)
       // Justo antes de enviar a Supabase, convertimos a YYYY-MM-DD (formato requerido por Supabase)
       // Usar EXACTAMENTE los nombres de columna restaurados en Supabase
+      // FORZAR cliente_id como número entero (NO string, NO null, NO vacío)
       const datosInsertar = {
-        cliente_id: clienteIdNumero || null, // Enviar como número entero o null
+        cliente_id: clienteIdNumero, // SIEMPRE número entero válido (ej: 3)
         cliente_nombre: String(finalNombre || ''),
         fecha_inicio: convertirFechaAISO(expedienteForm.fechaInicio || ''), // Convierte DD/MM/YYYY → YYYY-MM-DD
         fecha_final: convertirFechaAISO(expedienteForm.fechaFin || ''), // Convierte DD/MM/YYYY → YYYY-MM-DD
@@ -505,6 +517,15 @@ const Expedientes = () => {
       if ('id' in datosInsertar) {
         delete datosInsertar.id;
       }
+
+      // VERIFICACIÓN FINAL CRÍTICA: Asegurar que cliente_id sea un número entero válido
+      if (!datosInsertar.cliente_id || typeof datosInsertar.cliente_id !== 'number' || datosInsertar.cliente_id <= 0) {
+        alert('⚠️ ERROR CRÍTICO: El cliente_id no es válido. No se puede crear el expediente.');
+        console.error('❌ Objeto datosInsertar con cliente_id inválido:', datosInsertar);
+        return;
+      }
+
+      console.log('✅ Enviando expediente con cliente_id:', datosInsertar.cliente_id, '(tipo:', typeof datosInsertar.cliente_id, ')');
 
       // Insertar sin id - Supabase generará automáticamente el UUID
       const { data, error } = await supabase
@@ -759,17 +780,20 @@ const Expedientes = () => {
   // Selección de cliente: AUTOCOMPLETADO TOTAL
   const seleccionarCliente = (cliente) => {
     // Convertir cliente.id a número entero (la tabla clientes usa INTEGER)
+    // FORZAR conversión a número entero de forma robusta
     const clienteIdNumero = cliente.id ? parseInt(String(cliente.id), 10) : null;
     if (isNaN(clienteIdNumero) || clienteIdNumero <= 0) {
-      console.error('❌ ERROR: ID de cliente inválido:', cliente.id);
+      console.error('❌ ERROR: ID de cliente inválido:', cliente.id, '(tipo:', typeof cliente.id, ')');
       alert(`⚠️ ERROR: El cliente seleccionado tiene un ID inválido. Por favor, selecciona un cliente válido.`);
       return;
     }
     
+    console.log('✅ Cliente seleccionado:', cliente.nombre, 'con ID:', clienteIdNumero, '(tipo:', typeof clienteIdNumero, ')');
+    
     // Autorellena TODOS los campos disponibles del formulario expediente
     setExpedienteForm({
       ...expedienteForm,
-      clienteId: clienteIdNumero, // Guardar como número entero
+      clienteId: clienteIdNumero, // Guardar como número entero (ej: 3)
       clienteNombre: cliente.nombre,
       responsable: cliente.responsable || '',
       telefono: cliente.telefono || cliente.movil || '',
@@ -780,13 +804,16 @@ const Expedientes = () => {
   }
 
   // El buscador solo manipula el value buscado y activa sugerencias
+  // IMPORTANTE: No limpiar clienteId si el usuario está escribiendo (solo limpiar si borra todo)
   const handleClienteInputChange = (value) => {
     setClienteInputValue(value)
     setShowSuggestions(true)
-    if (!value) {
+    // Solo limpiar clienteId si el input está completamente vacío
+    // Esto evita perder la selección si el usuario está editando el texto
+    if (!value || value.trim() === '') {
       setExpedienteForm({
         ...expedienteForm,
-        clienteId: '',
+        clienteId: null, // Usar null en lugar de '' para números
         clienteNombre: ''
       })
     }
@@ -801,7 +828,7 @@ const Expedientes = () => {
       destino: '',
       fechaInicio: '',
       fechaFin: '',
-      clienteId: '',
+      clienteId: null, // Usar null para números, no '' (string vacío)
       clienteNombre: '',
       telefono: '',
       email: '',
