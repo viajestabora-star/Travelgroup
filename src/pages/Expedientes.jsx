@@ -431,22 +431,32 @@ const Expedientes = () => {
   const handleExpedienteSubmit = async (e) => {
     e.preventDefault();
     
-    // REPARACIÓN CRÍTICA: Forzar conversión del ID a número entero desde el inicio
-    let finalId = expedienteForm.clienteId;
-    console.log('🔍 ID Cliente a enviar (ANTES de validación):', finalId, '(tipo:', typeof finalId, ')');
+    // CORRECCIÓN OBLIGATORIA: Sanitización Pre-Envío - Redefinir cliente_id ANTES de cualquier otra operación
+    // Obtener el ID del formulario
+    let selectedClientId = expedienteForm.clienteId;
+    console.log('🔍 ID Cliente desde formulario (ANTES de sanitización):', selectedClientId, '(tipo:', typeof selectedClientId, ')');
     
-    // Si finalId existe pero no es un número, intentar convertirlo
-    if (finalId !== null && finalId !== undefined && finalId !== '') {
-      const idConvertido = parseInt(String(finalId), 10);
-      if (!isNaN(idConvertido) && idConvertido > 0) {
-        finalId = idConvertido;
-        console.log('✅ ID convertido a número:', finalId);
-      } else {
-        console.error('❌ ID no es un número válido:', finalId);
-        finalId = null;
+    // CORRECCIÓN CRÍTICA: Sanitizar cliente_id - NUNCA aceptar strings vacíos
+    let clienteIdSanitizado = null;
+    if (selectedClientId !== null && selectedClientId !== undefined && selectedClientId !== '') {
+      // Forzar conversión a número entero
+      clienteIdSanitizado = parseInt(String(selectedClientId), 10);
+      if (isNaN(clienteIdSanitizado) || clienteIdSanitizado <= 0) {
+        console.error('❌ ID no es un número válido:', selectedClientId);
+        clienteIdSanitizado = null;
       }
     }
     
+    // CORRECCIÓN OBLIGATORIA: Bloqueo de Seguridad - Abortar si cliente_id es null o inválido
+    if (!clienteIdSanitizado || clienteIdSanitizado <= 0) {
+      alert('⚠️ Por favor, selecciona un cliente válido de la lista antes de crear el expediente.');
+      console.error('❌ Bloqueo de seguridad: cliente_id inválido o vacío. selectedClientId:', selectedClientId, 'clienteIdSanitizado:', clienteIdSanitizado);
+      return;
+    }
+    
+    console.log('✅ ID Cliente sanitizado:', clienteIdSanitizado, '(tipo:', typeof clienteIdSanitizado, ')');
+    
+    let finalId = clienteIdSanitizado; // Usar el ID sanitizado
     let finalNombre = expedienteForm.clienteNombre || clienteInputValue.trim() || 'Sin Nombre';
 
     // 1. Crear cliente si no existe
@@ -480,27 +490,12 @@ const Expedientes = () => {
       }
     }
 
-    // VALIDACIÓN CRÍTICA: cliente_id es OBLIGATORIO y debe ser un número entero válido
-    // Convertir a número entero de forma forzada
-    let clienteIdNumero = null;
-    if (finalId !== null && finalId !== undefined && finalId !== '') {
-      clienteIdNumero = parseInt(String(finalId), 10);
-      if (isNaN(clienteIdNumero) || clienteIdNumero <= 0) {
-        alert(`⚠️ ERROR CRÍTICO: El ID del cliente (${finalId}) no es un número válido. Por favor, selecciona un cliente válido de la lista.`);
-        console.error('❌ Intento de enviar ID inválido a Supabase:', finalId, '(tipo:', typeof finalId, ')');
-        return;
-      }
-    }
-    
-    // VALIDACIÓN OBLIGATORIA: Un expediente NO puede ir sin cliente
-    if (!clienteIdNumero || clienteIdNumero <= 0) {
-      alert('⚠️ ERROR CRÍTICO: Debes seleccionar un cliente antes de crear el expediente. Un expediente no puede ir sin cliente.');
-      console.error('❌ Intento de crear expediente sin cliente_id válido. finalId:', finalId, 'clienteIdNumero:', clienteIdNumero);
-      return;
-    }
+    // CORRECCIÓN OBLIGATORIA: El clienteIdNumero ya está sanitizado arriba
+    // Usar directamente el ID sanitizado que ya pasó todas las validaciones
+    const clienteIdNumero = finalId; // Ya está sanitizado y validado
     
     // DEPURACIÓN: Console.log antes del insert
-    console.log('🔍 ID Cliente a enviar:', clienteIdNumero, '(tipo:', typeof clienteIdNumero, ')');
+    console.log('🔍 ID Cliente a enviar (FINAL):', clienteIdNumero, '(tipo:', typeof clienteIdNumero, ')');
     console.log('🔍 Objeto expedienteForm completo:', expedienteForm);
 
     // 2. Insertar Expediente con mapeo a cliente_nombre
@@ -511,26 +506,26 @@ const Expedientes = () => {
         return;
       }
 
-      // Asegurar que todos los campos obligatorios estén presentes y no sean NULL
-      // NOTA: id NO se incluye porque Supabase lo genera automáticamente (UUID)
-      //
-      // CONVERSIÓN DE FECHAS: El usuario ve y edita fechas en formato DD/MM/YYYY (formato visual)
-      // Justo antes de enviar a Supabase, convertimos a YYYY-MM-DD (formato requerido por Supabase)
-      // Usar EXACTAMENTE los nombres de columna restaurados en Supabase
-      // FORZAR cliente_id como número entero (NO string, NO null, NO vacío)
-      // REPARACIÓN CRÍTICA: Forzar conversión final antes de crear el objeto
-      const clienteIdFinal = parseInt(String(clienteIdNumero), 10) || null;
-      if (!clienteIdFinal || clienteIdFinal <= 0 || isNaN(clienteIdFinal)) {
-        alert('⚠️ ERROR CRÍTICO: El cliente_id no es válido. No se puede crear el expediente.');
-        console.error('❌ cliente_id inválido después de conversión final:', clienteIdNumero, '→', clienteIdFinal);
-        return;
+      // CORRECCIÓN OBLIGATORIA: Sanitización Pre-Envío - Redefinir cliente_id dentro de la función que llama a Supabase
+      // cliente_id: selectedClientId ? parseInt(selectedClientId, 10) : null
+      // Usar el ID ya sanitizado (clienteIdNumero) que ya pasó todas las validaciones
+      const clienteIdFinal = clienteIdNumero; // Ya está sanitizado y validado arriba
+      
+      // CORRECCIÓN OBLIGATORIA: Limpieza de Tipos - total_pax y otros campos numéricos NUNCA deben ser strings vacíos
+      // Convertir total_pax a número o null, NUNCA string vacío
+      let totalPaxSanitizado = null;
+      if (expedienteForm.total_pax !== null && expedienteForm.total_pax !== undefined && expedienteForm.total_pax !== '') {
+        const totalPaxNum = parseInt(String(expedienteForm.total_pax), 10);
+        if (!isNaN(totalPaxNum) && totalPaxNum > 0) {
+          totalPaxSanitizado = String(totalPaxNum); // Supabase espera string para total_pax
+        }
       }
       
       const datosInsertar = {
-        cliente_id: clienteIdFinal, // SIEMPRE número entero válido (ej: 3)
+        cliente_id: clienteIdFinal, // SIEMPRE número entero válido (ej: 3), NUNCA string vacío
         cliente_nombre: String(finalNombre || ''),
-        fecha_inicio: convertirFechaAISO(expedienteForm.fechaInicio || ''), // Convierte DD/MM/YYYY → YYYY-MM-DD
-        fecha_final: convertirFechaAISO(expedienteForm.fechaFin || ''), // Convierte DD/MM/YYYY → YYYY-MM-DD
+        fecha_inicio: convertirFechaAISO(expedienteForm.fechaInicio || ''),
+        fecha_final: convertirFechaAISO(expedienteForm.fechaFin || ''),
         destino: String(expedienteForm.destino || ''),
         telefono: String(expedienteForm.telefono || ''),
         email: String(expedienteForm.email || ''),
@@ -538,7 +533,7 @@ const Expedientes = () => {
         estado: String(expedienteForm.estado || 'peticion'),
         observaciones: String(expedienteForm.observaciones || ''),
         itinerario: String(expedienteForm.itinerario || ''),
-        total_pax: String(expedienteForm.total_pax || ''),
+        total_pax: totalPaxSanitizado || null, // NUNCA string vacío, solo número válido o null
       };
 
       // VERIFICACIÓN EXPLÍCITA: Asegurar que id NO esté en el objeto
@@ -818,50 +813,52 @@ const Expedientes = () => {
   }, [clientes, clienteInputValue])
 
   // Selección de cliente: AUTOCOMPLETADO TOTAL
+  // CORRECCIÓN OBLIGATORIA: Sincronización de Selección - Asegurar que selectedClientId reciba el ID numérico
   const seleccionarCliente = (cliente) => {
-    // REPARACIÓN CRÍTICA: Asegurar que cliente.id sea un número entero válido
-    // Convertir cliente.id a número entero (la tabla clientes usa INTEGER)
-    // FORZAR conversión a número entero de forma robusta
-    const clienteIdNumero = cliente.id ? parseInt(String(cliente.id), 10) : null;
+    // CORRECCIÓN CRÍTICA: Forzar conversión a número entero ANTES de guardar
+    if (!cliente || !cliente.id) {
+      console.error('❌ ERROR: Cliente o ID inválido:', cliente);
+      alert('⚠️ ERROR: Cliente inválido. Por favor, selecciona un cliente válido de la lista.');
+      return;
+    }
+    
+    // FORZAR conversión a número entero - NUNCA aceptar strings vacíos o valores inválidos
+    const clienteIdNumero = parseInt(String(cliente.id), 10);
     if (isNaN(clienteIdNumero) || clienteIdNumero <= 0) {
       console.error('❌ ERROR: ID de cliente inválido:', cliente.id, '(tipo:', typeof cliente.id, ')');
-      alert(`⚠️ ERROR: El cliente seleccionado tiene un ID inválido. Por favor, selecciona un cliente válido.`);
+      alert(`⚠️ ERROR: El cliente seleccionado tiene un ID inválido (${cliente.id}). Por favor, selecciona un cliente válido.`);
       return;
     }
     
     console.log('✅ Cliente seleccionado:', cliente.nombre, 'con ID:', clienteIdNumero, '(tipo:', typeof clienteIdNumero, ')');
-    console.log('🔍 Estado expedienteForm.clienteId ANTES de actualizar:', expedienteForm.clienteId);
     
-    // Autorellena TODOS los campos disponibles del formulario expediente
-    setExpedienteForm({
-      ...expedienteForm,
-      clienteId: clienteIdNumero, // Guardar como número entero (ej: 3)
-      clienteNombre: cliente.nombre,
+    // CORRECCIÓN OBLIGATORIA: Guardar SIEMPRE como número entero, NUNCA como string o null
+    setExpedienteForm(prev => ({
+      ...prev,
+      clienteId: clienteIdNumero, // SIEMPRE número entero (ej: 3), NUNCA string o null
+      clienteNombre: cliente.nombre || '',
       responsable: cliente.responsable || '',
       telefono: cliente.telefono || cliente.movil || '',
       email: cliente.email || ''
-    })
-    
-    // Verificar que se guardó correctamente
-    console.log('🔍 Estado expedienteForm.clienteId DESPUÉS de actualizar (en el siguiente render):', clienteIdNumero);
+    }))
     
     setClienteInputValue(cliente.nombre)
     setShowSuggestions(false)
   }
 
   // El buscador solo manipula el value buscado y activa sugerencias
-  // IMPORTANTE: No limpiar clienteId si el usuario está escribiendo (solo limpiar si borra todo)
+  // CORRECCIÓN OBLIGATORIA: NO limpiar clienteId si ya hay uno válido seleccionado
   const handleClienteInputChange = (value) => {
     setClienteInputValue(value)
     setShowSuggestions(true)
-    // Solo limpiar clienteId si el input está completamente vacío
+    // CORRECCIÓN: Solo limpiar clienteId si el input está completamente vacío Y no hay un ID válido ya guardado
     // Esto evita perder la selección si el usuario está editando el texto
-    if (!value || value.trim() === '') {
-      setExpedienteForm({
-        ...expedienteForm,
+    if ((!value || value.trim() === '') && (!expedienteForm.clienteId || typeof expedienteForm.clienteId !== 'number')) {
+      setExpedienteForm(prev => ({
+        ...prev,
         clienteId: null, // Usar null en lugar de '' para números
         clienteNombre: ''
-      })
+      }))
     }
   }
   const handleClienteInputFocus = () => {
