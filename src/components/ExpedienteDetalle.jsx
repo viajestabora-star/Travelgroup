@@ -193,16 +193,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           return
         }
 
-        console.log('🔄 Cargando servicios_cotizacion para expediente', expedienteId)
+        // CORRECCIÓN OBLIGATORIA: Sincronización de Tipos - Asegurar que expediente_id sea del tipo correcto
+        const expedienteIdParaQuery = String(expedienteId) // Asegurar que sea string (UUID)
+        console.log('🔄 Cargando servicios_cotizacion para expediente_id:', expedienteIdParaQuery, '(tipo:', typeof expedienteIdParaQuery, ')')
 
         const { data, error } = await supabase
           .from('servicios_cotizacion')
           .select('*')
-          .eq('expediente_id', expedienteId)
+          .eq('expediente_id', expedienteIdParaQuery) // CORRECCIÓN: Usar el ID sanitizado
           .order('id', { ascending: true })
 
         if (error) {
+          // CORRECCIÓN OBLIGATORIA: Manejo de Errores - Mostrar error técnico exacto
           console.error('❌ Error cargando servicios_cotizacion:', error)
+          const errorMessage = error.message || JSON.stringify(error)
+          const errorCode = error.code || 'UNKNOWN'
+          console.error('❌ Detalles del error de carga:', {
+            code: errorCode,
+            message: errorMessage,
+            expedienteId: expedienteIdParaQuery,
+            tipoExpedienteId: typeof expedienteIdParaQuery,
+            fullError: error
+          })
           return
         }
 
@@ -649,21 +661,82 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }
 
       // 2) Sincronizar servicios en la tabla servicios_cotizacion
+      // CORRECCIÓN OBLIGATORIA: Verificar expediente_id y manejo de errores mejorado
       // Estrategia simple y robusta: borrar los existentes del expediente y reinsertar el estado actual
-      const { error: errorDelete } = await supabase
+      
+      // CORRECCIÓN OBLIGATORIA: Verificar expediente_id - Asegurar que coincida exactamente con el tipo de dato
+      // expediente.id es UUID (string), pero expediente_id en servicios_cotizacion puede ser UUID o Integer
+      // Verificar primero si hay servicios previos para hacer el DELETE solo si es necesario
+      console.log('🔍 Verificando servicios_cotizacion para expediente_id:', expedienteId, '(tipo:', typeof expedienteId, ')')
+      
+      // CORRECCIÓN OBLIGATORIA: Transacción Segura - Verificar si hay servicios antes de borrar
+      const { data: serviciosExistentes, error: errorCheck } = await supabase
         .from('servicios_cotizacion')
-        .delete()
+        .select('id')
         .eq('expediente_id', expedienteId)
-
-      if (errorDelete) {
-        console.error('❌ Error borrando servicios_cotizacion anteriores:', errorDelete)
-        alert('⚠️ Error limpiando servicios anteriores en servicios_cotizacion.')
+        .limit(1)
+      
+      if (errorCheck) {
+        // CORRECCIÓN OBLIGATORIA: Manejo de Errores - Mostrar error técnico exacto
+        console.error('❌ Error verificando servicios_cotizacion existentes:', errorCheck)
+        const errorMessage = errorCheck.message || JSON.stringify(errorCheck)
+        const errorCode = errorCheck.code || 'UNKNOWN'
+        const errorDetails = errorCheck.details || errorCheck.hint || ''
+        
+        alert(`⚠️ Error verificando servicios anteriores:\n\nCódigo: ${errorCode}\nMensaje: ${errorMessage}${errorDetails ? `\nDetalles: ${errorDetails}` : ''}\n\nEsto puede ser un problema de permisos (RLS) o de tipo de dato.`)
+        console.error('❌ Detalles completos del error:', {
+          code: errorCode,
+          message: errorMessage,
+          details: errorDetails,
+          fullError: errorCheck
+        })
         return
       }
+      
+      // CORRECCIÓN OBLIGATORIA: Transacción Segura - Solo borrar si hay servicios existentes
+      if (serviciosExistentes && serviciosExistentes.length > 0) {
+        console.log(`🗑️ Eliminando ${serviciosExistentes.length} servicio(s) existente(s) antes de insertar nuevos`)
+        
+        // CORRECCIÓN OBLIGATORIA: Sincronización de Tipos - Asegurar que expediente_id sea del tipo correcto
+        // expediente.id es UUID (string), expediente_id debe ser UUID también
+        const expedienteIdParaDelete = String(expedienteId) // Asegurar que sea string (UUID)
+        
+        const { error: errorDelete, count } = await supabase
+          .from('servicios_cotizacion')
+          .delete()
+          .eq('expediente_id', expedienteIdParaDelete)
+        
+        if (errorDelete) {
+          // CORRECCIÓN OBLIGATORIA: Manejo de Errores - Mostrar error técnico exacto
+          console.error('❌ Error borrando servicios_cotizacion anteriores:', errorDelete)
+          const errorMessage = errorDelete.message || JSON.stringify(errorDelete)
+          const errorCode = errorDelete.code || 'UNKNOWN'
+          const errorDetails = errorDelete.details || errorDelete.hint || ''
+          
+          alert(`⚠️ Error limpiando servicios anteriores:\n\nCódigo: ${errorCode}\nMensaje: ${errorMessage}${errorDetails ? `\nDetalles: ${errorDetails}` : ''}\n\nEsto puede ser un problema de permisos (RLS) o de claves foráneas.`)
+          console.error('❌ Detalles completos del error de DELETE:', {
+            code: errorCode,
+            message: errorMessage,
+            details: errorDetails,
+            expedienteId: expedienteIdParaDelete,
+            tipoExpedienteId: typeof expedienteIdParaDelete,
+            fullError: errorDelete
+          })
+          return
+        }
+        
+        console.log(`✅ Servicios anteriores eliminados correctamente (${count || 'N/A'} fila(s))`)
+      } else {
+        console.log('ℹ️ No hay servicios anteriores que eliminar, continuando con la inserción')
+      }
 
+      // CORRECCIÓN OBLIGATORIA: Sincronización de Tipos - Asegurar que expediente_id sea del tipo correcto
+      const expedienteIdParaInsert = String(expedienteId) // Asegurar que sea string (UUID)
+      console.log('🔍 Preparando servicios para guardar con expediente_id:', expedienteIdParaInsert, '(tipo:', typeof expedienteIdParaInsert, ')')
+      
       const serviciosParaGuardar = servicios.map(s => ({
         id: s.id || generarUUID(), // UUID (string) seguro para la nueva tabla
-        expediente_id: expedienteId,
+        expediente_id: expedienteIdParaInsert, // CORRECCIÓN: Usar el ID sanitizado
         proveedor_id: s.proveedorId || null,
         tipo_servicio: s.tipo,
         coste_unitario: parseFloat(s.costeUnitario) || 0,
@@ -673,15 +746,33 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }))
 
       if (serviciosParaGuardar.length > 0) {
+        console.log(`💾 Guardando ${serviciosParaGuardar.length} servicio(s) en servicios_cotizacion`)
+        
         const { error: errorUpsert } = await supabase
           .from('servicios_cotizacion')
           .upsert(serviciosParaGuardar, { onConflict: 'id' })
 
         if (errorUpsert) {
+          // CORRECCIÓN OBLIGATORIA: Manejo de Errores - Mostrar error técnico exacto
           console.error('❌ Error guardando servicios_cotizacion:', errorUpsert)
-          alert('⚠️ Error guardando servicios de la cotización en la base de datos.')
+          const errorMessage = errorUpsert.message || JSON.stringify(errorUpsert)
+          const errorCode = errorUpsert.code || 'UNKNOWN'
+          const errorDetails = errorUpsert.details || errorUpsert.hint || ''
+          
+          alert(`⚠️ Error guardando servicios:\n\nCódigo: ${errorCode}\nMensaje: ${errorMessage}${errorDetails ? `\nDetalles: ${errorDetails}` : ''}`)
+          console.error('❌ Detalles completos del error de UPSERT:', {
+            code: errorCode,
+            message: errorMessage,
+            details: errorDetails,
+            serviciosCount: serviciosParaGuardar.length,
+            fullError: errorUpsert
+          })
           return
         }
+        
+        console.log('✅ Servicios guardados correctamente')
+      } else {
+        console.log('ℹ️ No hay servicios para guardar')
       }
 
       // 3) Actualizar el expediente en memoria (sin columna JSON cotizacion)
