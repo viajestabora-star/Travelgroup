@@ -194,13 +194,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         }
 
         // CORRECCIÓN OBLIGATORIA: Sincronización de Tipos - Asegurar que expediente_id sea del tipo correcto
-        const expedienteIdParaQuery = String(expedienteId) // Asegurar que sea string (UUID)
-        console.log('🔄 Cargando servicios_cotizacion para expediente_id:', expedienteIdParaQuery, '(tipo:', typeof expedienteIdParaQuery, ')')
+        // ARQUITECTURA UUID: id_expediente es UUID (string)
+        const expedienteIdParaQuery = String(expedienteId).trim() // UUID (string)
+        console.log('🔄 Cargando servicios_cotizacion para id_expediente (UUID):', expedienteIdParaQuery, '(tipo:', typeof expedienteIdParaQuery, ')')
 
         const { data, error } = await supabase
           .from('servicios_cotizacion')
           .select('*')
-          .eq('expediente_id', expedienteIdParaQuery) // CORRECCIÓN: Usar el ID sanitizado
+          .eq('id_expediente', expedienteIdParaQuery) // ARQUITECTURA UUID: usar id_expediente
           .order('id', { ascending: true })
 
         if (error) {
@@ -664,16 +665,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // CORRECCIÓN OBLIGATORIA: Verificar expediente_id y manejo de errores mejorado
       // Estrategia simple y robusta: borrar los existentes del expediente y reinsertar el estado actual
       
-      // CORRECCIÓN OBLIGATORIA: Verificar expediente_id - Asegurar que coincida exactamente con el tipo de dato
-      // expediente.id es UUID (string), pero expediente_id en servicios_cotizacion puede ser UUID o Integer
-      // Verificar primero si hay servicios previos para hacer el DELETE solo si es necesario
-      console.log('🔍 Verificando servicios_cotizacion para expediente_id:', expedienteId, '(tipo:', typeof expedienteId, ')')
+      // ARQUITECTURA UUID: id_expediente es UUID (string) - usar columna id_expediente
+      console.log('🔍 Verificando servicios_cotizacion para id_expediente (UUID):', expedienteId, '(tipo:', typeof expedienteId, ')')
       
-      // CORRECCIÓN OBLIGATORIA: Transacción Segura - Verificar si hay servicios antes de borrar
+      // ARQUITECTURA UUID: Transacción Segura - Verificar si hay servicios antes de borrar
       const { data: serviciosExistentes, error: errorCheck } = await supabase
         .from('servicios_cotizacion')
         .select('id')
-        .eq('expediente_id', expedienteId)
+        .eq('id_expediente', expedienteId) // ARQUITECTURA UUID: usar id_expediente (UUID)
         .limit(1)
       
       if (errorCheck) {
@@ -697,14 +696,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       if (serviciosExistentes && serviciosExistentes.length > 0) {
         console.log(`🗑️ Eliminando ${serviciosExistentes.length} servicio(s) existente(s) antes de insertar nuevos`)
         
-        // CORRECCIÓN OBLIGATORIA: Sincronización de Tipos - Asegurar que expediente_id sea del tipo correcto
-        // expediente.id es UUID (string), expediente_id debe ser UUID también
-        const expedienteIdParaDelete = String(expedienteId) // Asegurar que sea string (UUID)
+        // ARQUITECTURA UUID: id_expediente es UUID (string)
+        const expedienteIdParaDelete = String(expedienteId).trim() // UUID (string)
         
         const { error: errorDelete, count } = await supabase
           .from('servicios_cotizacion')
           .delete()
-          .eq('expediente_id', expedienteIdParaDelete)
+          .eq('id_expediente', expedienteIdParaDelete) // ARQUITECTURA UUID: usar id_expediente
         
         if (errorDelete) {
           // CORRECCIÓN OBLIGATORIA: Manejo de Errores - Mostrar error técnico exacto
@@ -730,13 +728,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         console.log('ℹ️ No hay servicios anteriores que eliminar, continuando con la inserción')
       }
 
-      // CORRECCIÓN OBLIGATORIA: Sincronización de Tipos - Asegurar que expediente_id sea del tipo correcto
-      const expedienteIdParaInsert = String(expedienteId) // Asegurar que sea string (UUID)
-      console.log('🔍 Preparando servicios para guardar con expediente_id:', expedienteIdParaInsert, '(tipo:', typeof expedienteIdParaInsert, ')')
+      // ARQUITECTURA UUID: id_expediente es UUID (string)
+      const expedienteIdParaInsert = String(expedienteId).trim() // UUID (string)
+      console.log('🔍 Preparando servicios para guardar con id_expediente (UUID):', expedienteIdParaInsert, '(tipo:', typeof expedienteIdParaInsert, ')')
       
       const serviciosParaGuardar = servicios.map(s => ({
-        id: s.id || generarUUID(), // UUID (string) seguro para la nueva tabla
-        expediente_id: expedienteIdParaInsert, // CORRECCIÓN: Usar el ID sanitizado
+        id: s.id || generarUUID(), // UUID (string)
+        id_expediente: expedienteIdParaInsert, // ARQUITECTURA UUID: usar id_expediente (UUID)
         proveedor_id: s.proveedorId || null,
         tipo_servicio: s.tipo,
         coste_unitario: parseFloat(s.costeUnitario) || 0,

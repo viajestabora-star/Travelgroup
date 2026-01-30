@@ -370,11 +370,11 @@ const Expedientes = () => {
         // Preparar datos para Supabase
         // IMPORTANTE: Las fechas deben estar en formato YYYY-MM-DD para Supabase
         // Usar EXACTAMENTE los nombres de columna restaurados en Supabase
-        // Convertir cliente_id a número entero (la tabla expedientes.cliente_id es INTEGER)
+        // ARQUITECTURA UUID: cliente_id es UUID (string)
         const clienteIdParaSync = expediente.cliente_id || expediente.clienteId;
-        const clienteIdNumero = clienteIdParaSync ? parseInt(String(clienteIdParaSync), 10) : null;
+        const clienteIdUUID = clienteIdParaSync ? String(clienteIdParaSync).trim() : null;
         const datosParaSupabase = {
-          cliente_id: (clienteIdNumero && !isNaN(clienteIdNumero) && clienteIdNumero > 0) ? clienteIdNumero : null, // Enviar como número entero o null
+          cliente_id: (clienteIdUUID && clienteIdUUID !== '') ? clienteIdUUID : null, // UUID (string) o null
           cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
           fecha_inicio: convertirFechaAISO(expediente.fecha_inicio || expediente.fechaInicio || ''),
           fecha_final: convertirFechaAISO(expediente.fecha_final || expediente.fechaFin || expediente.fecha_fin || ''),
@@ -436,27 +436,27 @@ const Expedientes = () => {
     let selectedClientId = expedienteForm.clienteId;
     console.log('🔍 ID Cliente desde formulario (ANTES de sanitización):', selectedClientId, '(tipo:', typeof selectedClientId, ')');
     
-    // CORRECCIÓN CRÍTICA: Sanitizar cliente_id - NUNCA aceptar strings vacíos
+    // ARQUITECTURA UUID: cliente_id es ahora UUID (string), NO integer
+    // Validar que sea un UUID válido (string no vacío)
     let clienteIdSanitizado = null;
     if (selectedClientId !== null && selectedClientId !== undefined && selectedClientId !== '') {
-      // Forzar conversión a número entero
-      clienteIdSanitizado = parseInt(String(selectedClientId), 10);
-      if (isNaN(clienteIdSanitizado) || clienteIdSanitizado <= 0) {
-        console.error('❌ ID no es un número válido:', selectedClientId);
-        clienteIdSanitizado = null;
+      // UUID es un string, validar que no esté vacío
+      const clienteIdString = String(selectedClientId).trim();
+      if (clienteIdString.length > 0) {
+        clienteIdSanitizado = clienteIdString;
       }
     }
     
-    // CORRECCIÓN OBLIGATORIA: Bloqueo de Seguridad - Abortar si cliente_id es null o inválido
-    if (!clienteIdSanitizado || clienteIdSanitizado <= 0) {
+    // ARQUITECTURA UUID: Bloqueo de Seguridad - Abortar si cliente_id es null o string vacío
+    if (!clienteIdSanitizado || clienteIdSanitizado.trim() === '') {
       alert('⚠️ Por favor, selecciona un cliente válido de la lista antes de crear el expediente.');
-      console.error('❌ Bloqueo de seguridad: cliente_id inválido o vacío. selectedClientId:', selectedClientId, 'clienteIdSanitizado:', clienteIdSanitizado);
+      console.error('❌ Bloqueo de seguridad: cliente_id inválido o vacío. selectedClientId:', selectedClientId);
       return;
     }
     
-    console.log('✅ ID Cliente sanitizado:', clienteIdSanitizado, '(tipo:', typeof clienteIdSanitizado, ')');
+    console.log('✅ ID Cliente (UUID):', clienteIdSanitizado, '(tipo:', typeof clienteIdSanitizado, ')');
     
-    let finalId = clienteIdSanitizado; // Usar el ID sanitizado
+    let finalId = clienteIdSanitizado; // UUID (string)
     let finalNombre = expedienteForm.clienteNombre || clienteInputValue.trim() || 'Sin Nombre';
 
     // 1. Crear cliente si no existe
@@ -474,14 +474,14 @@ const Expedientes = () => {
           }
           throw error;
         }
-        // Convertir el ID devuelto a número entero (la tabla clientes usa INTEGER)
-        const nuevoClienteId = data.id ? parseInt(String(data.id), 10) : null;
-        if (isNaN(nuevoClienteId) || nuevoClienteId <= 0) {
+        // ARQUITECTURA UUID: El ID devuelto es UUID (string)
+        const nuevoClienteId = data.id ? String(data.id).trim() : null;
+        if (!nuevoClienteId || nuevoClienteId === '') {
           alert('⚠️ ERROR: El cliente se creó pero el ID generado no es válido. Por favor, contacta al administrador.');
           console.error('❌ ID inválido devuelto por Supabase:', data.id);
           return;
         }
-        finalId = nuevoClienteId;
+        finalId = nuevoClienteId; // UUID (string)
         finalNombre = data.nombre;
         await reloadClientes();
       } catch (err) {
@@ -490,12 +490,11 @@ const Expedientes = () => {
       }
     }
 
-    // CORRECCIÓN OBLIGATORIA: El clienteIdNumero ya está sanitizado arriba
-    // Usar directamente el ID sanitizado que ya pasó todas las validaciones
-    const clienteIdNumero = finalId; // Ya está sanitizado y validado
+    // ARQUITECTURA UUID: cliente_id es UUID (string)
+    const clienteIdUUID = finalId; // UUID (string) ya sanitizado
     
     // DEPURACIÓN: Console.log antes del insert
-    console.log('🔍 ID Cliente a enviar (FINAL):', clienteIdNumero, '(tipo:', typeof clienteIdNumero, ')');
+    console.log('🔍 ID Cliente (UUID) a enviar:', clienteIdUUID, '(tipo:', typeof clienteIdUUID, ')');
     console.log('🔍 Objeto expedienteForm completo:', expedienteForm);
 
     // 2. Insertar Expediente con mapeo a cliente_nombre
@@ -506,13 +505,10 @@ const Expedientes = () => {
         return;
       }
 
-      // CORRECCIÓN OBLIGATORIA: Sanitización Pre-Envío - Redefinir cliente_id dentro de la función que llama a Supabase
-      // cliente_id: selectedClientId ? parseInt(selectedClientId, 10) : null
-      // Usar el ID ya sanitizado (clienteIdNumero) que ya pasó todas las validaciones
-      const clienteIdFinal = clienteIdNumero; // Ya está sanitizado y validado arriba
+      // ARQUITECTURA UUID: cliente_id es UUID (string)
+      const clienteIdFinal = clienteIdUUID; // UUID (string) ya sanitizado
       
-      // CORRECCIÓN OBLIGATORIA: Limpieza de Tipos - total_pax y otros campos numéricos NUNCA deben ser strings vacíos
-      // Convertir total_pax a número o null, NUNCA string vacío
+      // Limpieza de Tipos - total_pax debe ser string o null, NUNCA string vacío
       let totalPaxSanitizado = null;
       if (expedienteForm.total_pax !== null && expedienteForm.total_pax !== undefined && expedienteForm.total_pax !== '') {
         const totalPaxNum = parseInt(String(expedienteForm.total_pax), 10);
@@ -521,8 +517,9 @@ const Expedientes = () => {
         }
       }
       
+      // ARQUITECTURA UUID: Usar id generado por Supabase (UUID), NO enviar campo id
       const datosInsertar = {
-        cliente_id: clienteIdFinal, // SIEMPRE número entero válido (ej: 3), NUNCA string vacío
+        cliente_id: clienteIdFinal, // UUID (string), NUNCA integer
         cliente_nombre: String(finalNombre || ''),
         fecha_inicio: convertirFechaAISO(expedienteForm.fechaInicio || ''),
         fecha_final: convertirFechaAISO(expedienteForm.fechaFin || ''),
@@ -541,17 +538,17 @@ const Expedientes = () => {
         delete datosInsertar.id;
       }
 
-      // VERIFICACIÓN FINAL CRÍTICA: Asegurar que cliente_id sea un número entero válido
-      if (!datosInsertar.cliente_id || typeof datosInsertar.cliente_id !== 'number' || datosInsertar.cliente_id <= 0) {
-        alert('⚠️ ERROR CRÍTICO: El cliente_id no es válido. No se puede crear el expediente.');
+      // ARQUITECTURA UUID: Verificar que cliente_id sea un UUID válido (string no vacío)
+      if (!datosInsertar.cliente_id || typeof datosInsertar.cliente_id !== 'string' || datosInsertar.cliente_id.trim() === '') {
+        alert('⚠️ ERROR CRÍTICO: El cliente_id no es un UUID válido. No se puede crear el expediente.');
         console.error('❌ Objeto datosInsertar con cliente_id inválido:', datosInsertar);
         console.error('❌ Tipo de cliente_id:', typeof datosInsertar.cliente_id, 'Valor:', datosInsertar.cliente_id);
         return;
       }
 
       // DEPURACIÓN: Console.log antes del insert
-      console.log('✅ Enviando expediente con cliente_id:', datosInsertar.cliente_id, '(tipo:', typeof datosInsertar.cliente_id, ')');
-      console.log('🔍 Objeto completo datosInsertar:', JSON.stringify(datosInsertar, null, 2));
+      console.log('✅ Enviando expediente con cliente_id (UUID):', datosInsertar.cliente_id, '(tipo:', typeof datosInsertar.cliente_id, ')');
+      console.log('🔍 Objeto completo datosInsertar (sin campo id - Supabase lo genera):', JSON.stringify(datosInsertar, null, 2));
 
       // Insertar sin id - Supabase generará automáticamente el UUID
       const { data, error } = await supabase
@@ -618,17 +615,9 @@ const Expedientes = () => {
         throw error;
       }
 
-      // VALIDACIÓN CRÍTICA: Asegurar que el ID devuelto sea un UUID válido
-      const nuevoClienteIdUUID = normalizarUUID(data.id);
-      if (!nuevoClienteIdUUID) {
-        alert('⚠️ ERROR: El cliente se creó pero el ID generado no es un UUID válido. Por favor, contacta al administrador.');
-        console.error('❌ ID inválido devuelto por Supabase al crear cliente:', data.id);
-        return;
-      }
-
-      // Convertir el ID devuelto a número entero (la tabla clientes usa INTEGER)
-      const nuevoClienteIdNumero = data.id ? parseInt(String(data.id), 10) : null;
-      if (isNaN(nuevoClienteIdNumero) || nuevoClienteIdNumero <= 0) {
+      // ARQUITECTURA UUID: Insertar Cliente -> Obtener UUID -> Usar ese UUID para cliente_id
+      const nuevoClienteIdUUID = data.id ? String(data.id).trim() : null;
+      if (!nuevoClienteIdUUID || nuevoClienteIdUUID === '') {
         alert('⚠️ ERROR: El cliente se creó pero el ID generado no es válido. Por favor, contacta al administrador.');
         console.error('❌ ID inválido devuelto por Supabase al crear cliente:', data.id);
         return;
@@ -638,7 +627,7 @@ const Expedientes = () => {
       await reloadClientes()
       setExpedienteForm({
         ...expedienteForm,
-        clienteId: nuevoClienteIdNumero, // Guardar como número entero
+        clienteId: nuevoClienteIdUUID, // UUID (string)
         clienteNombre: data.nombre,
         responsable: data.responsable || ''
       })
@@ -700,26 +689,23 @@ const Expedientes = () => {
       // Objeto exacto para Supabase - Asegurar que todos los campos obligatorios estén presentes y no sean NULL
       // IMPORTANTE: Las fechas deben estar en formato YYYY-MM-DD para Supabase
       // Usar EXACTAMENTE los nombres de columna restaurados en Supabase
-      // Convertir cliente_id a número entero (la tabla expedientes.cliente_id es INTEGER)
-      // REPARACIÓN CRÍTICA: Forzar conversión y validación del ID
+      // ARQUITECTURA UUID: cliente_id es UUID (string)
       const clienteIdParaUpdate = expedienteActualizado.cliente_id || expedienteActualizado.clienteId;
-      console.log('🔍 ID Cliente a enviar (UPDATE):', clienteIdParaUpdate, '(tipo:', typeof clienteIdParaUpdate, ')');
+      console.log('🔍 ID Cliente (UUID) a enviar (UPDATE):', clienteIdParaUpdate, '(tipo:', typeof clienteIdParaUpdate, ')');
       
-      let clienteIdNumeroUpdate = null;
+      let clienteIdUUIDUpdate = null;
       if (clienteIdParaUpdate !== null && clienteIdParaUpdate !== undefined && clienteIdParaUpdate !== '') {
-        clienteIdNumeroUpdate = parseInt(String(clienteIdParaUpdate), 10);
-        if (isNaN(clienteIdNumeroUpdate) || clienteIdNumeroUpdate <= 0) {
-          alert(`⚠️ ERROR: El ID del cliente (${clienteIdParaUpdate}) no es un número válido. No se puede actualizar el expediente.`);
-          console.error('❌ Intento de actualizar con ID inválido:', clienteIdParaUpdate, '(tipo:', typeof clienteIdParaUpdate, ')');
-          return;
+        clienteIdUUIDUpdate = String(clienteIdParaUpdate).trim();
+        if (clienteIdUUIDUpdate === '') {
+          clienteIdUUIDUpdate = null;
         }
       }
       
       // DEPURACIÓN: Console.log antes del update
-      console.log('🔍 ID Cliente convertido (UPDATE):', clienteIdNumeroUpdate, '(tipo:', typeof clienteIdNumeroUpdate, ')');
+      console.log('🔍 ID Cliente (UUID) para UPDATE:', clienteIdUUIDUpdate, '(tipo:', typeof clienteIdUUIDUpdate, ')');
       
       const expedienteActualizadoParaSupabase = {
-        cliente_id: (clienteIdNumeroUpdate && !isNaN(clienteIdNumeroUpdate) && clienteIdNumeroUpdate > 0) ? clienteIdNumeroUpdate : null, // Enviar como número entero o null
+        cliente_id: (clienteIdUUIDUpdate && clienteIdUUIDUpdate !== '') ? clienteIdUUIDUpdate : null, // UUID (string) o null
         cliente_nombre: String(expedienteActualizado.cliente_nombre || expedienteActualizado.clienteNombre || ''),
         fecha_inicio: convertirFechaAISO(expedienteActualizado.fecha_inicio || expedienteActualizado.fechaInicio || ''),
         fecha_final: convertirFechaAISO(expedienteActualizado.fecha_final || expedienteActualizado.fechaFin || expedienteActualizado.fecha_fin || ''),
@@ -822,20 +808,20 @@ const Expedientes = () => {
       return;
     }
     
-    // FORZAR conversión a número entero - NUNCA aceptar strings vacíos o valores inválidos
-    const clienteIdNumero = parseInt(String(cliente.id), 10);
-    if (isNaN(clienteIdNumero) || clienteIdNumero <= 0) {
+    // ARQUITECTURA UUID: cliente.id es UUID (string), NO integer
+    const clienteIdUUID = cliente.id ? String(cliente.id).trim() : null;
+    if (!clienteIdUUID || clienteIdUUID === '') {
       console.error('❌ ERROR: ID de cliente inválido:', cliente.id, '(tipo:', typeof cliente.id, ')');
       alert(`⚠️ ERROR: El cliente seleccionado tiene un ID inválido (${cliente.id}). Por favor, selecciona un cliente válido.`);
       return;
     }
     
-    console.log('✅ Cliente seleccionado:', cliente.nombre, 'con ID:', clienteIdNumero, '(tipo:', typeof clienteIdNumero, ')');
+    console.log('✅ Cliente seleccionado:', cliente.nombre, 'con ID (UUID):', clienteIdUUID, '(tipo:', typeof clienteIdUUID, ')');
     
-    // CORRECCIÓN OBLIGATORIA: Guardar SIEMPRE como número entero, NUNCA como string o null
+    // ARQUITECTURA UUID: Guardar como UUID (string)
     setExpedienteForm(prev => ({
       ...prev,
-      clienteId: clienteIdNumero, // SIEMPRE número entero (ej: 3), NUNCA string o null
+      clienteId: clienteIdUUID, // UUID (string)
       clienteNombre: cliente.nombre || '',
       responsable: cliente.responsable || '',
       telefono: cliente.telefono || cliente.movil || '',

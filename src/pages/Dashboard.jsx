@@ -62,9 +62,10 @@ const Dashboard = () => {
       const inicioAño = `${año}-01-01`
       const finAño = `${año}-12-31`
       
+      // ARQUITECTURA UUID: usar id (UUID) generado por Supabase
       const { data, error } = await supabase
         .from('expedientes')
-        .select('id_expediente', { count: 'exact' })
+        .select('id', { count: 'exact' }) // ARQUITECTURA UUID: usar id (UUID)
         .gte('fecha_inicio', inicioAño)
         .lte('fecha_inicio', finAño)
       
@@ -103,9 +104,10 @@ const Dashboard = () => {
       const inicioAño = `${año}-01-01`
       const finAño = `${año}-12-31`
       
+      // ARQUITECTURA UUID: usar id (UUID) generado por Supabase
       const { data, error } = await supabase
         .from('expedientes')
-        .select('id_expediente, fecha_inicio, fecha_fin, cliente_nombre, destino, estado, responsable')
+        .select('id, fecha_inicio, fecha_fin, cliente_nombre, destino, estado, responsable') // ARQUITECTURA UUID: usar id (UUID)
         .gte('fecha_inicio', hoy) // Solo futuros
         .gte('fecha_inicio', inicioAño) // Del año seleccionado en adelante
         .lte('fecha_inicio', finAño) // Hasta fin del año seleccionado
@@ -118,7 +120,7 @@ const Dashboard = () => {
       }
       
       return (data || []).map(exp => ({
-        id: exp.id_expediente,
+        id: exp.id, // ARQUITECTURA UUID: usar id (UUID)
         fechaInicio: exp.fecha_inicio,
         fechaFin: exp.fecha_fin,
         clienteNombre: exp.cliente_nombre,
@@ -139,9 +141,10 @@ const Dashboard = () => {
       const inicioAño = `${año}-01-01`
       const finAño = `${año}-12-31`
       
+      // ARQUITECTURA UUID: usar id (UUID) generado por Supabase
       const { data, error } = await supabase
         .from('expedientes')
-        .select('id_expediente, fecha_inicio, cliente_nombre, destino, estado, responsable, telefono, email')
+        .select('id, fecha_inicio, cliente_nombre, destino, estado, responsable, telefono, email') // ARQUITECTURA UUID: usar id (UUID)
         .eq('estado', 'peticion')
         .gte('fecha_inicio', inicioAño)
         .lte('fecha_inicio', finAño)
@@ -154,7 +157,7 @@ const Dashboard = () => {
       }
       
       return (data || []).map(exp => ({
-        id: exp.id_expediente,
+        id: exp.id, // ARQUITECTURA UUID: usar id (UUID)
         fechaInicio: exp.fecha_inicio,
         clienteNombre: exp.cliente_nombre,
         destino: exp.destino,
