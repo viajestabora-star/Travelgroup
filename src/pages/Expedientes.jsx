@@ -156,6 +156,7 @@ const Expedientes = () => {
   const [trimestreExport, setTrimestreExport] = useState('Q1')
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [searchTermExpedientes, setSearchTermExpedientes] = useState('')
+  const [isSubmittingExpediente, setIsSubmittingExpediente] = useState(false) // Estado de loading para submit
 
   const [expedienteForm, setExpedienteForm] = useState({
     responsable: '',
@@ -431,28 +432,38 @@ const Expedientes = () => {
   const handleExpedienteSubmit = async (e) => {
     e.preventDefault();
     
-    // CORRECCIÓN OBLIGATORIA: Sanitización Pre-Envío - Redefinir cliente_id ANTES de cualquier otra operación
-    // Obtener el ID del formulario
-    let selectedClientId = expedienteForm.clienteId;
-    console.log('🔍 ID Cliente desde formulario (ANTES de sanitización):', selectedClientId, '(tipo:', typeof selectedClientId, ')');
+    // CORRECCIÓN: Activar loading al inicio
+    setIsSubmittingExpediente(true);
     
-    // ARQUITECTURA UUID: cliente_id es ahora UUID (string), NO integer
-    // Validar que sea un UUID válido (string no vacío)
-    let clienteIdSanitizado = null;
-    if (selectedClientId !== null && selectedClientId !== undefined && selectedClientId !== '') {
-      // UUID es un string, validar que no esté vacío
-      const clienteIdString = String(selectedClientId).trim();
-      if (clienteIdString.length > 0) {
-        clienteIdSanitizado = clienteIdString;
+    try {
+      // CORRECCIÓN OBLIGATORIA: Sanitización Pre-Envío - Redefinir cliente_id ANTES de cualquier otra operación
+      // Obtener el ID del formulario
+      let selectedClientId = expedienteForm.clienteId;
+      console.log('🔍 ID Cliente desde formulario (ANTES de sanitización):', selectedClientId, '(tipo:', typeof selectedClientId, ')');
+      
+      // ARQUITECTURA UUID: cliente_id es ahora UUID (string), NO integer
+      // Validar que sea un UUID válido (string no vacío)
+      let clienteIdSanitizado = null;
+      if (selectedClientId !== null && selectedClientId !== undefined && selectedClientId !== '') {
+        // CORRECCIÓN: Asegurar que no sea un objeto
+        if (typeof selectedClientId === 'object') {
+          console.error('❌ ERROR: cliente_id es un objeto, debe ser string UUID:', selectedClientId);
+          alert('⚠️ ERROR: El ID del cliente tiene un formato inválido. Por favor, selecciona un cliente válido.');
+          throw new Error('cliente_id es un objeto en lugar de string UUID');
+        }
+        // UUID es un string, validar que no esté vacío
+        const clienteIdString = String(selectedClientId).trim();
+        if (clienteIdString.length > 0) {
+          clienteIdSanitizado = clienteIdString;
+        }
       }
-    }
     
-    // ARQUITECTURA UUID: Bloqueo de Seguridad - Abortar si cliente_id es null o string vacío
-    if (!clienteIdSanitizado || clienteIdSanitizado.trim() === '') {
-      alert('⚠️ Por favor, selecciona un cliente válido de la lista antes de crear el expediente.');
-      console.error('❌ Bloqueo de seguridad: cliente_id inválido o vacío. selectedClientId:', selectedClientId);
-      return;
-    }
+      // ARQUITECTURA UUID: Bloqueo de Seguridad - Abortar si cliente_id es null o string vacío
+      if (!clienteIdSanitizado || clienteIdSanitizado.trim() === '') {
+        alert('⚠️ Por favor, selecciona un cliente válido de la lista antes de crear el expediente.');
+        console.error('❌ Bloqueo de seguridad: cliente_id inválido o vacío. selectedClientId:', selectedClientId);
+        throw new Error('cliente_id inválido o vacío');
+      }
     
     console.log('✅ ID Cliente (UUID):', clienteIdSanitizado, '(tipo:', typeof clienteIdSanitizado, ')');
     
@@ -470,23 +481,23 @@ const Expedientes = () => {
           const errorInfo = manejarErrorSupabase(error, 'crear cliente');
           if (errorInfo) {
             alert(errorInfo.mensaje);
-            return;
+            throw new Error(errorInfo.mensaje);
           }
           throw error;
         }
         // ARQUITECTURA UUID: El ID devuelto es UUID (string)
-        const nuevoClienteId = data.id ? String(data.id).trim() : null;
-        if (!nuevoClienteId || nuevoClienteId === '') {
+        const idGeneradoCliente = data.id ? String(data.id).trim() : null;
+        if (!idGeneradoCliente || idGeneradoCliente === '') {
           alert('⚠️ ERROR: El cliente se creó pero el ID generado no es válido. Por favor, contacta al administrador.');
           console.error('❌ ID inválido devuelto por Supabase:', data.id);
-          return;
+          throw new Error('ID de cliente generado inválido');
         }
-        finalId = nuevoClienteId; // UUID (string)
+        finalId = idGeneradoCliente; // UUID (string)
         finalNombre = data.nombre;
         await reloadClientes();
       } catch (err) {
         console.error('Error creando cliente previo:', err);
-        return;
+        throw err; // Re-lanzar para que el catch principal lo maneje
       }
     }
 
@@ -502,11 +513,18 @@ const Expedientes = () => {
       // Validar que cliente_nombre esté presente
       if (!finalNombre || finalNombre.trim() === '') {
         alert('⚠️ El nombre del cliente es obligatorio');
-        return;
+        throw new Error('nombre del cliente es obligatorio');
       }
 
       // ARQUITECTURA UUID: cliente_id es UUID (string)
       const clienteIdFinal = clienteIdUUID; // UUID (string) ya sanitizado
+      
+      // CORRECCIÓN: Verificar que clienteIdFinal sea realmente un string UUID, no un objeto
+      if (typeof clienteIdFinal !== 'string' || clienteIdFinal.trim() === '') {
+        alert('⚠️ ERROR CRÍTICO: El cliente_id no es un UUID válido (string).');
+        console.error('❌ clienteIdFinal inválido:', clienteIdFinal, '(tipo:', typeof clienteIdFinal, ')');
+        throw new Error('cliente_id no es un UUID válido');
+      }
       
       // Limpieza de Tipos - total_pax debe ser string o null, NUNCA string vacío
       let totalPaxSanitizado = null;
@@ -518,18 +536,19 @@ const Expedientes = () => {
       }
       
       // ARQUITECTURA UUID: Usar id generado por Supabase (UUID), NO enviar campo id
+      // CORRECCIÓN: Asegurar que todos los campos obligatorios tengan valores válidos
       const datosInsertar = {
-        cliente_id: clienteIdFinal, // UUID (string), NUNCA integer
-        cliente_nombre: String(finalNombre || ''),
-        fecha_inicio: convertirFechaAISO(expedienteForm.fechaInicio || ''),
-        fecha_final: convertirFechaAISO(expedienteForm.fechaFin || ''),
-        destino: String(expedienteForm.destino || ''),
-        telefono: String(expedienteForm.telefono || ''),
-        email: String(expedienteForm.email || ''),
-        responsable: String(expedienteForm.responsable || ''),
-        estado: String(expedienteForm.estado || 'peticion'),
-        observaciones: String(expedienteForm.observaciones || ''),
-        itinerario: String(expedienteForm.itinerario || ''),
+        cliente_id: clienteIdFinal, // UUID (string), NUNCA integer, NUNCA objeto
+        cliente_nombre: String(finalNombre || '').trim() || null, // No puede ser string vacío
+        fecha_inicio: convertirFechaAISO(expedienteForm.fechaInicio || '') || null,
+        fecha_final: convertirFechaAISO(expedienteForm.fechaFin || '') || null,
+        destino: String(expedienteForm.destino || '').trim() || null,
+        telefono: String(expedienteForm.telefono || '').trim() || null,
+        email: String(expedienteForm.email || '').trim() || null,
+        responsable: String(expedienteForm.responsable || '').trim() || null,
+        estado: String(expedienteForm.estado || 'peticion').trim(), // Siempre tiene valor por defecto
+        observaciones: String(expedienteForm.observaciones || '').trim() || null,
+        itinerario: String(expedienteForm.itinerario || '').trim() || null,
         total_pax: totalPaxSanitizado || null, // NUNCA string vacío, solo número válido o null
       };
 
@@ -543,7 +562,7 @@ const Expedientes = () => {
         alert('⚠️ ERROR CRÍTICO: El cliente_id no es un UUID válido. No se puede crear el expediente.');
         console.error('❌ Objeto datosInsertar con cliente_id inválido:', datosInsertar);
         console.error('❌ Tipo de cliente_id:', typeof datosInsertar.cliente_id, 'Valor:', datosInsertar.cliente_id);
-        return;
+        throw new Error('cliente_id en datosInsertar no es válido');
       }
 
       // DEPURACIÓN: Console.log antes del insert
@@ -561,7 +580,7 @@ const Expedientes = () => {
         const errorInfo = manejarErrorSupabase(error, 'crear expediente');
         if (errorInfo) {
           alert(errorInfo.mensaje);
-          return;
+          throw new Error(errorInfo.mensaje);
         }
         throw error;
       }
@@ -574,14 +593,27 @@ const Expedientes = () => {
       setClienteInputValue('');
       setShowSuggestions(false);
       alert(`✅ Expediente creado con éxito. ID: ${data.id}`);
-    } catch (err) {
-      const errorInfo = manejarErrorSupabase(err, 'crear expediente');
+      } catch (err) {
+        const errorInfo = manejarErrorSupabase(err, 'crear expediente');
+        if (errorInfo) {
+          alert(errorInfo.mensaje);
+        } else {
+          console.error('ERROR TÉCNICO:', err);
+          alert('⚠️ No se pudo guardar. Revisa la consola.');
+        }
+      }
+    } catch (error) {
+      // CORRECCIÓN: Catch principal para manejar errores generales
+      const errorInfo = manejarErrorSupabase(error, 'procesar expediente');
       if (errorInfo) {
         alert(errorInfo.mensaje);
       } else {
-        console.error('ERROR TÉCNICO:', err);
-        alert('⚠️ No se pudo guardar. Revisa la consola.');
+        console.error('ERROR GENERAL:', error);
+        alert('⚠️ Error inesperado al procesar el expediente. Revisa la consola.');
       }
+    } finally {
+      // CORRECCIÓN CRÍTICA: Asegurar que el loading se apague SIEMPRE
+      setIsSubmittingExpediente(false);
     }
   }
 
@@ -1493,8 +1525,12 @@ const Expedientes = () => {
                 </div>
               </div>
               <div className="flex gap-3 mt-6">
-                <button type="submit" className="btn-primary flex-1">
-                  Crear Expediente
+                <button 
+                  type="submit" 
+                  className="btn-primary flex-1"
+                  disabled={isSubmittingExpediente}
+                >
+                  {isSubmittingExpediente ? 'Guardando...' : 'Crear Expediente'}
                 </button>
                 <button type="button" onClick={() => { setShowExpedienteModal(false); resetExpedienteForm(); }} className="btn-secondary flex-1">
                   Cancelar
