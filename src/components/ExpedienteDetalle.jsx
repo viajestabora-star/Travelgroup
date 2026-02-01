@@ -44,6 +44,24 @@ const generarUUID = () => {
   })
 }
 
+/**
+ * Extrae solo los números de una cadena, manteniendo decimales y signo negativo.
+ * Ejemplo: "47.40€" -> 47.40 | "69 pax" -> 69
+ */
+const soloNumeros = (valor) => {
+  if (valor === null || valor === undefined || valor === '') return 0;
+  if (typeof valor === 'number') return valor;
+  
+  // Elimina todo lo que no sea número, punto o guion
+  const limpio = valor.toString().replace(/[^0-9.-]+/g, "");
+  const resultado = parseFloat(limpio);
+  
+  return isNaN(resultado) ? 0 : resultado;
+};
+
+// Función helper para limpiar coste_unitario: alias para compatibilidad
+const limpiarCosteUnitario = soloNumeros;
+
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => {
   // ⚠️ BLINDAJE NIVEL 1: Verificar que expediente existe
   if (!expediente) {
@@ -227,7 +245,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             tipo: row.tipo_servicio || row.tipo || 'Hotel',
             nombreEspecifico: row.nombre_especifico || '',
             localizacion: row.localizacion || '',
-            costeUnitario: row.coste_unitario || 0,
+            costeUnitario: row.coste_unitario || 0, // Coste Real de la UI
+            precioVenta: row.precio_venta || 0, // Precio Venta de la UI
+            margen: row.margen_pax || 0, // Margen de la UI
             noches: row.noches || 0,
             fechaRelease: row.fecha_release || '',
             tipoCalculo: row.tipo_calculo || 'porPersona', // 'porPersona' o 'porGrupo'
@@ -262,7 +282,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         tipo: 'Autobús',
         nombreEspecifico: '',
         localizacion: '',
-        costeUnitario: 0,
+        costeUnitario: 0, // Coste Real
+        precioVenta: 0, // Precio Venta
+        margen: 0, // Margen
         noches: 0,
         fechaRelease: '',
         tipoCalculo: 'porGrupo', // Autobús: total a dividir entre pax_pago
@@ -273,7 +295,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         tipo: 'Hotel',
         nombreEspecifico: '',
         localizacion: '',
-        costeUnitario: 0,
+        costeUnitario: 0, // Coste Real
+        precioVenta: 0, // Precio Venta
+        margen: 0, // Margen
         noches: 1,
         fechaRelease: '',
         tipoCalculo: 'porPersona',
@@ -284,7 +308,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         tipo: 'Guía',
         nombreEspecifico: '',
         localizacion: '',
-        costeUnitario: 0,
+        costeUnitario: 0, // Coste Real
+        precioVenta: 0, // Precio Venta
+        margen: 0, // Margen
         noches: 0,
         fechaRelease: '',
         tipoCalculo: 'porGrupo', // Guía: total a dividir entre pax_pago
@@ -295,7 +321,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         tipo: 'Seguro',
         nombreEspecifico: '',
         localizacion: '',
-        costeUnitario: 0,
+        costeUnitario: 0, // Coste Real
+        precioVenta: 0, // Precio Venta
+        margen: 0, // Margen
         noches: 0,
         fechaRelease: '',
         tipoCalculo: 'porPersona',
@@ -306,7 +334,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         tipo: 'Restaurante',
         nombreEspecifico: '',
         localizacion: '',
-        costeUnitario: 0,
+        costeUnitario: 0, // Coste Real
+        precioVenta: 0, // Precio Venta
+        margen: 0, // Margen
         noches: 0,
         fechaRelease: '',
         tipoCalculo: 'porPersona', // Por defecto, puede cambiarse a 'porGrupo'
@@ -421,7 +451,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       tipo: 'Hotel',
       nombreEspecifico: '', // Nombre libre (ej: "NH Ciudad de Valencia")
       localizacion: '', // Ubicación libre
-      costeUnitario: 0,
+      costeUnitario: 0, // Coste Real
+      precioVenta: 0, // Precio Venta
+      margen: 0, // Margen
       noches: 1,
       fechaRelease: '',
       tipoCalculo: 'porPersona', // 'porPersona' o 'porGrupo'
@@ -646,11 +678,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }
 
       // 1) Guardar parámetros principales en la tabla expedientes (modelo plano)
+      // Aplicar soloNumeros a campos que pueden tener '€' o 'pax' en la UI
       const { error: errorExpediente } = await supabase
         .from('expedientes')
         .update({
-          total_pax: String(totalPax),
-          pax_pago: String(paxPago),
+          total_pax: soloNumeros(totalPax), // Numeric: Extraer solo números (puede venir con 'pax' de la UI)
+          pax_pago: soloNumeros(paxPago), // Numeric: Extraer solo números (puede venir con 'pax' de la UI)
           // Se podrían añadir más columnas específicas si existen (ej: dias, bonificacion, precio_venta_pax)
         })
         .eq('id', expedienteId)
@@ -729,19 +762,69 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }
 
       // ARQUITECTURA UUID: id_expediente es UUID (string)
-      const expedienteIdParaInsert = String(expedienteId).trim() // UUID (string)
+      const expedienteIdParaInsert = String(expedienteId).trim()
       console.log('🔍 Preparando servicios para guardar con id_expediente (UUID):', expedienteIdParaInsert, '(tipo:', typeof expedienteIdParaInsert, ')')
       
-      const serviciosParaGuardar = servicios.map(s => ({
-        id: s.id || generarUUID(), // UUID (string)
-        id_expediente: expedienteIdParaInsert, // ARQUITECTURA UUID: usar id_expediente (UUID)
-        proveedor_id: s.proveedorId || null,
-        tipo_servicio: s.tipo,
-        coste_unitario: parseFloat(s.costeUnitario) || 0,
-        noches: parseInt(s.noches) || 0,
-        tipo_calculo: s.tipoCalculo || 'porPersona', // 'porPersona' = Precio por Persona, 'porGrupo' = Total a dividir
-        fecha_release: s.fechaRelease || null,
-      }))
+      // Función helper para convertir fecha_release a formato Date (ISO string YYYY-MM-DD)
+      const convertirFechaRelease = (fechaRelease) => {
+        if (!fechaRelease || fechaRelease === '' || fechaRelease === null || fechaRelease === undefined) {
+          return null;
+        }
+        if (typeof fechaRelease === 'string' && /^\d{4}-\d{2}-\d{2}/.test(fechaRelease)) {
+          return fechaRelease;
+        }
+        if (fechaRelease instanceof Date) {
+          if (isNaN(fechaRelease.getTime())) return null;
+          return fechaRelease.toISOString().split('T')[0];
+        }
+        try {
+          const fechaISO = convertirEspañolAISO(String(fechaRelease));
+          return fechaISO || null;
+        } catch (error) {
+          console.warn('⚠️ Error convirtiendo fecha_release:', fechaRelease, error);
+          return null;
+        }
+      }
+      
+      // Función helper para limpiar números: elimina '€' y 'pax'
+      const limpiarNumero = (valor) => parseFloat(String(valor || 0).replace(/[^0-9.-]+/g, '')) || 0;
+      
+      // Preparar servicios para guardar con nombres exactos de la DB
+      // Mapear TODOS los campos de la interfaz a las columnas de la base de datos
+      const serviciosParaGuardar = servicios.map(s => {
+        const servicio = {
+          // Identificadores
+          id: s.id || generarUUID(),
+          id_expediente: expedienteIdParaInsert,
+          proveedor_id: s.proveedorId || null,
+          
+          // Información del servicio (nombres exactos de la DB)
+          tipo_servicio: String(s.tipo || '').trim(),
+          nombre_especifico: String(s.nombreEspecifico || '').trim(),
+          localizacion: String(s.localizacion || '').trim(),
+          
+          // Campos numéricos financieros (limpiar '€' con limpiarNumero)
+          coste_unitario: limpiarNumero(s.costeUnitario),
+          precio_venta: limpiarNumero(s.precioVenta),
+          margen_pax: limpiarNumero(s.margen),
+          
+          // Campos numéricos de pax (limpiar 'pax' con limpiarNumero)
+          pax_total: limpiarNumero(numTotalPasajeros),
+          pax_pago: limpiarNumero(parseInt(numTotalPasajeros) - parseInt(numGratuidades)),
+          pax_gratis: limpiarNumero(numGratuidades),
+          
+          // Otros campos numéricos
+          noches: parseInt(s.noches) || 0,
+          dias_guia: parseInt(numDias) || 1,
+          
+          // Campos de texto y configuración (nombres exactos de la DB)
+          tipo_calculo: String(s.tipoCalculo || 'porPersona').trim(),
+          fecha_release: convertirFechaRelease(s.fechaRelease),
+        };
+        
+        console.log('PAYLOAD FINAL:', JSON.stringify(servicio, null, 2));
+        return servicio;
+      })
 
       if (serviciosParaGuardar.length > 0) {
         console.log(`💾 Guardando ${serviciosParaGuardar.length} servicio(s) en servicios_cotizacion`)
@@ -1560,21 +1643,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                         setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue })
                                         setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
                                       }}
-                                      onFocus={() => {
+                                      onFocus={(e) => {
                                         // ============ COMBOBOX: MOSTRAR TODOS AL HACER CLIC ============
                                         setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
                                         // Si no hay búsqueda, limpiar para mostrar todos los proveedores del tipo
                                         if (!busquedaProveedor[servicio.id]) {
                                           setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
                                         }
+                                        // Estilo de foco
+                                        e.target.style.borderColor = '#3b82f6'
+                                        e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                                       }}
                                       placeholder="Buscar proveedor..."
                                         className="input-field text-xs w-full pr-8 transition-all"
                                         style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                                        onFocus={(e) => {
-                                          e.target.style.borderColor = '#3b82f6'
-                                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                        }}
                                         onBlur={(e) => {
                                           e.target.style.borderColor = '#e2e8f0'
                                           e.target.style.boxShadow = 'none'
@@ -1793,7 +1875,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 <input
                                   type="number"
                                   value={servicio.costeUnitario}
-                                  onChange={(e) => actualizarServicio(servicio.id, 'costeUnitario', e.target.value)}
+                                  onChange={(e) => {
+                                    // Limpiar el valor antes de actualizar (eliminar símbolos de moneda)
+                                    const valorLimpio = limpiarCosteUnitario(e.target.value);
+                                    actualizarServicio(servicio.id, 'costeUnitario', valorLimpio);
+                                  }}
                                   onFocus={(e) => {
                                     handleFocus(e)
                                     e.target.style.borderColor = '#3b82f6'

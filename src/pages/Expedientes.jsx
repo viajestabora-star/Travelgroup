@@ -363,18 +363,15 @@ const Expedientes = () => {
 
   const saveExpedientes = async (data) => {
     try {
-      const dataToSave = Array.isArray(data) ? data : []
+      const dataToSave = Array.isArray(data) ? data : [];
 
       for (const expediente of dataToSave) {
-        const idExpediente = expediente.id
-
-        // Preparar datos para Supabase
-        // IMPORTANTE: Las fechas deben estar en formato YYYY-MM-DD para Supabase
-        // Usar EXACTAMENTE los nombres de columna restaurados en Supabase
         // ARQUITECTURA UUID: cliente_id es UUID (string)
         const clienteIdParaSync = expediente.cliente_id || expediente.clienteId;
         const clienteIdUUID = clienteIdParaSync ? String(clienteIdParaSync).trim() : null;
+
         const datosParaSupabase = {
+          numero_expediente: String(expediente.numero_expediente || expediente.numeroExpediente || ''),
           cliente_id: (clienteIdUUID && clienteIdUUID !== '') ? clienteIdUUID : null, // UUID (string) o null
           cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
           fecha_inicio: convertirFechaAISO(expediente.fecha_inicio || expediente.fechaInicio || ''),
@@ -386,48 +383,38 @@ const Expedientes = () => {
           estado: String(expediente.estado || 'peticion'),
           observaciones: String(expediente.observaciones || ''),
           itinerario: String(expediente.itinerario || ''),
-          total_pax: expediente.total_pax !== undefined && expediente.total_pax !== null
+          total_pax: (expediente.total_pax !== undefined && expediente.total_pax !== null)
             ? String(expediente.total_pax)
             : null,
-        }
-        
-        // Si tiene id (UUID), es un UPDATE (upsert)
-        // Si no tiene id, es un INSERT (Supabase generará el UUID automáticamente)
+        };
+
+        const idExpediente = expediente.id;
+
         if (idExpediente) {
-          datosParaSupabase.id = idExpediente
+          // UPDATE: Si tiene id (UUID), es un upsert
           const { error } = await supabase
             .from('expedientes')
-            .upsert(datosParaSupabase, { onConflict: 'id' })
-          if (error) {
-            const errorInfo = manejarErrorSupabase(error, 'sincronizar expediente')
-            if (errorInfo) {
-              console.error(errorInfo.mensaje)
-            } else {
-              console.error('Error en sincronización:', error)
-            }
-          }
+            .upsert({ ...datosParaSupabase, id: idExpediente }, { onConflict: 'id' });
+          if (error) throw error;
         } else {
-          // INSERT sin id - Supabase generará el UUID automáticamente
+          // INSERT: Si no tiene id, Supabase generará el UUID automáticamente
           const { error } = await supabase
             .from('expedientes')
-            .insert([datosParaSupabase])
-          if (error) {
-            const errorInfo = manejarErrorSupabase(error, 'insertar expediente')
-            if (errorInfo) {
-              console.error(errorInfo.mensaje)
-            } else {
-              console.error('Error en inserción:', error)
-            }
-          }
+            .insert([datosParaSupabase]);
+          if (error) throw error;
         }
       }
 
-      storage.set('expedientes', dataToSave)
-      setExpedientes(dataToSave)
+      // Sincronización con estado local tras éxito en Supabase
+      setExpedientes(dataToSave);
+      storage.set('expedientes', dataToSave);
+
     } catch (error) {
-      console.error('Error guardando datos:', error);
+      console.error('Error crítico en saveExpedientes:', error);
+      const errorInfo = manejarErrorSupabase(error, 'sincronizar expediente');
+      alert(errorInfo ? errorInfo.mensaje : 'Error al guardar el expediente');
     }
-  }; // CIERRE CORRECTO DE SAVEEXPEDIENTES
+  };
 
   const handleExpedienteSubmit = async (e) => {
     e.preventDefault();
