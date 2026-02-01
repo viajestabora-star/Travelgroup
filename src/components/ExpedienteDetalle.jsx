@@ -789,14 +789,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // Función helper para limpiar números: elimina '€' y 'pax'
       const limpiarNumero = (valor) => parseFloat(String(valor || 0).replace(/[^0-9.-]+/g, '')) || 0;
       
+      // Función helper para validar UUID: verifica si es un UUID válido
+      const validarUUID = (valor) => {
+        if (!valor || valor === null || valor === undefined) return null;
+        const str = String(valor).trim();
+        // UUID válido: formato xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (36 caracteres con guiones)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(str)) return str;
+        // Si es un número, string corto, '1', etc., retornar null
+        return null;
+      };
+      
       // Preparar servicios para guardar con nombres exactos de la DB
       // Mapear TODOS los campos de la interfaz a las columnas de la base de datos
       const serviciosParaGuardar = servicios.map(s => {
+        // Validar proveedor_id: si no es UUID válido, cambiar a null
+        const proveedorIdValidado = validarUUID(s.proveedorId);
+        
         const servicio = {
           // Identificadores
           id: s.id || generarUUID(),
           id_expediente: expedienteIdParaInsert,
-          proveedor_id: s.proveedorId || null,
+          proveedor_id: proveedorIdValidado, // Validado: solo UUID válido o null
           
           // Información del servicio (nombres exactos de la DB)
           tipo_servicio: String(s.tipo || '').trim(),
