@@ -754,8 +754,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         dias_guia: parseInt(String(numDias).replace(/[^0-9]+/g, '')) || 1, // UI 'Días (Guía)' → BD dias_guia (entero)
       };
       
-      // DEBUG REAL: Mostrar en pantalla qué se está intentando enviar
-      alert('🔍 DATOS A ACTUALIZAR EN EXPEDIENTES:\n\n' + JSON.stringify(datosAActualizar, null, 2));
+      // DEBUG: Log en consola para debugging
       console.log('📤 Guardando en expedientes:', datosAActualizar);
       
       const { error: errorExpediente } = await supabase
@@ -765,11 +764,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       if (errorExpediente) {
         console.error('❌ Error guardando parámetros de cotización en expedientes:', errorExpediente)
-        alert(`⚠️ ERROR guardando en expedientes:\n\nCódigo: ${errorExpediente.code || 'UNKNOWN'}\nMensaje: ${errorExpediente.message || JSON.stringify(errorExpediente)}\n\nDatos enviados:\n${JSON.stringify(datosAActualizar, null, 2)}`)
+        console.error('📤 Datos enviados:', datosAActualizar)
+        alert(`⚠️ ERROR guardando en expedientes:\n\nCódigo: ${errorExpediente.code || 'UNKNOWN'}\nMensaje: ${errorExpediente.message || JSON.stringify(errorExpediente)}`)
         return
       }
       
       console.log('✅ Parámetros de expediente guardados correctamente')
+      // Mensaje de confirmación en pantalla cuando el guardado es exitoso
+      alert('✅ Parámetros de cotización guardados correctamente')
 
       // 2) Sincronizar servicios en la tabla servicios_cotizacion
       // CORRECCIÓN OBLIGATORIA: Verificar expediente_id y manejo de errores mejorado
@@ -792,7 +794,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         const errorCode = errorCheck.code || 'UNKNOWN'
         const errorDetails = errorCheck.details || errorCheck.hint || ''
         
-        alert(`⚠️ Error verificando servicios anteriores:\n\nCódigo: ${errorCode}\nMensaje: ${errorMessage}${errorDetails ? `\nDetalles: ${errorDetails}` : ''}\n\nEsto puede ser un problema de permisos (RLS) o de tipo de dato.`)
         console.error('❌ Detalles completos del error:', {
           code: errorCode,
           message: errorMessage,
@@ -810,18 +811,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         const expedienteIdParaDelete = String(expedienteId).trim() // UUID (string)
         
         const { error: errorDelete, count } = await supabase
-          .from('servicios_cotizacion')
-          .delete()
+        .from('servicios_cotizacion')
+        .delete()
           .eq('id_expediente', expedienteIdParaDelete) // ARQUITECTURA UUID: usar id_expediente
-        
-        if (errorDelete) {
+
+      if (errorDelete) {
           // CORRECCIÓN OBLIGATORIA: Manejo de Errores - Mostrar error técnico exacto
-          console.error('❌ Error borrando servicios_cotizacion anteriores:', errorDelete)
+        console.error('❌ Error borrando servicios_cotizacion anteriores:', errorDelete)
           const errorMessage = errorDelete.message || JSON.stringify(errorDelete)
           const errorCode = errorDelete.code || 'UNKNOWN'
           const errorDetails = errorDelete.details || errorDelete.hint || ''
           
-          alert(`⚠️ Error limpiando servicios anteriores:\n\nCódigo: ${errorCode}\nMensaje: ${errorMessage}${errorDetails ? `\nDetalles: ${errorDetails}` : ''}\n\nEsto puede ser un problema de permisos (RLS) o de claves foráneas.`)
           console.error('❌ Detalles completos del error de DELETE:', {
             code: errorCode,
             message: errorMessage,
@@ -830,9 +830,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             tipoExpedienteId: typeof expedienteIdParaDelete,
             fullError: errorDelete
           })
-          return
-        }
-        
+        return
+      }
+
         console.log(`✅ Servicios anteriores eliminados correctamente (${count || 'N/A'} fila(s))`)
       } else {
         console.log('ℹ️ No hay servicios anteriores que eliminar, continuando con la inserción')
@@ -937,7 +937,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           const errorCode = errorUpsert.code || 'UNKNOWN'
           const errorDetails = errorUpsert.details || errorUpsert.hint || ''
           
-          alert(`⚠️ Error guardando servicios:\n\nCódigo: ${errorCode}\nMensaje: ${errorMessage}${errorDetails ? `\nDetalles: ${errorDetails}` : ''}`)
           console.error('❌ Detalles completos del error de UPSERT:', {
             code: errorCode,
             message: errorMessage,
@@ -958,8 +957,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         ...expediente,
         total_pax: totalPax,
         pax_pago: paxPago,
-      }
-      onUpdate(expedienteActualizado)
+    }
+    onUpdate(expedienteActualizado)
 
       // 4) Refresco de Estado: Recargar datos desde Supabase para actualizar la pantalla
       console.log('🔄 Recargando servicios desde Supabase después del guardado...')
@@ -1046,10 +1045,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         })
       }
 
-      alert('✅ Cotización guardada correctamente')
+      console.log('✅ Cotización guardada correctamente')
     } catch (error) {
       console.error('Error inesperado guardando cotización:', error)
-      alert('⚠️ Error inesperado al guardar la cotización. Revisa la consola.')
     }
   }
 
@@ -1069,7 +1067,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       documentos,
     }
     onUpdate(expedienteActualizado)
-    alert('✅ Rooming list guardado correctamente')
+    console.log('✅ Rooming list guardado correctamente')
   }
 
   // ============ EDITAR CLIENTE ============
@@ -1107,7 +1105,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
     onUpdate(expedienteActualizado)
     setEditandoCliente(false)
-    alert('✅ Cliente actualizado correctamente')
+    console.log('✅ Cliente actualizado correctamente')
   }
 
   const cancelarEdicionCliente = () => {
