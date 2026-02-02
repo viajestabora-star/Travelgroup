@@ -241,7 +241,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           const mapeados = data.map(row => ({
             // Usamos el UUID de la fila como ID único del servicio
             id: row.id || generarUUID(),
-            proveedorId: row.proveedor_id || null,
+            proveedorId: row.proveedor_id || null, // UUID del proveedor si existe
+            proveedorNombreTemporal: row.proveedor_nombre_temporal || '', // Nombre temporal si el usuario escribió pero no seleccionó
             tipo: row.tipo_servicio || row.tipo || 'Hotel',
             nombreEspecifico: row.nombre_especifico || '',
             localizacion: row.localizacion || '',
@@ -254,6 +255,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           }))
 
           setServicios(mapeados)
+          
+          // Restaurar búsqueda de proveedor si hay nombre temporal
+          const busquedaRestaurada = {}
+          mapeados.forEach(servicio => {
+            if (servicio.proveedorNombreTemporal) {
+              busquedaRestaurada[servicio.id] = servicio.proveedorNombreTemporal
+            } else if (servicio.proveedorId) {
+              // Si hay proveedor_id, buscar su nombre
+              const proveedor = proveedores.find(p => p.id === servicio.proveedorId)
+              if (proveedor) {
+                busquedaRestaurada[servicio.id] = proveedor.nombreComercial
+              }
+            }
+          })
+          setBusquedaProveedor(busquedaRestaurada)
+          
           serviciosInicializados.current = true
           return
         }
@@ -266,6 +283,53 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
 
     cargarServiciosDesdeSupabase()
+  }, [expediente?.id])
+
+  // ============ CARGA DE PARÁMETROS DEL EXPEDIENTE ============
+  // Cargar todos los parámetros (total_pax, gratuidades, precio_venta_manual, bonificacion_pax, dias_guia)
+  // para rellenar todos los inputs de la UI al abrir el componente
+  useEffect(() => {
+    const cargarParametrosExpediente = async () => {
+      try {
+        const expedienteId = expediente?.id
+        if (!expedienteId) return
+
+        const { data, error } = await supabase
+          .from('expedientes')
+          .select('total_pax, pax_pago, gratuidades, precio_venta_manual, bonificacion_pax, dias_guia')
+          .eq('id', expedienteId)
+          .single()
+
+        if (error) {
+          console.warn('⚠️ Error cargando parámetros del expediente:', error)
+          return
+        }
+
+        if (data) {
+          // Rellenar todos los inputs de la UI con valores de la BD
+          if (data.total_pax !== undefined && data.total_pax !== null) {
+            setNumTotalPasajeros(String(data.total_pax))
+          }
+          if (data.gratuidades !== undefined && data.gratuidades !== null) {
+            setNumGratuidades(String(data.gratuidades))
+          }
+          if (data.precio_venta_manual !== undefined && data.precio_venta_manual !== null) {
+            setPrecioVentaManual(String(data.precio_venta_manual))
+          }
+          if (data.bonificacion_pax !== undefined && data.bonificacion_pax !== null) {
+            setBonificacionPorPersona(String(data.bonificacion_pax))
+          }
+          if (data.dias_guia !== undefined && data.dias_guia !== null) {
+            setNumDias(parseInt(data.dias_guia) || 1)
+          }
+          console.log('✅ Parámetros del expediente cargados:', data)
+        }
+      } catch (err) {
+        console.error('Error inesperado cargando parámetros del expediente:', err)
+      }
+    }
+
+    cargarParametrosExpediente()
   }, [expediente?.id])
 
   // ============ INICIALIZACIÓN AUTOMÁTICA DE SERVICIOS SI NO HAY NADA EN BD ============
@@ -677,15 +741,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         return
       }
 
+      // Función helper para limpiar números: elimina '€' y 'pax'
+      const limpiarNumero = (valor) => parseFloat(String(valor || 0).replace(/[^0-9.-]+/g, '')) || 0;
+
       // 1) Guardar parámetros principales en la tabla expedientes (modelo plano)
-      // Aplicar soloNumeros a campos que pueden tener '€' o 'pax' en la UI
+      // Aplicar limpiarNumero a campos que pueden tener '€' o 'pax' en la UI
       // MAPEO: UI 'Gratuidades' (numGratuidades) → BD gratuidades
+      // MAPEO: UI 'Precio Venta al Cliente' (precioVentaManual) → BD precio_venta_manual
+      // MAPEO: UI 'Bonificación/Pax' (bonificacionPorPersona) → BD bonificacion_pax
+      // MAPEO: UI 'Días (Guía)' (numDias) → BD dias_guia
       const { error: errorExpediente } = await supabase
         .from('expedientes')
         .update({
-          total_pax: soloNumeros(totalPax), // Numeric: Extraer solo números (puede venir con 'pax' de la UI)
-          pax_pago: soloNumeros(paxPago), // Numeric: Extraer solo números (puede venir con 'pax' de la UI)
-          gratuidades: soloNumeros(numGratuidades), // Numeric: UI 'Gratuidades' → BD gratuidades
+          total_pax: limpiarNumero(totalPax), // Numeric: Extraer solo números (puede venir con 'pax' de la UI)
+          pax_pago: limpiarNumero(paxPago), // Numeric: Extraer solo números (puede venir con 'pax' de la UI)
+          gratuidades: limpiarNumero(numGratuidades), // Numeric: UI 'Gratuidades' → BD gratuidades
+          precio_venta_manual: limpiarNumero(precioVentaManual), // Numeric: UI 'Precio Venta al Cliente' → BD precio_venta_manual
+          bonificacion_pax: limpiarNumero(bonificacionPorPersona), // Numeric: UI 'Bonificación/Pax' → BD bonificacion_pax
+          dias_guia: parseInt(numDias) || 1, // Numeric: UI 'Días (Guía)' → BD dias_guia
         })
         .eq('id', expedienteId)
 
@@ -787,9 +860,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         }
       }
       
-      // Función helper para limpiar números: elimina '€' y 'pax'
-      const limpiarNumero = (valor) => parseFloat(String(valor || 0).replace(/[^0-9.-]+/g, '')) || 0;
-      
       // Función helper para validar UUID: verifica si es un UUID válido
       // REGLA ESTRICTA: Si el usuario seleccionó un proveedor (UUID válido), mantenerlo
       const validarUUID = (valor) => {
@@ -805,14 +875,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // Preparar servicios para guardar con nombres exactos de la DB
       // Mapear TODOS los campos de la interfaz a las columnas de la base de datos
       const serviciosParaGuardar = servicios.map(s => {
-        // Validar proveedor_id: si no es UUID válido, cambiar a null
+        // Validar proveedor_id: mantener UUID real si el usuario lo seleccionó
         const proveedorIdValidado = validarUUID(s.proveedorId);
+        
+        // Si el usuario escribió un nombre pero no seleccionó proveedor, guardar en proveedor_nombre_temporal
+        const nombreProveedorTemporal = busquedaProveedor[s.id] && !proveedorIdValidado 
+          ? String(busquedaProveedor[s.id]).trim() 
+          : null;
         
         const servicio = {
           // Identificadores
           id: s.id || generarUUID(),
           id_expediente: expedienteIdParaInsert,
-          proveedor_id: proveedorIdValidado, // Validado: solo UUID válido o null
+          proveedor_id: proveedorIdValidado, // UUID real si existe, null si no
+          proveedor_nombre_temporal: nombreProveedorTemporal, // Nombre si escribió pero no seleccionó
           
           // Información del servicio (nombres exactos de la DB)
           tipo_servicio: String(s.tipo || '').trim(),
@@ -825,13 +901,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           margen_pax: limpiarNumero(s.margen),
           
           // Campos numéricos de pax (limpiar 'pax' con limpiarNumero)
+          // MAPEO: UI 'Gratuidades' → BD pax_gratis
           pax_total: limpiarNumero(numTotalPasajeros),
           pax_pago: limpiarNumero(parseInt(numTotalPasajeros) - parseInt(numGratuidades)),
-          pax_gratis: limpiarNumero(numGratuidades),
+          pax_gratis: limpiarNumero(numGratuidades), // UI 'Gratuidades' → BD pax_gratis
           
           // Otros campos numéricos
           noches: parseInt(s.noches) || 0,
-          dias_guia: parseInt(numDias) || 1,
+          dias_guia: parseInt(numDias) || 1, // UI 'Días (Guía)' → BD dias_guia
+          bonificacion_pax: limpiarNumero(bonificacionPorPersona), // UI 'Bonificación/Pax' → BD bonificacion_pax
           
           // Campos de texto y configuración (nombres exactos de la DB)
           tipo_calculo: String(s.tipoCalculo || 'porPersona').trim(),
@@ -897,6 +975,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           const serviciosMapeados = serviciosRecargados.map(row => ({
             id: row.id || generarUUID(),
             proveedorId: row.proveedor_id || null, // Mantener UUID si existe
+            proveedorNombreTemporal: row.proveedor_nombre_temporal || '', // Nombre temporal si existe
             tipo: row.tipo_servicio || row.tipo || 'Hotel',
             nombreEspecifico: row.nombre_especifico || '',
             localizacion: row.localizacion || '',
@@ -908,31 +987,59 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             tipoCalculo: row.tipo_calculo || 'porPersona',
           }))
           setServicios(serviciosMapeados)
+          
+          // Restaurar búsqueda de proveedor con nombres temporales o nombres de proveedores
+          const busquedaRestaurada = {}
+          serviciosMapeados.forEach(servicio => {
+            if (servicio.proveedorNombreTemporal) {
+              busquedaRestaurada[servicio.id] = servicio.proveedorNombreTemporal
+            } else if (servicio.proveedorId) {
+              const proveedor = proveedores.find(p => p.id === servicio.proveedorId)
+              if (proveedor) {
+                busquedaRestaurada[servicio.id] = proveedor.nombreComercial
+              }
+            }
+          })
+          setBusquedaProveedor(busquedaRestaurada)
+          
           console.log('✅ Servicios recargados desde Supabase:', serviciosMapeados.length)
         } else {
           console.log('ℹ️ No hay servicios en la BD después del guardado')
         }
       }
       
-      // Recargar parámetros del expediente (pax_total, pax_gratis) desde la tabla expedientes
+      // Recargar parámetros del expediente desde la tabla expedientes
+      // Cargar TODOS los campos para rellenar todos los inputs de la UI
       const { data: expedienteRecargado, error: errorExpedienteRefetch } = await supabase
         .from('expedientes')
-        .select('total_pax, pax_pago, gratuidades')
+        .select('total_pax, pax_pago, gratuidades, precio_venta_manual, bonificacion_pax, dias_guia')
         .eq('id', expedienteId)
         .single()
 
       if (!errorExpedienteRefetch && expedienteRecargado) {
-        // Actualizar estados con valores de la BD (pax_gratis viene de gratuidades)
-        if (expedienteRecargado.total_pax) {
+        // Actualizar estados con valores de la BD para rellenar todos los inputs
+        if (expedienteRecargado.total_pax !== undefined && expedienteRecargado.total_pax !== null) {
           setNumTotalPasajeros(String(expedienteRecargado.total_pax))
         }
         if (expedienteRecargado.gratuidades !== undefined && expedienteRecargado.gratuidades !== null) {
           setNumGratuidades(String(expedienteRecargado.gratuidades))
         }
+        if (expedienteRecargado.precio_venta_manual !== undefined && expedienteRecargado.precio_venta_manual !== null) {
+          setPrecioVentaManual(String(expedienteRecargado.precio_venta_manual))
+        }
+        if (expedienteRecargado.bonificacion_pax !== undefined && expedienteRecargado.bonificacion_pax !== null) {
+          setBonificacionPorPersona(String(expedienteRecargado.bonificacion_pax))
+        }
+        if (expedienteRecargado.dias_guia !== undefined && expedienteRecargado.dias_guia !== null) {
+          setNumDias(parseInt(expedienteRecargado.dias_guia) || 1)
+        }
         console.log('✅ Parámetros del expediente recargados:', {
           total_pax: expedienteRecargado.total_pax,
           pax_pago: expedienteRecargado.pax_pago,
-          gratuidades: expedienteRecargado.gratuidades
+          gratuidades: expedienteRecargado.gratuidades,
+          precio_venta_manual: expedienteRecargado.precio_venta_manual,
+          bonificacion_pax: expedienteRecargado.bonificacion_pax,
+          dias_guia: expedienteRecargado.dias_guia
         })
       }
 
