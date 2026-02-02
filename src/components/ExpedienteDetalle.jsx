@@ -679,12 +679,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       // 1) Guardar parámetros principales en la tabla expedientes (modelo plano)
       // Aplicar soloNumeros a campos que pueden tener '€' o 'pax' en la UI
+      // MAPEO: UI 'Gratuidades' (numGratuidades) → BD gratuidades
       const { error: errorExpediente } = await supabase
         .from('expedientes')
         .update({
           total_pax: soloNumeros(totalPax), // Numeric: Extraer solo números (puede venir con 'pax' de la UI)
           pax_pago: soloNumeros(paxPago), // Numeric: Extraer solo números (puede venir con 'pax' de la UI)
-          // Se podrían añadir más columnas específicas si existen (ej: dias, bonificacion, precio_venta_pax)
+          gratuidades: soloNumeros(numGratuidades), // Numeric: UI 'Gratuidades' → BD gratuidades
         })
         .eq('id', expedienteId)
 
@@ -790,12 +791,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       const limpiarNumero = (valor) => parseFloat(String(valor || 0).replace(/[^0-9.-]+/g, '')) || 0;
       
       // Función helper para validar UUID: verifica si es un UUID válido
+      // REGLA ESTRICTA: Si el usuario seleccionó un proveedor (UUID válido), mantenerlo
       const validarUUID = (valor) => {
         if (!valor || valor === null || valor === undefined) return null;
         const str = String(valor).trim();
         // UUID válido: formato xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (36 caracteres con guiones)
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (uuidRegex.test(str)) return str;
+        if (uuidRegex.test(str)) return str; // Mantener UUID válido si el usuario lo seleccionó
         // Si es un número, string corto, '1', etc., retornar null
         return null;
       };
@@ -875,10 +877,66 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         ...expediente,
         total_pax: totalPax,
         pax_pago: paxPago,
-    }
-    onUpdate(expedienteActualizado)
+      }
+      onUpdate(expedienteActualizado)
 
-    alert('✅ Cotización guardada correctamente')
+      // 4) Refresco de Estado: Recargar datos desde Supabase para actualizar la pantalla
+      console.log('🔄 Recargando servicios desde Supabase después del guardado...')
+      
+      // Recargar servicios_cotizacion
+      const { data: serviciosRecargados, error: errorRefetch } = await supabase
+        .from('servicios_cotizacion')
+        .select('*')
+        .eq('id_expediente', expedienteIdParaInsert)
+        .order('id', { ascending: true })
+
+      if (errorRefetch) {
+        console.error('⚠️ Error recargando servicios después del guardado:', errorRefetch)
+      } else if (Array.isArray(serviciosRecargados)) {
+        if (serviciosRecargados.length > 0) {
+          const serviciosMapeados = serviciosRecargados.map(row => ({
+            id: row.id || generarUUID(),
+            proveedorId: row.proveedor_id || null, // Mantener UUID si existe
+            tipo: row.tipo_servicio || row.tipo || 'Hotel',
+            nombreEspecifico: row.nombre_especifico || '',
+            localizacion: row.localizacion || '',
+            costeUnitario: row.coste_unitario || 0,
+            precioVenta: row.precio_venta || 0, // Mapear desde precio_venta de la DB
+            margen: row.margen_pax || 0,
+            noches: row.noches || 0,
+            fechaRelease: row.fecha_release || '',
+            tipoCalculo: row.tipo_calculo || 'porPersona',
+          }))
+          setServicios(serviciosMapeados)
+          console.log('✅ Servicios recargados desde Supabase:', serviciosMapeados.length)
+        } else {
+          console.log('ℹ️ No hay servicios en la BD después del guardado')
+        }
+      }
+      
+      // Recargar parámetros del expediente (pax_total, pax_gratis) desde la tabla expedientes
+      const { data: expedienteRecargado, error: errorExpedienteRefetch } = await supabase
+        .from('expedientes')
+        .select('total_pax, pax_pago, gratuidades')
+        .eq('id', expedienteId)
+        .single()
+
+      if (!errorExpedienteRefetch && expedienteRecargado) {
+        // Actualizar estados con valores de la BD (pax_gratis viene de gratuidades)
+        if (expedienteRecargado.total_pax) {
+          setNumTotalPasajeros(String(expedienteRecargado.total_pax))
+        }
+        if (expedienteRecargado.gratuidades !== undefined && expedienteRecargado.gratuidades !== null) {
+          setNumGratuidades(String(expedienteRecargado.gratuidades))
+        }
+        console.log('✅ Parámetros del expediente recargados:', {
+          total_pax: expedienteRecargado.total_pax,
+          pax_pago: expedienteRecargado.pax_pago,
+          gratuidades: expedienteRecargado.gratuidades
+        })
+      }
+
+      alert('✅ Cotización guardada correctamente')
     } catch (error) {
       console.error('Error inesperado guardando cotización:', error)
       alert('⚠️ Error inesperado al guardar la cotización. Revisa la consola.')
