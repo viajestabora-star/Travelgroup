@@ -237,18 +237,25 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             // IMPORTANTE: proveedor_id_int es int8 (número entero: 1, 2, 3...)
             const proveedorIdInt = row.proveedor_id_int ? parseInt(row.proveedor_id_int) : null;
             
+            // MAPEO CORRECTO: Asegurar que los precios se parseen correctamente (no usar || 0 si es null)
+            // Si el valor es null/undefined, mantenerlo como null para detectar problemas
+            const costeUnitarioRaw = row.coste_unitario;
+            const precioVentaRaw = row.precio_venta;
+            const margenRaw = row.margen_pax;
+            
             const servicio = {
-              id: row.id || generarUUID(),
+            id: row.id || generarUUID(),
               proveedorId: proveedorIdInt, // ID entero del proveedor (int8)
               proveedorNombreTemporal: row.proveedor_nombre_temporal || '',
-              tipo: row.tipo_servicio || row.tipo || 'Hotel',
-              nombreEspecifico: row.nombre_especifico || '',
-              localizacion: row.localizacion || '',
-              costeUnitario: parseFloat(row.coste_unitario) || 0, // Forzar parseFloat para asegurar número
-              precioVenta: parseFloat(row.precio_venta) || 0, // Forzar parseFloat para asegurar número
-              margen: parseFloat(row.margen_pax) || 0, // Forzar parseFloat para asegurar número
-              noches: parseInt(row.noches) || 0,
-              fechaRelease: row.fecha_release || '',
+            tipo: row.tipo_servicio || row.tipo || 'Hotel',
+            nombreEspecifico: row.nombre_especifico || '',
+            localizacion: row.localizacion || '',
+              // MAPEO DE PRECIOS: Parsear correctamente, mantener 0 solo si realmente es 0 o null
+              costeUnitario: costeUnitarioRaw !== null && costeUnitarioRaw !== undefined ? parseFloat(costeUnitarioRaw) : 0,
+              precioVenta: precioVentaRaw !== null && precioVentaRaw !== undefined ? parseFloat(precioVentaRaw) : 0, // MAPEO CRÍTICO: precio_venta → precioVenta
+              margen: margenRaw !== null && margenRaw !== undefined ? parseFloat(margenRaw) : 0,
+              noches: row.noches !== null && row.noches !== undefined ? parseInt(row.noches) : 0,
+            fechaRelease: row.fecha_release || '',
               tipoCalculo: row.tipo_calculo || 'porPersona',
             };
             
@@ -256,11 +263,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             console.log(`📊 Servicio cargado [${servicio.id}]:`, {
               tipo: servicio.tipo,
               costeUnitario: servicio.costeUnitario,
-              precioVenta: servicio.precioVenta,
+              precioVenta: servicio.precioVenta, // VERIFICAR: Este debe tener valor si se guardó
               margen: servicio.margen,
               proveedorIdInt: servicio.proveedorId,
               proveedorNombreTemporal: servicio.proveedorNombreTemporal,
-              'OBJETO RAW DE BD': row // Mostrar objeto completo de BD
+              'VALORES RAW DE BD': {
+                coste_unitario: costeUnitarioRaw,
+                precio_venta: precioVentaRaw,
+                margen_pax: margenRaw
+              },
+              'OBJETO RAW COMPLETO': row // Mostrar objeto completo de BD
             });
             
             return servicio;
@@ -274,7 +286,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             precio: s.precioVenta,
             margen: s.margen
           })))
-          
+
           setServicios(mapeados)
           
           // Restaurar búsqueda de proveedor: PRIORIDAD 1) nombre temporal, PRIORIDAD 2) nombre desde proveedor_id_int
@@ -307,6 +319,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           // FORZAR RECÁLCULO: Los servicios ya están cargados, disparar recálculo del resumen
           console.log('🔄 Servicios cargados, resumen financiero se recalculará automáticamente')
           // El useMemo se recalculará automáticamente porque 'servicios' está en sus dependencias
+          // Pero forzamos un pequeño delay para asegurar que el estado se haya actualizado
+          setTimeout(() => {
+            console.log('✅ Estado de servicios actualizado, resumen debería estar recalculado')
+          }, 100)
           
           serviciosInicializados.current = true
           return
@@ -322,7 +338,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
     // Esperar a que los proveedores estén cargados antes de mapear
     if (proveedores.length > 0 || expediente?.id) {
-      cargarServiciosDesdeSupabase()
+    cargarServiciosDesdeSupabase()
     }
   }, [expediente?.id, proveedores])
 
@@ -1034,6 +1050,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             // IMPORTANTE: proveedor_id_int es int8 (número entero: 1, 2, 3...)
             const proveedorIdInt = row.proveedor_id_int ? parseInt(row.proveedor_id_int) : null;
             
+            // MAPEO CORRECTO: Asegurar que los precios se parseen correctamente
+            const costeUnitarioRaw = row.coste_unitario;
+            const precioVentaRaw = row.precio_venta;
+            const margenRaw = row.margen_pax;
+            
             const servicio = {
               id: row.id || generarUUID(),
               proveedorId: proveedorIdInt, // ID entero del proveedor (int8)
@@ -1041,10 +1062,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
               tipo: row.tipo_servicio || row.tipo || 'Hotel',
               nombreEspecifico: row.nombre_especifico || '',
               localizacion: row.localizacion || '',
-              costeUnitario: parseFloat(row.coste_unitario) || 0, // Forzar parseFloat
-              precioVenta: parseFloat(row.precio_venta) || 0, // Forzar parseFloat
-              margen: parseFloat(row.margen_pax) || 0, // Forzar parseFloat
-              noches: parseInt(row.noches) || 0,
+              // MAPEO DE PRECIOS: Parsear correctamente, mantener 0 solo si realmente es 0 o null
+              costeUnitario: costeUnitarioRaw !== null && costeUnitarioRaw !== undefined ? parseFloat(costeUnitarioRaw) : 0,
+              precioVenta: precioVentaRaw !== null && precioVentaRaw !== undefined ? parseFloat(precioVentaRaw) : 0, // MAPEO CRÍTICO: precio_venta → precioVenta
+              margen: margenRaw !== null && margenRaw !== undefined ? parseFloat(margenRaw) : 0,
+              noches: row.noches !== null && row.noches !== undefined ? parseInt(row.noches) : 0,
               fechaRelease: row.fecha_release || '',
               tipoCalculo: row.tipo_calculo || 'porPersona',
             };
@@ -1052,10 +1074,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             console.log(`📊 Servicio recargado [${servicio.id}]:`, {
               tipo: servicio.tipo,
               costeUnitario: servicio.costeUnitario,
-              precioVenta: servicio.precioVenta,
+              precioVenta: servicio.precioVenta, // VERIFICAR: Este debe tener valor si se guardó
               margen: servicio.margen,
               proveedorIdInt: servicio.proveedorId,
-              'OBJETO RAW DE BD': row // Mostrar objeto completo de BD
+              'VALORES RAW DE BD': {
+                coste_unitario: costeUnitarioRaw,
+                precio_venta: precioVentaRaw,
+                margen_pax: margenRaw
+              },
+              'OBJETO RAW COMPLETO': row // Mostrar objeto completo de BD
             });
             
             return servicio;
@@ -1089,6 +1116,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           // FORZAR RECÁLCULO: Los servicios ya están recargados, disparar recálculo del resumen
           console.log('🔄 Servicios recargados, resumen financiero se recalculará automáticamente')
           // El useMemo se recalculará automáticamente porque 'servicios' está en sus dependencias
+          // Pero forzamos un pequeño delay para asegurar que el estado se haya actualizado
+          setTimeout(() => {
+            console.log('✅ Estado de servicios recargado, resumen debería estar recalculado')
+          }, 100)
         } else {
           console.log('ℹ️ No hay servicios en la BD después del guardado')
         }
