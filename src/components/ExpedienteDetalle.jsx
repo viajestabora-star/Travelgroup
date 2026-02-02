@@ -741,36 +741,35 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         return
       }
 
-      // Función helper para limpiar números: elimina '€' y 'pax'
-      const limpiarNumero = (valor) => parseFloat(String(valor || 0).replace(/[^0-9.-]+/g, '')) || 0;
-
-      // 1) Guardar parámetros principales en la tabla expedientes (modelo plano)
-      // Aplicar limpiarNumero a campos que pueden tener '€' o 'pax' en la UI
-      // MAPEO: UI 'Gratuidades' (numGratuidades) → BD gratuidades
-      // MAPEO: UI 'Precio Venta al Cliente' (precioVentaManual) → BD precio_venta_cliente
-      // MAPEO: UI 'Bonificación/Pax' (bonificacionPorPersona) → BD bonificacion_pax
-      // MAPEO: UI 'Días (Guía)' (numDias) → BD dias_guia
-      const datosExpediente = {
-        total_pax: limpiarNumero(totalPax), // Numeric: Extraer solo números (sin 'pax')
-        pax_pago: limpiarNumero(paxPago), // Numeric: Extraer solo números (sin 'pax')
-        gratuidades: limpiarNumero(numGratuidades), // Numeric: UI 'Gratuidades' → BD gratuidades (sin '€')
-        precio_venta_cliente: limpiarNumero(precioVentaManual), // Numeric: UI 'Precio Venta al Cliente' → BD precio_venta_cliente (sin '€')
-        bonificacion_pax: limpiarNumero(bonificacionPorPersona), // Numeric: UI 'Bonificación/Pax' → BD bonificacion_pax (sin '€')
-        dias_guia: parseInt(numDias) || 1, // Numeric: UI 'Días (Guía)' → BD dias_guia
+      // ============ REESCRITURA TOTAL: GUARDADO EN EXPEDIENTES ============
+      // LIMPIEZA EXTREMA: Usar soloNumeros() para garantizar números puros
+      // No enviar NADA que no sea un número puro a Supabase
+      
+      const datosAActualizar = {
+        precio_venta_cliente: soloNumeros(precioVentaManual), // UI 'Precio Venta al Cliente' → BD precio_venta_cliente (sin '€')
+        total_pax: soloNumeros(totalPax), // UI 'Total Pasajeros' → BD total_pax (sin 'pax')
+        gratuidades: soloNumeros(numGratuidades), // UI 'Gratuidades' → BD gratuidades (sin '€')
+        pax_pago: soloNumeros(paxPago), // Calculado: total_pax - gratuidades (sin 'pax')
+        bonificacion_pax: soloNumeros(bonificacionPorPersona), // UI 'Bonificación/Pax' → BD bonificacion_pax (sin '€')
+        dias_guia: parseInt(String(numDias).replace(/[^0-9]+/g, '')) || 1, // UI 'Días (Guía)' → BD dias_guia (entero)
       };
       
-      console.log('📤 Guardando en expedientes:', datosExpediente);
+      // DEBUG REAL: Mostrar en pantalla qué se está intentando enviar
+      alert('🔍 DATOS A ACTUALIZAR EN EXPEDIENTES:\n\n' + JSON.stringify(datosAActualizar, null, 2));
+      console.log('📤 Guardando en expedientes:', datosAActualizar);
       
       const { error: errorExpediente } = await supabase
         .from('expedientes')
-        .update(datosExpediente)
+        .update(datosAActualizar)
         .eq('id', expedienteId)
 
       if (errorExpediente) {
         console.error('❌ Error guardando parámetros de cotización en expedientes:', errorExpediente)
-        alert('⚠️ Error guardando parámetros de cotización en la tabla expedientes.')
+        alert(`⚠️ ERROR guardando en expedientes:\n\nCódigo: ${errorExpediente.code || 'UNKNOWN'}\nMensaje: ${errorExpediente.message || JSON.stringify(errorExpediente)}\n\nDatos enviados:\n${JSON.stringify(datosAActualizar, null, 2)}`)
         return
       }
+      
+      console.log('✅ Parámetros de expediente guardados correctamente')
 
       // 2) Sincronizar servicios en la tabla servicios_cotizacion
       // CORRECCIÓN OBLIGATORIA: Verificar expediente_id y manejo de errores mejorado
@@ -878,20 +877,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       
       // Preparar servicios para guardar con nombres exactos de la DB
       // Mapear TODOS los campos de la interfaz a las columnas de la base de datos
+      // LIMPIEZA EXTREMA: Usar soloNumeros() para garantizar números puros
       const serviciosParaGuardar = servicios.map(s => {
         // Validar proveedor_id: mantener UUID real si el usuario lo seleccionó
         const proveedorIdValidado = validarUUID(s.proveedorId);
         
         // Si el usuario escribió un nombre pero no seleccionó proveedor, guardar en proveedor_nombre_temporal
-        const nombreProveedorTemporal = busquedaProveedor[s.id] && !proveedorIdValidado 
-          ? String(busquedaProveedor[s.id]).trim() 
-          : null;
+        const textoBusqueda = busquedaProveedor[s.id] ? String(busquedaProveedor[s.id]).trim() : '';
+        const nombreProveedorTemporal = textoBusqueda && !proveedorIdValidado ? textoBusqueda : null;
         
         const servicio = {
           // Identificadores
           id: s.id || generarUUID(),
           id_expediente: expedienteIdParaInsert,
-          proveedor_id: proveedorIdValidado, // UUID real si existe, null si no
+          proveedor_id: proveedorIdValidado, // UUID real si el usuario lo seleccionó, null si no
           proveedor_nombre_temporal: nombreProveedorTemporal, // Nombre si escribió pero no seleccionó
           
           // Información del servicio (nombres exactos de la DB)
@@ -899,21 +898,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           nombre_especifico: String(s.nombreEspecifico || '').trim(),
           localizacion: String(s.localizacion || '').trim(),
           
-          // Campos numéricos financieros (limpiar '€' con limpiarNumero)
-          coste_unitario: limpiarNumero(s.costeUnitario),
-          precio_venta: limpiarNumero(s.precioVenta),
-          margen_pax: limpiarNumero(s.margen),
+          // Campos numéricos financieros (limpiar '€' con soloNumeros - función global)
+          coste_unitario: soloNumeros(s.costeUnitario),
+          precio_venta: soloNumeros(s.precioVenta),
+          margen_pax: soloNumeros(s.margen),
           
-          // Campos numéricos de pax (limpiar 'pax' con limpiarNumero)
-          // MAPEO: UI 'Gratuidades' → BD pax_gratis
-          pax_total: limpiarNumero(numTotalPasajeros),
-          pax_pago: limpiarNumero(parseInt(numTotalPasajeros) - parseInt(numGratuidades)),
-          pax_gratis: limpiarNumero(numGratuidades), // UI 'Gratuidades' → BD pax_gratis
+          // Campos numéricos de pax (limpiar 'pax' con soloNumeros - función global)
+          // MAPEO: UI 'Gratuidades' (numGratuidades) → BD pax_gratis
+          pax_total: soloNumeros(numTotalPasajeros),
+          pax_pago: soloNumeros(parseInt(numTotalPasajeros) - parseInt(numGratuidades)),
+          pax_gratis: soloNumeros(numGratuidades), // UI 'Gratuidades' → BD pax_gratis
           
           // Otros campos numéricos
-          noches: parseInt(s.noches) || 0,
-          dias_guia: parseInt(numDias) || 1, // UI 'Días (Guía)' → BD dias_guia
-          bonificacion_pax: limpiarNumero(bonificacionPorPersona), // UI 'Bonificación/Pax' → BD bonificacion_pax
+          noches: parseInt(String(s.noches).replace(/[^0-9]+/g, '')) || 0,
+          dias_guia: parseInt(String(numDias).replace(/[^0-9]+/g, '')) || 1, // UI 'Días (Guía)' → BD dias_guia
+          bonificacion_pax: soloNumeros(bonificacionPorPersona), // UI 'Bonificación/Pax' → BD bonificacion_pax
           
           // Campos de texto y configuración (nombres exactos de la DB)
           tipo_calculo: String(s.tipoCalculo || 'porPersona').trim(),
