@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Users, Calculator, Calendar, TrendingUp, Briefcase, FileText, AlertTriangle, Clock } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import { createClient } from '@supabase/supabase-js'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
@@ -12,6 +13,7 @@ const supabase = createClient(
 )
 
 const Dashboard = () => {
+  const navigate = useNavigate()
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [stats, setStats] = useState({
     totalClientes: 0,
@@ -22,6 +24,7 @@ const Dashboard = () => {
   const [alertasRelease, setAlertasRelease] = useState([])
   const [proximosViajes, setProximosViajes] = useState([])
   const [proximasVisitas, setProximasVisitas] = useState([])
+  const [proximosReleases, setProximosReleases] = useState([])
 
   // Sincronizar con cambios globales del ejercicio
   useEffect(() => {
@@ -172,6 +175,93 @@ const Dashboard = () => {
     }
   }
 
+  // ============ CARGAR PRÓXIMOS RELEASES ============
+  // Consulta servicios_cotizacion con fecha_release >= hoy
+  const cargarProximosReleases = async () => {
+    try {
+      const hoy = new Date().toISOString().split('T')[0] // YYYY-MM-DD
+      
+      // Cargar servicios con fecha_release >= hoy
+      const { data: serviciosData, error: serviciosError } = await supabase
+        .from('servicios_cotizacion')
+        .select('id, fecha_release, tipo_servicio, nombre_especifico, id_expediente')
+        .gte('fecha_release', hoy)
+        .not('fecha_release', 'is', null)
+        .order('fecha_release', { ascending: true })
+        .limit(50)
+      
+      if (serviciosError) {
+        console.error('Error cargando servicios con release:', serviciosError)
+        return []
+      }
+      
+      if (!serviciosData || serviciosData.length === 0) {
+        return []
+      }
+      
+      // Obtener IDs únicos de expedientes
+      const expedientesIds = [...new Set(serviciosData.map(s => s.id_expediente).filter(Boolean))]
+      
+      if (expedientesIds.length === 0) {
+        return []
+      }
+      
+      // Cargar información de expedientes
+      const { data: expedientesData, error: expedientesError } = await supabase
+        .from('expedientes')
+        .select('id, numero_expediente, cliente_nombre, destino, responsable')
+        .in('id', expedientesIds)
+      
+      if (expedientesError) {
+        console.error('Error cargando expedientes:', expedientesError)
+        return []
+      }
+      
+      // Crear mapa de expedientes por ID
+      const expedientesMap = {}
+      if (expedientesData) {
+        expedientesData.forEach(exp => {
+          expedientesMap[exp.id] = exp
+        })
+      }
+      
+      // Procesar servicios y calcular días restantes
+      const hoyDate = new Date()
+      hoyDate.setHours(0, 0, 0, 0)
+      
+      const releases = serviciosData
+        .map(servicio => {
+          const expediente = expedientesMap[servicio.id_expediente]
+          if (!expediente) return null
+          
+          const fechaRelease = new Date(servicio.fecha_release)
+          fechaRelease.setHours(0, 0, 0, 0)
+          
+          const diasRestantes = Math.ceil((fechaRelease - hoyDate) / (1000 * 60 * 60 * 24))
+          
+          return {
+            id: servicio.id,
+            expedienteId: servicio.id_expediente,
+            numeroExpediente: expediente.numero_expediente || expediente.id.substring(0, 8),
+            clienteNombre: expediente.cliente_nombre || 'Sin cliente',
+            destino: expediente.destino || 'Sin destino',
+            responsable: expediente.responsable || 'Sin responsable',
+            tipoServicio: servicio.tipo_servicio || 'Servicio',
+            nombreEspecifico: servicio.nombre_especifico || '',
+            fechaRelease: servicio.fecha_release,
+            diasRestantes: diasRestantes
+          }
+        })
+        .filter(Boolean) // Eliminar nulls
+        .sort((a, b) => a.diasRestantes - b.diasRestantes) // Ordenar por días restantes
+      
+      return releases
+    } catch (error) {
+      console.error('Error fatal cargando próximos releases:', error)
+      return []
+    }
+  }
+
   useEffect(() => {
     const cargarDatos = async () => {
       // Cargar contador de clientes desde Supabase (sin filtro de año - total acumulado)
@@ -188,6 +278,9 @@ const Dashboard = () => {
       // Cargar próximos viajes y visitas desde Supabase (filtrados por año)
       const viajes = await cargarProximosViajes(ejercicioActual)
       const visitasPend = await cargarProximasVisitas(ejercicioActual)
+      
+      // Cargar próximos releases desde servicios_cotizacion
+      const releases = await cargarProximosReleases()
 
       setStats({
         totalClientes,
@@ -198,8 +291,9 @@ const Dashboard = () => {
 
       setProximosViajes(viajes)
       setProximasVisitas(visitasPend)
+      setProximosReleases(releases)
 
-      // Calcular alertas de release (solo del año seleccionado)
+      // Calcular alertas de release (solo del año seleccionado) - mantener para compatibilidad
       const expedientesDelAño = expedientes.filter(exp => {
         const fechaInicio = exp.fecha_inicio || exp.fechaInicio
         if (!fechaInicio) return false
@@ -360,26 +454,92 @@ const Dashboard = () => {
 
       {/* Quick Access */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Activity */}
+        {/* Panel de Alertas Críticas - Próximos Releases */}
         <div className="card">
           <h2 className="text-xl font-bold text-navy-900 mb-4 flex items-center gap-2">
-            <TrendingUp size={24} />
-            Actividad Reciente
+            <AlertTriangle size={24} className="text-orange-600" />
+            Próximos Releases
           </h2>
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <p className="text-sm text-gray-700">Sistema iniciado correctamente</p>
+          {proximosReleases.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Clock className="text-green-600" size={32} />
+              </div>
+              <p className="text-gray-500 text-sm">No hay releases próximos</p>
+              <p className="text-gray-400 text-xs mt-1">Todos los servicios están al día</p>
             </div>
-            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <p className="text-sm text-gray-700">Datos cargados desde archivos CSV</p>
+          ) : (
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {proximosReleases.map((release) => {
+                // Determinar color según días restantes
+                let colorClass = 'bg-green-50 border-green-300 text-green-900'
+                let iconColor = 'text-green-600'
+                let badgeColor = 'bg-green-100 text-green-800'
+                
+                if (release.diasRestantes < 3) {
+                  colorClass = 'bg-red-50 border-red-300 text-red-900'
+                  iconColor = 'text-red-600'
+                  badgeColor = 'bg-red-100 text-red-800'
+                } else if (release.diasRestantes < 7) {
+                  colorClass = 'bg-orange-50 border-orange-300 text-orange-900'
+                  iconColor = 'text-orange-600'
+                  badgeColor = 'bg-orange-100 text-orange-800'
+                }
+                
+                // Formatear días restantes
+                let diasTexto = ''
+                if (release.diasRestantes === 0) {
+                  diasTexto = '¡HOY!'
+                } else if (release.diasRestantes === 1) {
+                  diasTexto = 'Mañana'
+                } else {
+                  diasTexto = `${release.diasRestantes} días`
+                }
+                
+                // Formatear fecha
+                const fechaFormateada = new Date(release.fechaRelease).toLocaleDateString('es-ES', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric'
+                })
+                
+                return (
+                  <div
+                    key={release.id}
+                    onClick={() => {
+                      // Navegar a expedientes y almacenar el ID para abrir el detalle
+                      navigate('/expedientes', { state: { abrirExpediente: release.expedienteId } })
+                    }}
+                    className={`p-4 rounded-lg border-2 ${colorClass} cursor-pointer hover:shadow-md transition-all`}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-bold text-base">{release.tipoServicio}</h3>
+                          {release.nombreEspecifico && (
+                            <span className="text-xs opacity-75">- {release.nombreEspecifico}</span>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium mb-1">
+                          Expediente: <span className="font-bold">{release.numeroExpediente}</span>
+                        </p>
+                        <p className="text-xs opacity-80">
+                          {release.clienteNombre} {release.destino ? `· ${release.destino}` : ''}
+                        </p>
+                      </div>
+                      <div className={`px-3 py-1 rounded-full text-xs font-bold ${badgeColor} whitespace-nowrap ml-3`}>
+                        {diasTexto}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-current border-opacity-20">
+                      <Clock size={14} className={iconColor} />
+                      <span className="text-xs font-medium">{fechaFormateada}</span>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-              <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-              <p className="text-sm text-gray-700">LocalStorage configurado</p>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Quick Actions */}
