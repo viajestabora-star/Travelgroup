@@ -286,7 +286,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }, [expediente?.id])
 
   // ============ CARGA DE PARÁMETROS DEL EXPEDIENTE ============
-  // Cargar todos los parámetros (total_pax, gratuidades, precio_venta_manual, bonificacion_pax, dias_guia)
+  // Cargar todos los parámetros (total_pax, gratuidades, precio_venta_cliente, bonificacion_pax, dias_guia)
   // para rellenar todos los inputs de la UI al abrir el componente
   useEffect(() => {
     const cargarParametrosExpediente = async () => {
@@ -296,7 +296,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
         const { data, error } = await supabase
           .from('expedientes')
-          .select('total_pax, pax_pago, gratuidades, precio_venta_manual, bonificacion_pax, dias_guia')
+          .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, dias_guia')
           .eq('id', expedienteId)
           .single()
 
@@ -313,8 +313,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           if (data.gratuidades !== undefined && data.gratuidades !== null) {
             setNumGratuidades(String(data.gratuidades))
           }
-          if (data.precio_venta_manual !== undefined && data.precio_venta_manual !== null) {
-            setPrecioVentaManual(String(data.precio_venta_manual))
+          if (data.precio_venta_cliente !== undefined && data.precio_venta_cliente !== null) {
+            setPrecioVentaManual(String(data.precio_venta_cliente))
           }
           if (data.bonificacion_pax !== undefined && data.bonificacion_pax !== null) {
             setBonificacionPorPersona(String(data.bonificacion_pax))
@@ -747,19 +747,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // 1) Guardar parámetros principales en la tabla expedientes (modelo plano)
       // Aplicar limpiarNumero a campos que pueden tener '€' o 'pax' en la UI
       // MAPEO: UI 'Gratuidades' (numGratuidades) → BD gratuidades
-      // MAPEO: UI 'Precio Venta al Cliente' (precioVentaManual) → BD precio_venta_manual
+      // MAPEO: UI 'Precio Venta al Cliente' (precioVentaManual) → BD precio_venta_cliente
       // MAPEO: UI 'Bonificación/Pax' (bonificacionPorPersona) → BD bonificacion_pax
       // MAPEO: UI 'Días (Guía)' (numDias) → BD dias_guia
+      const datosExpediente = {
+        total_pax: limpiarNumero(totalPax), // Numeric: Extraer solo números (sin 'pax')
+        pax_pago: limpiarNumero(paxPago), // Numeric: Extraer solo números (sin 'pax')
+        gratuidades: limpiarNumero(numGratuidades), // Numeric: UI 'Gratuidades' → BD gratuidades (sin '€')
+        precio_venta_cliente: limpiarNumero(precioVentaManual), // Numeric: UI 'Precio Venta al Cliente' → BD precio_venta_cliente (sin '€')
+        bonificacion_pax: limpiarNumero(bonificacionPorPersona), // Numeric: UI 'Bonificación/Pax' → BD bonificacion_pax (sin '€')
+        dias_guia: parseInt(numDias) || 1, // Numeric: UI 'Días (Guía)' → BD dias_guia
+      };
+      
+      console.log('📤 Guardando en expedientes:', datosExpediente);
+      
       const { error: errorExpediente } = await supabase
         .from('expedientes')
-        .update({
-          total_pax: limpiarNumero(totalPax), // Numeric: Extraer solo números (puede venir con 'pax' de la UI)
-          pax_pago: limpiarNumero(paxPago), // Numeric: Extraer solo números (puede venir con 'pax' de la UI)
-          gratuidades: limpiarNumero(numGratuidades), // Numeric: UI 'Gratuidades' → BD gratuidades
-          precio_venta_manual: limpiarNumero(precioVentaManual), // Numeric: UI 'Precio Venta al Cliente' → BD precio_venta_manual
-          bonificacion_pax: limpiarNumero(bonificacionPorPersona), // Numeric: UI 'Bonificación/Pax' → BD bonificacion_pax
-          dias_guia: parseInt(numDias) || 1, // Numeric: UI 'Días (Guía)' → BD dias_guia
-        })
+        .update(datosExpediente)
         .eq('id', expedienteId)
 
       if (errorExpediente) {
@@ -1012,7 +1016,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // Cargar TODOS los campos para rellenar todos los inputs de la UI
       const { data: expedienteRecargado, error: errorExpedienteRefetch } = await supabase
         .from('expedientes')
-        .select('total_pax, pax_pago, gratuidades, precio_venta_manual, bonificacion_pax, dias_guia')
+        .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, dias_guia')
         .eq('id', expedienteId)
         .single()
 
@@ -1024,8 +1028,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         if (expedienteRecargado.gratuidades !== undefined && expedienteRecargado.gratuidades !== null) {
           setNumGratuidades(String(expedienteRecargado.gratuidades))
         }
-        if (expedienteRecargado.precio_venta_manual !== undefined && expedienteRecargado.precio_venta_manual !== null) {
-          setPrecioVentaManual(String(expedienteRecargado.precio_venta_manual))
+        if (expedienteRecargado.precio_venta_cliente !== undefined && expedienteRecargado.precio_venta_cliente !== null) {
+          setPrecioVentaManual(String(expedienteRecargado.precio_venta_cliente))
         }
         if (expedienteRecargado.bonificacion_pax !== undefined && expedienteRecargado.bonificacion_pax !== null) {
           setBonificacionPorPersona(String(expedienteRecargado.bonificacion_pax))
@@ -1037,7 +1041,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           total_pax: expedienteRecargado.total_pax,
           pax_pago: expedienteRecargado.pax_pago,
           gratuidades: expedienteRecargado.gratuidades,
-          precio_venta_manual: expedienteRecargado.precio_venta_manual,
+          precio_venta_cliente: expedienteRecargado.precio_venta_cliente,
           bonificacion_pax: expedienteRecargado.bonificacion_pax,
           dias_guia: expedienteRecargado.dias_guia
         })
