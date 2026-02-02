@@ -140,9 +140,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }
       
       // Mapear campos de Supabase a formato interno
+      // IMPORTANTE: Los IDs de proveedores son int8 (números enteros: 1, 2, 3...)
       const proveedoresMapeados = data.map(p => {
         const proveedorMapeado = {
-        id: p.id,
+        id: typeof p.id === 'string' ? parseInt(p.id) : p.id, // Asegurar que sea número entero
         nombreComercial: p.nombre_comercial || p.nombreComercial || '',
         nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
         tipo: p.tipo || '',
@@ -152,7 +153,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         poblacion: p.poblacion || '',
         cif: p.cif || ''
         }
-        console.log('🔍 Proveedor mapeado:', proveedorMapeado)
+        console.log('🔍 Proveedor mapeado (ID int8):', proveedorMapeado)
         return proveedorMapeado
       });
       
@@ -227,11 +228,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         if (Array.isArray(data) && data.length > 0) {
           console.log(`📦 Servicios cargados desde BD: ${data.length} servicio(s)`)
           
+          // DEBUG: Mostrar objeto completo recuperado de la BD
+          console.log('🔍 OBJETO COMPLETO RECUPERADO DE BD (primer servicio):', data.length > 0 ? data[0] : 'No hay servicios')
+          console.log('🔍 TODOS LOS OBJETOS RECUPERADOS:', JSON.stringify(data, null, 2))
+          
           const mapeados = data.map(row => {
             // Asegurar que los valores numéricos se parseen correctamente
+            // IMPORTANTE: proveedor_id_int es int8 (número entero: 1, 2, 3...)
+            const proveedorIdInt = row.proveedor_id_int ? parseInt(row.proveedor_id_int) : null;
+            
             const servicio = {
               id: row.id || generarUUID(),
-              proveedorId: row.proveedor_id || null,
+              proveedorId: proveedorIdInt, // ID entero del proveedor (int8)
               proveedorNombreTemporal: row.proveedor_nombre_temporal || '',
               tipo: row.tipo_servicio || row.tipo || 'Hotel',
               nombreEspecifico: row.nombre_especifico || '',
@@ -250,8 +258,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
               costeUnitario: servicio.costeUnitario,
               precioVenta: servicio.precioVenta,
               margen: servicio.margen,
-              proveedorId: servicio.proveedorId,
-              proveedorNombreTemporal: servicio.proveedorNombreTemporal
+              proveedorIdInt: servicio.proveedorId,
+              proveedorNombreTemporal: servicio.proveedorNombreTemporal,
+              'OBJETO RAW DE BD': row // Mostrar objeto completo de BD
             });
             
             return servicio;
@@ -268,7 +277,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           
           setServicios(mapeados)
           
-          // Restaurar búsqueda de proveedor: PRIORIDAD 1) nombre temporal, PRIORIDAD 2) nombre desde proveedor_id
+          // Restaurar búsqueda de proveedor: PRIORIDAD 1) nombre temporal, PRIORIDAD 2) nombre desde proveedor_id_int
           const busquedaRestaurada = {}
           mapeados.forEach(servicio => {
             // Si hay nombre temporal, usarlo directamente
@@ -276,20 +285,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
               busquedaRestaurada[servicio.id] = servicio.proveedorNombreTemporal
               console.log(`📝 Proveedor restaurado (temporal) para servicio ${servicio.id}:`, servicio.proveedorNombreTemporal)
             } else if (servicio.proveedorId) {
-              // Si hay proveedor_id, buscar su nombre en la lista de proveedores
-              const proveedor = proveedores.find(p => p.id === servicio.proveedorId)
+              // Si hay proveedor_id_int (número entero), buscar su nombre en la lista de proveedores
+              // IMPORTANTE: Los IDs de proveedores son int8 (1, 2, 3...), no UUIDs
+              const proveedor = proveedores.find(p => {
+                // Comparar como números enteros
+                const proveedorIdNum = typeof p.id === 'string' ? parseInt(p.id) : p.id;
+                return proveedorIdNum === servicio.proveedorId;
+              });
+              
               if (proveedor) {
                 busquedaRestaurada[servicio.id] = proveedor.nombreComercial
-                console.log(`📝 Proveedor restaurado (UUID) para servicio ${servicio.id}:`, proveedor.nombreComercial)
+                console.log(`📝 Proveedor restaurado (ID int ${servicio.proveedorId}) para servicio ${servicio.id}:`, proveedor.nombreComercial)
               } else {
-                console.warn(`⚠️ Proveedor con UUID ${servicio.proveedorId} no encontrado en la lista de proveedores`)
+                console.warn(`⚠️ Proveedor con ID int ${servicio.proveedorId} no encontrado en la lista de proveedores`)
+                console.warn(`📋 Proveedores disponibles:`, proveedores.map(p => ({ id: p.id, nombre: p.nombreComercial })))
               }
             }
           })
           setBusquedaProveedor(busquedaRestaurada)
           
-          // FORZAR RECÁLCULO: Los servicios ya están cargados, el useMemo se recalculará automáticamente
+          // FORZAR RECÁLCULO: Los servicios ya están cargados, disparar recálculo del resumen
           console.log('🔄 Servicios cargados, resumen financiero se recalculará automáticamente')
+          // El useMemo se recalculará automáticamente porque 'servicios' está en sus dependencias
           
           serviciosInicializados.current = true
           return
@@ -885,47 +902,48 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         }
       }
       
-      // Función helper para validar UUID: verifica si es un UUID válido
-      // REGLA ESTRICTA: Si el usuario seleccionó un proveedor (UUID válido), mantenerlo
-      const validarUUID = (valor) => {
+      // Función helper para validar y convertir ID de proveedor: acepta int8 (números enteros)
+      // IMPORTANTE: Los IDs de proveedores son int8 (1, 2, 3...), no UUIDs
+      const validarProveedorId = (valor) => {
         if (!valor || valor === null || valor === undefined) return null;
-        const str = String(valor).trim();
-        // UUID válido: formato xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (36 caracteres con guiones)
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (uuidRegex.test(str)) return str; // Mantener UUID válido si el usuario lo seleccionó
-        // Si es un número, string corto, '1', etc., retornar null
-        return null;
+        // Convertir a número entero
+        const idNum = typeof valor === 'string' ? parseInt(valor) : valor;
+        if (isNaN(idNum) || idNum <= 0) return null;
+        return idNum; // Retornar número entero
       };
       
       // Preparar servicios para guardar con nombres exactos de la DB
       // Mapear TODOS los campos de la interfaz a las columnas de la base de datos
       // LIMPIEZA EXTREMA: Usar soloNumeros() para garantizar números puros
       const serviciosParaGuardar = servicios.map(s => {
-        // Validar proveedor_id: mantener UUID real si el usuario lo seleccionó
-        const proveedorIdValidado = validarUUID(s.proveedorId);
+        // Validar proveedor_id_int: mantener ID entero si el usuario lo seleccionó
+        const proveedorIdInt = validarProveedorId(s.proveedorId);
         
-        // Obtener nombre del proveedor: desde busquedaProveedor o desde proveedores si hay UUID
+        // Obtener nombre del proveedor: desde busquedaProveedor o desde proveedores si hay ID
         const textoBusqueda = busquedaProveedor[s.id] ? String(busquedaProveedor[s.id]).trim() : '';
         let nombreProveedor = null;
         
-        if (proveedorIdValidado) {
-          // Si hay UUID válido, buscar el nombre en la lista de proveedores
-          const proveedor = proveedores.find(p => p.id === proveedorIdValidado);
+        if (proveedorIdInt) {
+          // Si hay ID entero válido, buscar el nombre en la lista de proveedores
+          const proveedor = proveedores.find(p => {
+            const proveedorIdNum = typeof p.id === 'string' ? parseInt(p.id) : p.id;
+            return proveedorIdNum === proveedorIdInt;
+          });
           nombreProveedor = proveedor ? proveedor.nombreComercial : textoBusqueda || null;
         } else if (textoBusqueda) {
-          // Si no hay UUID pero hay texto, guardar como nombre temporal
+          // Si no hay ID pero hay texto, guardar como nombre temporal
           nombreProveedor = textoBusqueda;
         }
         
-        const nombreProveedorTemporal = proveedorIdValidado ? null : nombreProveedor;
+        const nombreProveedorTemporal = proveedorIdInt ? null : nombreProveedor;
         
         const servicio = {
           // Identificadores
           id: s.id || generarUUID(),
           id_expediente: expedienteIdParaInsert,
-          proveedor_id: proveedorIdValidado, // UUID real si el usuario lo seleccionó, null si no
+          proveedor_id_int: proveedorIdInt, // ID entero (int8) si el usuario lo seleccionó, null si no
           proveedor_nombre: nombreProveedor, // Nombre del proveedor (siempre que exista, para referencia visual)
-          proveedor_nombre_temporal: nombreProveedorTemporal, // Nombre temporal solo si no hay UUID
+          proveedor_nombre_temporal: nombreProveedorTemporal, // Nombre temporal solo si no hay ID
           
           // Información del servicio (nombres exactos de la DB)
           tipo_servicio: String(s.tipo || '').trim(),
@@ -1008,10 +1026,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         console.error('⚠️ Error recargando servicios después del guardado:', errorRefetch)
       } else if (Array.isArray(serviciosRecargados)) {
         if (serviciosRecargados.length > 0) {
+          // DEBUG: Mostrar objeto completo recuperado de la BD después del guardado
+          console.log('🔍 OBJETO COMPLETO RECUPERADO DE BD (después de guardar, primer servicio):', serviciosRecargados[0])
+          console.log('🔍 TODOS LOS OBJETOS RECUPERADOS (después de guardar):', JSON.stringify(serviciosRecargados, null, 2))
+          
           const serviciosMapeados = serviciosRecargados.map(row => {
+            // IMPORTANTE: proveedor_id_int es int8 (número entero: 1, 2, 3...)
+            const proveedorIdInt = row.proveedor_id_int ? parseInt(row.proveedor_id_int) : null;
+            
             const servicio = {
               id: row.id || generarUUID(),
-              proveedorId: row.proveedor_id || null,
+              proveedorId: proveedorIdInt, // ID entero del proveedor (int8)
               proveedorNombreTemporal: row.proveedor_nombre_temporal || '',
               tipo: row.tipo_servicio || row.tipo || 'Hotel',
               nombreEspecifico: row.nombre_especifico || '',
@@ -1028,7 +1053,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
               tipo: servicio.tipo,
               costeUnitario: servicio.costeUnitario,
               precioVenta: servicio.precioVenta,
-              margen: servicio.margen
+              margen: servicio.margen,
+              proveedorIdInt: servicio.proveedorId,
+              'OBJETO RAW DE BD': row // Mostrar objeto completo de BD
             });
             
             return servicio;
@@ -1037,26 +1064,31 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           console.log(`✅ ${serviciosMapeados.length} servicio(s) recargados desde Supabase`)
           setServicios(serviciosMapeados)
           
-          // Restaurar búsqueda de proveedor: PRIORIDAD 1) nombre temporal, PRIORIDAD 2) nombre desde proveedor_id o proveedor_nombre
+          // Restaurar búsqueda de proveedor: PRIORIDAD 1) nombre temporal, PRIORIDAD 2) nombre desde proveedor_id_int
           const busquedaRestaurada = {}
           serviciosMapeados.forEach(servicio => {
             if (servicio.proveedorNombreTemporal) {
               busquedaRestaurada[servicio.id] = servicio.proveedorNombreTemporal
               console.log(`📝 Proveedor restaurado (temporal) para servicio ${servicio.id}:`, servicio.proveedorNombreTemporal)
             } else if (servicio.proveedorId) {
-              const proveedor = proveedores.find(p => p.id === servicio.proveedorId)
+              // Buscar proveedor por ID entero
+              const proveedor = proveedores.find(p => {
+                const proveedorIdNum = typeof p.id === 'string' ? parseInt(p.id) : p.id;
+                return proveedorIdNum === servicio.proveedorId;
+              });
               if (proveedor) {
                 busquedaRestaurada[servicio.id] = proveedor.nombreComercial
-                console.log(`📝 Proveedor restaurado (UUID) para servicio ${servicio.id}:`, proveedor.nombreComercial)
+                console.log(`📝 Proveedor restaurado (ID int ${servicio.proveedorId}) para servicio ${servicio.id}:`, proveedor.nombreComercial)
               } else {
-                console.warn(`⚠️ Proveedor con UUID ${servicio.proveedorId} no encontrado en la lista de proveedores`)
+                console.warn(`⚠️ Proveedor con ID int ${servicio.proveedorId} no encontrado en la lista de proveedores`)
               }
             }
           })
           setBusquedaProveedor(busquedaRestaurada)
           
-          // FORZAR RECÁLCULO: Los servicios ya están recargados, el useMemo se recalculará automáticamente
+          // FORZAR RECÁLCULO: Los servicios ya están recargados, disparar recálculo del resumen
           console.log('🔄 Servicios recargados, resumen financiero se recalculará automáticamente')
+          // El useMemo se recalculará automáticamente porque 'servicios' está en sus dependencias
         } else {
           console.log('ℹ️ No hay servicios en la BD después del guardado')
         }
