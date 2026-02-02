@@ -245,7 +245,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
               precioVenta: row.precio_venta !== null && row.precio_venta !== undefined ? Number(row.precio_venta) : 0,
               margen: row.margen_pax !== null && row.margen_pax !== undefined ? Number(row.margen_pax) : 0,
               noches: row.noches !== null && row.noches !== undefined ? Number(row.noches) : 0,
-              fechaRelease: row.fecha_release || '',
+              fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
               tipoCalculo: row.tipo_calculo || 'porPersona',
             }
           })
@@ -1572,6 +1572,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Precio</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Modo</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Total (€)</th>
+                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Release</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Acciones</th>
                           </tr>
                         </thead>
@@ -1883,7 +1884,37 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 </span>
                               </td>
                               
-                              {/* COLUMNA 7: ACCIONES */}
+                              {/* COLUMNA 7: RELEASE (Fecha de liberación) */}
+                              <td className="px-2 py-2 text-center">
+                                <input
+                                  type="date"
+                                  value={servicio.fechaRelease || ''}
+                                  onChange={(e) => {
+                                    const fechaValue = e.target.value || ''
+                                    actualizarServicio(servicio.id, 'fechaRelease', fechaValue)
+                                  }}
+                                  onFocus={(e) => {
+                                    e.target.style.borderColor = '#3b82f6'
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                  }}
+                                  className="input-field text-xs text-center transition-all"
+                                  style={{ 
+                                    backgroundColor: '#f8fafc', 
+                                    color: '#0f172a', 
+                                    borderRadius: '12px', 
+                                    border: '1px solid #e2e8f0',
+                                    padding: '6px 8px',
+                                    width: '100%',
+                                    maxWidth: '140px'
+                                  }}
+                                />
+                              </td>
+                              
+                              {/* COLUMNA 8: ACCIONES */}
                               <td className="px-2 py-2 text-center">
                                 <button
                                   onClick={() => eliminarServicio(servicio.id)}
