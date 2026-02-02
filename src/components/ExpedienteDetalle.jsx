@@ -120,7 +120,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       
       if (error) {
         console.error('❌ Error cargando proveedores:', error)
-        alert(`Error cargando proveedores: ${error.message}`)
         setProveedores([])
         return
       }
@@ -170,7 +169,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       
     } catch (error) {
       console.error('❌ Error fatal cargando proveedores:', error)
-      alert(`Error fatal: ${error.message}`)
       setProveedores([])
     }
   };
@@ -211,79 +209,105 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           return
         }
 
-        // CORRECCIÓN OBLIGATORIA: Sincronización de Tipos - Asegurar que expediente_id sea del tipo correcto
         // ARQUITECTURA UUID: id_expediente es UUID (string)
-        const expedienteIdParaQuery = String(expedienteId).trim() // UUID (string)
-        console.log('🔄 Cargando servicios_cotizacion para id_expediente (UUID):', expedienteIdParaQuery, '(tipo:', typeof expedienteIdParaQuery, ')')
+        const expedienteIdParaQuery = String(expedienteId).trim()
+        console.log('🔄 Cargando servicios_cotizacion para id_expediente (UUID):', expedienteIdParaQuery)
 
         const { data, error } = await supabase
           .from('servicios_cotizacion')
           .select('*')
-          .eq('id_expediente', expedienteIdParaQuery) // ARQUITECTURA UUID: usar id_expediente
+          .eq('id_expediente', expedienteIdParaQuery)
           .order('id', { ascending: true })
 
         if (error) {
-          // CORRECCIÓN OBLIGATORIA: Manejo de Errores - Mostrar error técnico exacto
           console.error('❌ Error cargando servicios_cotizacion:', error)
-          const errorMessage = error.message || JSON.stringify(error)
-          const errorCode = error.code || 'UNKNOWN'
-          console.error('❌ Detalles del error de carga:', {
-            code: errorCode,
-            message: errorMessage,
-            expedienteId: expedienteIdParaQuery,
-            tipoExpedienteId: typeof expedienteIdParaQuery,
-            fullError: error
-          })
           return
         }
 
         if (Array.isArray(data) && data.length > 0) {
-          const mapeados = data.map(row => ({
-            // Usamos el UUID de la fila como ID único del servicio
-            id: row.id || generarUUID(),
-            proveedorId: row.proveedor_id || null, // UUID del proveedor si existe
-            proveedorNombreTemporal: row.proveedor_nombre_temporal || '', // Nombre temporal si el usuario escribió pero no seleccionó
-            tipo: row.tipo_servicio || row.tipo || 'Hotel',
-            nombreEspecifico: row.nombre_especifico || '',
-            localizacion: row.localizacion || '',
-            costeUnitario: row.coste_unitario || 0, // Coste Real de la UI
-            precioVenta: row.precio_venta || 0, // Precio Venta de la UI
-            margen: row.margen_pax || 0, // Margen de la UI
-            noches: row.noches || 0,
-            fechaRelease: row.fecha_release || '',
-            tipoCalculo: row.tipo_calculo || 'porPersona', // 'porPersona' o 'porGrupo'
-          }))
+          console.log(`📦 Servicios cargados desde BD: ${data.length} servicio(s)`)
+          
+          const mapeados = data.map(row => {
+            // Asegurar que los valores numéricos se parseen correctamente
+            const servicio = {
+              id: row.id || generarUUID(),
+              proveedorId: row.proveedor_id || null,
+              proveedorNombreTemporal: row.proveedor_nombre_temporal || '',
+              tipo: row.tipo_servicio || row.tipo || 'Hotel',
+              nombreEspecifico: row.nombre_especifico || '',
+              localizacion: row.localizacion || '',
+              costeUnitario: parseFloat(row.coste_unitario) || 0, // Forzar parseFloat para asegurar número
+              precioVenta: parseFloat(row.precio_venta) || 0, // Forzar parseFloat para asegurar número
+              margen: parseFloat(row.margen_pax) || 0, // Forzar parseFloat para asegurar número
+              noches: parseInt(row.noches) || 0,
+              fechaRelease: row.fecha_release || '',
+              tipoCalculo: row.tipo_calculo || 'porPersona',
+            };
+            
+            // Log de confirmación: verificar que los servicios no vienen vacíos
+            console.log(`📊 Servicio cargado [${servicio.id}]:`, {
+              tipo: servicio.tipo,
+              costeUnitario: servicio.costeUnitario,
+              precioVenta: servicio.precioVenta,
+              margen: servicio.margen,
+              proveedorId: servicio.proveedorId,
+              proveedorNombreTemporal: servicio.proveedorNombreTemporal
+            });
+            
+            return servicio;
+          })
 
+          console.log(`✅ ${mapeados.length} servicio(s) mapeados correctamente desde BD`)
+          console.log('📦 Servicios cargados (resumen):', mapeados.map(s => ({
+            id: s.id,
+            tipo: s.tipo,
+            coste: s.costeUnitario,
+            precio: s.precioVenta,
+            margen: s.margen
+          })))
+          
           setServicios(mapeados)
           
-          // Restaurar búsqueda de proveedor si hay nombre temporal
+          // Restaurar búsqueda de proveedor: PRIORIDAD 1) nombre temporal, PRIORIDAD 2) nombre desde proveedor_id
           const busquedaRestaurada = {}
           mapeados.forEach(servicio => {
+            // Si hay nombre temporal, usarlo directamente
             if (servicio.proveedorNombreTemporal) {
               busquedaRestaurada[servicio.id] = servicio.proveedorNombreTemporal
+              console.log(`📝 Proveedor restaurado (temporal) para servicio ${servicio.id}:`, servicio.proveedorNombreTemporal)
             } else if (servicio.proveedorId) {
-              // Si hay proveedor_id, buscar su nombre
+              // Si hay proveedor_id, buscar su nombre en la lista de proveedores
               const proveedor = proveedores.find(p => p.id === servicio.proveedorId)
               if (proveedor) {
                 busquedaRestaurada[servicio.id] = proveedor.nombreComercial
+                console.log(`📝 Proveedor restaurado (UUID) para servicio ${servicio.id}:`, proveedor.nombreComercial)
+              } else {
+                console.warn(`⚠️ Proveedor con UUID ${servicio.proveedorId} no encontrado en la lista de proveedores`)
               }
             }
           })
           setBusquedaProveedor(busquedaRestaurada)
+          
+          // FORZAR RECÁLCULO: Los servicios ya están cargados, el useMemo se recalculará automáticamente
+          console.log('🔄 Servicios cargados, resumen financiero se recalculará automáticamente')
           
           serviciosInicializados.current = true
           return
         }
 
         // Si no hay servicios guardados en la tabla, dejaremos que se auto-inicialicen
+        console.log('ℹ️ No hay servicios en BD, se auto-inicializarán')
         serviciosInicializados.current = false
       } catch (err) {
-        console.error('Error inesperado cargando servicios_cotizacion:', err)
+        console.error('❌ Error inesperado cargando servicios_cotizacion:', err)
       }
     }
 
-    cargarServiciosDesdeSupabase()
-  }, [expediente?.id])
+    // Esperar a que los proveedores estén cargados antes de mapear
+    if (proveedores.length > 0 || expediente?.id) {
+      cargarServiciosDesdeSupabase()
+    }
+  }, [expediente?.id, proveedores])
 
   // ============ CARGA DE PARÁMETROS DEL EXPEDIENTE ============
   // Cargar todos los parámetros (total_pax, gratuidades, precio_venta_cliente, bonificacion_pax, dias_guia)
@@ -737,7 +761,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     try {
       const expedienteId = expediente.id
       if (!expedienteId) {
-        alert('⚠️ No se puede guardar la cotización: el expediente no tiene ID (UUID).')
+        console.error('❌ No se puede guardar la cotización: el expediente no tiene ID (UUID).')
         return
       }
 
@@ -770,8 +794,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }
       
       console.log('✅ Parámetros de expediente guardados correctamente')
-      // Mensaje de confirmación en pantalla cuando el guardado es exitoso
-      alert('✅ Parámetros de cotización guardados correctamente')
 
       // 2) Sincronizar servicios en la tabla servicios_cotizacion
       // CORRECCIÓN OBLIGATORIA: Verificar expediente_id y manejo de errores mejorado
@@ -882,16 +904,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         // Validar proveedor_id: mantener UUID real si el usuario lo seleccionó
         const proveedorIdValidado = validarUUID(s.proveedorId);
         
-        // Si el usuario escribió un nombre pero no seleccionó proveedor, guardar en proveedor_nombre_temporal
+        // Obtener nombre del proveedor: desde busquedaProveedor o desde proveedores si hay UUID
         const textoBusqueda = busquedaProveedor[s.id] ? String(busquedaProveedor[s.id]).trim() : '';
-        const nombreProveedorTemporal = textoBusqueda && !proveedorIdValidado ? textoBusqueda : null;
+        let nombreProveedor = null;
+        
+        if (proveedorIdValidado) {
+          // Si hay UUID válido, buscar el nombre en la lista de proveedores
+          const proveedor = proveedores.find(p => p.id === proveedorIdValidado);
+          nombreProveedor = proveedor ? proveedor.nombreComercial : textoBusqueda || null;
+        } else if (textoBusqueda) {
+          // Si no hay UUID pero hay texto, guardar como nombre temporal
+          nombreProveedor = textoBusqueda;
+        }
+        
+        const nombreProveedorTemporal = proveedorIdValidado ? null : nombreProveedor;
         
         const servicio = {
           // Identificadores
           id: s.id || generarUUID(),
           id_expediente: expedienteIdParaInsert,
           proveedor_id: proveedorIdValidado, // UUID real si el usuario lo seleccionó, null si no
-          proveedor_nombre_temporal: nombreProveedorTemporal, // Nombre si escribió pero no seleccionó
+          proveedor_nombre: nombreProveedor, // Nombre del proveedor (siempre que exista, para referencia visual)
+          proveedor_nombre_temporal: nombreProveedorTemporal, // Nombre temporal solo si no hay UUID
           
           // Información del servicio (nombres exactos de la DB)
           tipo_servicio: String(s.tipo || '').trim(),
@@ -974,37 +1008,55 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         console.error('⚠️ Error recargando servicios después del guardado:', errorRefetch)
       } else if (Array.isArray(serviciosRecargados)) {
         if (serviciosRecargados.length > 0) {
-          const serviciosMapeados = serviciosRecargados.map(row => ({
-            id: row.id || generarUUID(),
-            proveedorId: row.proveedor_id || null, // Mantener UUID si existe
-            proveedorNombreTemporal: row.proveedor_nombre_temporal || '', // Nombre temporal si existe
-            tipo: row.tipo_servicio || row.tipo || 'Hotel',
-            nombreEspecifico: row.nombre_especifico || '',
-            localizacion: row.localizacion || '',
-            costeUnitario: row.coste_unitario || 0,
-            precioVenta: row.precio_venta || 0, // Mapear desde precio_venta de la DB
-            margen: row.margen_pax || 0,
-            noches: row.noches || 0,
-            fechaRelease: row.fecha_release || '',
-            tipoCalculo: row.tipo_calculo || 'porPersona',
-          }))
+          const serviciosMapeados = serviciosRecargados.map(row => {
+            const servicio = {
+              id: row.id || generarUUID(),
+              proveedorId: row.proveedor_id || null,
+              proveedorNombreTemporal: row.proveedor_nombre_temporal || '',
+              tipo: row.tipo_servicio || row.tipo || 'Hotel',
+              nombreEspecifico: row.nombre_especifico || '',
+              localizacion: row.localizacion || '',
+              costeUnitario: parseFloat(row.coste_unitario) || 0, // Forzar parseFloat
+              precioVenta: parseFloat(row.precio_venta) || 0, // Forzar parseFloat
+              margen: parseFloat(row.margen_pax) || 0, // Forzar parseFloat
+              noches: parseInt(row.noches) || 0,
+              fechaRelease: row.fecha_release || '',
+              tipoCalculo: row.tipo_calculo || 'porPersona',
+            };
+            
+            console.log(`📊 Servicio recargado [${servicio.id}]:`, {
+              tipo: servicio.tipo,
+              costeUnitario: servicio.costeUnitario,
+              precioVenta: servicio.precioVenta,
+              margen: servicio.margen
+            });
+            
+            return servicio;
+          });
+          
+          console.log(`✅ ${serviciosMapeados.length} servicio(s) recargados desde Supabase`)
           setServicios(serviciosMapeados)
           
-          // Restaurar búsqueda de proveedor con nombres temporales o nombres de proveedores
+          // Restaurar búsqueda de proveedor: PRIORIDAD 1) nombre temporal, PRIORIDAD 2) nombre desde proveedor_id o proveedor_nombre
           const busquedaRestaurada = {}
           serviciosMapeados.forEach(servicio => {
             if (servicio.proveedorNombreTemporal) {
               busquedaRestaurada[servicio.id] = servicio.proveedorNombreTemporal
+              console.log(`📝 Proveedor restaurado (temporal) para servicio ${servicio.id}:`, servicio.proveedorNombreTemporal)
             } else if (servicio.proveedorId) {
               const proveedor = proveedores.find(p => p.id === servicio.proveedorId)
               if (proveedor) {
                 busquedaRestaurada[servicio.id] = proveedor.nombreComercial
+                console.log(`📝 Proveedor restaurado (UUID) para servicio ${servicio.id}:`, proveedor.nombreComercial)
+              } else {
+                console.warn(`⚠️ Proveedor con UUID ${servicio.proveedorId} no encontrado en la lista de proveedores`)
               }
             }
           })
           setBusquedaProveedor(busquedaRestaurada)
           
-          console.log('✅ Servicios recargados desde Supabase:', serviciosMapeados.length)
+          // FORZAR RECÁLCULO: Los servicios ya están recargados, el useMemo se recalculará automáticamente
+          console.log('🔄 Servicios recargados, resumen financiero se recalculará automáticamente')
         } else {
           console.log('ℹ️ No hay servicios en la BD después del guardado')
         }
