@@ -108,7 +108,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const [numGratuidades, setNumGratuidades] = useState(
     expediente?.gratuidades || 0
   )
-  const [numDias, setNumDias] = useState(1)
   const [bonificacionPorPersona, setBonificacionPorPersona] = useState(0)
   const [precioVentaManual, setPrecioVentaManual] = useState(0) // Precio manual €/pax
   
@@ -204,7 +203,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             .order('id', { ascending: true }),
           supabase
             .from('expedientes')
-            .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, dias_guia')
+            .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
             .eq('id', expedienteId)
             .single()
         ])
@@ -272,9 +271,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           }
           if (data.bonificacion_pax !== undefined && data.bonificacion_pax !== null) {
             setBonificacionPorPersona(String(Number(data.bonificacion_pax)))
-          }
-          if (data.dias_guia !== undefined && data.dias_guia !== null) {
-            setNumDias(Number(data.dias_guia) || 1)
           }
         }
 
@@ -492,6 +488,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
 
+  // ============ FUNCIÓN UNIVERSAL PARA CALCULAR TOTAL DE FILA ============
+  // Fórmula obligatoria: cantidad × precio (siempre, sin excepciones)
+  // Esta función se ejecuta en cada render para asegurar actualización en tiempo real
+  const calcularTotalFila = (servicio) => {
+    // Convertir precio a número (limpia cualquier formato)
+    const precio = Number(servicio.costeUnitario) || 0
+    
+    // Determinar cantidad según el tipo de servicio
+    let cantidad = 1
+    if (servicio.tipo === 'Guía' || servicio.tipo === 'Hotel') {
+      // Para Guías y Hoteles: usar el campo 'noches' como cantidad
+      // Convertir a número explícitamente para evitar problemas con strings
+      const cantidadRaw = servicio.noches
+      cantidad = cantidadRaw !== null && cantidadRaw !== undefined && cantidadRaw !== '' 
+        ? Number(cantidadRaw) 
+        : 1
+      // Asegurar que la cantidad sea al menos 1
+      cantidad = Math.max(1, cantidad)
+    }
+    // Para otros servicios: cantidad = 1 (por defecto)
+    
+    // Fórmula universal: cantidad × precio (siempre, sin excepciones)
+    const total = precio * cantidad
+    
+    // Retornar el total (puede ser 0 si el precio es 0)
+    return isNaN(total) ? 0 : total
+  }
+
   const actualizarServicio = (id, campo, valor) => {
     setServicios(servicios.map(s => 
       s.id === id ? { ...s, [campo]: valor } : s
@@ -504,7 +528,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     try {
       // Valores seguros
       const bonif = Math.max(0, parseFloat(bonificacionPorPersona) || 0)
-      const dias = Math.max(1, parseInt(numDias) || 1)
       
       // Variables de costes POR CATEGORÍA
       let costeBusPorPax = 0
@@ -527,8 +550,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           costeBusPorPax += paxPago > 0 ? coste / paxPago : 0
           
         } else if (servicio.tipo === 'Guía') {
-          // SIEMPRE: (Precio Guía × Días) / Pasajeros de Pago
-          costeGuiaPorPax += paxPago > 0 ? (coste * dias) / paxPago : 0
+          // Total de la fila del guía = precio_unitario × cantidad (días)
+          // Luego se divide entre pasajeros de pago para obtener el coste por persona
+          const cantidadGuia = Math.max(1, noches)
+          const totalFilaGuia = coste * cantidadGuia
+          costeGuiaPorPax += paxPago > 0 ? totalFilaGuia / paxPago : 0
           
         } else if (servicio.tipo === 'Guía Local') {
           // NUEVO: Guía Local con dos opciones
@@ -682,7 +708,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // ⚡ REACTIVIDAD AUTOMÁTICA: Se recalcula cuando cambian los servicios o parámetros
   const resultados = useMemo(() => {
     return calcularCotizacion()
-  }, [servicios, numTotalPasajeros, numGratuidades, numDias, bonificacionPorPersona, precioVentaManual])
+  }, [servicios, numTotalPasajeros, numGratuidades, bonificacionPorPersona, precioVentaManual])
 
   // ============ FUNCIÓN DE GUARDADO REESCRITA ============
   const guardarCotizacion = async () => {
@@ -744,7 +770,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         gratuidades: limpiarDatosNumericos(numGratuidades),
         pax_pago: paxPago,
         bonificacion_pax: limpiarDatosNumericos(bonificacionPorPersona),
-        dias_guia: Number(numDias) || 1,
       }
       
       const { error: errorExpediente } = await supabase
@@ -789,7 +814,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           pax_pago: limpiarDatosNumericos(Number(numTotalPasajeros) - Number(numGratuidades)),
           pax_gratis: limpiarDatosNumericos(numGratuidades),
           noches: Number(s.noches) || 0,
-          dias_guia: Number(numDias) || 1,
           bonificacion_pax: limpiarDatosNumericos(bonificacionPorPersona),
           tipo_calculo: String(s.tipoCalculo || 'porPersona').trim(),
           fecha_release: convertirFechaRelease(s.fechaRelease),
@@ -1469,28 +1493,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       />
                     </div>
                     <div>
-                      <label className="label">Días (Guía) *</label>
-                      <input
-                        type="number"
-                        value={numDias}
-                        onChange={(e) => setNumDias(e.target.value)}
-                        onFocus={(e) => {
-                          handleFocus(e)
-                          e.target.style.borderColor = '#3b82f6'
-                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                        }}
-                        onBlur={(e) => {
-                          e.target.style.borderColor = '#e2e8f0'
-                          e.target.style.boxShadow = 'none'
-                        }}
-                        onWheel={handleWheel}
-                        className="input-field transition-all"
-                        style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                        min="1"
-                        tabIndex="3"
-                      />
-                    </div>
-                    <div>
                       <label className="label">Bonificación/Pax (€)</label>
                       <input
                         type="number"
@@ -1794,13 +1796,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 </select>
                               </td>
                               
-                              {/* COLUMNA 3: CANTIDAD (Noches para Hotel, 1 para otros) */}
+                              {/* COLUMNA 3: CANTIDAD (Noches para Hotel, Días para Guía, 1 para otros) */}
                               <td className="px-2 py-2 text-center">
-                                {servicio.tipo === 'Hotel' ? (
+                                {servicio.tipo === 'Hotel' || servicio.tipo === 'Guía' ? (
                                 <input
                                     type="number"
                                     value={servicio.noches || 1}
-                                    onChange={(e) => actualizarServicio(servicio.id, 'noches', e.target.value)}
+                                    onChange={(e) => {
+                                      const valor = e.target.value
+                                      // Convertir a número para asegurar consistencia
+                                      const valorNumerico = valor === '' ? 1 : Number(valor) || 1
+                                      actualizarServicio(servicio.id, 'noches', Math.max(1, valorNumerico))
+                                    }}
                                     onFocus={(e) => {
                                       handleFocus(e)
                                       e.target.style.borderColor = '#3b82f6'
@@ -1869,24 +1876,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 </select>
                               </td>
                               
-                              {/* COLUMNA 6: TOTAL (Calculado según modo de precio) */}
+                              {/* COLUMNA 6: TOTAL (Calculado con función clara) */}
                               <td className="px-2 py-2 text-center">
                                 <span className="text-gray-900 text-sm font-semibold">
-                                  {(() => {
-                                    const coste = parseFloat(servicio.costeUnitario) || 0
-                                    const noches = servicio.tipo === 'Hotel' ? (parseInt(servicio.noches) || 1) : 1
-                                    const modo = servicio.tipoCalculo || 'porPersona'
-
-                                    // Si el modo es "Total a dividir", mostramos el total introducido (grupo)
-                                    // Si el modo es "Precio por Persona", mostramos coste * paxPago (total del grupo)
-                                    if (modo === 'porGrupo') {
-                                      return coste.toFixed(2) + '€'
-                                    }
-
-                                    // Precio por Persona → total de la fila = precio_pax × pax_pago
-                                    const totalGrupo = coste * paxPago * (servicio.tipo === 'Hotel' ? noches : 1)
-                                    return totalGrupo.toFixed(2) + '€'
-                                  })()}
+                                  {calcularTotalFila(servicio).toFixed(2)}€
                                 </span>
                               </td>
                               
