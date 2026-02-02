@@ -126,39 +126,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // Función para cargar proveedores desde Supabase
   const cargarProveedores = async () => {
     try {
-      console.log('🔄 Iniciando carga de proveedores desde Supabase...')
-      
       const { data, error } = await supabase
         .from('proveedores')
         .select('*')
         .order('nombre_comercial', { ascending: true });
       
       if (error) {
-        console.error('❌ Error cargando proveedores:', error)
+        console.error('Error cargando proveedores:', error)
         setProveedores([])
         return
       }
       
-      console.log('📦 Datos recibidos de Supabase:', data)
-      console.log('📊 Cantidad de proveedores:', data?.length || 0)
-      
-      if (!data || !Array.isArray(data)) {
-        console.warn('⚠️ No se recibieron datos o no es un array')
-        setProveedores([])
-        return
-      }
-      
-      if (data.length === 0) {
-        console.warn('⚠️ La tabla proveedores está vacía')
+      if (!data || !Array.isArray(data) || data.length === 0) {
         setProveedores([])
         return
       }
       
       // Mapear campos de Supabase a formato interno
       // IMPORTANTE: Los IDs de proveedores son int8 (números enteros: 1, 2, 3...)
-      const proveedoresMapeados = data.map(p => {
-        const proveedorMapeado = {
-        id: typeof p.id === 'string' ? parseInt(p.id) : p.id, // Asegurar que sea número entero
+      const proveedoresMapeados = data.map(p => ({
+        id: typeof p.id === 'string' ? Number(p.id) : Number(p.id),
         nombreComercial: p.nombre_comercial || p.nombreComercial || '',
         nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
         tipo: p.tipo || '',
@@ -167,41 +154,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         direccion: p.direccion || '',
         poblacion: p.poblacion || '',
         cif: p.cif || ''
-        }
-        console.log('🔍 Proveedor mapeado (ID int8):', proveedorMapeado)
-        return proveedorMapeado
-      });
+      }));
       
-      console.log('✅ Proveedores mapeados correctamente:', proveedoresMapeados.length)
       setProveedores(proveedoresMapeados)
       
-      // Guardar en localStorage como backup
       try {
-      storage.set('proveedores', proveedoresMapeados)
-        console.log('💾 Proveedores guardados en localStorage')
+        storage.set('proveedores', proveedoresMapeados)
       } catch (storageError) {
-        console.warn('⚠️ Error guardando en localStorage:', storageError)
+        // Silenciar error de localStorage
       }
       
     } catch (error) {
-      console.error('❌ Error fatal cargando proveedores:', error)
+      console.error('Error cargando proveedores:', error)
       setProveedores([])
     }
   };
   
   // Cargar proveedores desde Supabase al montar
   useEffect(() => {
-    console.log('🚀 Componente montado, cargando proveedores...')
     cargarProveedores();
   }, [])
-
-  // Debug: Log cuando cambian los proveedores
-  useEffect(() => {
-    console.log('📊 Estado de proveedores actualizado:', {
-      total: proveedores.length,
-      proveedores: proveedores.map(p => ({ id: p.id, nombre: p.nombreComercial, tipo: p.tipo }))
-    })
-  }, [proveedores])
   
   // Cerrar sugerencias al hacer clic fuera
   useEffect(() => {
@@ -215,159 +187,109 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
   
-  // ============ FUNCIÓN DE CARGA (ROOT FIX) ============
-  // Reescrita desde cero: carga servicios y hace cruce con proveedores usando find
+  // ============ ARQUITECTURA DE CARGA UNIFICADA ============
+  // Función única que carga servicios y parámetros con sincronización de proveedores
   useEffect(() => {
-    const cargarServiciosDesdeSupabase = async () => {
+    const cargarDatosCompletos = async () => {
+      const expedienteId = expediente?.id
+      if (!expedienteId || proveedores.length === 0) return
+
       try {
-        const expedienteId = expediente?.id
-        if (!expedienteId) {
-          console.warn('⚠️ Expediente sin ID, no se pueden cargar servicios')
-          return
-        }
+        // Cargar servicios y parámetros en paralelo
+        const [serviciosResponse, parametrosResponse] = await Promise.all([
+          supabase
+            .from('servicios_cotizacion')
+            .select('*')
+            .eq('id_expediente', String(expedienteId).trim())
+            .order('id', { ascending: true }),
+          supabase
+            .from('expedientes')
+            .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, dias_guia')
+            .eq('id', expedienteId)
+            .single()
+        ])
 
-        if (proveedores.length === 0) {
-          console.warn('⚠️ Esperando a que los proveedores se carguen...')
-          return
-        }
-
-        console.log('🔄 Cargando servicios desde servicios_cotizacion...')
-        const expedienteIdParaQuery = String(expedienteId).trim()
-
-        const { data, error } = await supabase
-          .from('servicios_cotizacion')
-          .select('*')
-          .eq('id_expediente', expedienteIdParaQuery)
-          .order('id', { ascending: true })
-
-        if (error) {
-          console.error('❌ Error cargando servicios:', error)
-          alert(`❌ Error cargando servicios:\n${error.message || JSON.stringify(error)}`)
-          return
-        }
-
-        if (!Array.isArray(data) || data.length === 0) {
-          console.log('ℹ️ No hay servicios guardados, se auto-inicializarán')
-          serviciosInicializados.current = false
-          return
-        }
-
-        console.log(`📦 ${data.length} servicio(s) encontrado(s) en BD`)
-        console.log('🔍 Objeto completo recuperado (primer servicio):', data[0])
-        console.log('🔍 Todos los objetos:', JSON.stringify(data, null, 2))
-
-        // ============ MAPEO DE SERVICIOS CON CRUCE DE PROVEEDORES ============
-        const busquedaRestaurada = {}
-        const serviciosMapeados = data.map(row => {
-          // Extraer proveedor_id_int (int8: 1, 2, 3...)
-          const proveedorIdInt = row.proveedor_id_int ? parseInt(row.proveedor_id_int) : null
+        // ============ MAPEO DE SERVICIOS CON SINCRONIZACIÓN DE PROVEEDORES ============
+        if (serviciosResponse.data && Array.isArray(serviciosResponse.data) && serviciosResponse.data.length > 0) {
+          const busquedaProveedoresRestaurada = {}
           
-          // CRUCE: Buscar en el array de proveedores usando find
-          let nombreProveedor = null
-          if (proveedorIdInt) {
-            const proveedorEncontrado = proveedores.find(p => {
-              const proveedorIdLista = typeof p.id === 'string' ? parseInt(p.id) : (typeof p.id === 'number' ? p.id : null)
-              return proveedorIdLista !== null && !isNaN(proveedorIdLista) && proveedorIdLista === proveedorIdInt
-            })
+          const serviciosMapeados = serviciosResponse.data.map(row => {
+            // Validar y convertir proveedor_id_int (int8) a número
+            const proveedorIdInt = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
             
-            if (proveedorEncontrado) {
-              nombreProveedor = proveedorEncontrado.nombreComercial
-              busquedaRestaurada[row.id] = nombreProveedor
-              console.log(`✅ Proveedor encontrado: ID ${proveedorIdInt} → ${nombreProveedor}`)
-            } else {
-              console.warn(`⚠️ Proveedor ID ${proveedorIdInt} no encontrado en lista`)
+            // Sincronizar proveedor: buscar en array usando ID numérico
+            if (proveedorIdInt && !isNaN(proveedorIdInt) && proveedorIdInt > 0) {
+              const proveedorEncontrado = proveedores.find(p => {
+                const proveedorIdLista = Number(p.id)
+                return !isNaN(proveedorIdLista) && proveedorIdLista === proveedorIdInt
+              })
+              
+              if (proveedorEncontrado) {
+                busquedaProveedoresRestaurada[row.id] = proveedorEncontrado.nombreComercial
+              }
             }
-          }
-          
-          // Si hay nombre temporal, usarlo
-          if (row.proveedor_nombre_temporal && !nombreProveedor) {
-            busquedaRestaurada[row.id] = row.proveedor_nombre_temporal
-            nombreProveedor = row.proveedor_nombre_temporal
-          }
+            
+            // Si no hay proveedor por ID pero hay nombre manual, usarlo
+            if (!busquedaProveedoresRestaurada[row.id] && row.nombre_proveedor_manual) {
+              busquedaProveedoresRestaurada[row.id] = row.nombre_proveedor_manual
+            }
 
-          // Mapear servicio con precios parseados correctamente
-          return {
-            id: row.id || generarUUID(),
-            proveedorId: proveedorIdInt,
-            proveedorNombreTemporal: row.proveedor_nombre_temporal || '',
-            tipo: row.tipo_servicio || row.tipo || 'Hotel',
-            nombreEspecifico: row.nombre_especifico || '',
-            localizacion: row.localizacion || '',
-            costeUnitario: row.coste_unitario !== null && row.coste_unitario !== undefined ? parseFloat(row.coste_unitario) : 0,
-            precioVenta: row.precio_venta !== null && row.precio_venta !== undefined ? parseFloat(row.precio_venta) : 0, // MAPEO CRÍTICO
-            margen: row.margen_pax !== null && row.margen_pax !== undefined ? parseFloat(row.margen_pax) : 0,
-            noches: row.noches !== null && row.noches !== undefined ? parseInt(row.noches) : 0,
-            fechaRelease: row.fecha_release || '',
-            tipoCalculo: row.tipo_calculo || 'porPersona',
-          }
-        })
+            // Mapear servicio con validación numérica estricta
+            return {
+              id: row.id || generarUUID(),
+              proveedorId: proveedorIdInt,
+              proveedorNombreTemporal: row.nombre_proveedor_manual || '',
+              tipo: row.tipo_servicio || row.tipo || 'Hotel',
+              nombreEspecifico: row.nombre_especifico || '',
+              localizacion: row.localizacion || '',
+              costeUnitario: row.coste_unitario !== null && row.coste_unitario !== undefined ? Number(row.coste_unitario) : 0,
+              precioVenta: row.precio_venta !== null && row.precio_venta !== undefined ? Number(row.precio_venta) : 0,
+              margen: row.margen_pax !== null && row.margen_pax !== undefined ? Number(row.margen_pax) : 0,
+              noches: row.noches !== null && row.noches !== undefined ? Number(row.noches) : 0,
+              fechaRelease: row.fecha_release || '',
+              tipoCalculo: row.tipo_calculo || 'porPersona',
+            }
+          })
 
-        // Asignar estados
-        setBusquedaProveedor(busquedaRestaurada)
-        setServicios(serviciosMapeados)
-        serviciosInicializados.current = true
-        
-        console.log(`✅ ${serviciosMapeados.length} servicio(s) cargado(s) correctamente`)
-        console.log('📊 Precios cargados:', serviciosMapeados.map(s => ({ id: s.id, precio: s.precioVenta, coste: s.costeUnitario })))
-        
-        // El useMemo se recalculará automáticamente porque 'servicios' está en sus dependencias
-      } catch (err) {
-        console.error('❌ Error inesperado:', err)
-        alert(`❌ Error inesperado cargando servicios:\n${err.message || JSON.stringify(err)}`)
-      }
-    }
-
-    if (proveedores.length > 0 && expediente?.id) {
-      cargarServiciosDesdeSupabase()
-    }
-  }, [expediente?.id, proveedores])
-
-  // ============ CARGA DE PARÁMETROS DEL EXPEDIENTE ============
-  // Cargar todos los parámetros (total_pax, gratuidades, precio_venta_cliente, bonificacion_pax, dias_guia)
-  // para rellenar todos los inputs de la UI al abrir el componente
-  useEffect(() => {
-    const cargarParametrosExpediente = async () => {
-      try {
-        const expedienteId = expediente?.id
-        if (!expedienteId) return
-
-        const { data, error } = await supabase
-          .from('expedientes')
-          .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, dias_guia')
-          .eq('id', expedienteId)
-          .single()
-
-        if (error) {
-          console.warn('⚠️ Error cargando parámetros del expediente:', error)
-          return
+          setBusquedaProveedor(busquedaProveedoresRestaurada)
+          setServicios(serviciosMapeados)
+          serviciosInicializados.current = true
+        } else {
+          serviciosInicializados.current = false
         }
 
-        if (data) {
-          // Rellenar todos los inputs de la UI con valores de la BD
+        // ============ MAPEO DE PARÁMETROS DEL EXPEDIENTE ============
+        if (parametrosResponse.data) {
+          const data = parametrosResponse.data
           if (data.total_pax !== undefined && data.total_pax !== null) {
-            setNumTotalPasajeros(String(data.total_pax))
+            setNumTotalPasajeros(String(Number(data.total_pax)))
           }
           if (data.gratuidades !== undefined && data.gratuidades !== null) {
-            setNumGratuidades(String(data.gratuidades))
+            setNumGratuidades(String(Number(data.gratuidades)))
           }
           if (data.precio_venta_cliente !== undefined && data.precio_venta_cliente !== null) {
-            setPrecioVentaManual(String(data.precio_venta_cliente))
+            setPrecioVentaManual(String(Number(data.precio_venta_cliente)))
           }
           if (data.bonificacion_pax !== undefined && data.bonificacion_pax !== null) {
-            setBonificacionPorPersona(String(data.bonificacion_pax))
+            setBonificacionPorPersona(String(Number(data.bonificacion_pax)))
           }
           if (data.dias_guia !== undefined && data.dias_guia !== null) {
-            setNumDias(parseInt(data.dias_guia) || 1)
+            setNumDias(Number(data.dias_guia) || 1)
           }
-          console.log('✅ Parámetros del expediente cargados:', data)
         }
+
+        // ============ CÁLCULO AUTOMÁTICO POST-CARGA ============
+        // El useMemo se recalculará automáticamente al cambiar 'servicios' o parámetros
+
       } catch (err) {
-        console.error('Error inesperado cargando parámetros del expediente:', err)
+        console.error('Error cargando datos:', err)
       }
     }
 
-    cargarParametrosExpediente()
-  }, [expediente?.id])
+    if (expediente?.id && proveedores.length > 0) {
+      cargarDatosCompletos()
+    }
+  }, [expediente?.id, proveedores])
 
   // ============ INICIALIZACIÓN AUTOMÁTICA DE SERVICIOS SI NO HAY NADA EN BD ============
   // Carga automática: Si la lista de servicios está vacía, inicializar con 5 servicios básicos
@@ -444,7 +366,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       },
     ]
 
-    console.log('🔄 Inicializando servicios automáticamente (sin registros en BD):', serviciosIniciales)
     setServicios(serviciosIniciales)
     serviciosInicializados.current = true // Marcar como inicializado
   }, [servicios])
@@ -763,8 +684,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     return calcularCotizacion()
   }, [servicios, numTotalPasajeros, numGratuidades, numDias, bonificacionPorPersona, precioVentaManual])
 
-  // ============ FUNCIÓN DE GUARDADO (ROOT FIX) ============
-  // Reescrita desde cero: limpia números, guarda en expedientes y servicios_cotizacion con feedback
+  // ============ FUNCIÓN DE GUARDADO REESCRITA ============
   const guardarCotizacion = async () => {
     if (!window.confirm('¿Desea guardar los cambios en la cotización?')) {
       return
@@ -777,61 +697,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
 
     try {
-      // ============ PASO 1: LIMPIAR TODOS LOS NÚMEROS ============
-      alert('🔄 Paso 1/3: Limpiando datos numéricos...')
-      
-      // Calcular valores
-      const totalPax = limpiarNumero(numTotalPasajeros)
-      const paxPago = limpiarNumero(parseInt(numTotalPasajeros) - parseInt(numGratuidades))
-      
-      // Preparar datos para expedientes (todos limpios)
-      const datosExpediente = {
-        precio_venta_cliente: limpiarNumero(precioVentaManual),
-        total_pax: totalPax,
-        gratuidades: limpiarNumero(numGratuidades),
-        pax_pago: paxPago,
-        bonificacion_pax: limpiarNumero(bonificacionPorPersona),
-        dias_guia: parseInt(String(numDias).replace(/[^0-9]+/g, '')) || 1,
+      // ============ FUNCIÓN INTERNA DE LIMPIEZA ============
+      const limpiarDatosNumericos = (valor) => {
+        if (valor === null || valor === undefined || valor === '') return 0
+        if (typeof valor === 'number') return isNaN(valor) ? 0 : valor
+        const limpio = String(valor)
+          .replace(/€/g, '')
+          .replace(/pax/g, '')
+          .replace(/\./g, '')
+          .replace(/,/g, '.')
+          .replace(/[^0-9.-]+/g, '')
+          .trim()
+        const resultado = parseFloat(limpio)
+        return isNaN(resultado) ? 0 : resultado
       }
-      
-      console.log('📤 Datos limpios para expedientes:', datosExpediente)
-      
-      // ============ PASO 2: GUARDAR EN TABLA EXPEDIENTES ============
-      alert('🔄 Paso 2/3: Guardando parámetros globales en expedientes...')
-      
-      const { error: errorExpediente } = await supabase
-        .from('expedientes')
-        .update(datosExpediente)
-        .eq('id', expedienteId)
 
-      if (errorExpediente) {
-        const errorMsg = `Código: ${errorExpediente.code || 'UNKNOWN'}\nMensaje: ${errorExpediente.message || JSON.stringify(errorExpediente)}\nDetalles: ${errorExpediente.details || errorExpediente.hint || 'N/A'}`
-        alert(`❌ ERROR en Paso 2 (expedientes):\n\n${errorMsg}\n\nProceso detenido.`)
-        console.error('❌ Error guardando expedientes:', errorExpediente)
-        return
-      }
-      
-      alert('✅ Paso 2/3 completado: Parámetros guardados en expedientes')
-
-      // ============ PASO 3: GUARDAR EN SERVICIOS_COTIZACION ============
-      alert('🔄 Paso 3/3: Guardando servicios en servicios_cotizacion...')
-      
-      // Eliminar servicios existentes
-      const expedienteIdParaInsert = String(expedienteId).trim()
-      
-      const { error: errorDelete } = await supabase
-        .from('servicios_cotizacion')
-        .delete()
-        .eq('id_expediente', expedienteIdParaInsert)
-
-      if (errorDelete) {
-        const errorMsg = `Código: ${errorDelete.code || 'UNKNOWN'}\nMensaje: ${errorDelete.message || JSON.stringify(errorDelete)}`
-        alert(`❌ ERROR eliminando servicios anteriores:\n\n${errorMsg}\n\nProceso detenido.`)
-        console.error('❌ Error eliminando servicios:', errorDelete)
-        return
-      }
-      
-      // Preparar servicios con limpieza de números
       const convertirFechaRelease = (fechaRelease) => {
         if (!fechaRelease || fechaRelease === '' || fechaRelease === null) return null
         if (typeof fechaRelease === 'string' && /^\d{4}-\d{2}-\d{2}/.test(fechaRelease)) return fechaRelease
@@ -846,48 +726,71 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           return null
         }
       }
-      
+
       const validarProveedorId = (valor) => {
         if (!valor || valor === null || valor === undefined) return null
-        const idNum = typeof valor === 'string' ? parseInt(valor) : valor
+        const idNum = typeof valor === 'string' ? Number(valor) : Number(valor)
         if (isNaN(idNum) || idNum <= 0) return null
         return idNum
       }
+
+      // ============ PASO 1: GUARDAR EXPEDIENTE ============
+      const totalPax = limpiarDatosNumericos(numTotalPasajeros)
+      const paxPago = limpiarDatosNumericos(Number(numTotalPasajeros) - Number(numGratuidades))
+      
+      const datosExpediente = {
+        precio_venta_cliente: limpiarDatosNumericos(precioVentaManual),
+        total_pax: totalPax,
+        gratuidades: limpiarDatosNumericos(numGratuidades),
+        pax_pago: paxPago,
+        bonificacion_pax: limpiarDatosNumericos(bonificacionPorPersona),
+        dias_guia: Number(numDias) || 1,
+      }
+      
+      const { error: errorExpediente } = await supabase
+        .from('expedientes')
+        .update(datosExpediente)
+        .eq('id', expedienteId)
+
+      if (errorExpediente) {
+        console.error('Error guardando expediente:', errorExpediente)
+        alert(`❌ Error guardando expediente:\n\n${errorExpediente.message || JSON.stringify(errorExpediente)}`)
+        return
+      }
+
+      // ============ PASO 2: GUARDAR SERVICIOS ============
+      const expedienteIdParaInsert = String(expedienteId).trim()
       
       const serviciosParaGuardar = servicios.map(s => {
         const proveedorIdInt = validarProveedorId(s.proveedorId)
         const textoBusqueda = busquedaProveedor[s.id] ? String(busquedaProveedor[s.id]).trim() : ''
-        let nombreProveedor = null
         
+        // Determinar nombre del proveedor
+        let nombreProveedorManual = null
         if (proveedorIdInt) {
-          const proveedor = proveedores.find(p => {
-            const proveedorIdNum = typeof p.id === 'string' ? parseInt(p.id) : p.id
-            return proveedorIdNum === proveedorIdInt
-          })
-          nombreProveedor = proveedor ? proveedor.nombreComercial : textoBusqueda || null
+          const proveedor = proveedores.find(p => Number(p.id) === proveedorIdInt)
+          nombreProveedorManual = proveedor ? proveedor.nombreComercial : (textoBusqueda || null)
         } else if (textoBusqueda) {
-          nombreProveedor = textoBusqueda
+          nombreProveedorManual = textoBusqueda
         }
         
         return {
           id: s.id || generarUUID(),
           id_expediente: expedienteIdParaInsert,
-          proveedor_id_int: proveedorIdInt, // ID numérico correcto (int8)
-          proveedor_nombre: nombreProveedor,
-          proveedor_nombre_temporal: proveedorIdInt ? null : nombreProveedor,
+          proveedor_id_int: proveedorIdInt,
+          nombre_proveedor_manual: nombreProveedorManual,
           tipo_servicio: String(s.tipo || '').trim(),
           nombre_especifico: String(s.nombreEspecifico || '').trim(),
           localizacion: String(s.localizacion || '').trim(),
-          // TODOS los números pasan por limpiarNumero (quita '€', cambia ',' por '.')
-          coste_unitario: limpiarNumero(s.costeUnitario),
-          precio_venta: limpiarNumero(s.precioVenta),
-          margen_pax: limpiarNumero(s.margen),
-          pax_total: limpiarNumero(numTotalPasajeros),
-          pax_pago: limpiarNumero(parseInt(numTotalPasajeros) - parseInt(numGratuidades)),
-          pax_gratis: limpiarNumero(numGratuidades),
-          noches: parseInt(String(s.noches).replace(/[^0-9]+/g, '')) || 0,
-          dias_guia: parseInt(String(numDias).replace(/[^0-9]+/g, '')) || 1,
-          bonificacion_pax: limpiarNumero(bonificacionPorPersona),
+          coste_unitario: limpiarDatosNumericos(s.costeUnitario),
+          precio_venta: limpiarDatosNumericos(s.precioVenta),
+          margen_pax: limpiarDatosNumericos(s.margen),
+          pax_total: limpiarDatosNumericos(numTotalPasajeros),
+          pax_pago: limpiarDatosNumericos(Number(numTotalPasajeros) - Number(numGratuidades)),
+          pax_gratis: limpiarDatosNumericos(numGratuidades),
+          noches: Number(s.noches) || 0,
+          dias_guia: Number(numDias) || 1,
+          bonificacion_pax: limpiarDatosNumericos(bonificacionPorPersona),
           tipo_calculo: String(s.tipoCalculo || 'porPersona').trim(),
           fecha_release: convertirFechaRelease(s.fechaRelease),
         }
@@ -899,91 +802,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           .upsert(serviciosParaGuardar, { onConflict: 'id' })
 
         if (errorUpsert) {
-          const errorMsg = `Código: ${errorUpsert.code || 'UNKNOWN'}\nMensaje: ${errorUpsert.message || JSON.stringify(errorUpsert)}\nDetalles: ${errorUpsert.details || errorUpsert.hint || 'N/A'}`
-          alert(`❌ ERROR en Paso 3 (servicios_cotizacion):\n\n${errorMsg}\n\nProceso detenido.`)
-          console.error('❌ Error guardando servicios:', errorUpsert)
+          console.error('Error guardando servicios:', errorUpsert)
+          alert(`❌ Error guardando servicios:\n\n${errorUpsert.message || JSON.stringify(errorUpsert)}`)
           return
         }
-        
-        alert(`✅ Paso 3/3 completado: ${serviciosParaGuardar.length} servicio(s) guardado(s) correctamente`)
-        console.log(`✅ ${serviciosParaGuardar.length} servicio(s) guardado(s)`)
-      } else {
-        alert('ℹ️ No hay servicios para guardar')
       }
 
       // Actualizar expediente en memoria
-      const totalPaxFinal = limpiarNumero(numTotalPasajeros)
-      const paxPagoFinal = limpiarNumero(parseInt(numTotalPasajeros) - parseInt(numGratuidades))
       const expedienteActualizado = {
         ...expediente,
-        total_pax: totalPaxFinal,
-        pax_pago: paxPagoFinal,
+        total_pax: totalPax,
+        pax_pago: paxPago,
       }
       onUpdate(expedienteActualizado)
 
-      // Recargar servicios desde Supabase
-      console.log('🔄 Recargando servicios desde Supabase...')
-      const { data: serviciosRecargados, error: errorRefetch } = await supabase
-        .from('servicios_cotizacion')
-        .select('*')
-        .eq('id_expediente', expedienteIdParaInsert)
-        .order('id', { ascending: true })
-
-      if (!errorRefetch && Array.isArray(serviciosRecargados) && serviciosRecargados.length > 0) {
-        const serviciosMapeados = serviciosRecargados.map(row => {
-          const proveedorIdInt = row.proveedor_id_int ? parseInt(row.proveedor_id_int) : null
-          let nombreProveedor = null
-          
-          if (proveedorIdInt) {
-            const proveedorEncontrado = proveedores.find(p => {
-              const proveedorIdLista = typeof p.id === 'string' ? parseInt(p.id) : (typeof p.id === 'number' ? p.id : null)
-              return proveedorIdLista !== null && !isNaN(proveedorIdLista) && proveedorIdLista === proveedorIdInt
-            })
-            if (proveedorEncontrado) {
-              nombreProveedor = proveedorEncontrado.nombreComercial
-            }
-          }
-          
-          return {
-            id: row.id || generarUUID(),
-            proveedorId: proveedorIdInt,
-            proveedorNombreTemporal: row.proveedor_nombre_temporal || '',
-            tipo: row.tipo_servicio || row.tipo || 'Hotel',
-            nombreEspecifico: row.nombre_especifico || '',
-            localizacion: row.localizacion || '',
-            costeUnitario: row.coste_unitario !== null && row.coste_unitario !== undefined ? parseFloat(row.coste_unitario) : 0,
-            precioVenta: row.precio_venta !== null && row.precio_venta !== undefined ? parseFloat(row.precio_venta) : 0,
-            margen: row.margen_pax !== null && row.margen_pax !== undefined ? parseFloat(row.margen_pax) : 0,
-            noches: row.noches !== null && row.noches !== undefined ? parseInt(row.noches) : 0,
-            fechaRelease: row.fecha_release || '',
-            tipoCalculo: row.tipo_calculo || 'porPersona',
-          }
-        })
-        
-        const busquedaRestaurada = {}
-        serviciosMapeados.forEach(servicio => {
-          if (servicio.proveedorNombreTemporal) {
-            busquedaRestaurada[servicio.id] = servicio.proveedorNombreTemporal
-          } else if (servicio.proveedorId) {
-            const proveedor = proveedores.find(p => {
-              const proveedorIdLista = typeof p.id === 'string' ? parseInt(p.id) : (typeof p.id === 'number' ? p.id : null)
-              return proveedorIdLista !== null && !isNaN(proveedorIdLista) && proveedorIdLista === servicio.proveedorId
-            })
-            if (proveedor) {
-              busquedaRestaurada[servicio.id] = proveedor.nombreComercial
-            }
-          }
-        })
-        
-        setBusquedaProveedor(busquedaRestaurada)
-        setServicios(serviciosMapeados)
-        console.log('✅ Servicios recargados correctamente')
-      }
-
-      alert('✅ ¡Cotización guardada completamente!')
+      alert('¡Cotización sincronizada correctamente!')
       
     } catch (error) {
-      console.error('❌ Error inesperado:', error)
+      console.error('Error inesperado:', error)
       alert(`❌ Error inesperado:\n\n${error.message || JSON.stringify(error)}`)
     }
   }
@@ -1004,7 +840,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       documentos,
     }
     onUpdate(expedienteActualizado)
-    console.log('✅ Rooming list guardado correctamente')
   }
 
   // ============ EDITAR CLIENTE ============
@@ -1042,7 +877,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
     onUpdate(expedienteActualizado)
     setEditandoCliente(false)
-    console.log('✅ Cliente actualizado correctamente')
   }
 
   const cancelarEdicionCliente = () => {
