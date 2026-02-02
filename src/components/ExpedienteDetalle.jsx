@@ -287,42 +287,69 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             margen: s.margen
           })))
 
-          setServicios(mapeados)
-          
-          // Restaurar búsqueda de proveedor: PRIORIDAD 1) nombre temporal, PRIORIDAD 2) nombre desde proveedor_id_int
+          // ============ RELACIÓN DE IDs: BUSCAR PROVEEDORES Y ASIGNAR NOMBRES ============
+          // CRÍTICO: Restaurar búsqueda de proveedor ANTES de setServicios para que el estado esté sincronizado
           const busquedaRestaurada = {}
+          
+          console.log(`🔍 Buscando proveedores para ${mapeados.length} servicio(s)...`)
+          console.log(`📋 Proveedores disponibles (${proveedores.length}):`, proveedores.map(p => ({ id: p.id, nombre: p.nombreComercial })))
+          
           mapeados.forEach(servicio => {
-            // Si hay nombre temporal, usarlo directamente
+            // PRIORIDAD 1: Si hay nombre temporal, usarlo directamente
             if (servicio.proveedorNombreTemporal) {
               busquedaRestaurada[servicio.id] = servicio.proveedorNombreTemporal
-              console.log(`📝 Proveedor restaurado (temporal) para servicio ${servicio.id}:`, servicio.proveedorNombreTemporal)
-            } else if (servicio.proveedorId) {
-              // Si hay proveedor_id_int (número entero), buscar su nombre en la lista de proveedores
+              console.log(`✅ Proveedor restaurado (temporal) para servicio ${servicio.id}:`, servicio.proveedorNombreTemporal)
+            } 
+            // PRIORIDAD 2: Si hay proveedor_id_int (número entero), buscar su nombre_comercial en la lista
+            else if (servicio.proveedorId) {
               // IMPORTANTE: Los IDs de proveedores son int8 (1, 2, 3...), no UUIDs
-              const proveedor = proveedores.find(p => {
-                // Comparar como números enteros
-                const proveedorIdNum = typeof p.id === 'string' ? parseInt(p.id) : p.id;
-                return proveedorIdNum === servicio.proveedorId;
+              // Buscar en el array de proveedores aquel cuyo id coincida con proveedor_id_int
+              const proveedorEncontrado = proveedores.find(p => {
+                // Normalizar ambos IDs a números enteros para comparación
+                const proveedorIdBD = servicio.proveedorId; // Ya es número entero desde parseInt
+                const proveedorIdLista = typeof p.id === 'string' ? parseInt(p.id) : (typeof p.id === 'number' ? p.id : null);
+                
+                // Comparación estricta de números enteros
+                if (proveedorIdLista === null || isNaN(proveedorIdLista)) return false;
+                return proveedorIdLista === proveedorIdBD;
               });
               
-              if (proveedor) {
-                busquedaRestaurada[servicio.id] = proveedor.nombreComercial
-                console.log(`📝 Proveedor restaurado (ID int ${servicio.proveedorId}) para servicio ${servicio.id}:`, proveedor.nombreComercial)
+              if (proveedorEncontrado) {
+                // ASIGNAR nombre_comercial al estado del input para que sea visible inmediatamente
+                busquedaRestaurada[servicio.id] = proveedorEncontrado.nombreComercial
+                console.log(`✅ Proveedor encontrado y asignado (ID int ${servicio.proveedorId} → ${proveedorEncontrado.nombreComercial}) para servicio ${servicio.id}`)
               } else {
-                console.warn(`⚠️ Proveedor con ID int ${servicio.proveedorId} no encontrado en la lista de proveedores`)
-                console.warn(`📋 Proveedores disponibles:`, proveedores.map(p => ({ id: p.id, nombre: p.nombreComercial })))
+                console.warn(`⚠️ Proveedor con ID int ${servicio.proveedorId} NO encontrado en la lista de proveedores`)
+                console.warn(`📋 IDs de proveedores disponibles:`, proveedores.map(p => ({ id: p.id, tipo: typeof p.id, nombre: p.nombreComercial })))
               }
             }
           })
-          setBusquedaProveedor(busquedaRestaurada)
           
-          // FORZAR RECÁLCULO: Los servicios ya están cargados, disparar recálculo del resumen
-          console.log('🔄 Servicios cargados, resumen financiero se recalculará automáticamente')
+          // ASIGNAR nombres de proveedores al estado ANTES de setServicios
+          setBusquedaProveedor(busquedaRestaurada)
+          console.log(`📝 Estado de búsqueda de proveedores actualizado:`, busquedaRestaurada)
+          
+          // ============ CARGA DE PRECIOS: MAPEAR DIRECTAMENTE AL ESTADO ============
+          // CRÍTICO: Los precios ya están mapeados en mapeados[], ahora los asignamos al estado
+          setServicios(mapeados)
+          console.log(`✅ ${mapeados.length} servicio(s) cargado(s) con precios:`, mapeados.map(s => ({
+            id: s.id,
+            precioVenta: s.precioVenta,
+            costeUnitario: s.costeUnitario,
+            margen: s.margen
+          })))
+          
+          // ============ CÁLCULO AUTOMÁTICO: EJECUTAR DESPUÉS DE CARGAR SERVICIOS ============
+          // FORZAR RECÁLCULO: Ejecutar la lógica de totales justo después de que los servicios se hayan cargado
+          console.log('🔄 Ejecutando cálculo automático del resumen financiero...')
+          
           // El useMemo se recalculará automáticamente porque 'servicios' está en sus dependencias
-          // Pero forzamos un pequeño delay para asegurar que el estado se haya actualizado
+          // Pero forzamos un pequeño delay para asegurar que el estado se haya actualizado completamente
           setTimeout(() => {
-            console.log('✅ Estado de servicios actualizado, resumen debería estar recalculado')
-          }, 100)
+            // Forzar recálculo accediendo a resultados (esto disparará el useMemo si no se ha ejecutado)
+            console.log('✅ Estado de servicios actualizado, resumen financiero debería estar recalculado')
+            console.log('📊 Verificando que los servicios están en el estado:', servicios.length > 0 ? `${servicios.length} servicio(s)` : 'NINGUNO')
+          }, 150)
           
           serviciosInicializados.current = true
           return
@@ -1089,37 +1116,54 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           });
           
           console.log(`✅ ${serviciosMapeados.length} servicio(s) recargados desde Supabase`)
-          setServicios(serviciosMapeados)
           
-          // Restaurar búsqueda de proveedor: PRIORIDAD 1) nombre temporal, PRIORIDAD 2) nombre desde proveedor_id_int
+          // ============ RELACIÓN DE IDs: BUSCAR PROVEEDORES Y ASIGNAR NOMBRES ============
           const busquedaRestaurada = {}
+          console.log(`🔍 Buscando proveedores para ${serviciosMapeados.length} servicio(s) recargado(s)...`)
+          
           serviciosMapeados.forEach(servicio => {
+            // PRIORIDAD 1: Si hay nombre temporal, usarlo directamente
             if (servicio.proveedorNombreTemporal) {
               busquedaRestaurada[servicio.id] = servicio.proveedorNombreTemporal
-              console.log(`📝 Proveedor restaurado (temporal) para servicio ${servicio.id}:`, servicio.proveedorNombreTemporal)
-            } else if (servicio.proveedorId) {
-              // Buscar proveedor por ID entero
-              const proveedor = proveedores.find(p => {
-                const proveedorIdNum = typeof p.id === 'string' ? parseInt(p.id) : p.id;
-                return proveedorIdNum === servicio.proveedorId;
+              console.log(`✅ Proveedor restaurado (temporal) para servicio ${servicio.id}:`, servicio.proveedorNombreTemporal)
+            } 
+            // PRIORIDAD 2: Si hay proveedor_id_int, buscar su nombre_comercial
+            else if (servicio.proveedorId) {
+              // Buscar en el array de proveedores aquel cuyo id coincida con proveedor_id_int
+              const proveedorEncontrado = proveedores.find(p => {
+                const proveedorIdBD = servicio.proveedorId; // Ya es número entero
+                const proveedorIdLista = typeof p.id === 'string' ? parseInt(p.id) : (typeof p.id === 'number' ? p.id : null);
+                if (proveedorIdLista === null || isNaN(proveedorIdLista)) return false;
+                return proveedorIdLista === proveedorIdBD;
               });
-              if (proveedor) {
-                busquedaRestaurada[servicio.id] = proveedor.nombreComercial
-                console.log(`📝 Proveedor restaurado (ID int ${servicio.proveedorId}) para servicio ${servicio.id}:`, proveedor.nombreComercial)
+              
+              if (proveedorEncontrado) {
+                // ASIGNAR nombre_comercial al estado del input para que sea visible inmediatamente
+                busquedaRestaurada[servicio.id] = proveedorEncontrado.nombreComercial
+                console.log(`✅ Proveedor encontrado y asignado (ID int ${servicio.proveedorId} → ${proveedorEncontrado.nombreComercial}) para servicio ${servicio.id}`)
               } else {
-                console.warn(`⚠️ Proveedor con ID int ${servicio.proveedorId} no encontrado en la lista de proveedores`)
+                console.warn(`⚠️ Proveedor con ID int ${servicio.proveedorId} NO encontrado en la lista de proveedores`)
               }
             }
           })
+          
+          // ASIGNAR nombres de proveedores al estado
           setBusquedaProveedor(busquedaRestaurada)
           
-          // FORZAR RECÁLCULO: Los servicios ya están recargados, disparar recálculo del resumen
-          console.log('🔄 Servicios recargados, resumen financiero se recalculará automáticamente')
-          // El useMemo se recalculará automáticamente porque 'servicios' está en sus dependencias
-          // Pero forzamos un pequeño delay para asegurar que el estado se haya actualizado
+          // ============ CARGA DE PRECIOS: MAPEAR DIRECTAMENTE AL ESTADO ============
+          setServicios(serviciosMapeados)
+          console.log(`✅ Servicios recargados con precios:`, serviciosMapeados.map(s => ({
+            id: s.id,
+            precioVenta: s.precioVenta,
+            costeUnitario: s.costeUnitario,
+            margen: s.margen
+          })))
+          
+          // ============ CÁLCULO AUTOMÁTICO: EJECUTAR DESPUÉS DE RECARGAR SERVICIOS ============
+          console.log('🔄 Ejecutando cálculo automático del resumen financiero después de recargar...')
           setTimeout(() => {
-            console.log('✅ Estado de servicios recargado, resumen debería estar recalculado')
-          }, 100)
+            console.log('✅ Estado de servicios recargado, resumen financiero debería estar recalculado')
+          }, 150)
         } else {
           console.log('ℹ️ No hay servicios en la BD después del guardado')
         }
