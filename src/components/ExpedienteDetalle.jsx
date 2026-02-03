@@ -199,7 +199,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       setProveedores(proveedoresMapeados)
       
       try {
-        storage.set('proveedores', proveedoresMapeados)
+      storage.set('proveedores', proveedoresMapeados)
       } catch (storageError) {
         // Silenciar error de localStorage
       }
@@ -238,8 +238,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         // Cargar servicios y parámetros en paralelo
         const [serviciosResponse, parametrosResponse] = await Promise.all([
           supabase
-            .from('servicios_cotizacion')
-            .select('*')
+          .from('servicios_cotizacion')
+          .select('*')
             .eq('id_expediente', String(expedienteId).trim())
             .order('id', { ascending: true }),
           supabase
@@ -276,12 +276,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
             // Mapear servicio con validación numérica estricta
             return {
-              id: row.id || generarUUID(),
+            id: row.id || generarUUID(),
               proveedorId: proveedorIdInt,
               proveedorNombreTemporal: row.nombre_proveedor_manual || '',
-              tipo: row.tipo_servicio || row.tipo || 'Hotel',
-              nombreEspecifico: row.nombre_especifico || '',
-              localizacion: row.localizacion || '',
+            tipo: row.tipo_servicio || row.tipo || 'Hotel',
+            nombreEspecifico: row.nombre_especifico || '',
+            localizacion: row.localizacion || '',
               costeUnitario: row.coste_unitario !== null && row.coste_unitario !== undefined ? Number(row.coste_unitario) : 0,
               precioVenta: row.precio_venta !== null && row.precio_venta !== undefined ? Number(row.precio_venta) : 0,
               margen: row.margen_pax !== null && row.margen_pax !== undefined ? Number(row.margen_pax) : 0,
@@ -327,6 +327,108 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       cargarDatosCompletos()
     }
   }, [expediente?.id, proveedores])
+
+  // ============ CARGAR COBROS DEL EXPEDIENTE ============
+  const cargarCobros = async () => {
+    if (!expediente?.id) {
+      setCobros([])
+      return
+    }
+    
+    try {
+      const { data, error } = await supabase
+        .from('cobros_expediente')
+        .select('*')
+        .eq('expediente_id', expediente.id)
+        .order('fecha', { ascending: false })
+      
+      if (error) {
+        console.error('Error cargando cobros:', error)
+        setCobros([])
+        return
+      }
+      
+      // Actualizar estado inmediatamente para refrescar la UI
+      setCobros(data || [])
+    } catch (error) {
+      console.error('Error fatal cargando cobros:', error)
+      setCobros([])
+    }
+  }
+
+  // Cargar cobros cuando se abre la pestaña o cambia el expediente
+  useEffect(() => {
+    if (tab === 'cobros' && expediente?.id) {
+      cargarCobros()
+    } else if (tab !== 'cobros') {
+      // Limpiar cobros cuando se cambia de pestaña para optimizar memoria
+      setCobros([])
+    }
+  }, [tab, expediente?.id])
+
+  // ============ GUARDAR COBRO ============
+  const guardarCobro = async () => {
+    if (!expediente?.id) {
+      alert('❌ No se puede guardar: expediente no válido')
+      return
+    }
+
+    // Validación: Verificar que el expediente tenga un cliente asignado
+    const clienteId = expediente.cliente_id || expediente.clienteId
+    if (!clienteId) {
+      alert('⚠️ No se puede registrar el cobro: El expediente no tiene un cliente asignado.\n\nPor favor, asigna un cliente al expediente antes de registrar cobros.')
+      return
+    }
+
+    // Validación de importe
+    const importeLimpio = limpiarNumero(formCobro.importe)
+    if (importeLimpio <= 0) {
+      alert('❌ El importe debe ser mayor que 0')
+      return
+    }
+
+    // Validación de concepto
+    if (!formCobro.concepto || formCobro.concepto.trim() === '') {
+      alert('❌ El concepto es obligatorio')
+      return
+    }
+
+    try {
+      const datosCobro = {
+        expediente_id: expediente.id,
+        cliente_id: clienteId,
+        importe: importeLimpio,
+        metodo_pago: formCobro.metodo_pago,
+        cuenta_destino: formCobro.cuenta_destino,
+        concepto: formCobro.concepto.trim()
+      }
+
+      const { error } = await supabase
+        .from('cobros_expediente')
+        .insert([datosCobro])
+
+      if (error) {
+        console.error('Error guardando cobro:', error)
+        alert(`❌ Error guardando cobro:\n\n${error.message || JSON.stringify(error)}`)
+        return
+      }
+
+      // Recargar lista de cobros inmediatamente para refrescar la UI
+      await cargarCobros()
+
+      // Resetear formulario y cerrar modal
+      setFormCobro({
+        importe: '',
+        metodo_pago: 'Transferencia',
+        cuenta_destino: 'Caixabank',
+        concepto: ''
+      })
+      setShowModalCobro(false)
+    } catch (error) {
+      console.error('Error inesperado guardando cobro:', error)
+      alert(`❌ Error inesperado:\n\n${error.message || JSON.stringify(error)}`)
+    }
+  }
 
   // ============ INICIALIZACIÓN AUTOMÁTICA DE SERVICIOS SI NO HAY NADA EN BD ============
   // Carga automática: Si la lista de servicios está vacía, inicializar con 5 servicios básicos
@@ -428,6 +530,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     individuales: expediente?.pasajeros?.habitaciones?.individuales || 0,
   })
   const [documentos, setDocumentos] = useState(expediente?.documentos || [])
+  
+  // ============ ESTADOS PARA GESTIÓN DE COBROS ============
+  const [cobros, setCobros] = useState([])
+  const [showModalCobro, setShowModalCobro] = useState(false)
+  const [formCobro, setFormCobro] = useState({
+    importe: '',
+    metodo_pago: 'Transferencia',
+    cuenta_destino: 'Caixabank',
+    concepto: ''
+  })
   
   // Cliente editable
   const grupo = clientes.find(c => c.id === expediente?.clienteId) || {
@@ -836,10 +948,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
     
     const expedienteId = expediente?.id
-    if (!expedienteId) {
+      if (!expedienteId) {
       alert('❌ Error: El expediente no tiene ID. No se puede guardar.')
-      return
-    }
+        return
+      }
 
     try {
       // ============ FUNCIÓN INTERNA DE LIMPIEZA ============
@@ -956,8 +1068,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         ...expediente,
         total_pax: totalPax,
         pax_pago: paxPago,
-      }
-      onUpdate(expedienteActualizado)
+    }
+    onUpdate(expedienteActualizado)
 
       alert('¡Cotización sincronizada correctamente!')
       
@@ -2445,10 +2557,239 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
             {/* TAB: Cobros y Pagos */}
           {tab === 'cobros' && (
-              <div className="max-w-4xl mx-auto">
-                <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200">
-                  <h3 className="text-xl font-bold text-navy-900 mb-4">Cobros y Pagos</h3>
-                  <p className="text-gray-600">Funcionalidad en desarrollo</p>
+              <div className="max-w-6xl mx-auto space-y-6">
+                {/* Header con botón de registro */}
+                <div className="flex items-center justify-between">
+                  <h3 className="text-2xl font-bold text-navy-900">Gestión de Cobros</h3>
+                  <button
+                    onClick={() => setShowModalCobro(true)}
+                    className="btn-primary flex items-center gap-2"
+                  >
+                    <Plus size={20} />
+                    Registrar Nuevo Cobro
+                  </button>
+                </div>
+
+                {/* Resumen de Totales */}
+                {cobros.length > 0 && (
+                  <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl shadow-md p-6 border border-blue-200">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="text-center">
+                        <p className="text-sm text-gray-600 mb-1">Total Cobrado</p>
+                        <p className="text-3xl font-bold text-navy-900">
+                          {cobros.reduce((sum, c) => sum + Number(c.importe || 0), 0).toFixed(2)}€
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm text-gray-600 mb-1">Número de Cobros</p>
+                        <p className="text-3xl font-bold text-blue-600">{cobros.length}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm text-gray-600 mb-1">Último Cobro</p>
+                        <p className="text-lg font-semibold text-gray-800">
+                          {cobros[0]?.fecha 
+                            ? new Date(cobros[0].fecha).toLocaleDateString('es-ES', { 
+                                day: '2-digit', 
+                                month: '2-digit', 
+                                year: 'numeric' 
+                              })
+                            : '-'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tabla de Historial de Cobros */}
+                <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fecha</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Importe</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Método de Pago</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Cuenta Destino</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Concepto</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cobros.length === 0 ? (
+                          <tr>
+                            <td colSpan="5" className="text-center py-8 text-gray-500">
+                              No hay cobros registrados para este expediente
+                            </td>
+                          </tr>
+                        ) : (
+                          cobros.map((cobro) => {
+                            const fechaCobro = cobro.fecha ? new Date(cobro.fecha) : null
+                            const fechaFormateada = fechaCobro 
+                              ? fechaCobro.toLocaleDateString('es-ES', { 
+                                  day: '2-digit', 
+                                  month: '2-digit', 
+                                  year: 'numeric' 
+                                })
+                              : '-'
+                            
+                            return (
+                              <tr key={cobro.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                <td className="py-3 px-4 text-sm">{fechaFormateada}</td>
+                                <td className="py-3 px-4 text-sm font-semibold text-navy-900">
+                                  {Number(cobro.importe || 0).toFixed(2)}€
+                                </td>
+                                <td className="py-3 px-4 text-sm">{cobro.metodo_pago || '-'}</td>
+                                <td className="py-3 px-4 text-sm">{cobro.cuenta_destino || '-'}</td>
+                                <td className="py-3 px-4 text-sm">{cobro.concepto || '-'}</td>
+                              </tr>
+                            )
+                          })
+                        )}
+                      </tbody>
+                      {cobros.length > 0 && (
+                        <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                          <tr>
+                            <td colSpan="1" className="py-3 px-4 text-sm font-bold text-gray-700">
+                              Total Cobrado:
+                            </td>
+                            <td className="py-3 px-4 text-sm font-bold text-navy-900 text-lg">
+                              {cobros.reduce((sum, c) => sum + Number(c.importe || 0), 0).toFixed(2)}€
+                            </td>
+                            <td colSpan="3"></td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </div>
+              </div>
+          )}
+
+          {/* Modal de Registro de Cobro */}
+          {showModalCobro && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-2xl font-bold text-navy-900">Registrar Nuevo Cobro</h3>
+                  <button
+                    onClick={() => {
+                      setShowModalCobro(false)
+                      setFormCobro({
+                        importe: '',
+                        metodo_pago: 'Transferencia',
+                        cuenta_destino: 'Caixabank',
+                        concepto: ''
+                      })
+                    }}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Importe */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Importe (€) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formCobro.importe}
+                      onChange={(e) => {
+                        let valor = e.target.value
+                        // Permitir decimales con punto o coma
+                        if (valor.includes(',')) {
+                          valor = valor.replace(',', '.')
+                        }
+                        setFormCobro({ ...formCobro, importe: valor })
+                      }}
+                      onBlur={(e) => {
+                        const valorLimpio = limpiarNumero(e.target.value)
+                        setFormCobro({ ...formCobro, importe: valorLimpio > 0 ? valorLimpio.toFixed(2) : '' })
+                      }}
+                      placeholder="Ej: 66.50"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+
+                  {/* Método de Pago */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Método de Pago <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={formCobro.metodo_pago}
+                      onChange={(e) => setFormCobro({ ...formCobro, metodo_pago: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      <option value="Transferencia">Transferencia</option>
+                      <option value="Efectivo">Efectivo</option>
+                      <option value="Tarjeta">Tarjeta</option>
+                      <option value="Talón">Talón</option>
+                    </select>
+                  </div>
+
+                  {/* Cuenta Destino */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Cuenta Destino <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={formCobro.cuenta_destino}
+                      onChange={(e) => setFormCobro({ ...formCobro, cuenta_destino: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      <option value="Caixabank">Caixabank</option>
+                      <option value="Santander">Santander</option>
+                      <option value="Caja">Caja</option>
+                    </select>
+                  </div>
+
+                  {/* Concepto */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Concepto <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formCobro.concepto}
+                      onChange={(e) => setFormCobro({ ...formCobro, concepto: e.target.value })}
+                      placeholder="Ej: Depósito, Pago 2, Total"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Botones de acción */}
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={guardarCobro}
+                    className="btn-primary flex-1 flex items-center justify-center gap-2"
+                  >
+                    <Save size={20} />
+                    Guardar Cobro
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowModalCobro(false)
+                      setFormCobro({
+                        importe: '',
+                        metodo_pago: 'Transferencia',
+                        cuenta_destino: 'Caixabank',
+                        concepto: ''
+                      })
+                    }}
+                    className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
                 </div>
             </div>
           )}
