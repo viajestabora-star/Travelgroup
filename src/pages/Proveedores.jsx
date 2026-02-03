@@ -27,7 +27,7 @@ const Proveedores = () => {
   
   const [formData, setFormData] = useState({
     nombre_comercial: '', tipo: 'hotel', cif: '', persona_contacto: '',
-    telefono: '', email: '', movil: '', direccion: '', 
+    telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
     poblacion: '', provincia: '', iban: '', observaciones: ''
   })
 
@@ -144,7 +144,7 @@ const Proveedores = () => {
       setEditingId(null)
       setFormData({
         nombre_comercial: '', tipo: 'hotel', cif: '', persona_contacto: '',
-        telefono: '', email: '', movil: '', direccion: '', 
+        telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
         poblacion: '', provincia: '', iban: '', observaciones: ''
       })
     }
@@ -233,6 +233,9 @@ const Proveedores = () => {
               
               // Teléfono
               if (!formData.telefono || formData.telefono.trim() === '') camposFaltantes.push('Teléfono')
+              
+              // Teléfono Fijo
+              if (!formData.telefono_fijo || formData.telefono_fijo.trim() === '') camposFaltantes.push('Teléfono Fijo')
               
               // Móvil
               if (!formData.movil || formData.movil.trim() === '') camposFaltantes.push('Móvil')
@@ -329,6 +332,25 @@ const Proveedores = () => {
                     onChange={e=>setFormData({...formData, movil:e.target.value})} 
                   />
                   {(!formData.movil || formData.movil.trim() === '') && (
+                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                  )}
+               </div>
+               <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Teléfono Fijo
+                    {(!formData.telefono_fijo || formData.telefono_fijo.trim() === '') && (
+                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                    )}
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
+                    style={{
+                      border: (!formData.telefono_fijo || formData.telefono_fijo.trim() === '') ? '2px solid #f59e0b' : 'none'
+                    }}
+                    value={formData.telefono_fijo || ''} 
+                    onChange={e=>setFormData({...formData, telefono_fijo:e.target.value})} 
+                  />
+                  {(!formData.telefono_fijo || formData.telefono_fijo.trim() === '') && (
                     <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
                   )}
                </div>
