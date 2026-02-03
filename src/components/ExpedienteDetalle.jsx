@@ -48,6 +48,7 @@ const generarUUID = () => {
  * ============ FUNCIÓN ÚNICA DE LIMPIEZA DE NÚMEROS ============
  * Limpia todos los números: quita '€', cambia ',' por '.', elimina espacios y símbolos.
  * Ejemplo: "47,40€" -> 47.40 | "1.234,56 €" -> 1234.56 | "69 pax" -> 69
+ * PRESERVA DECIMALES: Mantiene decimales correctamente para inputs numéricos
  */
 const limpiarNumero = (valor) => {
   if (valor === null || valor === undefined || valor === '') return 0;
@@ -59,18 +60,58 @@ const limpiarNumero = (valor) => {
   // Convertir a string y limpiar
   let limpio = String(valor).trim();
   
-  // Paso 1: Cambiar comas por puntos (formato europeo: 1.234,56 -> 1234.56)
-  limpio = limpio.replace(/\./g, ''); // Eliminar puntos de miles
-  limpio = limpio.replace(/,/g, '.'); // Cambiar coma decimal por punto
+  // Detectar formato: si tiene coma y punto, es formato europeo (1.234,56)
+  // Si solo tiene punto o solo tiene coma, tratar como decimal
+  const tienePunto = limpio.includes('.');
+  const tieneComa = limpio.includes(',');
   
-  // Paso 2: Eliminar todo lo que no sea número, punto decimal o signo negativo
+  if (tienePunto && tieneComa) {
+    // Formato europeo: 1.234,56 -> eliminar punto de miles, convertir coma a punto
+    limpio = limpio.replace(/\./g, ''); // Eliminar puntos de miles
+    limpio = limpio.replace(/,/g, '.'); // Cambiar coma decimal por punto
+  } else if (tieneComa && !tienePunto) {
+    // Solo coma: formato europeo simple (66,50) -> convertir a punto
+    limpio = limpio.replace(/,/g, '.');
+  }
+  // Si solo tiene punto o no tiene ninguno, mantenerlo (formato americano o entero)
+  
+  // Eliminar todo lo que no sea número, punto decimal o signo negativo
   limpio = limpio.replace(/[^0-9.-]+/g, "");
   
-  // Paso 3: Parsear a float
+  // Parsear a float (PRESERVA DECIMALES)
   const resultado = parseFloat(limpio);
   
-  // Paso 4: Verificar que sea un número válido
+  // Verificar que sea un número válido
   return isNaN(resultado) ? 0 : resultado;
+};
+
+/**
+ * ============ FUNCIÓN ESPECÍFICA PARA INPUTS NUMÉRICOS ============
+ * Para inputs de tipo "number", preserva decimales directamente
+ * Maneja tanto formato americano (66.50) como europeo (66,50)
+ */
+const limpiarInputNumerico = (valor) => {
+  if (valor === null || valor === undefined || valor === '') return '';
+  if (typeof valor === 'number') {
+    return valor;
+  }
+  
+  let limpio = String(valor).trim();
+  
+  // Si tiene coma, convertirla a punto (formato europeo -> americano)
+  if (limpio.includes(',') && !limpio.includes('.')) {
+    limpio = limpio.replace(/,/g, '.');
+  }
+  
+  // Eliminar solo símbolos no numéricos (preservar punto decimal y signo negativo)
+  limpio = limpio.replace(/[^0-9.-]+/g, "");
+  
+  // Si está vacío después de limpiar, retornar string vacío para permitir edición
+  if (limpio === '' || limpio === '-') return '';
+  
+  // Parsear y retornar (preserva decimales)
+  const resultado = parseFloat(limpio);
+  return isNaN(resultado) ? '' : resultado;
 };
 
 // Alias para compatibilidad con código existente
@@ -1496,21 +1537,53 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <label className="label">Bonificación/Pax (€)</label>
                       <input
                         type="number"
-                        value={bonificacionPorPersona}
-                        onChange={(e) => setBonificacionPorPersona(e.target.value)}
+                        step="0.01"
+                        value={bonificacionPorPersona || ''}
+                        onChange={(e) => {
+                          const valorInput = e.target.value;
+                          // Si está vacío, permitir edición
+                          if (valorInput === '' || valorInput === '-') {
+                            setBonificacionPorPersona('');
+                            return;
+                          }
+                          // Convertir coma a punto (formato europeo -> americano)
+                          let valorLimpio = valorInput.replace(/,/g, '.');
+                          // Parsear a float para preservar decimales
+                          const valorNumerico = parseFloat(valorLimpio);
+                          if (!isNaN(valorNumerico)) {
+                            setBonificacionPorPersona(valorNumerico);
+                          } else {
+                            // Permitir edición parcial
+                            setBonificacionPorPersona(valorLimpio);
+                          }
+                        }}
                         onFocus={(e) => {
                           handleFocus(e)
                           e.target.style.borderColor = '#3b82f6'
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                         }}
                         onBlur={(e) => {
+                          // Al perder el foco, asegurar que el valor sea un número válido
+                          const valor = e.target.value;
+                          if (valor !== '' && valor !== '-') {
+                            const valorLimpio = valor.replace(/,/g, '.');
+                            const valorNumerico = parseFloat(valorLimpio);
+                            if (!isNaN(valorNumerico)) {
+                              setBonificacionPorPersona(valorNumerico);
+                            } else {
+                              setBonificacionPorPersona(0);
+                            }
+                          } else {
+                            setBonificacionPorPersona(0);
+                          }
                           e.target.style.borderColor = '#e2e8f0'
                           e.target.style.boxShadow = 'none'
                         }}
                         onWheel={handleWheel}
                         className="input-field transition-all"
                         style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                        step="0.01"
+                        placeholder="0.00"
+                        min="0"
                         tabIndex="4"
                       />
                     </div>
@@ -1518,23 +1591,54 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <label className="label font-bold text-green-700">💰 Precio Venta al Cliente (€/pax) *</label>
                       <input
                         type="number"
-                        value={precioVentaManual}
-                        onChange={(e) => setPrecioVentaManual(e.target.value)}
+                        step="0.01"
+                        value={precioVentaManual || ''}
+                        onChange={(e) => {
+                          const valorInput = e.target.value;
+                          // Si está vacío, permitir edición
+                          if (valorInput === '' || valorInput === '-') {
+                            setPrecioVentaManual('');
+                            return;
+                          }
+                          // Convertir coma a punto (formato europeo -> americano)
+                          let valorLimpio = valorInput.replace(/,/g, '.');
+                          // Parsear a float para preservar decimales
+                          const valorNumerico = parseFloat(valorLimpio);
+                          if (!isNaN(valorNumerico)) {
+                            setPrecioVentaManual(valorNumerico);
+                          } else {
+                            // Permitir edición parcial
+                            setPrecioVentaManual(valorLimpio);
+                          }
+                        }}
                         onFocus={(e) => {
                           handleFocus(e)
                           e.target.style.borderColor = '#3b82f6'
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                         }}
                         onBlur={(e) => {
+                          // Al perder el foco, asegurar que el valor sea un número válido
+                          const valor = e.target.value;
+                          if (valor !== '' && valor !== '-') {
+                            const valorLimpio = valor.replace(/,/g, '.');
+                            const valorNumerico = parseFloat(valorLimpio);
+                            if (!isNaN(valorNumerico)) {
+                              setPrecioVentaManual(valorNumerico);
+                            } else {
+                              setPrecioVentaManual(0);
+                            }
+                          } else {
+                            setPrecioVentaManual(0);
+                          }
                           e.target.style.borderColor = '#e2e8f0'
                           e.target.style.boxShadow = 'none'
                         }}
                         onWheel={handleWheel}
                         className="input-field transition-all font-bold text-lg"
                         style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                        step="0.01"
-                        tabIndex="5"
                         placeholder="Ej: 380.00"
+                        min="0"
+                        tabIndex="5"
                       />
                     </div>
                   </div>
@@ -1833,11 +1937,31 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                               <td className="px-2 py-2">
                                 <input
                                   type="number"
-                                  value={servicio.costeUnitario}
+                                  step="0.01"
+                                  value={servicio.costeUnitario || ''}
                                   onChange={(e) => {
-                                    // Limpiar el valor antes de actualizar (eliminar símbolos de moneda)
-                                    const valorLimpio = limpiarCosteUnitario(e.target.value);
-                                    actualizarServicio(servicio.id, 'costeUnitario', valorLimpio);
+                                    // Preservar decimales: usar parseFloat directamente para inputs numéricos
+                                    const valorInput = e.target.value;
+                                    
+                                    // Si está vacío, permitir edición
+                                    if (valorInput === '' || valorInput === '-') {
+                                      actualizarServicio(servicio.id, 'costeUnitario', '');
+                                      return;
+                                    }
+                                    
+                                    // Convertir coma a punto (formato europeo -> americano)
+                                    let valorLimpio = valorInput.replace(/,/g, '.');
+                                    
+                                    // Parsear a float para preservar decimales
+                                    const valorNumerico = parseFloat(valorLimpio);
+                                    
+                                    // Si es un número válido, actualizar; si no, mantener el string para permitir edición
+                                    if (!isNaN(valorNumerico)) {
+                                      actualizarServicio(servicio.id, 'costeUnitario', valorNumerico);
+                                    } else {
+                                      // Permitir edición parcial (ej: usuario escribiendo "66.")
+                                      actualizarServicio(servicio.id, 'costeUnitario', valorLimpio);
+                                    }
                                   }}
                                   onFocus={(e) => {
                                     handleFocus(e)
@@ -1845,14 +1969,27 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                                   }}
                                   onBlur={(e) => {
+                                    // Al perder el foco, asegurar que el valor sea un número válido
+                                    const valor = e.target.value;
+                                    if (valor !== '' && valor !== '-') {
+                                      const valorLimpio = valor.replace(/,/g, '.');
+                                      const valorNumerico = parseFloat(valorLimpio);
+                                      if (!isNaN(valorNumerico)) {
+                                        actualizarServicio(servicio.id, 'costeUnitario', valorNumerico);
+                                      } else {
+                                        actualizarServicio(servicio.id, 'costeUnitario', 0);
+                                      }
+                                    } else {
+                                      actualizarServicio(servicio.id, 'costeUnitario', 0);
+                                    }
                                     e.target.style.borderColor = '#e2e8f0'
                                     e.target.style.boxShadow = 'none'
                                   }}
                                   onWheel={handleWheel}
                                   className="input-field text-xs text-right w-28 transition-all"
                                   style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                                  step="0.01"
                                   placeholder="0.00"
+                                  min="0"
                                 />
                               </td>
 
