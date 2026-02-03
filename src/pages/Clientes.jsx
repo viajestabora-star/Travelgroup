@@ -174,16 +174,35 @@ const Clientes = () => {
               <button onClick={closeModal} className="p-2 bg-gray-100 rounded-full hover:bg-red-500 hover:text-white transition-all"><X size={24}/></button>
             </div>
             
-            <div 
-              style={{ 
-                background: 'white', 
-                padding: '32px', 
-                borderRadius: '24px', 
-                boxShadow: '0 20px 25px -5px rgba(0,0,0,0.05), 0 10px 10px -5px rgba(0,0,0,0.04)',
-                border: '1px solid #f1f5f9'
-              }}
-            >
-              <form onSubmit={handleSubmit}>
+            {/* Detección de campos faltantes */}
+            {(() => {
+              const camposFaltantes = []
+              if (!formData.email || formData.email.trim() === '') camposFaltantes.push('Email')
+              if (!formData.telefono || formData.telefono.trim() === '') camposFaltantes.push('Teléfono')
+              if (!formData.cif_nif || formData.cif_nif.trim() === '') camposFaltantes.push('CIF/NIF')
+              const hayCamposFaltantes = camposFaltantes.length > 0
+              
+              return (
+                <>
+                  {/* Banner de Aviso */}
+                  {hayCamposFaltantes && (
+                    <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-sm font-medium text-amber-800">
+                        ⚠️ Faltan datos: {camposFaltantes.join(', ')}
+                      </p>
+                    </div>
+                  )}
+                  
+                  <div 
+                    style={{ 
+                      background: 'white', 
+                      padding: '32px', 
+                      borderRadius: '24px', 
+                      boxShadow: '0 20px 25px -5px rgba(0,0,0,0.05), 0 10px 10px -5px rgba(0,0,0,0.04)',
+                      border: '1px solid #f1f5f9'
+                    }}
+                  >
+                    <form onSubmit={handleSubmit}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
@@ -216,6 +235,9 @@ const Clientes = () => {
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                       CIF / NIF
+                      {(!formData.cif_nif || formData.cif_nif.trim() === '') && (
+                        <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                      )}
                     </label>
                     <input 
                       className="w-full p-4 transition-all"
@@ -225,7 +247,7 @@ const Clientes = () => {
                         fontSize: '16px', 
                         fontWeight: '600',
                         borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
+                        border: (!formData.cif_nif || formData.cif_nif.trim() === '') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
                         marginTop: '4px'
                       }}
                       onFocus={(e) => {
@@ -233,16 +255,22 @@ const Clientes = () => {
                         e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                       }}
                       onBlur={(e) => {
-                        e.target.style.borderColor = '#e2e8f0'
+                        e.target.style.borderColor = (!formData.cif_nif || formData.cif_nif.trim() === '') ? '#f59e0b' : '#e2e8f0'
                         e.target.style.boxShadow = 'none'
                       }}
                       value={formData.cif_nif} 
                       onChange={e=>setFormData({...formData, cif_nif:e.target.value})} 
                     />
+                    {(!formData.cif_nif || formData.cif_nif.trim() === '') && (
+                      <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                    )}
                   </div>
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                       Teléfono de Contacto
+                      {(!formData.telefono || formData.telefono.trim() === '') && (
+                        <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                      )}
                     </label>
                     <input 
                       className="w-full p-4 transition-all"
@@ -252,7 +280,7 @@ const Clientes = () => {
                         fontSize: '16px', 
                         fontWeight: '600',
                         borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
+                        border: (!formData.telefono || formData.telefono.trim() === '') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
                         marginTop: '4px'
                       }}
                       onFocus={(e) => {
@@ -260,16 +288,22 @@ const Clientes = () => {
                         e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                       }}
                       onBlur={(e) => {
-                        e.target.style.borderColor = '#e2e8f0'
+                        e.target.style.borderColor = (!formData.telefono || formData.telefono.trim() === '') ? '#f59e0b' : '#e2e8f0'
                         e.target.style.boxShadow = 'none'
                       }}
                       value={formData.telefono} 
                       onChange={e=>setFormData({...formData, telefono:e.target.value})} 
                     />
+                    {(!formData.telefono || formData.telefono.trim() === '') && (
+                      <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                    )}
                   </div>
                   <div className="md:col-span-2">
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                       Email de Facturación / Envío
+                      {(!formData.email || formData.email.trim() === '') && (
+                        <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                      )}
                     </label>
                     <input 
                       type="email"
@@ -280,7 +314,7 @@ const Clientes = () => {
                         fontSize: '16px', 
                         fontWeight: '600',
                         borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
+                        border: (!formData.email || formData.email.trim() === '') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
                         marginTop: '4px'
                       }}
                       onFocus={(e) => {
@@ -288,12 +322,15 @@ const Clientes = () => {
                         e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                       }}
                       onBlur={(e) => {
-                        e.target.style.borderColor = '#e2e8f0'
+                        e.target.style.borderColor = (!formData.email || formData.email.trim() === '') ? '#f59e0b' : '#e2e8f0'
                         e.target.style.boxShadow = 'none'
                       }}
                       value={formData.email} 
                       onChange={e=>setFormData({...formData, email:e.target.value})} 
                     />
+                    {(!formData.email || formData.email.trim() === '') && (
+                      <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                    )}
                   </div>
                   <div className="md:col-span-2">
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
@@ -527,7 +564,10 @@ const Clientes = () => {
                   </button>
                 </div>
               </form>
-            </div>
+                    </div>
+                  </>
+                )
+              })()}
           </div>
         </div>
       )}

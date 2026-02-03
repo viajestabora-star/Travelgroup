@@ -445,6 +445,50 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   const [clienteEditado, setClienteEditado] = useState(grupo)
 
+  // ============ SISTEMA DE AVISOS DE INTEGRIDAD DE DATOS ============
+  // Detección simple y directa de campos faltantes
+  const datosClienteActuales = editandoCliente ? clienteEditado : grupo
+  
+  const camposFaltantes = useMemo(() => {
+    const faltantes = []
+    const email = datosClienteActuales.email
+    const telefono = datosClienteActuales.movilResponsable || datosClienteActuales.telefono
+    const nif = datosClienteActuales.cif || datosClienteActuales.cif_nif
+    
+    if (!email || String(email).trim() === '' || email === '-') {
+      faltantes.push('Email')
+    }
+    if (!telefono || String(telefono).trim() === '' || telefono === '-') {
+      faltantes.push('Teléfono')
+    }
+    if (!nif || String(nif).trim() === '' || nif === '-') {
+      faltantes.push('CIF/NIF')
+    }
+    
+    return faltantes
+  }, [datosClienteActuales, editandoCliente, clienteEditado, grupo])
+
+  const hayCamposFaltantes = camposFaltantes.length > 0
+
+  // Función helper para verificar si un campo específico está vacío
+  const esCampoVacio = (campoKey) => {
+    const datos = datosClienteActuales
+    switch(campoKey) {
+      case 'email':
+        return !datos.email || String(datos.email).trim() === '' || datos.email === '-'
+      case 'telefono':
+        const tel = datos.movilResponsable || datos.telefono
+        return !tel || String(tel).trim() === '' || tel === '-'
+      case 'cif':
+        const cif = datos.cif || datos.cif_nif
+        return !cif || String(cif).trim() === '' || cif === '-'
+      case 'direccion':
+        return !datos.direccion || String(datos.direccion).trim() === '' || datos.direccion === '-'
+      default:
+        return false
+    }
+  }
+
   // ⚠️ BLINDAJE NIVEL 2: Cálculo seguro de pasajeros de pago
   const paxPago = Math.max(1, (parseInt(numTotalPasajeros) || 1) - (parseInt(numGratuidades) || 0))
   const totalPax = Math.max(1, parseInt(numTotalPasajeros) || 1)
@@ -1064,6 +1108,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       </div>
                     </div>
                     
+                  {/* Banner de Aviso de Integridad de Datos */}
+                  {hayCamposFaltantes && (
+                    <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-sm font-medium text-amber-800">
+                        ⚠️ Faltan datos: {camposFaltantes.join(', ')}
+                      </p>
+                    </div>
+                  )}
+                    
                   {/* Rejilla limpia */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="md:col-span-2">
@@ -1097,7 +1150,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       )}
                     </div>
                     <div>
-                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>CIF</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                        CIF
+                        {esCampoVacio('cif') && (
+                          <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                        )}
+                      </label>
                       {editandoCliente ? (
                         <input
                           type="text"
@@ -1187,7 +1245,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       )}
                     </div>
                     <div>
-                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Móvil</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                        Móvil
+                        {esCampoVacio('telefono') && (
+                          <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                        )}
+                      </label>
                       {editandoCliente ? (
                         <input
                           type="text"
@@ -1217,7 +1280,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       )}
                     </div>
                     <div className="md:col-span-2">
-                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Email</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                        Email
+                        {esCampoVacio('email') && (
+                          <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                        )}
+                      </label>
                       {editandoCliente ? (
                         <input
                           type="email"
@@ -1247,7 +1315,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       )}
                     </div>
                     <div className="md:col-span-2">
-                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Dirección</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                        Dirección
+                        {esCampoVacio('direccion') && (
+                          <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                        )}
+                      </label>
                       {editandoCliente ? (
                         <input
                           type="text"

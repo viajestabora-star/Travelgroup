@@ -224,7 +224,26 @@ const Proveedores = () => {
               <button onClick={closeModal} className="p-4 bg-slate-100 rounded-full hover:bg-red-500 hover:text-white transition-all"><X size={32}/></button>
             </div>
             
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {/* Detección de campos faltantes */}
+            {(() => {
+              const camposFaltantes = []
+              if (!formData.email || formData.email.trim() === '') camposFaltantes.push('Email')
+              if (!formData.movil || formData.movil.trim() === '') camposFaltantes.push('Teléfono')
+              if (!formData.cif || formData.cif.trim() === '') camposFaltantes.push('CIF')
+              const hayCamposFaltantes = camposFaltantes.length > 0
+              
+              return (
+                <>
+                  {/* Banner de Aviso */}
+                  {hayCamposFaltantes && (
+                    <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-sm font-medium text-amber-800">
+                        ⚠️ Faltan datos: {camposFaltantes.join(', ')}
+                      </p>
+                    </div>
+                  )}
+                  
+                  <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-8">
                <div className="md:col-span-2 space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Nombre Comercial *</label>
                   <input required className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-blue-100" value={formData.nombre_comercial} onChange={e=>setFormData({...formData, nombre_comercial:e.target.value})} />
@@ -241,12 +260,43 @@ const Proveedores = () => {
                   <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" value={formData.persona_contacto} onChange={e=>setFormData({...formData, persona_contacto:e.target.value})} />
                </div>
                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">Email Reservas</label>
-                  <input type="email" className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" value={formData.email} onChange={e=>setFormData({...formData, email:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Email Reservas
+                    {(!formData.email || formData.email.trim() === '') && (
+                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                    )}
+                  </label>
+                  <input 
+                    type="email" 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
+                    style={{
+                      border: (!formData.email || formData.email.trim() === '') ? '2px solid #f59e0b' : 'none'
+                    }}
+                    value={formData.email} 
+                    onChange={e=>setFormData({...formData, email:e.target.value})} 
+                  />
+                  {(!formData.email || formData.email.trim() === '') && (
+                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                  )}
                </div>
                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">Móvil WhatsApp</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" value={formData.movil} onChange={e=>setFormData({...formData, movil:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Móvil WhatsApp
+                    {(!formData.movil || formData.movil.trim() === '') && (
+                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                    )}
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
+                    style={{
+                      border: (!formData.movil || formData.movil.trim() === '') ? '2px solid #f59e0b' : 'none'
+                    }}
+                    value={formData.movil} 
+                    onChange={e=>setFormData({...formData, movil:e.target.value})} 
+                  />
+                  {(!formData.movil || formData.movil.trim() === '') && (
+                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                  )}
                </div>
 
                <div className="md:col-span-3 space-y-2">
@@ -262,8 +312,23 @@ const Proveedores = () => {
                   <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" value={formData.provincia} onChange={e=>setFormData({...formData, provincia:e.target.value})} />
                </div>
                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">CIF</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" value={formData.cif} onChange={e=>setFormData({...formData, cif:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    CIF
+                    {(!formData.cif || formData.cif.trim() === '') && (
+                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                    )}
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
+                    style={{
+                      border: (!formData.cif || formData.cif.trim() === '') ? '2px solid #f59e0b' : 'none'
+                    }}
+                    value={formData.cif} 
+                    onChange={e=>setFormData({...formData, cif:e.target.value})} 
+                  />
+                  {(!formData.cif || formData.cif.trim() === '') && (
+                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                  )}
                </div>
 
                <div className="md:col-span-2 space-y-2">
@@ -275,7 +340,10 @@ const Proveedores = () => {
                   <button type="submit" className="flex-[2] bg-slate-900 text-white py-8 rounded-[2rem] font-black italic uppercase text-2xl tracking-tighter shadow-2xl hover:bg-blue-600 transition-all">Sincronizar Proveedor</button>
                   <button type="button" onClick={closeModal} className="flex-1 bg-slate-100 text-slate-400 py-8 rounded-[2rem] font-black uppercase italic">Descartar</button>
                </div>
-            </form>
+                  </form>
+                </>
+              )
+            })()}
           </div>
         </div>
       )}
