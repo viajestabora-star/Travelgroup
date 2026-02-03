@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { FileText, Plus, Trash2, X, Search, UserPlus, Download, Calendar } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
@@ -144,6 +145,8 @@ const parsearFecha = parsearFechaADate  // Devuelve Date object para comparacion
 const formatearFecha = formatearFechaVisual  // Devuelve DD/MM/AAAA para mostrar
 
 const Expedientes = () => {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [expedientes, setExpedientes] = useState([])
   const [clientes, setClientes] = useState([])
   const [showExpedienteModal, setShowExpedienteModal] = useState(false)
@@ -224,6 +227,22 @@ const Expedientes = () => {
     })
     return unsubscribe
   }, [])
+
+  // ============ DETECCIÓN DE NAVEGACIÓN DESDE DASHBOARD ============
+  // Abrir expediente automáticamente si se navega desde Dashboard con un ID
+  useEffect(() => {
+    if (location.state?.abrirExpedienteId && expedientes.length > 0) {
+      const expedienteId = location.state.abrirExpedienteId
+      const expedienteEncontrado = expedientes.find(exp => exp.id === expedienteId)
+      
+      if (expedienteEncontrado) {
+        setExpedienteActual(expedienteEncontrado)
+        setShowDetalleModal(true)
+        // Limpiar el estado de navegación para evitar reabrir al recargar
+        navigate(location.pathname, { replace: true, state: {} })
+      }
+    }
+  }, [location.state, expedientes, navigate])
 
   // Cargar expedientes desde Supabase
   const loadData = async () => {

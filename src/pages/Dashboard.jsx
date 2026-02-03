@@ -507,10 +507,11 @@ const Dashboard = () => {
                   <div
                     key={release.id}
                     onClick={() => {
-                      // Navegar a expedientes y almacenar el ID para abrir el detalle
-                      navigate('/expedientes', { state: { abrirExpediente: release.expedienteId } })
+                      // Navegar a expedientes con el UUID del expediente para abrir el detalle
+                      navigate('/expedientes', { state: { abrirExpedienteId: release.expedienteId } })
                     }}
                     className={`p-4 rounded-lg border-2 ${colorClass} cursor-pointer hover:shadow-md transition-all`}
+                    style={{ cursor: 'pointer' }}
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1">
