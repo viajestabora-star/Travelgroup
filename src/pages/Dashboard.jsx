@@ -438,7 +438,20 @@ const Dashboard = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {cards.map((card) => (
-          <div key={card.title} className="card hover:shadow-xl transition-shadow cursor-pointer">
+          <div
+            key={card.title}
+            onClick={() => navigate(card.link)}
+            className="card hover:shadow-2xl transition-all duration-300 cursor-pointer transform hover:scale-[1.02] active:scale-[0.98]"
+            style={{ cursor: 'pointer' }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                navigate(card.link)
+              }
+            }}
+          >
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-gray-600 text-sm mb-1">{card.title}</p>
