@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus } from 'lucide-react'
+import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 import { createClient } from '@supabase/supabase-js'
 import ProveedorForm from './ProveedorForm'
+import jsPDF from 'jspdf'
 
 // Cliente de Supabase para cargar proveedores
 const supabase = createClient(
@@ -327,6 +328,148 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       cargarDatosCompletos()
     }
   }, [expediente?.id, proveedores])
+
+  // ============ FUNCIÓN PARA CONVERTIR NÚMEROS A TEXTO ============
+  const numeroATexto = (numero) => {
+    const unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve']
+    const decenas = ['', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa']
+    const especiales = ['diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve']
+    const centenas = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos']
+
+    const num = Math.floor(numero)
+    const decimales = Math.round((numero - num) * 100)
+
+    if (num === 0) return 'cero'
+    if (num === 100) return 'cien'
+    if (num < 10) return unidades[num]
+    if (num < 20) return especiales[num - 10]
+    if (num < 100) {
+      const decena = Math.floor(num / 10)
+      const unidad = num % 10
+      if (unidad === 0) return decenas[decena]
+      return decenas[decena] + ' y ' + unidades[unidad]
+    }
+    if (num < 1000) {
+      const centena = Math.floor(num / 100)
+      const resto = num % 100
+      if (resto === 0) return centenas[centena]
+      return centenas[centena] + ' ' + numeroATexto(resto)
+    }
+    if (num < 1000000) {
+      const miles = Math.floor(num / 1000)
+      const resto = num % 1000
+      let texto = miles === 1 ? 'mil' : numeroATexto(miles) + ' mil'
+      if (resto > 0) texto += ' ' + numeroATexto(resto)
+      return texto
+    }
+    return numero.toString()
+  }
+
+  // ============ GENERAR PDF DE RECIBO ============
+  const generarReciboPDF = (cobro) => {
+    const doc = new jsPDF()
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const pageHeight = doc.internal.pageSize.getHeight()
+    
+    // Colores corporativos
+    const colorAmarillo = [255, 193, 7] // #FFC107
+    const colorAzul = [33, 150, 243] // #2196F3
+    
+    // Obtener datos del expediente y cliente
+    const nombreGrupo = expediente?.nombre_grupo || expediente?.clienteNombre || 'Sin nombre'
+    const destino = expediente?.destino || 'Sin destino'
+    const clienteNombre = grupo?.nombre || expediente?.clienteNombre || 'Sin cliente'
+    const importe = Number(cobro.importe || 0)
+    const importeTexto = numeroATexto(importe) + ' euros'
+    const fechaCobro = cobro.fecha ? new Date(cobro.fecha) : new Date()
+    const fechaFormateada = fechaCobro.toLocaleDateString('es-ES', { 
+      day: '2-digit', 
+      month: 'long', 
+      year: 'numeric' 
+    })
+    
+    // Fondo con colores corporativos (banda superior)
+    doc.setFillColor(...colorAmarillo)
+    doc.rect(0, 0, pageWidth, 30, 'F')
+    
+    // Espacio para logo (dejar espacio en la parte superior izquierda)
+    doc.setFillColor(255, 255, 255)
+    doc.rect(10, 5, 40, 20, 'F')
+    
+    // Título "RECIBO"
+    doc.setTextColor(0, 0, 0)
+    doc.setFontSize(24)
+    doc.setFont('helvetica', 'bold')
+    doc.text('RECIBO', pageWidth - 50, 20)
+    
+    // Importe entre almohadillas (arriba a la derecha)
+    doc.setFontSize(18)
+    doc.setFont('helvetica', 'bold')
+    doc.text(`# ${importe.toFixed(2)}€ #`, pageWidth - 50, 35)
+    
+    // Línea separadora
+    doc.setDrawColor(...colorAzul)
+    doc.setLineWidth(0.5)
+    doc.line(10, 45, pageWidth - 10, 45)
+    
+    // Contenido principal
+    let yPos = 60
+    
+    // "Se recibió de"
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'normal')
+    doc.text('Se recibió de:', 20, yPos)
+    doc.setFont('helvetica', 'bold')
+    doc.text(clienteNombre, 60, yPos)
+    yPos += 15
+    
+    // "La cantidad de"
+    doc.setFont('helvetica', 'normal')
+    doc.text('La cantidad de:', 20, yPos)
+    doc.setFont('helvetica', 'bold')
+    doc.text(importeTexto.charAt(0).toUpperCase() + importeTexto.slice(1), 60, yPos)
+    yPos += 15
+    
+    // "En concepto de"
+    doc.setFont('helvetica', 'normal')
+    doc.text('En concepto de:', 20, yPos)
+    doc.setFont('helvetica', 'bold')
+    const concepto = `${nombreGrupo} - ${destino}`
+    doc.text(concepto, 60, yPos)
+    yPos += 20
+    
+    // Fecha
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Fecha: ${fechaFormateada}`, 20, yPos)
+    yPos += 20
+    
+    // Método de pago
+    doc.text(`Método de pago: ${cobro.metodo_pago || '-'}`, 20, yPos)
+    yPos += 10
+    
+    // Pie de página con datos fiscales
+    const footerY = pageHeight - 50
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(100, 100, 100)
+    
+    // Línea separadora antes del pie
+    doc.setDrawColor(200, 200, 200)
+    doc.setLineWidth(0.3)
+    doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
+    
+    // Datos fiscales
+    doc.text('Valservice Incoming S.L. (Viajes Tabora)', 20, footerY)
+    doc.text('CIF: B-98998107', 20, footerY + 8)
+    doc.text('Licencia: CVMm303V', 20, footerY + 16)
+    doc.text('Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)', 20, footerY + 24)
+    
+    // Nombre del archivo
+    const nombreArchivo = `Recibo_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}_${fechaCobro.toISOString().split('T')[0]}.pdf`
+    
+    // Descargar PDF
+    doc.save(nombreArchivo)
+  }
 
   // ============ CARGAR COBROS DEL EXPEDIENTE ============
   const cargarCobros = async () => {
@@ -2611,12 +2754,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Método de Pago</th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Cuenta Destino</th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Concepto</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Acciones</th>
                         </tr>
                       </thead>
                       <tbody>
                         {cobros.length === 0 ? (
                           <tr>
-                            <td colSpan="5" className="text-center py-8 text-gray-500">
+                            <td colSpan="6" className="text-center py-8 text-gray-500">
                               No hay cobros registrados para este expediente
                             </td>
                           </tr>
@@ -2640,6 +2784,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 <td className="py-3 px-4 text-sm">{cobro.metodo_pago || '-'}</td>
                                 <td className="py-3 px-4 text-sm">{cobro.cuenta_destino || '-'}</td>
                                 <td className="py-3 px-4 text-sm">{cobro.concepto || '-'}</td>
+                                <td className="py-3 px-4 text-sm">
+                                  <button
+                                    onClick={() => generarReciboPDF(cobro)}
+                                    className="text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1"
+                                    title="Generar PDF del recibo"
+                                  >
+                                    <FileText size={18} />
+                                    <span className="text-xs">PDF</span>
+                                  </button>
+                                </td>
                               </tr>
                             )
                           })
@@ -2654,7 +2808,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             <td className="py-3 px-4 text-sm font-bold text-navy-900 text-lg">
                               {cobros.reduce((sum, c) => sum + Number(c.importe || 0), 0).toFixed(2)}€
                             </td>
-                            <td colSpan="3"></td>
+                            <td colSpan="4"></td>
                           </tr>
                         </tfoot>
                       )}
