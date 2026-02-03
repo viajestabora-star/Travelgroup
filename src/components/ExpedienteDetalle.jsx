@@ -446,23 +446,48 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const [clienteEditado, setClienteEditado] = useState(grupo)
 
   // ============ SISTEMA DE AVISOS DE INTEGRIDAD DE DATOS ============
-  // Detección simple y directa de campos faltantes
+  // Detección ampliada de campos críticos faltantes
   const datosClienteActuales = editandoCliente ? clienteEditado : grupo
   
   const camposFaltantes = useMemo(() => {
     const faltantes = []
-    const email = datosClienteActuales.email
-    const telefono = datosClienteActuales.movilResponsable || datosClienteActuales.telefono
-    const nif = datosClienteActuales.cif || datosClienteActuales.cif_nif
+    const datos = datosClienteActuales
     
-    if (!email || String(email).trim() === '' || email === '-') {
+    // Email
+    if (!datos.email || String(datos.email).trim() === '' || datos.email === '-') {
       faltantes.push('Email')
     }
+    
+    // Teléfono
+    const telefono = datos.telefono || datos.movil
     if (!telefono || String(telefono).trim() === '' || telefono === '-') {
       faltantes.push('Teléfono')
     }
-    if (!nif || String(nif).trim() === '' || nif === '-') {
-      faltantes.push('CIF/NIF')
+    
+    // Móvil
+    const movil = datos.movilResponsable || datos.movil
+    if (!movil || String(movil).trim() === '' || movil === '-') {
+      faltantes.push('Móvil')
+    }
+    
+    // Responsable
+    if (!datos.responsable || String(datos.responsable).trim() === '' || datos.responsable === '-') {
+      faltantes.push('Responsable')
+    }
+    
+    // Dirección
+    if (!datos.direccion || String(datos.direccion).trim() === '' || datos.direccion === '-') {
+      faltantes.push('Dirección')
+    }
+    
+    // Población
+    if (!datos.poblacion || String(datos.poblacion).trim() === '' || datos.poblacion === '-') {
+      faltantes.push('Población')
+    }
+    
+    // Provincia
+    if (!datos.provincia || String(datos.provincia).trim() === '' || datos.provincia === '-') {
+      faltantes.push('Provincia')
     }
     
     return faltantes
@@ -477,13 +502,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       case 'email':
         return !datos.email || String(datos.email).trim() === '' || datos.email === '-'
       case 'telefono':
-        const tel = datos.movilResponsable || datos.telefono
+        const tel = datos.telefono || datos.movil
         return !tel || String(tel).trim() === '' || tel === '-'
+      case 'movil':
+        const movil = datos.movilResponsable || datos.movil
+        return !movil || String(movil).trim() === '' || movil === '-'
+      case 'responsable':
+        return !datos.responsable || String(datos.responsable).trim() === '' || datos.responsable === '-'
+      case 'direccion':
+        return !datos.direccion || String(datos.direccion).trim() === '' || datos.direccion === '-'
+      case 'poblacion':
+        return !datos.poblacion || String(datos.poblacion).trim() === '' || datos.poblacion === '-'
+      case 'provincia':
+        return !datos.provincia || String(datos.provincia).trim() === '' || datos.provincia === '-'
       case 'cif':
         const cif = datos.cif || datos.cif_nif
         return !cif || String(cif).trim() === '' || cif === '-'
-      case 'direccion':
-        return !datos.direccion || String(datos.direccion).trim() === '' || datos.direccion === '-'
       default:
         return false
     }

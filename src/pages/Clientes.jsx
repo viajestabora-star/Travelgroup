@@ -177,9 +177,28 @@ const Clientes = () => {
             {/* Detección de campos faltantes */}
             {(() => {
               const camposFaltantes = []
+              
+              // Email
               if (!formData.email || formData.email.trim() === '') camposFaltantes.push('Email')
+              
+              // Teléfono
               if (!formData.telefono || formData.telefono.trim() === '') camposFaltantes.push('Teléfono')
-              if (!formData.cif_nif || formData.cif_nif.trim() === '') camposFaltantes.push('CIF/NIF')
+              
+              // Móvil
+              if (!formData.movil || formData.movil.trim() === '') camposFaltantes.push('Móvil')
+              
+              // Responsable
+              if (!formData.responsable || formData.responsable.trim() === '') camposFaltantes.push('Responsable')
+              
+              // Dirección
+              if (!formData.direccion || formData.direccion.trim() === '') camposFaltantes.push('Dirección')
+              
+              // Población
+              if (!formData.poblacion || formData.poblacion.trim() === '') camposFaltantes.push('Población')
+              
+              // Provincia
+              if (!formData.provincia || formData.provincia.trim() === '') camposFaltantes.push('Provincia')
+              
               const hayCamposFaltantes = camposFaltantes.length > 0
               
               return (
@@ -335,6 +354,9 @@ const Clientes = () => {
                   <div className="md:col-span-2">
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                       Dirección
+                      {(!formData.direccion || formData.direccion.trim() === '') && (
+                        <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                      )}
                     </label>
                     <input 
                       className="w-full p-4 transition-all"
@@ -344,7 +366,7 @@ const Clientes = () => {
                         fontSize: '16px', 
                         fontWeight: '600',
                         borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
+                        border: (!formData.direccion || formData.direccion.trim() === '') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
                         marginTop: '4px'
                       }}
                       onFocus={(e) => {
@@ -352,16 +374,22 @@ const Clientes = () => {
                         e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                       }}
                       onBlur={(e) => {
-                        e.target.style.borderColor = '#e2e8f0'
+                        e.target.style.borderColor = (!formData.direccion || formData.direccion.trim() === '') ? '#f59e0b' : '#e2e8f0'
                         e.target.style.boxShadow = 'none'
                       }}
                       value={formData.direccion} 
                       onChange={e=>setFormData({...formData, direccion:e.target.value})} 
                     />
+                    {(!formData.direccion || formData.direccion.trim() === '') && (
+                      <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                    )}
                   </div>
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                       Población
+                      {(!formData.poblacion || formData.poblacion.trim() === '') && (
+                        <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                      )}
                     </label>
                     <input 
                       className="w-full p-4 transition-all"
@@ -371,7 +399,7 @@ const Clientes = () => {
                         fontSize: '16px', 
                         fontWeight: '600',
                         borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
+                        border: (!formData.poblacion || formData.poblacion.trim() === '') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
                         marginTop: '4px'
                       }}
                       onFocus={(e) => {
@@ -379,16 +407,22 @@ const Clientes = () => {
                         e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                       }}
                       onBlur={(e) => {
-                        e.target.style.borderColor = '#e2e8f0'
+                        e.target.style.borderColor = (!formData.poblacion || formData.poblacion.trim() === '') ? '#f59e0b' : '#e2e8f0'
                         e.target.style.boxShadow = 'none'
                       }}
                       value={formData.poblacion} 
                       onChange={e=>setFormData({...formData, poblacion:e.target.value})} 
                     />
+                    {(!formData.poblacion || formData.poblacion.trim() === '') && (
+                      <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                    )}
                   </div>
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                       Provincia
+                      {(!formData.provincia || formData.provincia.trim() === '') && (
+                        <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                      )}
                     </label>
                     <input 
                       className="w-full p-4 transition-all"
@@ -398,7 +432,7 @@ const Clientes = () => {
                         fontSize: '16px', 
                         fontWeight: '600',
                         borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
+                        border: (!formData.provincia || formData.provincia.trim() === '') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
                         marginTop: '4px'
                       }}
                       onFocus={(e) => {
@@ -406,16 +440,22 @@ const Clientes = () => {
                         e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                       }}
                       onBlur={(e) => {
-                        e.target.style.borderColor = '#e2e8f0'
+                        e.target.style.borderColor = (!formData.provincia || formData.provincia.trim() === '') ? '#f59e0b' : '#e2e8f0'
                         e.target.style.boxShadow = 'none'
                       }}
                       value={formData.provincia} 
                       onChange={e=>setFormData({...formData, provincia:e.target.value})} 
                     />
+                    {(!formData.provincia || formData.provincia.trim() === '') && (
+                      <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                    )}
                   </div>
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                       Responsable
+                      {(!formData.responsable || formData.responsable.trim() === '') && (
+                        <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                      )}
                     </label>
                     <input 
                       className="w-full p-4 transition-all"
@@ -425,7 +465,7 @@ const Clientes = () => {
                         fontSize: '16px', 
                         fontWeight: '600',
                         borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
+                        border: (!formData.responsable || formData.responsable.trim() === '') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
                         marginTop: '4px'
                       }}
                       onFocus={(e) => {
@@ -433,16 +473,22 @@ const Clientes = () => {
                         e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                       }}
                       onBlur={(e) => {
-                        e.target.style.borderColor = '#e2e8f0'
+                        e.target.style.borderColor = (!formData.responsable || formData.responsable.trim() === '') ? '#f59e0b' : '#e2e8f0'
                         e.target.style.boxShadow = 'none'
                       }}
                       value={formData.responsable} 
                       onChange={e=>setFormData({...formData, responsable:e.target.value})} 
                     />
+                    {(!formData.responsable || formData.responsable.trim() === '') && (
+                      <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                    )}
                   </div>
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                       Móvil
+                      {(!formData.movil || formData.movil.trim() === '') && (
+                        <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                      )}
                     </label>
                     <input 
                       className="w-full p-4 transition-all"
@@ -452,7 +498,7 @@ const Clientes = () => {
                         fontSize: '16px', 
                         fontWeight: '600',
                         borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
+                        border: (!formData.movil || formData.movil.trim() === '') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
                         marginTop: '4px'
                       }}
                       onFocus={(e) => {
@@ -460,12 +506,15 @@ const Clientes = () => {
                         e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                       }}
                       onBlur={(e) => {
-                        e.target.style.borderColor = '#e2e8f0'
+                        e.target.style.borderColor = (!formData.movil || formData.movil.trim() === '') ? '#f59e0b' : '#e2e8f0'
                         e.target.style.boxShadow = 'none'
                       }}
                       value={formData.movil} 
                       onChange={e=>setFormData({...formData, movil:e.target.value})} 
                     />
+                    {(!formData.movil || formData.movil.trim() === '') && (
+                      <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                    )}
                   </div>
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>

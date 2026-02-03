@@ -227,9 +227,28 @@ const Proveedores = () => {
             {/* Detección de campos faltantes */}
             {(() => {
               const camposFaltantes = []
+              
+              // Email
               if (!formData.email || formData.email.trim() === '') camposFaltantes.push('Email')
-              if (!formData.movil || formData.movil.trim() === '') camposFaltantes.push('Teléfono')
-              if (!formData.cif || formData.cif.trim() === '') camposFaltantes.push('CIF')
+              
+              // Teléfono
+              if (!formData.telefono || formData.telefono.trim() === '') camposFaltantes.push('Teléfono')
+              
+              // Móvil
+              if (!formData.movil || formData.movil.trim() === '') camposFaltantes.push('Móvil')
+              
+              // Responsable (persona_contacto)
+              if (!formData.persona_contacto || formData.persona_contacto.trim() === '') camposFaltantes.push('Responsable')
+              
+              // Dirección
+              if (!formData.direccion || formData.direccion.trim() === '') camposFaltantes.push('Dirección')
+              
+              // Población
+              if (!formData.poblacion || formData.poblacion.trim() === '') camposFaltantes.push('Población')
+              
+              // Provincia
+              if (!formData.provincia || formData.provincia.trim() === '') camposFaltantes.push('Provincia')
+              
               const hayCamposFaltantes = camposFaltantes.length > 0
               
               return (
@@ -256,8 +275,23 @@ const Proveedores = () => {
                </div>
 
                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">Persona Contacto</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" value={formData.persona_contacto} onChange={e=>setFormData({...formData, persona_contacto:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Persona Contacto
+                    {(!formData.persona_contacto || formData.persona_contacto.trim() === '') && (
+                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                    )}
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
+                    style={{
+                      border: (!formData.persona_contacto || formData.persona_contacto.trim() === '') ? '2px solid #f59e0b' : 'none'
+                    }}
+                    value={formData.persona_contacto} 
+                    onChange={e=>setFormData({...formData, persona_contacto:e.target.value})} 
+                  />
+                  {(!formData.persona_contacto || formData.persona_contacto.trim() === '') && (
+                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                  )}
                </div>
                <div className="space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase">
@@ -300,16 +334,61 @@ const Proveedores = () => {
                </div>
 
                <div className="md:col-span-3 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">Dirección</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" value={formData.direccion} onChange={e=>setFormData({...formData, direccion:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Dirección
+                    {(!formData.direccion || formData.direccion.trim() === '') && (
+                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                    )}
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
+                    style={{
+                      border: (!formData.direccion || formData.direccion.trim() === '') ? '2px solid #f59e0b' : 'none'
+                    }}
+                    value={formData.direccion} 
+                    onChange={e=>setFormData({...formData, direccion:e.target.value})} 
+                  />
+                  {(!formData.direccion || formData.direccion.trim() === '') && (
+                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                  )}
                </div>
                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">Población</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" value={formData.poblacion} onChange={e=>setFormData({...formData, poblacion:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Población
+                    {(!formData.poblacion || formData.poblacion.trim() === '') && (
+                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                    )}
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
+                    style={{
+                      border: (!formData.poblacion || formData.poblacion.trim() === '') ? '2px solid #f59e0b' : 'none'
+                    }}
+                    value={formData.poblacion} 
+                    onChange={e=>setFormData({...formData, poblacion:e.target.value})} 
+                  />
+                  {(!formData.poblacion || formData.poblacion.trim() === '') && (
+                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                  )}
                </div>
                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">Provincia</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" value={formData.provincia} onChange={e=>setFormData({...formData, provincia:e.target.value})} />
+                  <label className="text-xs font-black text-slate-400 uppercase">
+                    Provincia
+                    {(!formData.provincia || formData.provincia.trim() === '') && (
+                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                    )}
+                  </label>
+                  <input 
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
+                    style={{
+                      border: (!formData.provincia || formData.provincia.trim() === '') ? '2px solid #f59e0b' : 'none'
+                    }}
+                    value={formData.provincia} 
+                    onChange={e=>setFormData({...formData, provincia:e.target.value})} 
+                  />
+                  {(!formData.provincia || formData.provincia.trim() === '') && (
+                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
+                  )}
                </div>
                <div className="space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase">
