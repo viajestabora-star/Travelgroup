@@ -1676,14 +1676,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       const baseImponibleCalculada = totalSinIVA + suplementosSinIVA
       
       // Construir objeto limpio solo con columnas confirmadas del esquema real
-      // Actualización de esquema: base_imponible y direccion_rece confirmados
+      // Actualización de esquema: base_imponible y direccion_receptor confirmados
       const datosFactura = {
         numero_factura: numeroFactura,
         expediente_id: expediente.id,
         cliente_id: expediente.clienteId || null,
-        nombre_recep: formFactura.receptorNombre.trim(),
+        nombre_receptor: formFactura.receptorNombre.trim(),
         cif_receptor: formFactura.receptorCIF.trim() || null,
-        direccion_rece: formFactura.receptorDireccion.trim() || null,
+        direccion_receptor: formFactura.receptorDireccion.trim() || null,
         base_imponible: parseFloat(baseImponibleCalculada.toFixed(2)),
         total_factura: parseFloat(calcularBaseFactura.totalFactura),
         estado: 'emitida',
@@ -1702,7 +1702,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       console.log('🔒 [SEGURIDAD] Campos del expediente: INTACTOS (no modificados)')
       console.log('🔒 [SEGURIDAD] ==========================================')
       
-      // Actualización de esquema: base_imponible y direccion_rece confirmados
+      // Actualización de esquema: base_imponible y direccion_receptor confirmados
       // Guardar en Supabase - SOLO INSERT, NO UPDATE del expediente
       const { error } = await supabase
         .from('facturas')
