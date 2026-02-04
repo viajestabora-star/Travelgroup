@@ -135,6 +135,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     )
   }
 
+  // Modo de prueba temporal para facturación
+  const MODO_PRUEBA_FACTURACION = true
+
   // Estados
   const [tab, setTab] = useState('grupo')
   const [editandoCliente, setEditandoCliente] = useState(false)
@@ -1230,33 +1233,64 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }, [grupo])
 
+  // ============ DATOS DEL EMISOR (FIJOS) ============
+  const datosEmisor = {
+    nombre: 'Valservice Incoming S.L. (Viajes Tabora)',
+    cif: 'B-98998107',
+    licencia: 'CVMm303V',
+    direccion: 'Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)',
+    telefono: '961 60 60 60',
+    email: 'info@viajestabora.com',
+    banco1: 'Caixabank: ES12 2100 1234 5678 9012 3456',
+    banco2: 'Santander: ES34 0049 1234 5678 9012 3456',
+  }
+
   // ============ CÁLCULO DE BASE IMPONIBLE PARA FACTURA ============
+  // NOTA: El Precio Venta al Cliente YA INCLUYE IVA (Régimen Especial de Agencias de Viajes)
   const calcularBaseFactura = useMemo(() => {
-    // Precio Venta al Cliente (€/pax) - Bonificación
+    // Precio Venta al Cliente (€/pax) - YA INCLUYE IVA
     const precioVentaPax = parseFloat(precioVentaManual || 0) || 0
     const bonificacion = parseFloat(bonificacionPorPersona || 0) || 0
     const precioNetoPax = precioVentaPax - bonificacion
 
     // Multiplicar por Clientes de Pago
-    const baseServicios = precioNetoPax * paxPago
+    const totalServiciosConIVA = precioNetoPax * paxPago
 
-    // Sumar Suplementos
+    // Sumar Suplementos (también con IVA incluido)
     const totalSuplementos = parseFloat(suplementos.totalSuplementos || 0) || 0
 
-    // Base Imponible Total
-    const baseImponible = baseServicios + totalSuplementos
+    // TOTAL FACTURA (ya incluye IVA)
+    const totalFactura = totalServiciosConIVA + totalSuplementos
 
-    // IVA (21%)
-    const iva = baseImponible * 0.21
+    // Calcular Base Imponible desglosando el IVA (dividir entre 1.21)
+    const baseImponible = totalFactura / 1.21
+    const iva = totalFactura - baseImponible
 
-    // Total Factura
-    const totalFactura = baseImponible + iva
+    // Base de servicios (sin suplementos) para desglose
+    const baseServicios = totalServiciosConIVA / 1.21
+
+    // Consola de QA: desglose de cálculos
+    console.log('🧾 [MODO PRUEBA] Desglose Factura', {
+      precioVentaPax,
+      bonificacion,
+      precioNetoPax,
+      paxPago,
+      totalServiciosConIVA,
+      baseServicios,
+      suplementosHabitacion: parseFloat(suplementos.totalSupHabitacion || 0) || 0,
+      suplementosSeguro: parseFloat(suplementos.totalSupSeguro || 0) || 0,
+      totalSuplementos,
+      totalFactura,
+      baseImponible,
+      iva,
+    })
 
     return {
       precioVentaPax: precioVentaPax.toFixed(2),
       bonificacion: bonificacion.toFixed(2),
       precioNetoPax: precioNetoPax.toFixed(2),
       paxPago: paxPago,
+      totalServiciosConIVA: totalServiciosConIVA.toFixed(2),
       baseServicios: baseServicios.toFixed(2),
       totalSuplementos: totalSuplementos.toFixed(2),
       baseImponible: baseImponible.toFixed(2),
@@ -1268,6 +1302,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // ============ OBTENER SIGUIENTE NÚMERO DE FACTURA ============
   const obtenerSiguienteNumeroFactura = async () => {
     try {
+      // En modo prueba usamos una serie ficticia TEST-XXX para no consumir numeración real
+      if (MODO_PRUEBA_FACTURACION) {
+        const { data, error } = await supabase
+          .from('facturas')
+          .select('numero_factura')
+          .ilike('numero_factura', 'TEST-%')
+          .order('numero_factura', { ascending: false })
+          .limit(1)
+
+        if (error) {
+          console.error('Error obteniendo último número de factura de prueba:', error)
+          return 'TEST-001'
+        }
+
+        let siguienteSecuencia = 1
+
+        if (Array.isArray(data) && data.length > 0 && data[0]?.numero_factura) {
+          const partes = String(data[0].numero_factura).split('-')
+          if (partes.length === 2) {
+            const numeroActual = parseInt(partes[1], 10)
+            if (!isNaN(numeroActual) && numeroActual >= 0) {
+              siguienteSecuencia = numeroActual + 1
+            }
+          }
+        }
+
+        const sufijo = String(siguienteSecuencia).padStart(3, '0')
+        return `TEST-${sufijo}`
+      }
+
       const año = new Date().getFullYear()
       const { data, error } = await supabase
         .from('facturas')
@@ -1308,6 +1372,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       const pageWidth = doc.internal.pageSize.getWidth()
       const pageHeight = doc.internal.pageSize.getHeight()
 
+      // Marca de agua en modo prueba
+      if (MODO_PRUEBA_FACTURACION) {
+        doc.saveGraphicsState && doc.saveGraphicsState()
+        doc.setTextColor(220, 220, 220)
+        doc.setFontSize(50)
+        // jsPDF admite ángulo en las opciones de text en versiones recientes
+        try {
+          doc.text('BORRADOR / PRUEBA', pageWidth / 2, pageHeight / 2, {
+            align: 'center',
+            angle: -30,
+          })
+        } catch (e) {
+          // Fallback sin ángulo
+          doc.text('BORRADOR / PRUEBA', pageWidth / 2, pageHeight / 2, {
+            align: 'center',
+          })
+        }
+        doc.restoreGraphicsState && doc.restoreGraphicsState()
+      }
+
       // Colores corporativos
       const colorAmarillo = [255, 193, 7] // #FFC107
       const colorAzul = [33, 150, 243] // #2196F3
@@ -1340,22 +1424,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       doc.setTextColor(100, 100, 100)
       doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 35, { align: 'right' })
 
-      // Datos del emisor (Valservice Incoming S.L.)
+      // Datos del emisor (Valservice Incoming S.L.) - FIJOS
       let yPos = 50
       doc.setFontSize(12)
       doc.setTextColor(0, 0, 0)
       doc.setFont(undefined, 'bold')
-      doc.text('Valservice Incoming S.L. (Viajes Tabora)', 20, yPos)
+      doc.text(datosEmisor.nombre, 20, yPos)
       yPos += 6
       doc.setFontSize(10)
       doc.setFont(undefined, 'normal')
-      doc.text('CIF: B-98998107', 20, yPos)
+      doc.text(`CIF: ${datosEmisor.cif}`, 20, yPos)
       yPos += 6
-      doc.text('Licencia: CVMm303V', 20, yPos)
+      doc.text(`Licencia: ${datosEmisor.licencia}`, 20, yPos)
       yPos += 6
-      doc.text('Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)', 20, yPos)
+      doc.text(datosEmisor.direccion, 20, yPos)
       yPos += 6
-      doc.text('Tel: 961 60 60 60 | Email: info@viajestabora.com', 20, yPos)
+      doc.text(`Tel: ${datosEmisor.telefono} | Email: ${datosEmisor.email}`, 20, yPos)
+      yPos += 6
+      doc.text(`Bancos: ${datosEmisor.banco1}`, 20, yPos)
+      yPos += 6
+      doc.text(datosEmisor.banco2, 20, yPos)
 
       // Datos del receptor
       yPos += 15
@@ -1398,7 +1486,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       doc.setFontSize(10)
       doc.setFont(undefined, 'normal')
-      doc.text(`${calcularBaseFactura.paxPago} Plazas a ${calcularBaseFactura.precioNetoPax}€/pax`, 20, yPos)
+      doc.text(`${calcularBaseFactura.paxPago} Plazas a ${calcularBaseFactura.precioNetoPax}€/pax (IVA incluido)`, 20, yPos)
       yPos += 6
       doc.text(`Concepto: ${concepto}`, 20, yPos)
       yPos += 6
@@ -1407,7 +1495,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       if (parseFloat(calcularBaseFactura.totalSuplementos) > 0) {
         yPos += 4
         doc.setFont(undefined, 'bold')
-        doc.text('Suplementos:', 20, yPos)
+        doc.text('Suplementos (IVA incluido):', 20, yPos)
         yPos += 6
         doc.setFont(undefined, 'normal')
         if (parseFloat(suplementos.totalSupHabitacion) > 0) {
@@ -1420,14 +1508,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         }
       }
 
+      // Nota sobre régimen especial
+      yPos += 6
+      doc.setFontSize(8)
+      doc.setTextColor(100, 100, 100)
+      doc.setFont(undefined, 'italic')
+      doc.text('Régimen Especial de Agencias de Viajes - IVA incluido', 20, yPos)
+      yPos += 8
+
       // Totales
-      yPos += 10
       doc.setDrawColor(200, 200, 200)
       doc.setLineWidth(0.3)
       doc.line(20, yPos, pageWidth - 20, yPos)
       yPos += 8
 
       doc.setFontSize(10)
+      doc.setTextColor(0, 0, 0)
       doc.setFont(undefined, 'bold')
       doc.text('Base Imponible:', pageWidth - 60, yPos, { align: 'right' })
       doc.text(`${calcularBaseFactura.baseImponible}€`, pageWidth - 20, yPos, { align: 'right' })
@@ -1440,8 +1536,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       doc.setFontSize(12)
       doc.setFont(undefined, 'bold')
-      doc.setTextColor(...colorAzul)
-      doc.text('TOTAL:', pageWidth - 60, yPos, { align: 'right' })
+      doc.setTextColor(34, 197, 94) // Verde
+      doc.text('TOTAL (IVA incluido):', pageWidth - 60, yPos, { align: 'right' })
       doc.text(`${calcularBaseFactura.totalFactura}€`, pageWidth - 20, yPos, { align: 'right' })
 
       // Pie de página
@@ -1452,9 +1548,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       doc.setFontSize(8)
       doc.setTextColor(100, 100, 100)
-      doc.text('Valservice Incoming S.L. (Viajes Tabora)', 20, footerY)
-      doc.text('CIF: B-98998107 | Licencia: CVMm303V', 20, footerY + 6)
-      doc.text('Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)', 20, footerY + 12)
+      doc.text(datosEmisor.nombre, 20, footerY)
+      doc.text(`CIF: ${datosEmisor.cif} | Licencia: ${datosEmisor.licencia}`, 20, footerY + 6)
+      doc.text(datosEmisor.direccion, 20, footerY + 12)
 
       // Nombre del archivo
       const nombreArchivo = `Factura_${numeroFactura}_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
@@ -4064,13 +4160,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <span className="font-semibold text-navy-900">{calcularBaseFactura.paxPago}</span>
                       </div>
                       <div className="flex justify-between py-2 border-b border-blue-200">
-                        <span className="text-gray-700">Base Servicios:</span>
-                        <span className="font-semibold text-navy-900">{calcularBaseFactura.baseServicios}€</span>
+                        <span className="text-gray-700">Total Servicios (IVA incluido):</span>
+                        <span className="font-semibold text-navy-900">{calcularBaseFactura.totalServiciosConIVA}€</span>
                       </div>
                       {parseFloat(calcularBaseFactura.totalSuplementos) > 0 && (
                         <>
                           <div className="flex justify-between py-2 border-b border-blue-200">
-                            <span className="text-gray-700">Suplementos:</span>
+                            <span className="text-gray-700">Suplementos (IVA incluido):</span>
                             <span className="font-semibold text-navy-900">{calcularBaseFactura.totalSuplementos}€</span>
                           </div>
                           {parseFloat(suplementos.totalSupHabitacion) > 0 && (
@@ -4087,6 +4183,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           )}
                         </>
                       )}
+                      <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                        <p className="text-xs text-amber-800 italic mb-2">
+                          Régimen Especial de Agencias de Viajes - IVA incluido
+                        </p>
+                      </div>
                       <div className="flex justify-between py-3 bg-blue-100 rounded-lg px-4 mt-3 border-2 border-blue-300">
                         <span className="text-base font-bold text-navy-900">Base Imponible:</span>
                         <span className="text-xl font-bold text-navy-900">{calcularBaseFactura.baseImponible}€</span>
@@ -4096,14 +4197,43 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <span className="font-semibold text-navy-900">{calcularBaseFactura.iva}€</span>
                       </div>
                       <div className="flex justify-between py-3 bg-green-100 rounded-lg px-4 mt-3 border-2 border-green-400">
-                        <span className="text-lg font-bold text-green-900">TOTAL FACTURA:</span>
+                        <span className="text-lg font-bold text-green-900">TOTAL FACTURA (IVA incluido):</span>
                         <span className="text-2xl font-bold text-green-900">{calcularBaseFactura.totalFactura}€</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Botón de Emisión */}
-                  <div className="flex justify-end">
+                  <div className="flex justify-between items-center">
+                    {MODO_PRUEBA_FACTURACION && (
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm('¿Seguro que quieres borrar TODAS las facturas de prueba (TEST-XXX)?')) {
+                            return
+                          }
+                          try {
+                            const { error } = await supabase
+                              .from('facturas')
+                              .delete()
+                              .ilike('numero_factura', 'TEST-%')
+                            if (error) {
+                              console.error('Error borrando facturas de prueba:', error)
+                              alert(`❌ Error borrando facturas de prueba: ${error.message}`)
+                            } else {
+                              console.log('✅ Facturas de prueba eliminadas correctamente')
+                              alert('✅ Facturas de prueba eliminadas correctamente.')
+                            }
+                          } catch (e) {
+                            console.error('Error inesperado borrando facturas de prueba:', e)
+                            alert(`❌ Error inesperado borrando facturas de prueba: ${e.message}`)
+                          }
+                        }}
+                        className="px-4 py-3 rounded-lg border border-red-300 text-red-700 text-sm font-semibold bg-red-50 hover:bg-red-100 transition-colors"
+                      >
+                        Limpiar Facturas de Prueba
+                      </button>
+                    )}
+
                     <button
                       onClick={emitirFactura}
                       className="bg-green-600 hover:bg-green-700 text-white py-4 px-8 rounded-lg font-bold text-lg transition-colors shadow-lg flex items-center gap-2"
@@ -4113,8 +4243,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                     </button>
                   </div>
                 </div>
-              </div>
-            )}
+            </div>
+          )}
 
             {/* TAB: Documentación */}
           {tab === 'documentacion' && (
