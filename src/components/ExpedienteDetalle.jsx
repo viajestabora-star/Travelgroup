@@ -321,8 +321,40 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         // IMPORTANTE: Solo actualizar estados si los valores vienen de la BD y son válidos
         // No sobrescribir valores existentes con null/undefined/0
         // Esta lógica solo se ejecuta al cargar el expediente, NO al cambiar de pestaña
+        // AUDITORÍA: Verificar que los nombres de columnas coincidan con la BD
         if (parametrosResponse.data) {
           const data = parametrosResponse.data
+          
+          // LOG DE SEGURIDAD: Verificar mapeo de columnas de BD
+          console.log('🔒 [SEGURIDAD] ============ CARGA INICIAL EXPEDIENTE ============')
+          console.log('🔒 [SEGURIDAD] Expediente ID:', expedienteId)
+          console.log('🔒 [SEGURIDAD] Datos recibidos de BD:', data)
+          console.log('🔒 [SEGURIDAD] Verificación de nombres de columnas:')
+          console.log('🔒 [SEGURIDAD] - total_pax:', data.total_pax !== undefined ? '✅ Encontrado' : '❌ NO encontrado')
+          console.log('🔒 [SEGURIDAD] - precio_venta_cliente:', data.precio_venta_cliente !== undefined ? '✅ Encontrado' : '❌ NO encontrado')
+          console.log('🔒 [SEGURIDAD] - bonificacion_pax:', data.bonificacion_pax !== undefined ? '✅ Encontrado' : '❌ NO encontrado')
+          console.log('🔒 [SEGURIDAD] - gratuidades:', data.gratuidades !== undefined ? '✅ Encontrado' : '❌ NO encontrado')
+          console.log('🔒 [SEGURIDAD] Valores específicos:', {
+            total_pax: data.total_pax,
+            gratuidades: data.gratuidades,
+            precio_venta_cliente: data.precio_venta_cliente,
+            bonificacion_pax: data.bonificacion_pax,
+            sup_individual_pax: data.sup_individual_pax,
+            sup_individual_precio_dia: data.sup_individual_precio_dia,
+            sup_seguro_pax: data.sup_seguro_pax,
+            sup_seguro_precio_total: data.sup_seguro_precio_total
+          })
+          
+          // VALIDACIÓN: Si los nombres de columnas no coinciden, advertir
+          if (data.precio_venta_cliente === undefined && data.precio_venta_pax !== undefined) {
+            console.error('❌ [SEGURIDAD] ERROR DE MAPEO: La BD usa "precio_venta_pax" pero el código busca "precio_venta_cliente"')
+            console.error('❌ [SEGURIDAD] Actualizar el SELECT en la línea ~266 para usar el nombre correcto')
+          }
+          if (data.total_pax === undefined && data.pax_total !== undefined) {
+            console.error('❌ [SEGURIDAD] ERROR DE MAPEO: La BD usa "pax_total" pero el código busca "total_pax"')
+            console.error('❌ [SEGURIDAD] Actualizar el SELECT en la línea ~266 para usar el nombre correcto')
+          }
+          console.log('🔒 [SEGURIDAD] ==================================================')
           
           // Total Pasajeros: solo actualizar si hay valor válido (> 0)
           // No sobrescribir si ya hay un valor en el estado
@@ -338,13 +370,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             }
           }
           
-          // Precio Venta: solo actualizar si hay valor válido (> 0)
-          // CRÍTICO: No sobrescribir con 0 o null si ya hay un valor
+          // Precio Venta: CRÍTICO - solo actualizar si hay valor válido (> 0)
+          // PROTECCIÓN: No sobrescribir con 0 o null si ya hay un valor en el estado
           if (data.precio_venta_cliente !== undefined && data.precio_venta_cliente !== null) {
             const precioNum = Number(data.precio_venta_cliente)
             if (!isNaN(precioNum) && precioNum > 0) {
               setPrecioVentaManual(String(precioNum))
+              console.log('✅ [AUDITORÍA] Precio venta cargado desde BD:', precioNum)
+            } else {
+              console.warn('⚠️ [AUDITORÍA] Precio venta en BD es 0 o inválido:', data.precio_venta_cliente)
             }
+          } else {
+            console.warn('⚠️ [AUDITORÍA] precio_venta_cliente no encontrado en respuesta de BD')
           }
           
           // Bonificación: actualizar siempre (0 es un valor válido)
@@ -352,7 +389,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             const bonifNum = Number(data.bonificacion_pax)
             if (!isNaN(bonifNum)) {
               setBonificacionPorPersona(String(bonifNum))
+              console.log('✅ [AUDITORÍA] Bonificación cargada desde BD:', bonifNum)
             }
+          } else {
+            console.warn('⚠️ [AUDITORÍA] bonificacion_pax no encontrado en respuesta de BD')
           }
 
           // Suplementos: actualizar si hay valor (0 es válido para estos campos)
@@ -1663,13 +1703,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         suplementos: parseFloat(calcularBaseFactura.totalSuplementos),
       }
 
+      // LOG DE SEGURIDAD: Confirmar que NO se modifica el expediente
+      console.log('🔒 [SEGURIDAD] ============ EMITIR FACTURA ============')
+      console.log('🔒 [SEGURIDAD] Expediente ID:', expediente.id)
+      console.log('🔒 [SEGURIDAD] Pestaña actual: Facturación')
+      console.log('🔒 [SEGURIDAD] Operación: INSERT en tabla "facturas"')
+      console.log('🔒 [SEGURIDAD] NO se actualiza el expediente (solo lectura)')
+      console.log('🔒 [SEGURIDAD] Campos del expediente: INTACTOS (no modificados)')
+      console.log('🔒 [SEGURIDAD] Datos de factura a insertar:', datosFactura)
+      console.log('🔒 [SEGURIDAD] ==========================================')
+      
       // Guardar en Supabase - SOLO INSERT, NO UPDATE del expediente
       const { error } = await supabase
         .from('facturas')
         .insert([datosFactura])
 
       if (error) {
-        console.error('Error guardando factura:', error)
+        console.error('❌ [SEGURIDAD] Error guardando factura:', error)
         alert(`❌ Error guardando factura: ${error.message}`)
         return
       }
@@ -1677,6 +1727,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // Generar PDF
       await generarFacturaPDF(numeroFactura, datosFactura)
 
+      console.log('✅ [SEGURIDAD] Factura guardada correctamente. Expediente NO modificado.')
       alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente.`)
     } catch (error) {
       console.error('Error emitiendo factura:', error)
@@ -1698,9 +1749,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
     try {
       // ============ FUNCIÓN INTERNA DE LIMPIEZA ============
+      // IMPORTANTE: Convierte valores a números válidos para Supabase
+      // Retorna Number (no string) para que Supabase acepte el tipo correcto
       const limpiarDatosNumericos = (valor) => {
-        if (valor === null || valor === undefined || valor === '') return 0
-        if (typeof valor === 'number') return isNaN(valor) ? 0 : valor
+        // Si es número, validar y retornar
+        if (typeof valor === 'number') {
+          return isNaN(valor) ? 0 : valor
+        }
+        
+        // Si está vacío, retornar 0 (valor por defecto válido)
+        if (valor === null || valor === undefined || valor === '') {
+          return 0
+        }
+        
+        // Limpiar string y convertir a número
         const limpio = String(valor)
           .replace(/€/g, '')
           .replace(/pax/g, '')
@@ -1708,6 +1770,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           .replace(/,/g, '.')
           .replace(/[^0-9.-]+/g, '')
           .trim()
+        
+        if (limpio === '') return 0
+        
         const resultado = parseFloat(limpio)
         return isNaN(resultado) ? 0 : resultado
       }
@@ -1734,34 +1799,115 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         return idNum
       }
 
-      // ============ PASO 1: GUARDAR EXPEDIENTE ============
-      const totalPax = limpiarDatosNumericos(numTotalPasajeros)
-      const paxPago = limpiarDatosNumericos(Number(numTotalPasajeros) - Number(numGratuidades))
+      // ============ PASO 1: GUARDAR EXPEDIENTE (ACTUALIZACIÓN PARCIAL - PATCH) ============
+      // ARQUITECTURA: Solo actualizar campos de la pestaña actual (Cotización)
+      // NO tocar campos de otras pestañas (Facturación, Cliente, etc.)
+      // TÉCNICA: UPDATE parcial con solo los campos modificados en esta pestaña
       
+      // CRÍTICO: Convertir TODOS los valores a Number para Supabase
+      // Usar los estados directamente (ya están actualizados por los inputs)
+      const totalPax = Number(limpiarDatosNumericos(numTotalPasajeros)) || 0
+      const gratuidades = Number(limpiarDatosNumericos(numGratuidades)) || 0
+      const paxPago = Math.max(1, totalPax - gratuidades)
+      const precioVenta = Number(limpiarDatosNumericos(precioVentaManual)) || 0
+      const bonificacion = Number(limpiarDatosNumericos(bonificacionPorPersona)) || 0
+      
+      // Suplementos - convertir a Number
+      const supIndividualPaxNum = Number(limpiarDatosNumericos(supIndividualPax)) || 0
+      const supIndividualPrecioDiaNum = Number(limpiarDatosNumericos(supIndividualPrecioDia)) || 0
+      const supSeguroPaxNum = Number(limpiarDatosNumericos(supSeguroPax)) || 0
+      const supSeguroPrecioTotalNum = Number(limpiarDatosNumericos(supSeguroPrecioTotal)) || 0
+      
+      // CONSTRUIR OBJETO: TODOS los campos de Cotización (sin condiciones)
+      // IMPORTANTE: Incluir TODOS los campos siempre, incluso si son 0
+      // Los nombres de columnas deben coincidir EXACTAMENTE con Supabase
       const datosExpediente = {
-        precio_venta_cliente: limpiarDatosNumericos(precioVentaManual),
         total_pax: totalPax,
-        gratuidades: limpiarDatosNumericos(numGratuidades),
+        gratuidades: gratuidades,
         pax_pago: paxPago,
-        bonificacion_pax: limpiarDatosNumericos(bonificacionPorPersona),
-
-        // Suplementos
-        sup_individual_pax: limpiarDatosNumericos(supIndividualPax),
-        sup_individual_precio_dia: limpiarDatosNumericos(supIndividualPrecioDia),
-        sup_seguro_pax: limpiarDatosNumericos(supSeguroPax),
-        sup_seguro_precio_total: limpiarDatosNumericos(supSeguroPrecioTotal),
+        precio_venta_cliente: precioVenta,
+        bonificacion_pax: bonificacion,
+        sup_individual_pax: supIndividualPaxNum,
+        sup_individual_precio_dia: supIndividualPrecioDiaNum,
+        sup_seguro_pax: supSeguroPaxNum,
+        sup_seguro_precio_total: supSeguroPrecioTotalNum,
       }
       
-      const { error: errorExpediente } = await supabase
+      // VALIDACIÓN FINAL: Asegurar que todos los valores sean números
+      // Si algún valor no es número, convertirlo a 0
+      Object.keys(datosExpediente).forEach(key => {
+        const valor = datosExpediente[key]
+        if (typeof valor !== 'number' || isNaN(valor)) {
+          console.warn(`⚠️ [ADVERTENCIA] ${key} no es número válido, convirtiendo a 0:`, valor, typeof valor)
+          datosExpediente[key] = 0
+        }
+      })
+
+      // LOG DE SEGURIDAD: Auditoría completa antes de guardar
+      console.log('🔒 [SEGURIDAD] ============ INICIO UPDATE EXPEDIENTE ============')
+      console.log('🔒 [SEGURIDAD] Expediente ID:', expedienteId)
+      console.log('🔒 [SEGURIDAD] Pestaña actual: Cotización')
+      console.log('🔒 [SEGURIDAD] Estados de React (valores actuales):', {
+        numTotalPasajeros,
+        numGratuidades,
+        precioVentaManual,
+        bonificacionPorPersona,
+        supIndividualPax,
+        supIndividualPrecioDia,
+        supSeguroPax,
+        supSeguroPrecioTotal
+      })
+      console.log('🔒 [SEGURIDAD] Valores convertidos a Number:', {
+        totalPax,
+        gratuidades,
+        precioVenta,
+        bonificacion,
+        supIndividualPaxNum,
+        supIndividualPrecioDiaNum,
+        supSeguroPaxNum,
+        supSeguroPrecioTotalNum
+      })
+      console.log('🔒 [SEGURIDAD] Campos que se actualizarán (SOLO estos):', Object.keys(datosExpediente))
+      console.log('🔒 [SEGURIDAD] Valores que se enviarán a Supabase:', datosExpediente)
+      console.log('🔒 [SEGURIDAD] Tipos de datos:', Object.keys(datosExpediente).reduce((acc, key) => {
+        acc[key] = typeof datosExpediente[key]
+        return acc
+      }, {}))
+      console.log('🔒 [SEGURIDAD] Campos que NO se tocarán (otras pestañas):', 
+        'Todos los demás campos del expediente permanecen intactos')
+      console.log('🔒 [SEGURIDAD] ================================================')
+      
+      // ACTUALIZACIÓN PARCIAL: Solo los campos especificados
+      const { error: errorExpediente, data: dataExpediente } = await supabase
         .from('expedientes')
-        .update(datosExpediente)
+        .update(datosExpediente)  // UPDATE parcial - solo estos campos
         .eq('id', expedienteId)
+        .select()
 
       if (errorExpediente) {
-        console.error('Error guardando expediente:', errorExpediente)
-        alert(`❌ Error guardando expediente:\n\n${errorExpediente.message || JSON.stringify(errorExpediente)}`)
+        console.error('❌ [SEGURIDAD] ============ ERROR EN UPDATE ============')
+        console.error('❌ [SEGURIDAD] Error guardando expediente:', errorExpediente)
+        console.error('❌ [SEGURIDAD] Datos que se intentaron guardar:', datosExpediente)
+        console.error('❌ [SEGURIDAD] Tipos de datos:', Object.keys(datosExpediente).reduce((acc, key) => {
+          acc[key] = typeof datosExpediente[key]
+          return acc
+        }, {}))
+        console.error('❌ [SEGURIDAD] ==========================================')
+        alert(`❌ Error guardando expediente:\n\n${errorExpediente.message || JSON.stringify(errorExpediente)}\n\nVerifica la consola (F12) para más detalles.`)
         return
       }
+
+      // LOG DE SEGURIDAD: Confirmación de éxito
+      console.log('✅ [SEGURIDAD] ============ UPDATE EXITOSO ============')
+      console.log('✅ [SEGURIDAD] Expediente ID:', expedienteId)
+      console.log('✅ [SEGURIDAD] Campos actualizados (SOLO estos):', Object.keys(datosExpediente))
+      console.log('✅ [SEGURIDAD] Valores guardados:', datosExpediente)
+      console.log('✅ [SEGURIDAD] Respuesta de Supabase:', dataExpediente)
+      console.log('✅ [SEGURIDAD] Campos de otras pestañas: INTACTOS (no modificados)')
+      console.log('✅ [SEGURIDAD] ==========================================')
+      
+      // Feedback visual de éxito
+      alert(`✅ Cotización guardada correctamente!\n\nCampos actualizados:\n${Object.keys(datosExpediente).map(key => `- ${key}: ${datosExpediente[key]}`).join('\n')}\n\nLos demás campos del expediente permanecen intactos.`)
 
       // ============ PASO 2: GUARDAR SERVICIOS ============
       const expedienteIdParaInsert = String(expedienteId).trim()
@@ -1812,16 +1958,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         }
       }
 
-      // Actualizar expediente en memoria
+      // Actualizar expediente en memoria con TODOS los campos guardados
+      // IMPORTANTE: Incluir todos los campos que se guardaron en Supabase
       const expedienteActualizado = {
         ...expediente,
         total_pax: totalPax,
         pax_pago: paxPago,
-    }
+        gratuidades: gratuidades,
+        precio_venta_cliente: precioVenta,
+        bonificacion_pax: bonificacion,
+        sup_individual_pax: supIndividualPaxNum,
+        sup_individual_precio_dia: supIndividualPrecioDiaNum,
+        sup_seguro_pax: supSeguroPaxNum,
+        sup_seguro_precio_total: supSeguroPrecioTotalNum,
+      }
+      
+      console.log('🔄 [ACTUALIZACIÓN] Actualizando expediente en memoria:', expedienteActualizado)
     onUpdate(expedienteActualizado)
 
-      alert('¡Cotización sincronizada correctamente!')
-      
     } catch (error) {
       console.error('Error inesperado:', error)
       alert(`❌ Error inesperado:\n\n${error.message || JSON.stringify(error)}`)
