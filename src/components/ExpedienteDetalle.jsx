@@ -1667,7 +1667,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // Preparar datos para guardar según esquema real de la DB
       // El total_factura ya incluye la bonificación (precio - bonificación) calculado implícitamente
       // NO se envía el campo bonificacion a Supabase
-      // base_imponibl = (precio_venta_cliente - bonificacion) * pax_pago / 1.21 (sin IVA)
+      // base_imponible = (precio_venta_cliente - bonificacion) * pax_pago / 1.21 (sin IVA)
       const precioVentaCliente = parseFloat(formData?.precio_venta_cliente || 0) || 0
       const bonificacionPax = parseFloat(formData?.bonificacion_pax || 0) || 0
       const precioNetoPax = precioVentaCliente - bonificacionPax
@@ -1676,7 +1676,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       const baseImponibleCalculada = totalSinIVA + suplementosSinIVA
       
       // Construir objeto limpio solo con columnas confirmadas del esquema real
-      // Actualización de esquema: base_imponibl y direccion_rece confirmados
+      // Actualización de esquema: base_imponible y direccion_rece confirmados
       const datosFactura = {
         numero_factura: numeroFactura,
         expediente_id: expediente.id,
@@ -1684,7 +1684,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         nombre_recep: formFactura.receptorNombre.trim(),
         cif_receptor: formFactura.receptorCIF.trim() || null,
         direccion_rece: formFactura.receptorDireccion.trim() || null,
-        base_imponibl: parseFloat(baseImponibleCalculada.toFixed(2)),
+        base_imponible: parseFloat(baseImponibleCalculada.toFixed(2)),
         total_factura: parseFloat(calcularBaseFactura.totalFactura),
         estado: 'emitida',
       }
@@ -1702,7 +1702,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       console.log('🔒 [SEGURIDAD] Campos del expediente: INTACTOS (no modificados)')
       console.log('🔒 [SEGURIDAD] ==========================================')
       
-      // Actualización de esquema: base_imponibl y direccion_rece confirmados
+      // Actualización de esquema: base_imponible y direccion_rece confirmados
       // Guardar en Supabase - SOLO INSERT, NO UPDATE del expediente
       const { error } = await supabase
         .from('facturas')
