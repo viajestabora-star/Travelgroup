@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText } from 'lucide-react'
+import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 import { createClient } from '@supabase/supabase-js'
@@ -340,6 +340,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     const decimales = Math.round((numero - num) * 100)
 
     if (num === 0) return 'cero'
+    if (num === 1) return 'un'
     if (num === 100) return 'cien'
     if (num < 10) return unidades[num]
     if (num < 20) return especiales[num - 10]
@@ -367,108 +368,122 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
   // ============ GENERAR PDF DE RECIBO ============
   const generarReciboPDF = (cobro) => {
-    const doc = new jsPDF()
-    const pageWidth = doc.internal.pageSize.getWidth()
-    const pageHeight = doc.internal.pageSize.getHeight()
-    
-    // Colores corporativos
-    const colorAmarillo = [255, 193, 7] // #FFC107
-    const colorAzul = [33, 150, 243] // #2196F3
-    
-    // Obtener datos del expediente y cliente
-    const nombreGrupo = expediente?.nombre_grupo || expediente?.clienteNombre || 'Sin nombre'
-    const destino = expediente?.destino || 'Sin destino'
-    const clienteNombre = grupo?.nombre || expediente?.clienteNombre || 'Sin cliente'
-    const importe = Number(cobro.importe || 0)
-    const importeTexto = numeroATexto(importe) + ' euros'
-    const fechaCobro = cobro.fecha ? new Date(cobro.fecha) : new Date()
-    const fechaFormateada = fechaCobro.toLocaleDateString('es-ES', { 
-      day: '2-digit', 
-      month: 'long', 
-      year: 'numeric' 
-    })
-    
-    // Fondo con colores corporativos (banda superior)
-    doc.setFillColor(...colorAmarillo)
-    doc.rect(0, 0, pageWidth, 30, 'F')
-    
-    // Espacio para logo (dejar espacio en la parte superior izquierda)
-    doc.setFillColor(255, 255, 255)
-    doc.rect(10, 5, 40, 20, 'F')
-    
-    // Título "RECIBO"
-    doc.setTextColor(0, 0, 0)
-    doc.setFontSize(24)
-    doc.setFont('helvetica', 'bold')
-    doc.text('RECIBO', pageWidth - 50, 20)
-    
-    // Importe entre almohadillas (arriba a la derecha)
-    doc.setFontSize(18)
-    doc.setFont('helvetica', 'bold')
-    doc.text(`# ${importe.toFixed(2)}€ #`, pageWidth - 50, 35)
-    
-    // Línea separadora
-    doc.setDrawColor(...colorAzul)
-    doc.setLineWidth(0.5)
-    doc.line(10, 45, pageWidth - 10, 45)
-    
-    // Contenido principal
-    let yPos = 60
-    
-    // "Se recibió de"
-    doc.setFontSize(12)
-    doc.setFont('helvetica', 'normal')
-    doc.text('Se recibió de:', 20, yPos)
-    doc.setFont('helvetica', 'bold')
-    doc.text(clienteNombre, 60, yPos)
-    yPos += 15
-    
-    // "La cantidad de"
-    doc.setFont('helvetica', 'normal')
-    doc.text('La cantidad de:', 20, yPos)
-    doc.setFont('helvetica', 'bold')
-    doc.text(importeTexto.charAt(0).toUpperCase() + importeTexto.slice(1), 60, yPos)
-    yPos += 15
-    
-    // "En concepto de"
-    doc.setFont('helvetica', 'normal')
-    doc.text('En concepto de:', 20, yPos)
-    doc.setFont('helvetica', 'bold')
-    const concepto = `${nombreGrupo} - ${destino}`
-    doc.text(concepto, 60, yPos)
-    yPos += 20
-    
-    // Fecha
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Fecha: ${fechaFormateada}`, 20, yPos)
-    yPos += 20
-    
-    // Método de pago
-    doc.text(`Método de pago: ${cobro.metodo_pago || '-'}`, 20, yPos)
-    yPos += 10
-    
-    // Pie de página con datos fiscales
-    const footerY = pageHeight - 50
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(100, 100, 100)
-    
-    // Línea separadora antes del pie
-    doc.setDrawColor(200, 200, 200)
-    doc.setLineWidth(0.3)
-    doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
-    
-    // Datos fiscales
-    doc.text('Valservice Incoming S.L. (Viajes Tabora)', 20, footerY)
-    doc.text('CIF: B-98998107', 20, footerY + 8)
-    doc.text('Licencia: CVMm303V', 20, footerY + 16)
-    doc.text('Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)', 20, footerY + 24)
-    
-    // Nombre del archivo
-    const nombreArchivo = `Recibo_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}_${fechaCobro.toISOString().split('T')[0]}.pdf`
-    
-    // Descargar PDF
-    doc.save(nombreArchivo)
+    const crearDocumento = (logoImg) => {
+      const doc = new jsPDF()
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      
+      // Colores corporativos
+      const colorAmarillo = [255, 193, 7] // #FFC107
+      const colorAzul = [33, 150, 243] // #2196F3
+      
+      // Obtener datos del expediente y cliente
+      const nombreGrupo = expediente?.nombre_grupo || expediente?.clienteNombre || 'Sin nombre'
+      const destino = expediente?.destino || 'Sin destino'
+      const clienteNombre = grupo?.nombre || expediente?.clienteNombre || 'Sin cliente'
+      const importe = Number(cobro.importe || 0)
+      const importeTexto = numeroATexto(importe) + ' euros'
+      const fechaCobro = cobro.fecha ? new Date(cobro.fecha) : new Date()
+      const fechaFormateada = fechaCobro.toLocaleDateString('es-ES', { 
+        day: '2-digit', 
+        month: 'long', 
+        year: 'numeric' 
+      })
+      
+      // Fondo con colores corporativos (banda superior)
+      doc.setFillColor(...colorAmarillo)
+      doc.rect(0, 0, pageWidth, 30, 'F')
+      
+      // Logo corporativo Tabora (si está disponible)
+      if (logoImg) {
+        doc.setFillColor(255, 255, 255)
+        doc.rect(10, 5, 60, 20, 'F')
+        doc.addImage(logoImg, 'PNG', 12, 6, 56, 18)
+      } else {
+        // Fallback: reserva de espacio en blanco
+        doc.setFillColor(255, 255, 255)
+        doc.rect(10, 5, 60, 20, 'F')
+      }
+      
+      // Título "RECIBO"
+      doc.setTextColor(0, 0, 0)
+      doc.setFontSize(24)
+      doc.setFont('helvetica', 'bold')
+      doc.text('RECIBO', pageWidth - 60, 20)
+      
+      // Importe entre almohadillas (arriba a la derecha)
+      doc.setFontSize(18)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`# ${importe.toFixed(2)}€ #`, pageWidth - 60, 35)
+      
+      // Línea separadora
+      doc.setDrawColor(...colorAzul)
+      doc.setLineWidth(0.5)
+      doc.line(10, 45, pageWidth - 10, 45)
+      
+      // Contenido principal
+      let yPos = 60
+      
+      // "Se recibió de"
+      doc.setFontSize(12)
+      doc.setFont('helvetica', 'normal')
+      doc.text('Se recibió de:', 20, yPos)
+      doc.setFont('helvetica', 'bold')
+      doc.text(clienteNombre, 60, yPos)
+      yPos += 15
+      
+      // "La cantidad de"
+      doc.setFont('helvetica', 'normal')
+      doc.text('La cantidad de:', 20, yPos)
+      doc.setFont('helvetica', 'bold')
+      doc.text(importeTexto.charAt(0).toUpperCase() + importeTexto.slice(1), 60, yPos)
+      yPos += 15
+      
+      // "En concepto de"
+      doc.setFont('helvetica', 'normal')
+      doc.text('En concepto de:', 20, yPos)
+      doc.setFont('helvetica', 'bold')
+      const concepto = `${nombreGrupo} - ${destino}`
+      doc.text(concepto, 60, yPos)
+      yPos += 20
+      
+      // Fecha
+      doc.setFont('helvetica', 'normal')
+      doc.text(`Fecha: ${fechaFormateada}`, 20, yPos)
+      yPos += 20
+      
+      // Método de pago
+      doc.text(`Método de pago: ${cobro.metodo_pago || '-'}`, 20, yPos)
+      yPos += 10
+      
+      // Pie de página con datos fiscales
+      const footerY = pageHeight - 50
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(100, 100, 100)
+      
+      // Línea separadora antes del pie
+      doc.setDrawColor(200, 200, 200)
+      doc.setLineWidth(0.3)
+      doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
+      
+      // Datos fiscales
+      doc.text('Valservice Incoming S.L. (Viajes Tabora)', 20, footerY)
+      doc.text('CIF: B-98998107', 20, footerY + 8)
+      doc.text('Licencia: CVMm303V', 20, footerY + 16)
+      doc.text('Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)', 20, footerY + 24)
+      
+      // Nombre del archivo
+      const nombreArchivo = `Recibo_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}_${fechaCobro.toISOString().split('T')[0]}.pdf`
+      
+      // Descargar PDF
+      doc.save(nombreArchivo)
+    }
+
+    const logo = new Image()
+    logo.src = '/tabora-logo.png'
+    logo.onload = () => crearDocumento(logo)
+    logo.onerror = () => crearDocumento(null)
   }
 
   // ============ CARGAR COBROS DEL EXPEDIENTE ============
@@ -546,13 +561,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         concepto: formCobro.concepto.trim()
       }
 
-      const { error } = await supabase
-        .from('cobros_expediente')
-        .insert([datosCobro])
+      let errorOperacion = null
 
-      if (error) {
-        console.error('Error guardando cobro:', error)
-        alert(`❌ Error guardando cobro:\n\n${error.message || JSON.stringify(error)}`)
+      if (cobroEnEdicionId) {
+        const { error } = await supabase
+          .from('cobros_expediente')
+          .update(datosCobro)
+          .eq('id', cobroEnEdicionId)
+        errorOperacion = error
+      } else {
+        const { error } = await supabase
+          .from('cobros_expediente')
+          .insert([datosCobro])
+        errorOperacion = error
+      }
+
+      if (errorOperacion) {
+        console.error('Error guardando cobro:', errorOperacion)
+        alert(`❌ Error guardando cobro:\n\n${errorOperacion.message || JSON.stringify(errorOperacion)}`)
         return
       }
 
@@ -566,6 +592,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         cuenta_destino: 'Caixabank',
         concepto: ''
       })
+      setCobroEnEdicionId(null)
       setShowModalCobro(false)
     } catch (error) {
       console.error('Error inesperado guardando cobro:', error)
@@ -677,6 +704,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // ============ ESTADOS PARA GESTIÓN DE COBROS ============
   const [cobros, setCobros] = useState([])
   const [showModalCobro, setShowModalCobro] = useState(false)
+  const [cobroEnEdicionId, setCobroEnEdicionId] = useState(null)
   const [formCobro, setFormCobro] = useState({
     importe: '',
     metodo_pago: 'Transferencia',
@@ -2705,7 +2733,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                 <div className="flex items-center justify-between">
                   <h3 className="text-2xl font-bold text-navy-900">Gestión de Cobros</h3>
                   <button
-                    onClick={() => setShowModalCobro(true)}
+                    onClick={() => {
+                      setCobroEnEdicionId(null)
+                      setFormCobro({
+                        importe: '',
+                        metodo_pago: 'Transferencia',
+                        cuenta_destino: 'Caixabank',
+                        concepto: ''
+                      })
+                      setShowModalCobro(true)
+                    }}
                     className="btn-primary flex items-center gap-2"
                   >
                     <Plus size={20} />
@@ -2785,14 +2822,33 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 <td className="py-3 px-4 text-sm">{cobro.cuenta_destino || '-'}</td>
                                 <td className="py-3 px-4 text-sm">{cobro.concepto || '-'}</td>
                                 <td className="py-3 px-4 text-sm">
-                                  <button
-                                    onClick={() => generarReciboPDF(cobro)}
-                                    className="text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1"
-                                    title="Generar PDF del recibo"
-                                  >
-                                    <FileText size={18} />
-                                    <span className="text-xs">PDF</span>
-                                  </button>
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      onClick={() => {
+                                        setCobroEnEdicionId(cobro.id)
+                                        setFormCobro({
+                                          importe: Number(cobro.importe || 0).toFixed(2),
+                                          metodo_pago: cobro.metodo_pago || 'Transferencia',
+                                          cuenta_destino: cobro.cuenta_destino || 'Caixabank',
+                                          concepto: cobro.concepto || ''
+                                        })
+                                        setShowModalCobro(true)
+                                      }}
+                                      className="text-gray-600 hover:text-gray-900 transition-colors flex items-center gap-1"
+                                      title="Editar cobro"
+                                    >
+                                      <Pencil size={16} />
+                                      <span className="text-xs">Editar</span>
+                                    </button>
+                                    <button
+                                      onClick={() => generarReciboPDF(cobro)}
+                                      className="text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1"
+                                      title="Generar PDF del recibo"
+                                    >
+                                      <FileText size={18} />
+                                      <span className="text-xs">PDF</span>
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             )
@@ -2823,7 +2879,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-2xl font-bold text-navy-900">Registrar Nuevo Cobro</h3>
+                  <h3 className="text-2xl font-bold text-navy-900">
+                    {cobroEnEdicionId ? 'Editar Cobro' : 'Registrar Nuevo Cobro'}
+                  </h3>
                   <button
                     onClick={() => {
                       setShowModalCobro(false)
@@ -2833,6 +2891,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         cuenta_destino: 'Caixabank',
                         concepto: ''
                       })
+                      setCobroEnEdicionId(null)
                     }}
                     className="text-gray-400 hover:text-gray-600 transition-colors"
                   >
@@ -2927,7 +2986,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                     className="btn-primary flex-1 flex items-center justify-center gap-2"
                   >
                     <Save size={20} />
-                    Guardar Cobro
+                    {cobroEnEdicionId ? 'Actualizar Cobro' : 'Guardar Cobro'}
                   </button>
                   <button
                     onClick={() => {
@@ -2938,6 +2997,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         cuenta_destino: 'Caixabank',
                         concepto: ''
                       })
+                      setCobroEnEdicionId(null)
                     }}
                     className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                   >
