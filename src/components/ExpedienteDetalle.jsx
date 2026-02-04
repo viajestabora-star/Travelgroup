@@ -762,6 +762,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     if (!datos.email || String(datos.email).trim() === '' || datos.email === '-') {
       faltantes.push('Email')
     }
+
+    // CIF
+    const cif = datos.cif || datos.cif_nif
+    if (!cif || String(cif).trim() === '' || cif === '-') {
+      faltantes.push('CIF')
+    }
     
     // Teléfono
     const telefono = datos.telefono || datos.movil
