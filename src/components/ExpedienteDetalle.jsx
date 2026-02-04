@@ -146,6 +146,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const serviciosInicializados = useRef(false)
   
   // Estados para Cotización (CON VALORES SEGUROS, sin usar columna JSON cotizacion)
+  // IMPORTANTE: Estos estados son INDEPENDIENTES de la pestaña de Facturación
+  // La facturación SOLO LEE estos valores, nunca los modifica
   const [servicios, setServicios] = useState([]) // Se cargan desde servicios_cotizacion
   const [numTotalPasajeros, setNumTotalPasajeros] = useState(
     expediente?.total_pax || expediente?.pax_pago || 1
@@ -153,8 +155,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const [numGratuidades, setNumGratuidades] = useState(
     expediente?.gratuidades || 0
   )
-  const [bonificacionPorPersona, setBonificacionPorPersona] = useState(0)
-  const [precioVentaManual, setPrecioVentaManual] = useState(0) // Precio manual €/pax
+  // IMPORTANTE: Inicializar desde el expediente si está disponible
+  const [bonificacionPorPersona, setBonificacionPorPersona] = useState(
+    expediente?.bonificacion_pax || 0
+  )
+  const [precioVentaManual, setPrecioVentaManual] = useState(
+    expediente?.precio_venta_cliente || 0
+  ) // Precio manual €/pax
 
   // Suplementos (habitaciones individuales y seguros)
   const [supIndividualPax, setSupIndividualPax] = useState(expediente?.sup_individual_pax || 0)
@@ -239,6 +246,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   // ============ ARQUITECTURA DE CARGA UNIFICADA ============
   // Función única que carga servicios y parámetros con sincronización de proveedores
+  // IMPORTANTE: Esta función solo se ejecuta al cargar el expediente, NO al cambiar de pestaña
   useEffect(() => {
     const cargarDatosCompletos = async () => {
       const expedienteId = expediente?.id
@@ -246,6 +254,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       try {
         // Cargar servicios y parámetros en paralelo
+        // IMPORTANTE: Cargar TODOS los campos necesarios para evitar pérdida de datos
         const [serviciosResponse, parametrosResponse] = await Promise.all([
           supabase
           .from('servicios_cotizacion')
@@ -309,33 +318,67 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         }
 
         // ============ MAPEO DE PARÁMETROS DEL EXPEDIENTE ============
+        // IMPORTANTE: Solo actualizar estados si los valores vienen de la BD y son válidos
+        // No sobrescribir valores existentes con null/undefined/0
+        // Esta lógica solo se ejecuta al cargar el expediente, NO al cambiar de pestaña
         if (parametrosResponse.data) {
           const data = parametrosResponse.data
-          if (data.total_pax !== undefined && data.total_pax !== null) {
+          
+          // Total Pasajeros: solo actualizar si hay valor válido (> 0)
+          // No sobrescribir si ya hay un valor en el estado
+          if (data.total_pax !== undefined && data.total_pax !== null && Number(data.total_pax) > 0) {
             setNumTotalPasajeros(String(Number(data.total_pax)))
           }
+          
+          // Gratuidades: actualizar siempre (0 es un valor válido)
           if (data.gratuidades !== undefined && data.gratuidades !== null) {
-            setNumGratuidades(String(Number(data.gratuidades)))
+            const gratuidadesNum = Number(data.gratuidades)
+            if (!isNaN(gratuidadesNum)) {
+              setNumGratuidades(String(gratuidadesNum))
+            }
           }
+          
+          // Precio Venta: solo actualizar si hay valor válido (> 0)
+          // CRÍTICO: No sobrescribir con 0 o null si ya hay un valor
           if (data.precio_venta_cliente !== undefined && data.precio_venta_cliente !== null) {
-            setPrecioVentaManual(String(Number(data.precio_venta_cliente)))
+            const precioNum = Number(data.precio_venta_cliente)
+            if (!isNaN(precioNum) && precioNum > 0) {
+              setPrecioVentaManual(String(precioNum))
+            }
           }
+          
+          // Bonificación: actualizar siempre (0 es un valor válido)
           if (data.bonificacion_pax !== undefined && data.bonificacion_pax !== null) {
-            setBonificacionPorPersona(String(Number(data.bonificacion_pax)))
+            const bonifNum = Number(data.bonificacion_pax)
+            if (!isNaN(bonifNum)) {
+              setBonificacionPorPersona(String(bonifNum))
+            }
           }
 
-          // Suplementos
+          // Suplementos: actualizar si hay valor (0 es válido para estos campos)
           if (data.sup_individual_pax !== undefined && data.sup_individual_pax !== null) {
-            setSupIndividualPax(String(Number(data.sup_individual_pax)))
+            const supPaxNum = Number(data.sup_individual_pax)
+            if (!isNaN(supPaxNum)) {
+              setSupIndividualPax(String(supPaxNum))
+            }
           }
           if (data.sup_individual_precio_dia !== undefined && data.sup_individual_precio_dia !== null) {
-            setSupIndividualPrecioDia(String(Number(data.sup_individual_precio_dia)))
+            const supPrecioNum = Number(data.sup_individual_precio_dia)
+            if (!isNaN(supPrecioNum)) {
+              setSupIndividualPrecioDia(String(supPrecioNum))
+            }
           }
           if (data.sup_seguro_pax !== undefined && data.sup_seguro_pax !== null) {
-            setSupSeguroPax(String(Number(data.sup_seguro_pax)))
+            const seguroPaxNum = Number(data.sup_seguro_pax)
+            if (!isNaN(seguroPaxNum)) {
+              setSupSeguroPax(String(seguroPaxNum))
+            }
           }
           if (data.sup_seguro_precio_total !== undefined && data.sup_seguro_precio_total !== null) {
-            setSupSeguroPrecioTotal(String(Number(data.sup_seguro_precio_total)))
+            const seguroPrecioNum = Number(data.sup_seguro_precio_total)
+            if (!isNaN(seguroPrecioNum)) {
+              setSupSeguroPrecioTotal(String(seguroPrecioNum))
+            }
           }
         }
 
@@ -1577,6 +1620,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }
 
   // ============ EMITIR FACTURA ============
+  // IMPORTANTE: Esta función SOLO lee datos de cotización, NO los modifica
+  // - NO actualiza el expediente
+  // - NO modifica estados de cotización (precioVentaManual, bonificacionPorPersona, etc.)
+  // - SOLO hace INSERT en la tabla 'facturas'
+  // - Los datos de cotización son independientes y solo se modifican desde su pestaña
   const emitirFactura = async () => {
     // Validar datos del receptor
     if (!formFactura.receptorNombre || formFactura.receptorNombre.trim() === '') {
@@ -1594,6 +1642,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       const numeroFactura = await obtenerSiguienteNumeroFactura()
 
       // Preparar datos para guardar
+      // NOTA: Estos valores se LEEN de calcularBaseFactura (que a su vez lee de los estados)
+      // NO se modifican los estados originales
       const datosFactura = {
         numero_factura: numeroFactura,
         id_expediente: expediente.id,
@@ -1613,7 +1663,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         suplementos: parseFloat(calcularBaseFactura.totalSuplementos),
       }
 
-      // Guardar en Supabase
+      // Guardar en Supabase - SOLO INSERT, NO UPDATE del expediente
       const { error } = await supabase
         .from('facturas')
         .insert([datosFactura])
