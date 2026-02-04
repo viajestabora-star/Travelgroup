@@ -1456,8 +1456,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                     </div>
                   )}
                     
-                  {/* Rejilla limpia */}
+                  {/* Rejilla limpia en secciones (Datos Fiscales, Contacto, Localización) */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* === DATOS FISCALES / IDENTIFICACIÓN === */}
+                    <div className="md:col-span-2">
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.2em] mb-1">
+                        Datos fiscales e identificación
+                      </h4>
+                      <p className="text-xs text-slate-400 mb-4">
+                        Información básica del grupo o entidad responsable del viaje
+                      </p>
+                    </div>
                     <div className="md:col-span-2">
                       <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Nombre del Grupo *</label>
                       {editandoCliente ? (
@@ -1485,7 +1494,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }}
                         />
                       ) : (
-                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.nombre || '-'}</p>
+                        <div
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px',
+                          }}
+                        >
+                          {grupo.nombre || '-'}
+                        </div>
                       )}
                     </div>
                     <div>
@@ -1520,10 +1542,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }}
                         />
                       ) : (
-                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.cif || '-'}</p>
+                        <div
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: esCampoVacio('cif') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+                            marginTop: '4px',
+                          }}
+                        >
+                          {grupo.cif || grupo.cif_nif || '-'}
+                        </div>
                       )}
                     </div>
                     <div>
+                      {/* Se mantiene lógica original, solo se añade agrupación visual */}
                       <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Nº de Socios</label>
                       {editandoCliente ? (
                         <input
@@ -1550,11 +1586,39 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }}
                         />
                       ) : (
-                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.nSocios || '-'}</p>
+                        <div
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px',
+                          }}
+                        >
+                          {grupo.nSocios || '-'}
+                        </div>
                       )}
                     </div>
+
+                    {/* === CONTACTO PRINCIPAL === */}
+                    <div className="md:col-span-2 pt-4 border-t border-slate-100">
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.2em] mb-1 mt-4">
+                        Contacto
+                      </h4>
+                      <p className="text-xs text-slate-400 mb-4">
+                        Datos de la persona de contacto y canales de comunicación
+                      </p>
+                    </div>
                     <div>
-                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Responsable</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                        Responsable
+                        {esCampoVacio('responsable') && (
+                          <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                        )}
+                      </label>
                       {editandoCliente ? (
                         <input
                           type="text"
@@ -1580,13 +1644,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }}
                         />
                       ) : (
-                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.responsable || '-'}</p>
+                        <div
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: esCampoVacio('responsable') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+                            marginTop: '4px',
+                          }}
+                        >
+                          {grupo.responsable || '-'}
+                        </div>
                       )}
                     </div>
                     <div>
                       <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                         Móvil
-                        {esCampoVacio('telefono') && (
+                        {esCampoVacio('movil') && (
                           <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                         )}
                       </label>
@@ -1615,7 +1692,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }}
                         />
                       ) : (
-                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.movilResponsable || '-'}</p>
+                        <div
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: esCampoVacio('movil') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+                            marginTop: '4px',
+                          }}
+                        >
+                          {grupo.movilResponsable || grupo.movil || '-'}
+                        </div>
                       )}
                     </div>
                     <div className="md:col-span-2">
@@ -1650,10 +1740,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }}
                         />
                       ) : (
-                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.email || '-'}</p>
+                        <div
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: esCampoVacio('email') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+                            marginTop: '4px',
+                          }}
+                        >
+                          {grupo.email || '-'}
+                        </div>
                       )}
                     </div>
                     <div className="md:col-span-2">
+
+                      {/* === LOCALIZACIÓN === */}
+                      <div className="mb-1">
+                        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.2em] mb-1 mt-6">
+                          Localización
+                        </h4>
+                        <p className="text-xs text-slate-400 mb-2">
+                          Dirección postal para envíos, documentación y facturación
+                        </p>
+                      </div>
+
                       <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                         Dirección
                         {esCampoVacio('direccion') && (
@@ -1685,11 +1799,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }}
                         />
                       ) : (
-                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.direccion || '-'}</p>
+                        <div
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: esCampoVacio('direccion') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+                            marginTop: '4px',
+                          }}
+                        >
+                          {grupo.direccion || '-'}
+                        </div>
                       )}
                     </div>
                     <div>
-                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Población</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                        Población
+                        {esCampoVacio('poblacion') && (
+                          <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                        )}
+                      </label>
                       {editandoCliente ? (
                         <input
                           type="text"
@@ -1715,11 +1847,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }}
                         />
                       ) : (
-                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.poblacion || '-'} {grupo.provincia && `(${grupo.provincia})`}</p>
+                        <div
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: esCampoVacio('poblacion') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+                            marginTop: '4px',
+                          }}
+                        >
+                          {grupo.poblacion || '-'} {grupo.provincia && `(${grupo.provincia})`}
+                        </div>
                       )}
                     </div>
                     <div>
-                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Provincia</label>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                        Provincia
+                        {esCampoVacio('provincia') && (
+                          <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                        )}
+                      </label>
                       {editandoCliente ? (
                         <input
                           type="text"
@@ -1745,7 +1895,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           }}
                         />
                       ) : (
-                        <p style={{ fontSize: '16px', fontWeight: '600', color: '#0f172a', marginTop: '4px' }}>{grupo.provincia || '-'}</p>
+                        <div
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: esCampoVacio('provincia') ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+                            marginTop: '4px',
+                          }}
+                        >
+                          {grupo.provincia || '-'}
+                        </div>
                       )}
                     </div>
                     </div>
