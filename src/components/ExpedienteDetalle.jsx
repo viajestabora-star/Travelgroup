@@ -1664,28 +1664,35 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // Obtener número de factura
       const numeroFactura = await obtenerSiguienteNumeroFactura()
 
-      // Preparar datos para guardar
-      // NOTA: Estos valores se LEEN de calcularBaseFactura (que a su vez lee de los estados)
-      // NO se modifican los estados originales
+      // Preparar datos para guardar según esquema real de la DB
+      // El total_factura ya incluye la bonificación (precio - bonificación) calculado implícitamente
+      // NO se envía el campo bonificacion a Supabase
+      // base_imponibl = (precio_venta_cliente - bonificacion) * pax_pago / 1.21 (sin IVA)
+      const precioVentaCliente = parseFloat(formData?.precio_venta_cliente || 0) || 0
+      const bonificacionPax = parseFloat(formData?.bonificacion_pax || 0) || 0
+      const precioNetoPax = precioVentaCliente - bonificacionPax
+      const totalSinIVA = (precioNetoPax * calcularBaseFactura.paxPago) / 1.21
+      const suplementosSinIVA = parseFloat(calcularBaseFactura.totalSuplementos || 0) / 1.21
+      const baseImponibleCalculada = totalSinIVA + suplementosSinIVA
+      
+      // Construir objeto limpio solo con columnas confirmadas del esquema real
+      // Actualización de esquema: base_imponibl y direccion_rece confirmados
       const datosFactura = {
         numero_factura: numeroFactura,
-        id_expediente: expediente.id,
-        fecha_emision: new Date().toISOString().split('T')[0],
-        receptor_nombre: formFactura.receptorNombre.trim(),
-        receptor_cif: formFactura.receptorCIF.trim() || null,
-        receptor_direccion: formFactura.receptorDireccion.trim() || null,
-        receptor_poblacion: formFactura.receptorPoblacion.trim() || null,
-        receptor_provincia: formFactura.receptorProvincia.trim() || null,
-        receptor_cp: formFactura.receptorCP.trim() || null,
-        base_imponible: parseFloat(calcularBaseFactura.baseImponible),
-        iva: parseFloat(calcularBaseFactura.iva),
-        total: parseFloat(calcularBaseFactura.totalFactura),
-        pax_pago: calcularBaseFactura.paxPago,
-        precio_venta_pax: parseFloat(calcularBaseFactura.precioVentaPax),
-        bonificacion: parseFloat(calcularBaseFactura.bonificacion),
-        suplementos: parseFloat(calcularBaseFactura.totalSuplementos),
+        expediente_id: expediente.id,
+        cliente_id: expediente.clienteId || null,
+        nombre_recep: formFactura.receptorNombre.trim(),
+        cif_receptor: formFactura.receptorCIF.trim() || null,
+        direccion_rece: formFactura.receptorDireccion.trim() || null,
+        base_imponibl: parseFloat(baseImponibleCalculada.toFixed(2)),
+        total_factura: parseFloat(calcularBaseFactura.totalFactura),
+        estado: 'emitida',
       }
 
+      // AUDITORÍA: Interceptador de datos antes del insert
+      console.log('OBJETO A ENVIAR A FACTURAS:', datosFactura)
+      console.log('Columnas del objeto:', Object.keys(datosFactura))
+      
       // LOG DE SEGURIDAD: Confirmar que NO se modifica el expediente
       console.log('🔒 [SEGURIDAD] ============ EMITIR FACTURA ============')
       console.log('🔒 [SEGURIDAD] Expediente ID:', expediente.id)
@@ -1693,9 +1700,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       console.log('🔒 [SEGURIDAD] Operación: INSERT en tabla "facturas"')
       console.log('🔒 [SEGURIDAD] NO se actualiza el expediente (solo lectura)')
       console.log('🔒 [SEGURIDAD] Campos del expediente: INTACTOS (no modificados)')
-      console.log('🔒 [SEGURIDAD] Datos de factura a insertar:', datosFactura)
       console.log('🔒 [SEGURIDAD] ==========================================')
       
+      // Actualización de esquema: base_imponibl y direccion_rece confirmados
       // Guardar en Supabase - SOLO INSERT, NO UPDATE del expediente
       const { error } = await supabase
         .from('facturas')
@@ -3442,7 +3449,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                     )}
                   </div>
                   
-                  {/* DESGLOSE CLARO: Base + Gratuidades + Bonificación = Total */}
+                  {/* DESGLOSE CLARO: Base + Gratuidades = Total */}
                   <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl border-2 border-blue-300 mt-6">
                     <h4 className="text-lg font-bold text-navy-900 mb-4">📊 Desglose del Coste Real</h4>
                     <div className="space-y-2 text-sm">
@@ -4129,14 +4136,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <span className="text-gray-700">Precio Venta al Cliente (€/pax):</span>
                         <span className="font-semibold text-navy-900">{calcularBaseFactura.precioVentaPax}€</span>
                       </div>
-                      {parseFloat(calcularBaseFactura.bonificacion) > 0 && (
-                        <div className="flex justify-between py-2 border-b border-blue-200">
-                          <span className="text-gray-700">Bonificación (€/pax):</span>
-                          <span className="font-semibold text-red-600">-{calcularBaseFactura.bonificacion}€</span>
-                        </div>
-                      )}
                       <div className="flex justify-between py-2 border-b border-blue-200">
-                        <span className="text-gray-700">Precio Neto (€/pax):</span>
+                        <span className="text-gray-700">Precio Final (€/pax):</span>
                         <span className="font-semibold text-navy-900">{calcularBaseFactura.precioNetoPax}€</span>
                       </div>
                       <div className="flex justify-between py-2 border-b border-blue-200">
