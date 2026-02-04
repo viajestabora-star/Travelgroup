@@ -396,13 +396,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       
       // Logo corporativo Tabora (si está disponible)
       if (logoImg) {
-        doc.setFillColor(255, 255, 255)
-        doc.rect(10, 5, 60, 20, 'F')
-        doc.addImage(logoImg, 'PNG', 12, 6, 56, 18)
+        try {
+          doc.setFillColor(255, 255, 255)
+          // Recuadro blanco para asegurar contraste
+          doc.rect(10, 5, 55, 22, 'F')
+          // Logo aprox. 45mm de ancho (ajustado a proporción)
+          doc.addImage(logoImg, 'PNG', 12, 6, 50, 20)
+        } catch (e) {
+          console.warn('No se pudo dibujar el logo en el PDF:', e)
+        }
       } else {
         // Fallback: reserva de espacio en blanco
         doc.setFillColor(255, 255, 255)
-        doc.rect(10, 5, 60, 20, 'F')
+        doc.rect(10, 5, 55, 22, 'F')
       }
       
       // Título "RECIBO"
@@ -421,8 +427,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       doc.setLineWidth(0.5)
       doc.line(10, 45, pageWidth - 10, 45)
       
-      // Contenido principal
-      let yPos = 60
+      // Contenido principal (ligeramente más abajo para no chocar con el logo)
+      let yPos = 70
       
       // "Se recibió de"
       doc.setFontSize(12)
@@ -481,9 +487,25 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
 
     const logo = new Image()
-    logo.src = '/tabora-logo.png'
-    logo.onload = () => crearDocumento(logo)
-    logo.onerror = () => crearDocumento(null)
+    // Intentar primero con el nombre de archivo original arrastrado
+    logo.src = '/Logo tabora 2023.png'
+    logo.onload = () => {
+      console.log('✅ Logo Tabora cargado correctamente para el recibo PDF')
+      crearDocumento(logo)
+    }
+    logo.onerror = () => {
+      console.warn('No se pudo cargar el logo desde "/Logo tabora 2023.png". Probando "/tabora-logo.png"...')
+      const fallbackLogo = new Image()
+      fallbackLogo.src = '/tabora-logo.png'
+      fallbackLogo.onload = () => {
+        console.log('✅ Logo Tabora cargado desde fallback "/tabora-logo.png"')
+        crearDocumento(fallbackLogo)
+      }
+      fallbackLogo.onerror = (e) => {
+        console.warn('❗ No se pudo cargar ningún logo para el recibo PDF:', e)
+        crearDocumento(null)
+      }
+    }
   }
 
   // ============ CARGAR COBROS DEL EXPEDIENTE ============
