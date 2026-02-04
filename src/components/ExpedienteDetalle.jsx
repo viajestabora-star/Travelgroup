@@ -152,6 +152,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   )
   const [bonificacionPorPersona, setBonificacionPorPersona] = useState(0)
   const [precioVentaManual, setPrecioVentaManual] = useState(0) // Precio manual €/pax
+
+  // Suplementos (habitaciones individuales y seguros)
+  const [supIndividualPax, setSupIndividualPax] = useState(expediente?.sup_individual_pax || 0)
+  const [supIndividualPrecioDia, setSupIndividualPrecioDia] = useState(expediente?.sup_individual_precio_dia || 0)
+  const [supSeguroPax, setSupSeguroPax] = useState(expediente?.sup_seguro_pax || 0)
+  const [supSeguroPrecioTotal, setSupSeguroPrecioTotal] = useState(expediente?.sup_seguro_precio_total || 0)
   
   // Estados para Proveedores
   const [proveedores, setProveedores] = useState([])
@@ -245,7 +251,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             .order('id', { ascending: true }),
           supabase
             .from('expedientes')
-            .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
+            .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total, noches')
             .eq('id', expedienteId)
             .single()
         ])
@@ -313,6 +319,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           }
           if (data.bonificacion_pax !== undefined && data.bonificacion_pax !== null) {
             setBonificacionPorPersona(String(Number(data.bonificacion_pax)))
+          }
+
+          // Suplementos
+          if (data.sup_individual_pax !== undefined && data.sup_individual_pax !== null) {
+            setSupIndividualPax(String(Number(data.sup_individual_pax)))
+          }
+          if (data.sup_individual_precio_dia !== undefined && data.sup_individual_precio_dia !== null) {
+            setSupIndividualPrecioDia(String(Number(data.sup_individual_precio_dia)))
+          }
+          if (data.sup_seguro_pax !== undefined && data.sup_seguro_pax !== null) {
+            setSupSeguroPax(String(Number(data.sup_seguro_pax)))
+          }
+          if (data.sup_seguro_precio_total !== undefined && data.sup_seguro_precio_total !== null) {
+            setSupSeguroPrecioTotal(String(Number(data.sup_seguro_precio_total)))
           }
         }
 
@@ -952,6 +972,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     ))
   }
 
+  // Helper: noches del expediente (prioriza campo en BD, si no, calcula por fechas)
+  const calcularNochesExpediente = () => {
+    // Si el expediente ya trae un campo noches, respetarlo
+    if (expediente && expediente.noches !== undefined && expediente.noches !== null) {
+      const n = Number(expediente.noches)
+      if (!isNaN(n) && n > 0) return n
+    }
+
+    // Si no, calcular por fechas (como en el resumen de fechas)
+    if (expediente && expediente.fechaInicio && expediente.fechaFin) {
+      try {
+        const inicio = new Date(expediente.fechaInicio)
+        const fin = new Date(expediente.fechaFin)
+        const dias = Math.ceil((fin - inicio) / (1000 * 60 * 60 * 24))
+        if (!isNaN(dias) && dias > 0) return dias
+      } catch (e) {
+        // Silenciar y devolver 1 noche como mínimo
+      }
+    }
+
+    // Valor por defecto
+    return 1
+  }
+
   // ============ CÁLCULOS DE COTIZACIÓN (BLINDADOS Y COMPLETOS) ============
   
   const calcularCotizacion = () => {
@@ -1140,6 +1184,27 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     return calcularCotizacion()
   }, [servicios, numTotalPasajeros, numGratuidades, bonificacionPorPersona, precioVentaManual])
 
+  // ============ CÁLCULOS DE SUPLEMENTOS (INDIVIDUAL Y SEGURO) ============
+  const suplementos = useMemo(() => {
+    const noches = calcularNochesExpediente()
+
+    const paxIndividual = parseFloat(supIndividualPax || 0) || 0
+    const precioIndividualDia = parseFloat(supIndividualPrecioDia || 0) || 0
+    const paxSeguro = parseFloat(supSeguroPax || 0) || 0
+    const precioSeguroTotal = parseFloat(supSeguroPrecioTotal || 0) || 0
+
+    const totalSupHabitacion = paxIndividual * precioIndividualDia * noches
+    const totalSupSeguro = paxSeguro * precioSeguroTotal
+    const totalSuplementos = totalSupHabitacion + totalSupSeguro
+
+    return {
+      noches,
+      totalSupHabitacion: totalSupHabitacion.toFixed(2),
+      totalSupSeguro: totalSupSeguro.toFixed(2),
+      totalSuplementos: totalSuplementos.toFixed(2),
+    }
+  }, [supIndividualPax, supIndividualPrecioDia, supSeguroPax, supSeguroPrecioTotal, expediente])
+
   // ============ FUNCIÓN DE GUARDADO REESCRITA ============
   const guardarCotizacion = async () => {
     if (!window.confirm('¿Desea guardar los cambios en la cotización?')) {
@@ -1200,6 +1265,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         gratuidades: limpiarDatosNumericos(numGratuidades),
         pax_pago: paxPago,
         bonificacion_pax: limpiarDatosNumericos(bonificacionPorPersona),
+
+        // Suplementos
+        sup_individual_pax: limpiarDatosNumericos(supIndividualPax),
+        sup_individual_precio_dia: limpiarDatosNumericos(supIndividualPrecioDia),
+        sup_seguro_pax: limpiarDatosNumericos(supSeguroPax),
+        sup_seguro_precio_total: limpiarDatosNumericos(supSeguroPrecioTotal),
       }
       
       const { error: errorExpediente } = await supabase
@@ -2232,6 +2303,238 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   </div>
                 </div>
 
+                {/* Card de Suplementos */}
+                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-100 rounded-full">
+                        <Bed className="text-blue-600" size={20} />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-navy-900">Suplementos</h3>
+                        <p className="text-gray-500 text-sm">Habitación individual y seguros opcionales</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Suplemento Habitación Individual */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.2em] mb-2">
+                        Habitación Individual
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              color: '#64748b',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              display: 'block',
+                              marginBottom: '4px',
+                            }}
+                          >
+                            Pax con Individual
+                            {(!supIndividualPax || Number(supIndividualPax) === 0) && (
+                              <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                            )}
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={supIndividualPax}
+                            onChange={(e) => setSupIndividualPax(e.target.value)}
+                            className="w-full p-3 text-sm transition-all"
+                            style={{
+                              backgroundColor: '#f8fafc',
+                              color: '#0f172a',
+                              borderRadius: '12px',
+                              border:
+                                !supIndividualPax || Number(supIndividualPax) === 0
+                                  ? '1px solid #f59e0b'
+                                  : '1px solid #e2e8f0',
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#3b82f6'
+                              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor =
+                                !supIndividualPax || Number(supIndividualPax) === 0 ? '#f59e0b' : '#e2e8f0'
+                              e.target.style.boxShadow = 'none'
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              color: '#64748b',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              display: 'block',
+                              marginBottom: '4px',
+                            }}
+                          >
+                            Precio/Noche (€)
+                            {(!supIndividualPrecioDia || Number(supIndividualPrecioDia) === 0) && (
+                              <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                            )}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={supIndividualPrecioDia}
+                            onChange={(e) => setSupIndividualPrecioDia(e.target.value)}
+                            className="w-full p-3 text-sm transition-all"
+                            style={{
+                              backgroundColor: '#f8fafc',
+                              color: '#0f172a',
+                              borderRadius: '12px',
+                              border:
+                                !supIndividualPrecioDia || Number(supIndividualPrecioDia) === 0
+                                  ? '1px solid #f59e0b'
+                                  : '1px solid #e2e8f0',
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#3b82f6'
+                              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor =
+                                !supIndividualPrecioDia || Number(supIndividualPrecioDia) === 0
+                                  ? '#f59e0b'
+                                  : '#e2e8f0'
+                              e.target.style.boxShadow = 'none'
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Importe total habitación: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
+                        <span className="text-slate-400">
+                          ({supIndividualPax || 0} pax × {supIndividualPrecioDia || 0}€ × {suplementos.noches} noches)
+                        </span>
+                      </p>
+                    </div>
+
+                    {/* Suplemento Seguro */}
+                    <div>
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.2em] mb-2">
+                        Seguro
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              color: '#64748b',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              display: 'block',
+                              marginBottom: '4px',
+                            }}
+                          >
+                            Pax con Seguro
+                            {(!supSeguroPax || Number(supSeguroPax) === 0) && (
+                              <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                            )}
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={supSeguroPax}
+                            onChange={(e) => setSupSeguroPax(e.target.value)}
+                            className="w-full p-3 text-sm transition-all"
+                            style={{
+                              backgroundColor: '#f8fafc',
+                              color: '#0f172a',
+                              borderRadius: '12px',
+                              border:
+                                !supSeguroPax || Number(supSeguroPax) === 0
+                                  ? '1px solid #f59e0b'
+                                  : '1px solid #e2e8f0',
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#3b82f6'
+                              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor =
+                                !supSeguroPax || Number(supSeguroPax) === 0 ? '#f59e0b' : '#e2e8f0'
+                              e.target.style.boxShadow = 'none'
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              color: '#64748b',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              display: 'block',
+                              marginBottom: '4px',
+                            }}
+                          >
+                            Precio Total Seguro (€)
+                            {(!supSeguroPrecioTotal || Number(supSeguroPrecioTotal) === 0) && (
+                              <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
+                            )}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={supSeguroPrecioTotal}
+                            onChange={(e) => setSupSeguroPrecioTotal(e.target.value)}
+                            className="w-full p-3 text-sm transition-all"
+                            style={{
+                              backgroundColor: '#f8fafc',
+                              color: '#0f172a',
+                              borderRadius: '12px',
+                              border:
+                                !supSeguroPrecioTotal || Number(supSeguroPrecioTotal) === 0
+                                  ? '1px solid #f59e0b'
+                                  : '1px solid #e2e8f0',
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#3b82f6'
+                              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor =
+                                !supSeguroPrecioTotal || Number(supSeguroPrecioTotal) === 0
+                                  ? '#f59e0b'
+                                  : '#e2e8f0'
+                              e.target.style.boxShadow = 'none'
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Importe total seguro: <span className="font-semibold text-slate-900">{suplementos.totalSupSeguro}€</span>{' '}
+                        <span className="text-slate-400">
+                          ({supSeguroPax || 0} pax × {supSeguroPrecioTotal || 0}€)
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-sm font-medium text-amber-800">
+                      💡 Total suplementos añadidos a la cotización:{' '}
+                      <span className="font-bold">{suplementos.totalSuplementos}€</span>
+                    </p>
+                  </div>
+                </div>
+
                 {/* Tabla de Servicios */}
                 <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
                   <div className="flex justify-between items-center mb-4">
@@ -2777,7 +3080,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <p className="text-xs text-blue-600 mt-1">Total: {resultados.costeTotalViaje}€</p>
                       </div>
                       
-                      {/* 2. PRECIO VENTA - Verde Destacado */}
+                    {/* 2. PRECIO VENTA - Verde Destacado */}
                       <div className="bg-green-50 p-5 rounded-lg border-2 border-green-400 shadow-lg">
                         <p className="text-xs text-green-700 font-bold uppercase mb-1">💰 Precio Venta/Pax</p>
                         <p className="text-3xl font-black text-green-900">{resultados.precioVentaPorPersona}€</p>
@@ -2806,6 +3109,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         </span>
                         <span className={`text-2xl font-black ${parseFloat(resultados.beneficioTotal) >= 0 ? 'text-green-900' : 'text-red-900'}`}>
                           {parseFloat(resultados.beneficioTotal) >= 0 ? '+' : ''}{resultados.beneficioTotal}€
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Total Cotización incluyendo suplementos */}
+                    <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="font-semibold text-amber-900">
+                          💼 Total Cotización (precio venta + suplementos):
+                        </span>
+                        <span className="font-bold text-amber-900">
+                          {(
+                            (parseFloat(resultados.precioVentaTotal) || 0) +
+                            (parseFloat(suplementos.totalSuplementos) || 0)
+                          ).toFixed(2)}
+                          €
                         </span>
                       </div>
                     </div>
