@@ -145,29 +145,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // Ref para rastrear si ya se inicializaron los servicios automáticamente
   const serviciosInicializados = useRef(false)
   
-  // Estados para Cotización (CON VALORES SEGUROS, sin usar columna JSON cotizacion)
-  // IMPORTANTE: Estos estados son INDEPENDIENTES de la pestaña de Facturación
-  // La facturación SOLO LEE estos valores, nunca los modifica
-  const [servicios, setServicios] = useState([]) // Se cargan desde servicios_cotizacion
-  const [numTotalPasajeros, setNumTotalPasajeros] = useState(
-    expediente?.total_pax || expediente?.pax_pago || 1
-  )
-  const [numGratuidades, setNumGratuidades] = useState(
-    expediente?.gratuidades || 0
-  )
-  // IMPORTANTE: Inicializar desde el expediente si está disponible
-  const [bonificacionPorPersona, setBonificacionPorPersona] = useState(
-    expediente?.bonificacion_pax || 0
-  )
-  const [precioVentaManual, setPrecioVentaManual] = useState(
-    expediente?.precio_venta_cliente || 0
-  ) // Precio manual €/pax
+  // ============ ESTADO GLOBAL UNIFICADO DEL FORMULARIO ============
+  // Fuente Única de Verdad: Estado persistente único - null hasta que se carguen los datos
+  const [formData, setFormData] = useState(null)
+  
+  // Estado de carga: bloquea guardados hasta que los datos estén cargados
+  const [datosCargados, setDatosCargados] = useState(false)
 
-  // Suplementos (habitaciones individuales y seguros)
-  const [supIndividualPax, setSupIndividualPax] = useState(expediente?.sup_individual_pax || 0)
-  const [supIndividualPrecioDia, setSupIndividualPrecioDia] = useState(expediente?.sup_individual_precio_dia || 0)
-  const [supSeguroPax, setSupSeguroPax] = useState(expediente?.sup_seguro_pax || 0)
-  const [supSeguroPrecioTotal, setSupSeguroPrecioTotal] = useState(expediente?.sup_seguro_precio_total || 0)
+  // Estados para servicios (separados porque se guardan en tabla diferente)
+  const [servicios, setServicios] = useState([])
   
   // Estados para Proveedores
   const [proveedores, setProveedores] = useState([])
@@ -244,29 +230,87 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
   
-  // ============ ARQUITECTURA DE CARGA UNIFICADA ============
-  // Función única que carga servicios y parámetros con sincronización de proveedores
-  // IMPORTANTE: Esta función solo se ejecuta al cargar el expediente, NO al cambiar de pestaña
+  // ============ CARGA OBLIGATORIA AL MONTAR ============
+  // CRÍTICO: Carga los datos desde Supabase al montar el componente
+  // Hasta que los datos no lleguen, formData será null y el componente mostrará "Cargando..."
   useEffect(() => {
-    const cargarDatosCompletos = async () => {
-      const expedienteId = expediente?.id
-      if (!expedienteId || proveedores.length === 0) return
+    const expedienteId = expediente?.id
+    if (!expedienteId) {
+      setFormData(null)
+      setDatosCargados(false)
+      return
+    }
 
+    const cargarDatosCompletos = async () => {
+      // Bloquear guardados y resetear formData durante la carga
+      setFormData(null)
+      setDatosCargados(false)
+      
       try {
-        // Cargar servicios y parámetros en paralelo
-        // IMPORTANTE: Cargar TODOS los campos necesarios para evitar pérdida de datos
-        const [serviciosResponse, parametrosResponse] = await Promise.all([
-          supabase
+        // Cargar datos del expediente desde Supabase
+        const { data, error } = await supabase
+          .from('expedientes')
+          .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total, noches')
+          .eq('id', expedienteId)
+          .single()
+
+        if (error) {
+          console.error('❌ Error cargando datos:', error)
+          setFormData(null)
+          setDatosCargados(false)
+          return
+        }
+
+        // Función helper para convertir a número de forma segura
+        const convertirANumero = (valor, defaultValue = 0) => {
+          if (valor === null || valor === undefined) return defaultValue
+          const num = Number(valor)
+          return isNaN(num) ? defaultValue : num
+        }
+        
+        // Poblar formData con TODOS los valores convertidos a Number()
+        const datosCargados = {
+          total_pax: convertirANumero(data?.total_pax, 1),
+          gratuidades: convertirANumero(data?.gratuidades, 0),
+          precio_venta_cliente: convertirANumero(data?.precio_venta_cliente, 0),
+          bonificacion_pax: convertirANumero(data?.bonificacion_pax, 0),
+          sup_individual_pax: convertirANumero(data?.sup_individual_pax, 0),
+          sup_individual_precio_dia: convertirANumero(data?.sup_individual_precio_dia, 0),
+          sup_seguro_pax: convertirANumero(data?.sup_seguro_pax, 0),
+          sup_seguro_precio_total: convertirANumero(data?.sup_seguro_precio_total, 0),
+        }
+
+        // DEBUG: Log de datos cargados
+        console.log('Estado cargado desde DB:', datosCargados)
+        
+        // Establecer formData con los datos cargados
+        setFormData(datosCargados)
+        
+        // Marcar como cargado para permitir guardados
+        setDatosCargados(true)
+      } catch (err) {
+        console.error('❌ Error inesperado cargando datos:', err)
+        setFormData(null)
+        setDatosCargados(false)
+      }
+    }
+
+    // EJECUTAR SIEMPRE cuando hay expediente.id
+    cargarDatosCompletos()
+  }, [expediente?.id]) // Solo depende del ID del expediente
+
+  // ============ CARGA DE SERVICIOS (separada, depende de proveedores) ============
+  useEffect(() => {
+    const expedienteId = expediente?.id
+    if (!expedienteId || proveedores.length === 0) return
+
+    const cargarServicios = async () => {
+      try {
+        const serviciosResponse = await supabase
           .from('servicios_cotizacion')
           .select('*')
-            .eq('id_expediente', String(expedienteId).trim())
-            .order('id', { ascending: true }),
-          supabase
-            .from('expedientes')
-            .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total, noches')
-            .eq('id', expedienteId)
-            .single()
-        ])
+          .eq('id_expediente', String(expedienteId).trim())
+          .order('id', { ascending: true })
 
         // ============ MAPEO DE SERVICIOS CON SINCRONIZACIÓN DE PROVEEDORES ============
         if (serviciosResponse.data && Array.isArray(serviciosResponse.data) && serviciosResponse.data.length > 0) {
@@ -316,123 +360,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         } else {
           serviciosInicializados.current = false
         }
-
-        // ============ MAPEO DE PARÁMETROS DEL EXPEDIENTE ============
-        // IMPORTANTE: Solo actualizar estados si los valores vienen de la BD y son válidos
-        // No sobrescribir valores existentes con null/undefined/0
-        // Esta lógica solo se ejecuta al cargar el expediente, NO al cambiar de pestaña
-        // AUDITORÍA: Verificar que los nombres de columnas coincidan con la BD
-        if (parametrosResponse.data) {
-          const data = parametrosResponse.data
-          
-          // LOG DE SEGURIDAD: Verificar mapeo de columnas de BD
-          console.log('🔒 [SEGURIDAD] ============ CARGA INICIAL EXPEDIENTE ============')
-          console.log('🔒 [SEGURIDAD] Expediente ID:', expedienteId)
-          console.log('🔒 [SEGURIDAD] Datos recibidos de BD:', data)
-          console.log('🔒 [SEGURIDAD] Verificación de nombres de columnas:')
-          console.log('🔒 [SEGURIDAD] - total_pax:', data.total_pax !== undefined ? '✅ Encontrado' : '❌ NO encontrado')
-          console.log('🔒 [SEGURIDAD] - precio_venta_cliente:', data.precio_venta_cliente !== undefined ? '✅ Encontrado' : '❌ NO encontrado')
-          console.log('🔒 [SEGURIDAD] - bonificacion_pax:', data.bonificacion_pax !== undefined ? '✅ Encontrado' : '❌ NO encontrado')
-          console.log('🔒 [SEGURIDAD] - gratuidades:', data.gratuidades !== undefined ? '✅ Encontrado' : '❌ NO encontrado')
-          console.log('🔒 [SEGURIDAD] Valores específicos:', {
-            total_pax: data.total_pax,
-            gratuidades: data.gratuidades,
-            precio_venta_cliente: data.precio_venta_cliente,
-            bonificacion_pax: data.bonificacion_pax,
-            sup_individual_pax: data.sup_individual_pax,
-            sup_individual_precio_dia: data.sup_individual_precio_dia,
-            sup_seguro_pax: data.sup_seguro_pax,
-            sup_seguro_precio_total: data.sup_seguro_precio_total
-          })
-          
-          // VALIDACIÓN: Si los nombres de columnas no coinciden, advertir
-          if (data.precio_venta_cliente === undefined && data.precio_venta_pax !== undefined) {
-            console.error('❌ [SEGURIDAD] ERROR DE MAPEO: La BD usa "precio_venta_pax" pero el código busca "precio_venta_cliente"')
-            console.error('❌ [SEGURIDAD] Actualizar el SELECT en la línea ~266 para usar el nombre correcto')
-          }
-          if (data.total_pax === undefined && data.pax_total !== undefined) {
-            console.error('❌ [SEGURIDAD] ERROR DE MAPEO: La BD usa "pax_total" pero el código busca "total_pax"')
-            console.error('❌ [SEGURIDAD] Actualizar el SELECT en la línea ~266 para usar el nombre correcto')
-          }
-          console.log('🔒 [SEGURIDAD] ==================================================')
-          
-          // Total Pasajeros: solo actualizar si hay valor válido (> 0)
-          // No sobrescribir si ya hay un valor en el estado
-          if (data.total_pax !== undefined && data.total_pax !== null && Number(data.total_pax) > 0) {
-            setNumTotalPasajeros(String(Number(data.total_pax)))
-          }
-          
-          // Gratuidades: actualizar siempre (0 es un valor válido)
-          if (data.gratuidades !== undefined && data.gratuidades !== null) {
-            const gratuidadesNum = Number(data.gratuidades)
-            if (!isNaN(gratuidadesNum)) {
-              setNumGratuidades(String(gratuidadesNum))
-            }
-          }
-          
-          // Precio Venta: CRÍTICO - solo actualizar si hay valor válido (> 0)
-          // PROTECCIÓN: No sobrescribir con 0 o null si ya hay un valor en el estado
-          if (data.precio_venta_cliente !== undefined && data.precio_venta_cliente !== null) {
-            const precioNum = Number(data.precio_venta_cliente)
-            if (!isNaN(precioNum) && precioNum > 0) {
-              setPrecioVentaManual(String(precioNum))
-              console.log('✅ [AUDITORÍA] Precio venta cargado desde BD:', precioNum)
-            } else {
-              console.warn('⚠️ [AUDITORÍA] Precio venta en BD es 0 o inválido:', data.precio_venta_cliente)
-            }
-          } else {
-            console.warn('⚠️ [AUDITORÍA] precio_venta_cliente no encontrado en respuesta de BD')
-          }
-          
-          // Bonificación: actualizar siempre (0 es un valor válido)
-          if (data.bonificacion_pax !== undefined && data.bonificacion_pax !== null) {
-            const bonifNum = Number(data.bonificacion_pax)
-            if (!isNaN(bonifNum)) {
-              setBonificacionPorPersona(String(bonifNum))
-              console.log('✅ [AUDITORÍA] Bonificación cargada desde BD:', bonifNum)
-            }
-          } else {
-            console.warn('⚠️ [AUDITORÍA] bonificacion_pax no encontrado en respuesta de BD')
-          }
-
-          // Suplementos: actualizar si hay valor (0 es válido para estos campos)
-          if (data.sup_individual_pax !== undefined && data.sup_individual_pax !== null) {
-            const supPaxNum = Number(data.sup_individual_pax)
-            if (!isNaN(supPaxNum)) {
-              setSupIndividualPax(String(supPaxNum))
-            }
-          }
-          if (data.sup_individual_precio_dia !== undefined && data.sup_individual_precio_dia !== null) {
-            const supPrecioNum = Number(data.sup_individual_precio_dia)
-            if (!isNaN(supPrecioNum)) {
-              setSupIndividualPrecioDia(String(supPrecioNum))
-            }
-          }
-          if (data.sup_seguro_pax !== undefined && data.sup_seguro_pax !== null) {
-            const seguroPaxNum = Number(data.sup_seguro_pax)
-            if (!isNaN(seguroPaxNum)) {
-              setSupSeguroPax(String(seguroPaxNum))
-            }
-          }
-          if (data.sup_seguro_precio_total !== undefined && data.sup_seguro_precio_total !== null) {
-            const seguroPrecioNum = Number(data.sup_seguro_precio_total)
-            if (!isNaN(seguroPrecioNum)) {
-              setSupSeguroPrecioTotal(String(seguroPrecioNum))
-            }
-          }
-        }
-
-        // ============ CÁLCULO AUTOMÁTICO POST-CARGA ============
-        // El useMemo se recalculará automáticamente al cambiar 'servicios' o parámetros
-
       } catch (err) {
-        console.error('Error cargando datos:', err)
+        console.error('❌ Error cargando servicios:', err)
       }
     }
 
-    if (expediente?.id && proveedores.length > 0) {
-      cargarDatosCompletos()
-    }
+    cargarServicios()
   }, [expediente?.id, proveedores])
 
   // ============ FUNCIÓN PARA CONVERTIR NÚMEROS A TEXTO ============
@@ -941,8 +874,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }
 
   // ⚠️ BLINDAJE NIVEL 2: Cálculo seguro de pasajeros de pago
-  const paxPago = Math.max(1, (parseInt(numTotalPasajeros) || 1) - (parseInt(numGratuidades) || 0))
-  const totalPax = Math.max(1, parseInt(numTotalPasajeros) || 1)
+  const paxPago = Math.max(1, (parseInt(formData.total_pax) || 1) - (parseInt(formData.gratuidades) || 0))
+  const totalPax = Math.max(1, parseInt(formData.total_pax) || 1)
 
   // Estados para Facturación
   const [formFactura, setFormFactura] = useState({
@@ -1098,7 +1031,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const calcularCotizacion = () => {
     try {
       // Valores seguros
-      const bonif = Math.max(0, parseFloat(bonificacionPorPersona) || 0)
+      const bonif = Math.max(0, parseFloat(formData.bonificacion_pax) || 0)
       
       // Variables de costes POR CATEGORÍA
       let costeBusPorPax = 0
@@ -1185,7 +1118,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // CÁLCULO CORRECTO DE GRATUIDADES (Base Real Completa)
       // El coste de una gratuidad = TODO el coste base individual
       const costeBaseGratuidad = costeBasePorPersona // 327.76€ por ejemplo
-      const costePlazasGratuitas = costeBaseGratuidad * (parseInt(numGratuidades) || 0)
+      const costePlazasGratuitas = costeBaseGratuidad * (parseInt(formData.gratuidades) || 0)
       const costeGratuidadesPorPax = paxPago > 0 ? costePlazasGratuitas / paxPago : 0
       
       // COSTE REAL POR PERSONA (PAGADOR) = Base + Gratuidades + Bonificación
@@ -1195,7 +1128,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         bonif                                // Bonificación
       
       // NUEVO MODELO DE NEGOCIO: PRECIO MANUAL + MARGEN INFORMATIVO
-      const precioVentaPorPersona = Math.max(0, parseFloat(precioVentaManual) || 0)
+      const precioVentaPorPersona = Math.max(0, parseFloat(formData.precio_venta_cliente) || 0)
       const costeTotalViaje = costeRealPorPersona * paxPago
       const precioVentaTotal = precioVentaPorPersona * paxPago
       
@@ -1243,7 +1176,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         // Info
         paxPagadores: paxPago,
         totalPasajeros: totalPax,
-        gratuidades: parseInt(numGratuidades) || 0,
+        gratuidades: parseInt(formData.gratuidades) || 0,
       }
     } catch (error) {
       return {
@@ -1278,17 +1211,25 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   // ⚡ REACTIVIDAD AUTOMÁTICA: Se recalcula cuando cambian los servicios o parámetros
   const resultados = useMemo(() => {
+    if (!formData) return null
     return calcularCotizacion()
-  }, [servicios, numTotalPasajeros, numGratuidades, bonificacionPorPersona, precioVentaManual])
+  }, [servicios, formData])
 
   // ============ CÁLCULOS DE SUPLEMENTOS (INDIVIDUAL Y SEGURO) ============
   const suplementos = useMemo(() => {
+    if (!formData) {
+      return {
+        totalSuplementos: 0,
+        totalSupHabitacion: 0,
+        totalSupSeguro: 0
+      }
+    }
     const noches = calcularNochesExpediente()
 
-    const paxIndividual = parseFloat(supIndividualPax || 0) || 0
-    const precioIndividualDia = parseFloat(supIndividualPrecioDia || 0) || 0
-    const paxSeguro = parseFloat(supSeguroPax || 0) || 0
-    const precioSeguroTotal = parseFloat(supSeguroPrecioTotal || 0) || 0
+    const paxIndividual = parseFloat(formData.sup_individual_pax || 0) || 0
+    const precioIndividualDia = parseFloat(formData.sup_individual_precio_dia || 0) || 0
+    const paxSeguro = parseFloat(formData.sup_seguro_pax || 0) || 0
+    const precioSeguroTotal = parseFloat(formData.sup_seguro_precio_total || 0) || 0
 
     const totalSupHabitacion = paxIndividual * precioIndividualDia * noches
     const totalSupSeguro = paxSeguro * precioSeguroTotal
@@ -1300,7 +1241,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       totalSupSeguro: totalSupSeguro.toFixed(2),
       totalSuplementos: totalSuplementos.toFixed(2),
     }
-  }, [supIndividualPax, supIndividualPrecioDia, supSeguroPax, supSeguroPrecioTotal, expediente])
+  }, [formData.sup_individual_pax, formData.sup_individual_precio_dia, formData.sup_seguro_pax, formData.sup_seguro_precio_total, expediente])
 
   // ============ INICIALIZAR DATOS DEL RECEPTOR DE FACTURA ============
   useEffect(() => {
@@ -1331,9 +1272,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // ============ CÁLCULO DE BASE IMPONIBLE PARA FACTURA ============
   // NOTA: El Precio Venta al Cliente YA INCLUYE IVA (Régimen Especial de Agencias de Viajes)
   const calcularBaseFactura = useMemo(() => {
+    if (!formData) {
+      return {
+        precioVentaPax: 0,
+        precioNetoPax: 0,
+        totalServiciosConIVA: 0,
+        baseImponible: 0,
+        iva: 0,
+        totalFactura: 0
+      }
+    }
     // Precio Venta al Cliente (€/pax) - YA INCLUYE IVA
-    const precioVentaPax = parseFloat(precioVentaManual || 0) || 0
-    const bonificacion = parseFloat(bonificacionPorPersona || 0) || 0
+    const precioVentaPax = parseFloat(formData.precio_venta_cliente || 0) || 0
+    const bonificacion = parseFloat(formData.bonificacion_pax || 0) || 0
     const precioNetoPax = precioVentaPax - bonificacion
 
     // Multiplicar por Clientes de Pago
@@ -1380,7 +1331,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       iva: iva.toFixed(2),
       totalFactura: totalFactura.toFixed(2),
     }
-  }, [precioVentaManual, bonificacionPorPersona, paxPago, suplementos.totalSuplementos])
+  }, [formData.precio_venta_cliente, formData.bonificacion_pax, paxPago, suplementos.totalSuplementos])
 
   // ============ OBTENER SIGUIENTE NÚMERO DE FACTURA ============
   const obtenerSiguienteNumeroFactura = async () => {
@@ -1660,17 +1611,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }
 
   // ============ EMITIR FACTURA ============
-  // IMPORTANTE: Esta función SOLO lee datos de cotización, NO los modifica
+  // IMPORTANTE: Esta función SOLO lee datos de cotización desde formData, NO los modifica
   // - NO actualiza el expediente
-  // - NO modifica estados de cotización (precioVentaManual, bonificacionPorPersona, etc.)
+  // - NO modifica formData
   // - SOLO hace INSERT en la tabla 'facturas'
   // - Los datos de cotización son independientes y solo se modifican desde su pestaña
   const emitirFactura = async () => {
     // Validar datos del receptor
     if (!formFactura.receptorNombre || formFactura.receptorNombre.trim() === '') {
       alert('⚠️ Por favor, completa el nombre del receptor de la factura.')
-      return
-    }
+        return
+      }
 
     if (!expediente?.id) {
       alert('❌ Error: El expediente no tiene ID.')
@@ -1721,7 +1672,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       if (error) {
         console.error('❌ [SEGURIDAD] Error guardando factura:', error)
         alert(`❌ Error guardando factura: ${error.message}`)
-        return
+          return
       }
 
       // Generar PDF
@@ -1735,250 +1686,65 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
 
-  // ============ FUNCIÓN DE GUARDADO REESCRITA ============
-  const guardarCotizacion = async () => {
-    if (!window.confirm('¿Desea guardar los cambios en la cotización?')) {
-      return
-    }
-    
+  // ============ FUNCIÓN ÚNICA DE PERSISTENCIA ============
+  // persistirCambios: Guarda formData en Supabase usando nombres reales de la DB
+  // BLOQUEADO si formData es null o si la carga inicial no ha terminado
+  const persistirCambios = async () => {
     const expedienteId = expediente?.id
-      if (!expedienteId) {
-      alert('❌ Error: El expediente no tiene ID. No se puede guardar.')
-        return
-      }
+    if (!expedienteId) {
+      console.error('❌ No se puede guardar: expediente sin ID')
+      return false
+    }
+
+    // BLOQUEO CRÍTICO: No guardar si formData es null
+    if (formData === null) {
+      console.warn('⚠️ Guardado bloqueado: formData es null')
+      return false
+    }
+
+    // BLOQUEO CRÍTICO: No guardar si los datos aún no se han cargado
+    if (!datosCargados) {
+      console.warn('⚠️ Guardado bloqueado: datos aún cargando')
+      return false
+    }
 
     try {
-      // ============ FUNCIÓN INTERNA DE LIMPIEZA ============
-      // IMPORTANTE: Convierte valores a números válidos para Supabase
-      // Retorna Number (no string) para que Supabase acepte el tipo correcto
-      const limpiarDatosNumericos = (valor) => {
-        // Si es número, validar y retornar
-        if (typeof valor === 'number') {
-          return isNaN(valor) ? 0 : valor
-        }
-        
-        // Si está vacío, retornar 0 (valor por defecto válido)
-        if (valor === null || valor === undefined || valor === '') {
-          return 0
-        }
-        
-        // Limpiar string y convertir a número
-        const limpio = String(valor)
-          .replace(/€/g, '')
-          .replace(/pax/g, '')
-          .replace(/\./g, '')
-          .replace(/,/g, '.')
-          .replace(/[^0-9.-]+/g, '')
-          .trim()
-        
-        if (limpio === '') return 0
-        
-        const resultado = parseFloat(limpio)
-        return isNaN(resultado) ? 0 : resultado
+      // Convertir formData a números para Supabase
+      const convertirANumero = (val) => {
+        if (typeof val === 'number' && !isNaN(val)) return val
+        const num = parseFloat(String(val).replace(/,/g, '.').replace(/[^0-9.-]+/g, ''))
+        return isNaN(num) ? 0 : num
       }
 
-      const convertirFechaRelease = (fechaRelease) => {
-        if (!fechaRelease || fechaRelease === '' || fechaRelease === null) return null
-        if (typeof fechaRelease === 'string' && /^\d{4}-\d{2}-\d{2}/.test(fechaRelease)) return fechaRelease
-        if (fechaRelease instanceof Date) {
-          if (isNaN(fechaRelease.getTime())) return null
-          return fechaRelease.toISOString().split('T')[0]
-        }
-        try {
-          const fechaISO = convertirEspañolAISO(String(fechaRelease))
-          return fechaISO || null
-        } catch (error) {
-          return null
-        }
+      // Usar nombres reales de la DB
+      const datosParaGuardar = {
+        total_pax: convertirANumero(formData.total_pax),
+        gratuidades: convertirANumero(formData.gratuidades),
+        pax_pago: Math.max(1, convertirANumero(formData.total_pax) - convertirANumero(formData.gratuidades)),
+        precio_venta_cliente: convertirANumero(formData.precio_venta_cliente),
+        bonificacion_pax: convertirANumero(formData.bonificacion_pax),
+        sup_individual_pax: convertirANumero(formData.sup_individual_pax),
+        sup_individual_precio_dia: convertirANumero(formData.sup_individual_precio_dia),
+        sup_seguro_pax: convertirANumero(formData.sup_seguro_pax),
+        sup_seguro_precio_total: convertirANumero(formData.sup_seguro_precio_total),
       }
 
-      const validarProveedorId = (valor) => {
-        if (!valor || valor === null || valor === undefined) return null
-        const idNum = typeof valor === 'string' ? Number(valor) : Number(valor)
-        if (isNaN(idNum) || idNum <= 0) return null
-        return idNum
-      }
-
-      // ============ PASO 1: GUARDAR EXPEDIENTE (ACTUALIZACIÓN PARCIAL - PATCH) ============
-      // ARQUITECTURA: Solo actualizar campos de la pestaña actual (Cotización)
-      // NO tocar campos de otras pestañas (Facturación, Cliente, etc.)
-      // TÉCNICA: UPDATE parcial con solo los campos modificados en esta pestaña
-      
-      // CRÍTICO: Convertir TODOS los valores a Number para Supabase
-      // Usar los estados directamente (ya están actualizados por los inputs)
-      const totalPax = Number(limpiarDatosNumericos(numTotalPasajeros)) || 0
-      const gratuidades = Number(limpiarDatosNumericos(numGratuidades)) || 0
-      const paxPago = Math.max(1, totalPax - gratuidades)
-      const precioVenta = Number(limpiarDatosNumericos(precioVentaManual)) || 0
-      const bonificacion = Number(limpiarDatosNumericos(bonificacionPorPersona)) || 0
-      
-      // Suplementos - convertir a Number
-      const supIndividualPaxNum = Number(limpiarDatosNumericos(supIndividualPax)) || 0
-      const supIndividualPrecioDiaNum = Number(limpiarDatosNumericos(supIndividualPrecioDia)) || 0
-      const supSeguroPaxNum = Number(limpiarDatosNumericos(supSeguroPax)) || 0
-      const supSeguroPrecioTotalNum = Number(limpiarDatosNumericos(supSeguroPrecioTotal)) || 0
-      
-      // CONSTRUIR OBJETO: TODOS los campos de Cotización (sin condiciones)
-      // IMPORTANTE: Incluir TODOS los campos siempre, incluso si son 0
-      // Los nombres de columnas deben coincidir EXACTAMENTE con Supabase
-      const datosExpediente = {
-        total_pax: totalPax,
-        gratuidades: gratuidades,
-        pax_pago: paxPago,
-        precio_venta_cliente: precioVenta,
-        bonificacion_pax: bonificacion,
-        sup_individual_pax: supIndividualPaxNum,
-        sup_individual_precio_dia: supIndividualPrecioDiaNum,
-        sup_seguro_pax: supSeguroPaxNum,
-        sup_seguro_precio_total: supSeguroPrecioTotalNum,
-      }
-      
-      // VALIDACIÓN FINAL: Asegurar que todos los valores sean números
-      // Si algún valor no es número, convertirlo a 0
-      Object.keys(datosExpediente).forEach(key => {
-        const valor = datosExpediente[key]
-        if (typeof valor !== 'number' || isNaN(valor)) {
-          console.warn(`⚠️ [ADVERTENCIA] ${key} no es número válido, convirtiendo a 0:`, valor, typeof valor)
-          datosExpediente[key] = 0
-        }
-      })
-
-      // LOG DE SEGURIDAD: Auditoría completa antes de guardar
-      console.log('🔒 [SEGURIDAD] ============ INICIO UPDATE EXPEDIENTE ============')
-      console.log('🔒 [SEGURIDAD] Expediente ID:', expedienteId)
-      console.log('🔒 [SEGURIDAD] Pestaña actual: Cotización')
-      console.log('🔒 [SEGURIDAD] Estados de React (valores actuales):', {
-        numTotalPasajeros,
-        numGratuidades,
-        precioVentaManual,
-        bonificacionPorPersona,
-        supIndividualPax,
-        supIndividualPrecioDia,
-        supSeguroPax,
-        supSeguroPrecioTotal
-      })
-      console.log('🔒 [SEGURIDAD] Valores convertidos a Number:', {
-        totalPax,
-        gratuidades,
-        precioVenta,
-        bonificacion,
-        supIndividualPaxNum,
-        supIndividualPrecioDiaNum,
-        supSeguroPaxNum,
-        supSeguroPrecioTotalNum
-      })
-      console.log('🔒 [SEGURIDAD] Campos que se actualizarán (SOLO estos):', Object.keys(datosExpediente))
-      console.log('🔒 [SEGURIDAD] Valores que se enviarán a Supabase:', datosExpediente)
-      console.log('🔒 [SEGURIDAD] Tipos de datos:', Object.keys(datosExpediente).reduce((acc, key) => {
-        acc[key] = typeof datosExpediente[key]
-        return acc
-      }, {}))
-      console.log('🔒 [SEGURIDAD] Campos que NO se tocarán (otras pestañas):', 
-        'Todos los demás campos del expediente permanecen intactos')
-      console.log('🔒 [SEGURIDAD] ================================================')
-      
-      // ACTUALIZACIÓN PARCIAL: Solo los campos especificados
-      const { error: errorExpediente, data: dataExpediente } = await supabase
+      const { error } = await supabase
         .from('expedientes')
-        .update(datosExpediente)  // UPDATE parcial - solo estos campos
+        .update(datosParaGuardar)
         .eq('id', expedienteId)
-        .select()
 
-      if (errorExpediente) {
-        console.error('❌ [SEGURIDAD] ============ ERROR EN UPDATE ============')
-        console.error('❌ [SEGURIDAD] Error guardando expediente:', errorExpediente)
-        console.error('❌ [SEGURIDAD] Datos que se intentaron guardar:', datosExpediente)
-        console.error('❌ [SEGURIDAD] Tipos de datos:', Object.keys(datosExpediente).reduce((acc, key) => {
-          acc[key] = typeof datosExpediente[key]
-          return acc
-        }, {}))
-        console.error('❌ [SEGURIDAD] ==========================================')
-        alert(`❌ Error guardando expediente:\n\n${errorExpediente.message || JSON.stringify(errorExpediente)}\n\nVerifica la consola (F12) para más detalles.`)
-        return
+      if (error) {
+        console.error('❌ Error guardando:', error)
+        return false
       }
 
-      // LOG DE SEGURIDAD: Confirmación de éxito
-      console.log('✅ [SEGURIDAD] ============ UPDATE EXITOSO ============')
-      console.log('✅ [SEGURIDAD] Expediente ID:', expedienteId)
-      console.log('✅ [SEGURIDAD] Campos actualizados (SOLO estos):', Object.keys(datosExpediente))
-      console.log('✅ [SEGURIDAD] Valores guardados:', datosExpediente)
-      console.log('✅ [SEGURIDAD] Respuesta de Supabase:', dataExpediente)
-      console.log('✅ [SEGURIDAD] Campos de otras pestañas: INTACTOS (no modificados)')
-      console.log('✅ [SEGURIDAD] ==========================================')
-      
-      // Feedback visual de éxito
-      alert(`✅ Cotización guardada correctamente!\n\nCampos actualizados:\n${Object.keys(datosExpediente).map(key => `- ${key}: ${datosExpediente[key]}`).join('\n')}\n\nLos demás campos del expediente permanecen intactos.`)
-
-      // ============ PASO 2: GUARDAR SERVICIOS ============
-      const expedienteIdParaInsert = String(expedienteId).trim()
-      
-      const serviciosParaGuardar = servicios.map(s => {
-        const proveedorIdInt = validarProveedorId(s.proveedorId)
-        const textoBusqueda = busquedaProveedor[s.id] ? String(busquedaProveedor[s.id]).trim() : ''
-        
-        // Determinar nombre del proveedor
-        let nombreProveedorManual = null
-        if (proveedorIdInt) {
-          const proveedor = proveedores.find(p => Number(p.id) === proveedorIdInt)
-          nombreProveedorManual = proveedor ? proveedor.nombreComercial : (textoBusqueda || null)
-        } else if (textoBusqueda) {
-          nombreProveedorManual = textoBusqueda
-        }
-        
-        return {
-          id: s.id || generarUUID(),
-          id_expediente: expedienteIdParaInsert,
-          proveedor_id_int: proveedorIdInt,
-          nombre_proveedor_manual: nombreProveedorManual,
-          tipo_servicio: String(s.tipo || '').trim(),
-          nombre_especifico: String(s.nombreEspecifico || '').trim(),
-          localizacion: String(s.localizacion || '').trim(),
-          coste_unitario: limpiarDatosNumericos(s.costeUnitario),
-          precio_venta: limpiarDatosNumericos(s.precioVenta),
-          margen_pax: limpiarDatosNumericos(s.margen),
-          pax_total: limpiarDatosNumericos(numTotalPasajeros),
-          pax_pago: limpiarDatosNumericos(Number(numTotalPasajeros) - Number(numGratuidades)),
-          pax_gratis: limpiarDatosNumericos(numGratuidades),
-          noches: Number(s.noches) || 0,
-          bonificacion_pax: limpiarDatosNumericos(bonificacionPorPersona),
-          tipo_calculo: String(s.tipoCalculo || 'porPersona').trim(),
-          fecha_release: convertirFechaRelease(s.fechaRelease),
-        }
-      })
-
-      if (serviciosParaGuardar.length > 0) {
-        const { error: errorUpsert } = await supabase
-          .from('servicios_cotizacion')
-          .upsert(serviciosParaGuardar, { onConflict: 'id' })
-
-        if (errorUpsert) {
-          console.error('Error guardando servicios:', errorUpsert)
-          alert(`❌ Error guardando servicios:\n\n${errorUpsert.message || JSON.stringify(errorUpsert)}`)
-          return
-        }
-      }
-
-      // Actualizar expediente en memoria con TODOS los campos guardados
-      // IMPORTANTE: Incluir todos los campos que se guardaron en Supabase
-      const expedienteActualizado = {
-        ...expediente,
-        total_pax: totalPax,
-        pax_pago: paxPago,
-        gratuidades: gratuidades,
-        precio_venta_cliente: precioVenta,
-        bonificacion_pax: bonificacion,
-        sup_individual_pax: supIndividualPaxNum,
-        sup_individual_precio_dia: supIndividualPrecioDiaNum,
-        sup_seguro_pax: supSeguroPaxNum,
-        sup_seguro_precio_total: supSeguroPrecioTotalNum,
-      }
-      
-      console.log('🔄 [ACTUALIZACIÓN] Actualizando expediente en memoria:', expedienteActualizado)
-    onUpdate(expedienteActualizado)
-
+      // Actualizar estado local
+      onUpdate({ ...expediente, ...datosParaGuardar })
+      return true
     } catch (error) {
-      console.error('Error inesperado:', error)
-      alert(`❌ Error inesperado:\n\n${error.message || JSON.stringify(error)}`)
+      console.error('❌ Error inesperado:', error)
+      return false
     }
   }
 
@@ -2070,6 +1836,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const totalPasajerosHabitaciones = ((habitaciones.dobles || 0) * 2) + ((habitaciones.doblesTwin || 0) * 2) + (habitaciones.individuales || 0)
 
   // ============ RENDER PRINCIPAL (CON TRY/CATCH) ============
+  
+  // BLOQUEO: Si formData es null, mostrar "Cargando..." y NO permitir edición
+  if (formData === null) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md">
+          <h3 className="text-xl font-bold text-blue-600 mb-4">⏳ Cargando...</h3>
+          <p className="text-gray-700">Cargando datos del expediente desde la base de datos...</p>
+        </div>
+      </div>
+    )
+  }
   
   try {
   return (
@@ -2770,7 +2548,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             )}
 
             {/* TAB: Cotización */}
-          {tab === 'cotizacion' && (
+          {tab === 'cotizacion' && formData && (
               <div className="max-w-6xl mx-auto space-y-6">
                 
                 {/* Parámetros Principales */}
@@ -2781,8 +2559,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <label className="label">Total Pasajeros *</label>
                       <input
                         type="number"
-                        value={numTotalPasajeros}
-                        onChange={(e) => setNumTotalPasajeros(e.target.value)}
+                        value={formData.total_pax}
+                        onChange={(e) => setFormData({ ...formData, total_pax: e.target.value })}
                         onFocus={(e) => {
                           handleFocus(e)
                           e.target.style.borderColor = '#3b82f6'
@@ -2803,8 +2581,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <label className="label">Gratuidades</label>
                       <input
                         type="number"
-                        value={numGratuidades}
-                        onChange={(e) => setNumGratuidades(e.target.value)}
+                        value={formData.gratuidades}
+                        onChange={(e) => setFormData({ ...formData, gratuidades: e.target.value })}
                         onFocus={(e) => {
                           handleFocus(e)
                           e.target.style.borderColor = '#3b82f6'
@@ -2826,23 +2604,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <input
                         type="number"
                         step="0.01"
-                        value={bonificacionPorPersona || ''}
+                        value={formData.bonificacion_pax || ''}
                         onChange={(e) => {
                           const valorInput = e.target.value;
-                          // Si está vacío, permitir edición
                           if (valorInput === '' || valorInput === '-') {
-                            setBonificacionPorPersona('');
+                            setFormData({ ...formData, bonificacion_pax: '' });
                             return;
                           }
-                          // Convertir coma a punto (formato europeo -> americano)
                           let valorLimpio = valorInput.replace(/,/g, '.');
-                          // Parsear a float para preservar decimales
                           const valorNumerico = parseFloat(valorLimpio);
                           if (!isNaN(valorNumerico)) {
-                            setBonificacionPorPersona(valorNumerico);
+                            setFormData({ ...formData, bonificacion_pax: valorNumerico });
                           } else {
-                            // Permitir edición parcial
-                            setBonificacionPorPersona(valorLimpio);
+                            setFormData({ ...formData, bonificacion_pax: valorLimpio });
                           }
                         }}
                         onFocus={(e) => {
@@ -2851,18 +2625,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                         }}
                         onBlur={(e) => {
-                          // Al perder el foco, asegurar que el valor sea un número válido
                           const valor = e.target.value;
                           if (valor !== '' && valor !== '-') {
                             const valorLimpio = valor.replace(/,/g, '.');
                             const valorNumerico = parseFloat(valorLimpio);
-                            if (!isNaN(valorNumerico)) {
-                              setBonificacionPorPersona(valorNumerico);
-                            } else {
-                              setBonificacionPorPersona(0);
-                            }
+                            setFormData({ ...formData, bonificacion_pax: isNaN(valorNumerico) ? 0 : valorNumerico });
                           } else {
-                            setBonificacionPorPersona(0);
+                            setFormData({ ...formData, bonificacion_pax: 0 });
                           }
                           e.target.style.borderColor = '#e2e8f0'
                           e.target.style.boxShadow = 'none'
@@ -2880,23 +2649,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <input
                         type="number"
                         step="0.01"
-                        value={precioVentaManual || ''}
+                        value={formData.precio_venta_cliente || ''}
                         onChange={(e) => {
                           const valorInput = e.target.value;
-                          // Si está vacío, permitir edición
                           if (valorInput === '' || valorInput === '-') {
-                            setPrecioVentaManual('');
+                            setFormData({ ...formData, precio_venta_cliente: '' });
                             return;
                           }
-                          // Convertir coma a punto (formato europeo -> americano)
                           let valorLimpio = valorInput.replace(/,/g, '.');
-                          // Parsear a float para preservar decimales
                           const valorNumerico = parseFloat(valorLimpio);
                           if (!isNaN(valorNumerico)) {
-                            setPrecioVentaManual(valorNumerico);
+                            setFormData({ ...formData, precio_venta_cliente: valorNumerico });
                           } else {
-                            // Permitir edición parcial
-                            setPrecioVentaManual(valorLimpio);
+                            setFormData({ ...formData, precio_venta_cliente: valorLimpio });
                           }
                         }}
                         onFocus={(e) => {
@@ -2905,18 +2670,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                         }}
                         onBlur={(e) => {
-                          // Al perder el foco, asegurar que el valor sea un número válido
                           const valor = e.target.value;
                           if (valor !== '' && valor !== '-') {
                             const valorLimpio = valor.replace(/,/g, '.');
                             const valorNumerico = parseFloat(valorLimpio);
-                            if (!isNaN(valorNumerico)) {
-                              setPrecioVentaManual(valorNumerico);
-                            } else {
-                              setPrecioVentaManual(0);
-                            }
+                            setFormData({ ...formData, precio_venta_cliente: isNaN(valorNumerico) ? 0 : valorNumerico });
                           } else {
-                            setPrecioVentaManual(0);
+                            setFormData({ ...formData, precio_venta_cliente: 0 });
                           }
                           e.target.style.borderColor = '#e2e8f0'
                           e.target.style.boxShadow = 'none'
@@ -2934,7 +2694,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                     <p className="text-sm font-semibold text-blue-900">
                       📊 Pasajeros de Pago: <span className="text-2xl">{paxPago}</span> 
-                      <span className="text-xs ml-2 text-blue-600">({totalPax} total - {numGratuidades || 0} gratis)</span>
+                      <span className="text-xs ml-2 text-blue-600">({totalPax} total - {formData.gratuidades || 0} gratis)</span>
                     </p>
                   </div>
                 </div>
@@ -2973,22 +2733,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                           >
                             Pax con Individual
-                            {(!supIndividualPax || Number(supIndividualPax) === 0) && (
+                            {(!formData.sup_individual_pax || Number(formData.sup_individual_pax) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
                           <input
                             type="number"
                             min="0"
-                            value={supIndividualPax}
-                            onChange={(e) => setSupIndividualPax(e.target.value)}
+                            value={formData.sup_individual_pax}
+                            onChange={(e) => setFormData({ ...formData, sup_individual_pax: e.target.value })}
                             className="w-full p-3 text-sm transition-all"
                             style={{
                               backgroundColor: '#f8fafc',
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !supIndividualPax || Number(supIndividualPax) === 0
+                                !formData.sup_individual_pax || Number(formData.sup_individual_pax) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -2998,7 +2758,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                             onBlur={(e) => {
                               e.target.style.borderColor =
-                                !supIndividualPax || Number(supIndividualPax) === 0 ? '#f59e0b' : '#e2e8f0'
+                                !formData.sup_individual_pax || Number(formData.sup_individual_pax) === 0 ? '#f59e0b' : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
                             }}
                           />
@@ -3016,7 +2776,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                           >
                             Precio/Noche (€)
-                            {(!supIndividualPrecioDia || Number(supIndividualPrecioDia) === 0) && (
+                            {(!formData.sup_individual_precio_dia || Number(formData.sup_individual_precio_dia) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
@@ -3024,15 +2784,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             type="number"
                         step="0.01"
                             min="0"
-                            value={supIndividualPrecioDia}
-                            onChange={(e) => setSupIndividualPrecioDia(e.target.value)}
+                            value={formData.sup_individual_precio_dia}
+                            onChange={(e) => setFormData({ ...formData, sup_individual_precio_dia: e.target.value })}
                             className="w-full p-3 text-sm transition-all"
                             style={{
                               backgroundColor: '#f8fafc',
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !supIndividualPrecioDia || Number(supIndividualPrecioDia) === 0
+                                !formData.sup_individual_precio_dia || Number(formData.sup_individual_precio_dia) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -3042,7 +2802,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                             onBlur={(e) => {
                               e.target.style.borderColor =
-                                !supIndividualPrecioDia || Number(supIndividualPrecioDia) === 0
+                                !formData.sup_individual_precio_dia || Number(formData.sup_individual_precio_dia) === 0
                                   ? '#f59e0b'
                                   : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
@@ -3053,7 +2813,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <p className="mt-2 text-xs text-slate-500">
                         Importe total habitación: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
                         <span className="text-slate-400">
-                          ({supIndividualPax || 0} pax × {supIndividualPrecioDia || 0}€ × {suplementos.noches} noches)
+                          ({formData.sup_individual_pax || 0} pax × {formData.sup_individual_precio_dia || 0}€ × {suplementos.noches} noches)
                         </span>
                       </p>
                     </div>
@@ -3077,22 +2837,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                           >
                             Pax con Seguro
-                            {(!supSeguroPax || Number(supSeguroPax) === 0) && (
+                            {(!formData.sup_seguro_pax || Number(formData.sup_seguro_pax) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
                       <input
                         type="number"
                             min="0"
-                            value={supSeguroPax}
-                            onChange={(e) => setSupSeguroPax(e.target.value)}
+                            value={formData.sup_seguro_pax}
+                            onChange={(e) => setFormData({ ...formData, sup_seguro_pax: e.target.value })}
                             className="w-full p-3 text-sm transition-all"
                             style={{
                               backgroundColor: '#f8fafc',
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !supSeguroPax || Number(supSeguroPax) === 0
+                                !formData.sup_seguro_pax || Number(formData.sup_seguro_pax) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -3102,7 +2862,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         }}
                         onBlur={(e) => {
                               e.target.style.borderColor =
-                                !supSeguroPax || Number(supSeguroPax) === 0 ? '#f59e0b' : '#e2e8f0'
+                                !formData.sup_seguro_pax || Number(formData.sup_seguro_pax) === 0 ? '#f59e0b' : '#e2e8f0'
                           e.target.style.boxShadow = 'none'
                         }}
                           />
@@ -3120,7 +2880,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                           >
                             Precio Total Seguro (€)
-                            {(!supSeguroPrecioTotal || Number(supSeguroPrecioTotal) === 0) && (
+                            {(!formData.sup_seguro_precio_total || Number(formData.sup_seguro_precio_total) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
@@ -3128,15 +2888,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             type="number"
                         step="0.01"
                             min="0"
-                            value={supSeguroPrecioTotal}
-                            onChange={(e) => setSupSeguroPrecioTotal(e.target.value)}
+                            value={formData.sup_seguro_precio_total}
+                            onChange={(e) => setFormData({ ...formData, sup_seguro_precio_total: e.target.value })}
                             className="w-full p-3 text-sm transition-all"
                             style={{
                               backgroundColor: '#f8fafc',
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !supSeguroPrecioTotal || Number(supSeguroPrecioTotal) === 0
+                                !formData.sup_seguro_precio_total || Number(formData.sup_seguro_precio_total) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -3146,7 +2906,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                             onBlur={(e) => {
                               e.target.style.borderColor =
-                                !supSeguroPrecioTotal || Number(supSeguroPrecioTotal) === 0
+                                !formData.sup_seguro_precio_total || Number(formData.sup_seguro_precio_total) === 0
                                   ? '#f59e0b'
                                   : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
@@ -3157,7 +2917,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <p className="mt-2 text-xs text-slate-500">
                         Importe total seguro: <span className="font-semibold text-slate-900">{suplementos.totalSupSeguro}€</span>{' '}
                         <span className="text-slate-400">
-                          ({supSeguroPax || 0} pax × {supSeguroPrecioTotal || 0}€)
+                          ({formData.sup_seguro_pax || 0} pax × {formData.sup_seguro_precio_total || 0}€)
                         </span>
                       </p>
                     </div>
@@ -3650,7 +3410,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             </div>
           )}
 
-                    {parseInt(numGratuidades || 0) > 0 && (
+                    {parseInt(formData.gratuidades || 0) > 0 && (
                       <div className="bg-orange-50 p-4 rounded-lg md:col-span-2 border-2 border-orange-300">
                         <p className="text-xs text-orange-700 font-semibold uppercase mb-1">🎁 Prorrateo Gratuidades/Pax</p>
                         <p className="text-sm text-orange-600 mb-1">
@@ -3660,7 +3420,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             </div>
           )}
 
-                    {parseFloat(bonificacionPorPersona || 0) > 0 && (
+                    {parseFloat(formData.bonificacion_pax || 0) > 0 && (
                       <div className="bg-yellow-50 p-4 rounded-lg md:col-span-2 border-2 border-yellow-300">
                         <p className="text-xs text-yellow-700 font-semibold uppercase mb-1">💳 Bonificación Pactada</p>
                         <p className="text-2xl font-bold text-yellow-900">+{resultados.bonificacion}€/pax</p>
@@ -3676,13 +3436,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <span className="text-blue-700 font-medium">🚌 Coste Base Servicios (por persona)</span>
                         <span className="font-bold text-blue-900">{resultados.costeBasePorPersona}€</span>
                       </div>
-                      {parseInt(numGratuidades || 0) > 0 && (
+                      {parseInt(formData.gratuidades || 0) > 0 && (
                         <div className="flex justify-between py-2 border-b border-blue-200">
-                          <span className="text-orange-700 font-medium">➕ Prorrateo Gratuidades ({numGratuidades} × {resultados.costeBaseGratuidad}€)</span>
+                          <span className="text-orange-700 font-medium">➕ Prorrateo Gratuidades ({formData.gratuidades} × {resultados.costeBaseGratuidad}€)</span>
                           <span className="font-bold text-orange-900">+{resultados.costeGratuidadesPorPax}€</span>
                         </div>
                       )}
-                      {parseFloat(bonificacionPorPersona || 0) > 0 && (
+                      {parseFloat(formData.bonificacion_pax || 0) > 0 && (
                         <div className="flex justify-between py-2 border-b border-blue-200">
                           <span className="text-yellow-700 font-medium">➕ Bonificación Pactada</span>
                           <span className="font-bold text-yellow-900">+{resultados.bonificacion}€</span>
@@ -3767,7 +3527,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   </div>
                   
                   <div className="mt-6">
-                    <button onClick={guardarCotizacion} className="btn-primary w-full flex items-center justify-center gap-2">
+                    <button onClick={async () => {
+                      if (await persistirCambios()) {
+                        alert('✅ Cotización guardada correctamente!')
+                      } else {
+                        alert('❌ Error al guardar. Verifica la consola (F12).')
+                      }
+                    }} className="btn-primary w-full flex items-center justify-center gap-2">
                       <Save size={20} />
                       Guardar Cotización
                     </button>
