@@ -858,12 +858,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const paxPago = Math.max(1, (parseInt(numTotalPasajeros) || 1) - (parseInt(numGratuidades) || 0))
   const totalPax = Math.max(1, parseInt(numTotalPasajeros) || 1)
 
+  // Estados para Facturación
+  const [formFactura, setFormFactura] = useState({
+    receptorNombre: '',
+    receptorCIF: '',
+    receptorDireccion: '',
+    receptorPoblacion: '',
+    receptorProvincia: '',
+    receptorCP: '',
+  })
+
   // Tabs
   const tabs = [
     { id: 'grupo', label: 'Ficha del Grupo', icon: Users },
     { id: 'cotizacion', label: 'Cotización', icon: Calculator },
     { id: 'pasajeros', label: 'Rooming List', icon: Bed },
     { id: 'cobros', label: 'Cobros y Pagos', icon: DollarSign },
+    { id: 'facturacion', label: 'Facturación', icon: FileText },
     { id: 'documentacion', label: 'Documentación', icon: FileUp },
     { id: 'cierre', label: 'Cierre de Grupo', icon: TrendingUp },
   ]
@@ -1204,6 +1215,328 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       totalSuplementos: totalSuplementos.toFixed(2),
     }
   }, [supIndividualPax, supIndividualPrecioDia, supSeguroPax, supSeguroPrecioTotal, expediente])
+
+  // ============ INICIALIZAR DATOS DEL RECEPTOR DE FACTURA ============
+  useEffect(() => {
+    if (grupo && grupo.nombre) {
+      setFormFactura({
+        receptorNombre: grupo.nombre || '',
+        receptorCIF: grupo.cif || grupo.cif_nif || '',
+        receptorDireccion: grupo.direccion || '',
+        receptorPoblacion: grupo.poblacion || '',
+        receptorProvincia: grupo.provincia || '',
+        receptorCP: grupo.codigo_postal || grupo.cp || '',
+      })
+    }
+  }, [grupo])
+
+  // ============ CÁLCULO DE BASE IMPONIBLE PARA FACTURA ============
+  const calcularBaseFactura = useMemo(() => {
+    // Precio Venta al Cliente (€/pax) - Bonificación
+    const precioVentaPax = parseFloat(precioVentaManual || 0) || 0
+    const bonificacion = parseFloat(bonificacionPorPersona || 0) || 0
+    const precioNetoPax = precioVentaPax - bonificacion
+
+    // Multiplicar por Clientes de Pago
+    const baseServicios = precioNetoPax * paxPago
+
+    // Sumar Suplementos
+    const totalSuplementos = parseFloat(suplementos.totalSuplementos || 0) || 0
+
+    // Base Imponible Total
+    const baseImponible = baseServicios + totalSuplementos
+
+    // IVA (21%)
+    const iva = baseImponible * 0.21
+
+    // Total Factura
+    const totalFactura = baseImponible + iva
+
+    return {
+      precioVentaPax: precioVentaPax.toFixed(2),
+      bonificacion: bonificacion.toFixed(2),
+      precioNetoPax: precioNetoPax.toFixed(2),
+      paxPago: paxPago,
+      baseServicios: baseServicios.toFixed(2),
+      totalSuplementos: totalSuplementos.toFixed(2),
+      baseImponible: baseImponible.toFixed(2),
+      iva: iva.toFixed(2),
+      totalFactura: totalFactura.toFixed(2),
+    }
+  }, [precioVentaManual, bonificacionPorPersona, paxPago, suplementos.totalSuplementos])
+
+  // ============ OBTENER SIGUIENTE NÚMERO DE FACTURA ============
+  const obtenerSiguienteNumeroFactura = async () => {
+    try {
+      const año = new Date().getFullYear()
+      const { data, error } = await supabase
+        .from('facturas')
+        .select('numero_factura')
+        .ilike('numero_factura', `${año}-%`)
+        .order('numero_factura', { ascending: false })
+        .limit(1)
+
+      if (error) {
+        console.error('Error obteniendo último número de factura:', error)
+        return `${año}-001`
+      }
+
+      let siguienteSecuencia = 1
+
+      if (Array.isArray(data) && data.length > 0 && data[0]?.numero_factura) {
+        const partes = String(data[0].numero_factura).split('-')
+        if (partes.length === 2) {
+          const numeroActual = parseInt(partes[1], 10)
+          if (!isNaN(numeroActual) && numeroActual >= 0) {
+            siguienteSecuencia = numeroActual + 1
+          }
+        }
+      }
+
+      const sufijo = String(siguienteSecuencia).padStart(3, '0')
+      return `${año}-${sufijo}`
+    } catch (err) {
+      console.error('Error inesperado generando numero_factura:', err)
+      return `${new Date().getFullYear()}-001`
+    }
+  }
+
+  // ============ GENERAR PDF DE FACTURA ============
+  const generarFacturaPDF = async (numeroFactura, datosFactura) => {
+    const crearDocumento = (logoImg) => {
+      const doc = new jsPDF()
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+
+      // Colores corporativos
+      const colorAmarillo = [255, 193, 7] // #FFC107
+      const colorAzul = [33, 150, 243] // #2196F3
+
+      // Logo (si está disponible)
+      if (logoImg) {
+        try {
+          doc.setFillColor(255, 255, 255)
+          doc.rect(20, 15, 40, 15, 'F')
+          doc.addImage(logoImg, 'PNG', 20, 15, 40, 15)
+        } catch (e) {
+          console.warn('Error añadiendo logo a factura:', e)
+        }
+      }
+
+      // Número de factura (arriba a la derecha)
+      doc.setFontSize(20)
+      doc.setTextColor(...colorAzul)
+      doc.setFont(undefined, 'bold')
+      doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
+
+      // Fecha
+      const fechaActual = new Date()
+      const fechaFormateada = fechaActual.toLocaleDateString('es-ES', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+      })
+      doc.setFontSize(10)
+      doc.setTextColor(100, 100, 100)
+      doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 35, { align: 'right' })
+
+      // Datos del emisor (Valservice Incoming S.L.)
+      let yPos = 50
+      doc.setFontSize(12)
+      doc.setTextColor(0, 0, 0)
+      doc.setFont(undefined, 'bold')
+      doc.text('Valservice Incoming S.L. (Viajes Tabora)', 20, yPos)
+      yPos += 6
+      doc.setFontSize(10)
+      doc.setFont(undefined, 'normal')
+      doc.text('CIF: B-98998107', 20, yPos)
+      yPos += 6
+      doc.text('Licencia: CVMm303V', 20, yPos)
+      yPos += 6
+      doc.text('Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)', 20, yPos)
+      yPos += 6
+      doc.text('Tel: 961 60 60 60 | Email: info@viajestabora.com', 20, yPos)
+
+      // Datos del receptor
+      yPos += 15
+      doc.setFontSize(12)
+      doc.setFont(undefined, 'bold')
+      doc.text('FACTURAR A:', 20, yPos)
+      yPos += 8
+      doc.setFontSize(10)
+      doc.setFont(undefined, 'normal')
+      doc.text(formFactura.receptorNombre || 'Sin nombre', 20, yPos)
+      yPos += 6
+      if (formFactura.receptorCIF) {
+        doc.text(`CIF/NIF: ${formFactura.receptorCIF}`, 20, yPos)
+        yPos += 6
+      }
+      if (formFactura.receptorDireccion) {
+        doc.text(formFactura.receptorDireccion, 20, yPos)
+        yPos += 6
+      }
+      const direccionCompleta = [
+        formFactura.receptorCP,
+        formFactura.receptorPoblacion,
+        formFactura.receptorProvincia
+      ].filter(Boolean).join(' ')
+      if (direccionCompleta) {
+        doc.text(direccionCompleta, 20, yPos)
+        yPos += 6
+      }
+
+      // Concepto y desglose
+      yPos += 10
+      doc.setFontSize(12)
+      doc.setFont(undefined, 'bold')
+      doc.text('CONCEPTO:', 20, yPos)
+      yPos += 8
+
+      const nombreGrupo = expediente?.nombre_grupo || grupo?.nombre || 'Sin nombre'
+      const destino = expediente?.destino || 'Sin destino'
+      const concepto = `${nombreGrupo} - ${destino}`
+
+      doc.setFontSize(10)
+      doc.setFont(undefined, 'normal')
+      doc.text(`${calcularBaseFactura.paxPago} Plazas a ${calcularBaseFactura.precioNetoPax}€/pax`, 20, yPos)
+      yPos += 6
+      doc.text(`Concepto: ${concepto}`, 20, yPos)
+      yPos += 6
+
+      // Suplementos (si hay)
+      if (parseFloat(calcularBaseFactura.totalSuplementos) > 0) {
+        yPos += 4
+        doc.setFont(undefined, 'bold')
+        doc.text('Suplementos:', 20, yPos)
+        yPos += 6
+        doc.setFont(undefined, 'normal')
+        if (parseFloat(suplementos.totalSupHabitacion) > 0) {
+          doc.text(`- Habitaciones individuales: ${suplementos.totalSupHabitacion}€`, 25, yPos)
+          yPos += 6
+        }
+        if (parseFloat(suplementos.totalSupSeguro) > 0) {
+          doc.text(`- Seguro de cancelación: ${suplementos.totalSupSeguro}€`, 25, yPos)
+          yPos += 6
+        }
+      }
+
+      // Totales
+      yPos += 10
+      doc.setDrawColor(200, 200, 200)
+      doc.setLineWidth(0.3)
+      doc.line(20, yPos, pageWidth - 20, yPos)
+      yPos += 8
+
+      doc.setFontSize(10)
+      doc.setFont(undefined, 'bold')
+      doc.text('Base Imponible:', pageWidth - 60, yPos, { align: 'right' })
+      doc.text(`${calcularBaseFactura.baseImponible}€`, pageWidth - 20, yPos, { align: 'right' })
+      yPos += 6
+
+      doc.setFont(undefined, 'normal')
+      doc.text('IVA (21%):', pageWidth - 60, yPos, { align: 'right' })
+      doc.text(`${calcularBaseFactura.iva}€`, pageWidth - 20, yPos, { align: 'right' })
+      yPos += 6
+
+      doc.setFontSize(12)
+      doc.setFont(undefined, 'bold')
+      doc.setTextColor(...colorAzul)
+      doc.text('TOTAL:', pageWidth - 60, yPos, { align: 'right' })
+      doc.text(`${calcularBaseFactura.totalFactura}€`, pageWidth - 20, yPos, { align: 'right' })
+
+      // Pie de página
+      const footerY = pageHeight - 40
+      doc.setDrawColor(200, 200, 200)
+      doc.setLineWidth(0.3)
+      doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
+
+      doc.setFontSize(8)
+      doc.setTextColor(100, 100, 100)
+      doc.text('Valservice Incoming S.L. (Viajes Tabora)', 20, footerY)
+      doc.text('CIF: B-98998107 | Licencia: CVMm303V', 20, footerY + 6)
+      doc.text('Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)', 20, footerY + 12)
+
+      // Nombre del archivo
+      const nombreArchivo = `Factura_${numeroFactura}_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
+
+      // Descargar PDF
+      doc.save(nombreArchivo)
+    }
+
+    const logo = new Image()
+    logo.src = '/Logo tabora 2023.png'
+    logo.onload = () => {
+      crearDocumento(logo)
+    }
+    logo.onerror = () => {
+      const fallbackLogo = new Image()
+      fallbackLogo.src = '/tabora-logo.png'
+      fallbackLogo.onload = () => {
+        crearDocumento(fallbackLogo)
+      }
+      fallbackLogo.onerror = () => {
+        crearDocumento(null)
+      }
+    }
+  }
+
+  // ============ EMITIR FACTURA ============
+  const emitirFactura = async () => {
+    // Validar datos del receptor
+    if (!formFactura.receptorNombre || formFactura.receptorNombre.trim() === '') {
+      alert('⚠️ Por favor, completa el nombre del receptor de la factura.')
+      return
+    }
+
+    if (!expediente?.id) {
+      alert('❌ Error: El expediente no tiene ID.')
+      return
+    }
+
+    try {
+      // Obtener número de factura
+      const numeroFactura = await obtenerSiguienteNumeroFactura()
+
+      // Preparar datos para guardar
+      const datosFactura = {
+        numero_factura: numeroFactura,
+        id_expediente: expediente.id,
+        fecha_emision: new Date().toISOString().split('T')[0],
+        receptor_nombre: formFactura.receptorNombre.trim(),
+        receptor_cif: formFactura.receptorCIF.trim() || null,
+        receptor_direccion: formFactura.receptorDireccion.trim() || null,
+        receptor_poblacion: formFactura.receptorPoblacion.trim() || null,
+        receptor_provincia: formFactura.receptorProvincia.trim() || null,
+        receptor_cp: formFactura.receptorCP.trim() || null,
+        base_imponible: parseFloat(calcularBaseFactura.baseImponible),
+        iva: parseFloat(calcularBaseFactura.iva),
+        total: parseFloat(calcularBaseFactura.totalFactura),
+        pax_pago: calcularBaseFactura.paxPago,
+        precio_venta_pax: parseFloat(calcularBaseFactura.precioVentaPax),
+        bonificacion: parseFloat(calcularBaseFactura.bonificacion),
+        suplementos: parseFloat(calcularBaseFactura.totalSuplementos),
+      }
+
+      // Guardar en Supabase
+      const { error } = await supabase
+        .from('facturas')
+        .insert([datosFactura])
+
+      if (error) {
+        console.error('Error guardando factura:', error)
+        alert(`❌ Error guardando factura: ${error.message}`)
+        return
+      }
+
+      // Generar PDF
+      await generarFacturaPDF(numeroFactura, datosFactura)
+
+      alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente.`)
+    } catch (error) {
+      console.error('Error emitiendo factura:', error)
+      alert(`❌ Error emitiendo factura: ${error.message}`)
+    }
+  }
 
   // ============ FUNCIÓN DE GUARDADO REESCRITA ============
   const guardarCotizacion = async () => {
@@ -2389,7 +2722,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           </label>
                           <input
                             type="number"
-                            step="0.01"
+                        step="0.01"
                             min="0"
                             value={supIndividualPrecioDia}
                             onChange={(e) => setSupIndividualPrecioDia(e.target.value)}
@@ -2414,8 +2747,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
                             }}
-                          />
-                        </div>
+                      />
+                    </div>
                       </div>
                       <p className="mt-2 text-xs text-slate-500">
                         Importe total habitación: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
@@ -2448,8 +2781,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
-                          <input
-                            type="number"
+                      <input
+                        type="number"
                             min="0"
                             value={supSeguroPax}
                             onChange={(e) => setSupSeguroPax(e.target.value)}
@@ -2463,15 +2796,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
-                            onFocus={(e) => {
-                              e.target.style.borderColor = '#3b82f6'
-                              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                            }}
-                            onBlur={(e) => {
+                        onFocus={(e) => {
+                          e.target.style.borderColor = '#3b82f6'
+                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                        }}
+                        onBlur={(e) => {
                               e.target.style.borderColor =
                                 !supSeguroPax || Number(supSeguroPax) === 0 ? '#f59e0b' : '#e2e8f0'
-                              e.target.style.boxShadow = 'none'
-                            }}
+                          e.target.style.boxShadow = 'none'
+                        }}
                           />
                         </div>
                         <div>
@@ -2493,7 +2826,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           </label>
                           <input
                             type="number"
-                            step="0.01"
+                        step="0.01"
                             min="0"
                             value={supSeguroPrecioTotal}
                             onChange={(e) => setSupSeguroPrecioTotal(e.target.value)}
@@ -2529,7 +2862,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       </p>
                     </div>
                   </div>
-
+                  
                   <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
                     <p className="text-sm font-medium text-amber-800">
                       💡 Total suplementos añadidos a la cotización:{' '}
@@ -3083,7 +3416,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <p className="text-xs text-blue-600 mt-1">Total: {resultados.costeTotalViaje}€</p>
                       </div>
                       
-                    {/* 2. PRECIO VENTA - Verde Destacado */}
+                      {/* 2. PRECIO VENTA - Verde Destacado */}
                       <div className="bg-green-50 p-5 rounded-lg border-2 border-green-400 shadow-lg">
                         <p className="text-xs text-green-700 font-bold uppercase mb-1">💰 Precio Venta/Pax</p>
                         <p className="text-3xl font-black text-green-900">{resultados.precioVentaPorPersona}€</p>
@@ -3520,6 +3853,268 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                 </div>
             </div>
           )}
+
+            {/* TAB: Facturación */}
+          {tab === 'facturacion' && (
+              <div className="max-w-6xl mx-auto space-y-6">
+                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+                  <h3 className="text-2xl font-bold text-navy-900 mb-6">Emisión de Factura</h3>
+
+                  {/* Datos del Receptor (Editable) */}
+                  <div className="mb-8">
+                    <h4 className="text-lg font-semibold text-navy-900 mb-4">Datos del Receptor</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="md:col-span-2">
+                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                          Nombre o Razón Social *
+                        </label>
+                        <input
+                          type="text"
+                          value={formFactura.receptorNombre}
+                          onChange={(e) => setFormFactura({ ...formFactura, receptorNombre: e.target.value })}
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
+                          }}
+                          placeholder="Nombre del cliente o asociación"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                          CIF / NIF
+                        </label>
+                        <input
+                          type="text"
+                          value={formFactura.receptorCIF}
+                          onChange={(e) => setFormFactura({ ...formFactura, receptorCIF: e.target.value })}
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
+                          }}
+                          placeholder="CIF o NIF"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                          Dirección
+                        </label>
+                        <input
+                          type="text"
+                          value={formFactura.receptorDireccion}
+                          onChange={(e) => setFormFactura({ ...formFactura, receptorDireccion: e.target.value })}
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
+                          }}
+                          placeholder="Calle y número"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                          Población
+                        </label>
+                        <input
+                          type="text"
+                          value={formFactura.receptorPoblacion}
+                          onChange={(e) => setFormFactura({ ...formFactura, receptorPoblacion: e.target.value })}
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
+                          }}
+                          placeholder="Población"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                          Provincia
+                        </label>
+                        <input
+                          type="text"
+                          value={formFactura.receptorProvincia}
+                          onChange={(e) => setFormFactura({ ...formFactura, receptorProvincia: e.target.value })}
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
+                          }}
+                          placeholder="Provincia"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                          Código Postal
+                        </label>
+                        <input
+                          type="text"
+                          value={formFactura.receptorCP}
+                          onChange={(e) => setFormFactura({ ...formFactura, receptorCP: e.target.value })}
+                          className="w-full p-4 transition-all"
+                          style={{
+                            backgroundColor: '#f8fafc',
+                            color: '#0f172a',
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            marginTop: '4px'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
+                          }}
+                          placeholder="CP"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Resumen de Cálculo */}
+                  <div className="mb-8 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl shadow-md p-6 border border-blue-200">
+                    <h4 className="text-lg font-semibold text-navy-900 mb-4">Desglose de la Factura</h4>
+                    <div className="space-y-3">
+                      <div className="flex justify-between py-2 border-b border-blue-200">
+                        <span className="text-gray-700">Precio Venta al Cliente (€/pax):</span>
+                        <span className="font-semibold text-navy-900">{calcularBaseFactura.precioVentaPax}€</span>
+                      </div>
+                      {parseFloat(calcularBaseFactura.bonificacion) > 0 && (
+                        <div className="flex justify-between py-2 border-b border-blue-200">
+                          <span className="text-gray-700">Bonificación (€/pax):</span>
+                          <span className="font-semibold text-red-600">-{calcularBaseFactura.bonificacion}€</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between py-2 border-b border-blue-200">
+                        <span className="text-gray-700">Precio Neto (€/pax):</span>
+                        <span className="font-semibold text-navy-900">{calcularBaseFactura.precioNetoPax}€</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b border-blue-200">
+                        <span className="text-gray-700">Plazas de Pago:</span>
+                        <span className="font-semibold text-navy-900">{calcularBaseFactura.paxPago}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b border-blue-200">
+                        <span className="text-gray-700">Base Servicios:</span>
+                        <span className="font-semibold text-navy-900">{calcularBaseFactura.baseServicios}€</span>
+                      </div>
+                      {parseFloat(calcularBaseFactura.totalSuplementos) > 0 && (
+                        <>
+                          <div className="flex justify-between py-2 border-b border-blue-200">
+                            <span className="text-gray-700">Suplementos:</span>
+                            <span className="font-semibold text-navy-900">{calcularBaseFactura.totalSuplementos}€</span>
+                          </div>
+                          {parseFloat(suplementos.totalSupHabitacion) > 0 && (
+                            <div className="flex justify-between py-2 pl-4 text-sm text-gray-600">
+                              <span>• Habitaciones individuales:</span>
+                              <span>{suplementos.totalSupHabitacion}€</span>
+                            </div>
+                          )}
+                          {parseFloat(suplementos.totalSupSeguro) > 0 && (
+                            <div className="flex justify-between py-2 pl-4 text-sm text-gray-600">
+                              <span>• Seguro de cancelación:</span>
+                              <span>{suplementos.totalSupSeguro}€</span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      <div className="flex justify-between py-3 bg-blue-100 rounded-lg px-4 mt-3 border-2 border-blue-300">
+                        <span className="text-base font-bold text-navy-900">Base Imponible:</span>
+                        <span className="text-xl font-bold text-navy-900">{calcularBaseFactura.baseImponible}€</span>
+                      </div>
+                      <div className="flex justify-between py-2">
+                        <span className="text-gray-700">IVA (21%):</span>
+                        <span className="font-semibold text-navy-900">{calcularBaseFactura.iva}€</span>
+                      </div>
+                      <div className="flex justify-between py-3 bg-green-100 rounded-lg px-4 mt-3 border-2 border-green-400">
+                        <span className="text-lg font-bold text-green-900">TOTAL FACTURA:</span>
+                        <span className="text-2xl font-bold text-green-900">{calcularBaseFactura.totalFactura}€</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Botón de Emisión */}
+                  <div className="flex justify-end">
+                    <button
+                      onClick={emitirFactura}
+                      className="bg-green-600 hover:bg-green-700 text-white py-4 px-8 rounded-lg font-bold text-lg transition-colors shadow-lg flex items-center gap-2"
+                    >
+                      <FileText size={24} />
+                      Emitir Factura
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* TAB: Documentación */}
           {tab === 'documentacion' && (
