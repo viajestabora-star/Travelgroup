@@ -115,10 +115,6 @@ const limpiarInputNumerico = (valor) => {
   return isNaN(resultado) ? '' : resultado;
 };
 
-// Alias para compatibilidad con código existente
-const soloNumeros = limpiarNumero;
-const limpiarCosteUnitario = limpiarNumero;
-
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => {
   // ⚠️ BLINDAJE NIVEL 1: Verificar que expediente existe
   if (!expediente) {
@@ -146,8 +142,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const serviciosInicializados = useRef(false)
   
   // ============ ESTADO GLOBAL UNIFICADO DEL FORMULARIO ============
-  // Fuente Única de Verdad: Estado persistente único - null hasta que se carguen los datos
-  const [formData, setFormData] = useState(null)
+  // Fuente Única de Verdad: Estado persistente único con valores por defecto seguros
+  const [formData, setFormData] = useState({
+    total_pax: 1,
+    gratuidades: 0,
+    precio_venta_cliente: 0,
+    bonificacion_pax: 0,
+    sup_individual_pax: 0,
+    sup_individual_precio_dia: 0,
+    sup_seguro_pax: 0,
+    sup_seguro_precio_total: 0,
+  })
   
   // Estado de carga: bloquea guardados hasta que los datos estén cargados
   const [datosCargados, setDatosCargados] = useState(false)
@@ -232,32 +237,50 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   // ============ CARGA OBLIGATORIA AL MONTAR ============
   // CRÍTICO: Carga los datos desde Supabase al montar el componente
-  // Hasta que los datos no lleguen, formData será null y el componente mostrará "Cargando..."
+  // Solo actualiza formData si los datos recibidos son válidos
+  // TIMEOUT DE SEGURIDAD: Libera el guardado después de 2 segundos máximo
   useEffect(() => {
     const expedienteId = expediente?.id
     if (!expedienteId) {
-      setFormData(null)
-      setDatosCargados(false)
+      setDatosCargados(true) // Permitir guardado incluso sin ID (usará valores por defecto)
       return
     }
 
+    // Timeout de seguridad: fuerza el estado a 'cargado' después de 2 segundos
+    const timeoutSeguridad = setTimeout(() => {
+      console.log('⏱️ Timeout de seguridad: Sistema listo para guardar (forzado)')
+      setDatosCargados(true)
+    }, 2000)
+
     const cargarDatosCompletos = async () => {
-      // Bloquear guardados y resetear formData durante la carga
-      setFormData(null)
+      // Bloquear guardados durante la carga
       setDatosCargados(false)
       
       try {
-        // Cargar datos del expediente desde Supabase
+        // Cargar datos del expediente desde Supabase (solo columnas confirmadas)
         const { data, error } = await supabase
           .from('expedientes')
-          .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total, noches')
+          .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total')
           .eq('id', expedienteId)
           .single()
 
+        // Limpiar timeout de seguridad ya que la carga terminó
+        clearTimeout(timeoutSeguridad)
+
         if (error) {
           console.error('❌ Error cargando datos:', error)
-          setFormData(null)
-          setDatosCargados(false)
+          // Liberar guardado incluso con error (usará valores por defecto)
+          setDatosCargados(true)
+          console.log('✅ Sistema listo para guardar (con valores por defecto)')
+          return
+        }
+
+        // Carga Blindada: Solo actualizar si los datos son válidos
+        if (!data) {
+          console.warn('⚠️ No se recibieron datos válidos de Supabase')
+          // Liberar guardado incluso sin datos (usará valores por defecto)
+          setDatosCargados(true)
+          console.log('✅ Sistema listo para guardar (con valores por defecto)')
           return
         }
 
@@ -270,33 +293,42 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         
         // Poblar formData con TODOS los valores convertidos a Number()
         const datosCargados = {
-          total_pax: convertirANumero(data?.total_pax, 1),
-          gratuidades: convertirANumero(data?.gratuidades, 0),
-          precio_venta_cliente: convertirANumero(data?.precio_venta_cliente, 0),
-          bonificacion_pax: convertirANumero(data?.bonificacion_pax, 0),
-          sup_individual_pax: convertirANumero(data?.sup_individual_pax, 0),
-          sup_individual_precio_dia: convertirANumero(data?.sup_individual_precio_dia, 0),
-          sup_seguro_pax: convertirANumero(data?.sup_seguro_pax, 0),
-          sup_seguro_precio_total: convertirANumero(data?.sup_seguro_precio_total, 0),
+          total_pax: convertirANumero(data.total_pax, 1),
+          gratuidades: convertirANumero(data.gratuidades, 0),
+          precio_venta_cliente: convertirANumero(data.precio_venta_cliente, 0),
+          bonificacion_pax: convertirANumero(data.bonificacion_pax, 0),
+          sup_individual_pax: convertirANumero(data.sup_individual_pax, 0),
+          sup_individual_precio_dia: convertirANumero(data.sup_individual_precio_dia, 0),
+          sup_seguro_pax: convertirANumero(data.sup_seguro_pax, 0),
+          sup_seguro_precio_total: convertirANumero(data.sup_seguro_precio_total, 0),
         }
 
         // DEBUG: Log de datos cargados
         console.log('Estado cargado desde DB:', datosCargados)
         
-        // Establecer formData con los datos cargados
+        // Carga Blindada: Solo establecer formData si los datos son válidos
         setFormData(datosCargados)
         
-        // Marcar como cargado para permitir guardados
+        // Liberar guardado: Marcar como cargado para permitir guardados
         setDatosCargados(true)
+        console.log('✅ Sistema listo para guardar')
       } catch (err) {
+        // Limpiar timeout en caso de error
+        clearTimeout(timeoutSeguridad)
         console.error('❌ Error inesperado cargando datos:', err)
-        setFormData(null)
-        setDatosCargados(false)
+        // Liberar guardado incluso con error (usará valores por defecto)
+        setDatosCargados(true)
+        console.log('✅ Sistema listo para guardar (con valores por defecto)')
       }
     }
 
     // EJECUTAR SIEMPRE cuando hay expediente.id
     cargarDatosCompletos()
+
+    // Cleanup: limpiar timeout si el componente se desmonta
+    return () => {
+      clearTimeout(timeoutSeguridad)
+    }
   }, [expediente?.id]) // Solo depende del ID del expediente
 
   // ============ CARGA DE SERVICIOS (separada, depende de proveedores) ============
@@ -874,8 +906,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }
 
   // ⚠️ BLINDAJE NIVEL 2: Cálculo seguro de pasajeros de pago
-  const paxPago = Math.max(1, (parseInt(formData.total_pax) || 1) - (parseInt(formData.gratuidades) || 0))
-  const totalPax = Math.max(1, parseInt(formData.total_pax) || 1)
+  const paxPago = Math.max(1, (parseInt(formData?.total_pax) || 1) - (parseInt(formData?.gratuidades) || 0))
+  const totalPax = Math.max(1, parseInt(formData?.total_pax) || 1)
 
   // Estados para Facturación
   const [formFactura, setFormFactura] = useState({
@@ -1031,7 +1063,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const calcularCotizacion = () => {
     try {
       // Valores seguros
-      const bonif = Math.max(0, parseFloat(formData.bonificacion_pax) || 0)
+      const bonif = Math.max(0, parseFloat(formData?.bonificacion_pax) || 0)
       
       // Variables de costes POR CATEGORÍA
       let costeBusPorPax = 0
@@ -1118,7 +1150,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // CÁLCULO CORRECTO DE GRATUIDADES (Base Real Completa)
       // El coste de una gratuidad = TODO el coste base individual
       const costeBaseGratuidad = costeBasePorPersona // 327.76€ por ejemplo
-      const costePlazasGratuitas = costeBaseGratuidad * (parseInt(formData.gratuidades) || 0)
+      const costePlazasGratuitas = costeBaseGratuidad * (parseInt(formData?.gratuidades) || 0)
       const costeGratuidadesPorPax = paxPago > 0 ? costePlazasGratuitas / paxPago : 0
       
       // COSTE REAL POR PERSONA (PAGADOR) = Base + Gratuidades + Bonificación
@@ -1128,7 +1160,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         bonif                                // Bonificación
       
       // NUEVO MODELO DE NEGOCIO: PRECIO MANUAL + MARGEN INFORMATIVO
-      const precioVentaPorPersona = Math.max(0, parseFloat(formData.precio_venta_cliente) || 0)
+      const precioVentaPorPersona = Math.max(0, parseFloat(formData?.precio_venta_cliente) || 0)
       const costeTotalViaje = costeRealPorPersona * paxPago
       const precioVentaTotal = precioVentaPorPersona * paxPago
       
@@ -1176,7 +1208,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         // Info
         paxPagadores: paxPago,
         totalPasajeros: totalPax,
-        gratuidades: parseInt(formData.gratuidades) || 0,
+        gratuidades: parseInt(formData?.gratuidades) || 0,
       }
     } catch (error) {
       return {
@@ -1226,10 +1258,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
     const noches = calcularNochesExpediente()
 
-    const paxIndividual = parseFloat(formData.sup_individual_pax || 0) || 0
-    const precioIndividualDia = parseFloat(formData.sup_individual_precio_dia || 0) || 0
-    const paxSeguro = parseFloat(formData.sup_seguro_pax || 0) || 0
-    const precioSeguroTotal = parseFloat(formData.sup_seguro_precio_total || 0) || 0
+    const paxIndividual = parseFloat(formData?.sup_individual_pax || 0) || 0
+    const precioIndividualDia = parseFloat(formData?.sup_individual_precio_dia || 0) || 0
+    const paxSeguro = parseFloat(formData?.sup_seguro_pax || 0) || 0
+    const precioSeguroTotal = parseFloat(formData?.sup_seguro_precio_total || 0) || 0
 
     const totalSupHabitacion = paxIndividual * precioIndividualDia * noches
     const totalSupSeguro = paxSeguro * precioSeguroTotal
@@ -1241,7 +1273,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       totalSupSeguro: totalSupSeguro.toFixed(2),
       totalSuplementos: totalSuplementos.toFixed(2),
     }
-  }, [formData.sup_individual_pax, formData.sup_individual_precio_dia, formData.sup_seguro_pax, formData.sup_seguro_precio_total, expediente])
+  }, [formData?.sup_individual_pax, formData?.sup_individual_precio_dia, formData?.sup_seguro_pax, formData?.sup_seguro_precio_total, expediente])
 
   // ============ INICIALIZAR DATOS DEL RECEPTOR DE FACTURA ============
   useEffect(() => {
@@ -1283,8 +1315,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }
     }
     // Precio Venta al Cliente (€/pax) - YA INCLUYE IVA
-    const precioVentaPax = parseFloat(formData.precio_venta_cliente || 0) || 0
-    const bonificacion = parseFloat(formData.bonificacion_pax || 0) || 0
+    const precioVentaPax = parseFloat(formData?.precio_venta_cliente || 0) || 0
+    const bonificacion = parseFloat(formData?.bonificacion_pax || 0) || 0
     const precioNetoPax = precioVentaPax - bonificacion
 
     // Multiplicar por Clientes de Pago
@@ -1331,7 +1363,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       iva: iva.toFixed(2),
       totalFactura: totalFactura.toFixed(2),
     }
-  }, [formData.precio_venta_cliente, formData.bonificacion_pax, paxPago, suplementos.totalSuplementos])
+  }, [formData?.precio_venta_cliente, formData?.bonificacion_pax, paxPago, suplementos.totalSuplementos])
 
   // ============ OBTENER SIGUIENTE NÚMERO DE FACTURA ============
   const obtenerSiguienteNumeroFactura = async () => {
@@ -1688,17 +1720,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
   // ============ FUNCIÓN ÚNICA DE PERSISTENCIA ============
   // persistirCambios: Guarda formData en Supabase usando nombres reales de la DB
-  // BLOQUEADO si formData es null o si la carga inicial no ha terminado
+  // BLOQUEADO si la carga inicial no ha terminado
   const persistirCambios = async () => {
     const expedienteId = expediente?.id
     if (!expedienteId) {
       console.error('❌ No se puede guardar: expediente sin ID')
-      return false
-    }
-
-    // BLOQUEO CRÍTICO: No guardar si formData es null
-    if (formData === null) {
-      console.warn('⚠️ Guardado bloqueado: formData es null')
       return false
     }
 
@@ -1718,15 +1744,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       // Usar nombres reales de la DB
       const datosParaGuardar = {
-        total_pax: convertirANumero(formData.total_pax),
-        gratuidades: convertirANumero(formData.gratuidades),
-        pax_pago: Math.max(1, convertirANumero(formData.total_pax) - convertirANumero(formData.gratuidades)),
-        precio_venta_cliente: convertirANumero(formData.precio_venta_cliente),
-        bonificacion_pax: convertirANumero(formData.bonificacion_pax),
-        sup_individual_pax: convertirANumero(formData.sup_individual_pax),
-        sup_individual_precio_dia: convertirANumero(formData.sup_individual_precio_dia),
-        sup_seguro_pax: convertirANumero(formData.sup_seguro_pax),
-        sup_seguro_precio_total: convertirANumero(formData.sup_seguro_precio_total),
+        total_pax: convertirANumero(formData?.total_pax),
+        gratuidades: convertirANumero(formData?.gratuidades),
+        pax_pago: Math.max(1, convertirANumero(formData?.total_pax) - convertirANumero(formData?.gratuidades)),
+        precio_venta_cliente: convertirANumero(formData?.precio_venta_cliente),
+        bonificacion_pax: convertirANumero(formData?.bonificacion_pax),
+        sup_individual_pax: convertirANumero(formData?.sup_individual_pax),
+        sup_individual_precio_dia: convertirANumero(formData?.sup_individual_precio_dia),
+        sup_seguro_pax: convertirANumero(formData?.sup_seguro_pax),
+        sup_seguro_precio_total: convertirANumero(formData?.sup_seguro_precio_total),
       }
 
       const { error } = await supabase
@@ -1836,18 +1862,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const totalPasajerosHabitaciones = ((habitaciones.dobles || 0) * 2) + ((habitaciones.doblesTwin || 0) * 2) + (habitaciones.individuales || 0)
 
   // ============ RENDER PRINCIPAL (CON TRY/CATCH) ============
-  
-  // BLOQUEO: Si formData es null, mostrar "Cargando..." y NO permitir edición
-  if (formData === null) {
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md">
-          <h3 className="text-xl font-bold text-blue-600 mb-4">⏳ Cargando...</h3>
-          <p className="text-gray-700">Cargando datos del expediente desde la base de datos...</p>
-        </div>
-      </div>
-    )
-  }
   
   try {
   return (
@@ -2559,7 +2573,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <label className="label">Total Pasajeros *</label>
                       <input
                         type="number"
-                        value={formData.total_pax}
+                        value={formData?.total_pax || ''}
                         onChange={(e) => setFormData({ ...formData, total_pax: e.target.value })}
                         onFocus={(e) => {
                           handleFocus(e)
@@ -2581,7 +2595,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <label className="label">Gratuidades</label>
                       <input
                         type="number"
-                        value={formData.gratuidades}
+                        value={formData?.gratuidades || ''}
                         onChange={(e) => setFormData({ ...formData, gratuidades: e.target.value })}
                         onFocus={(e) => {
                           handleFocus(e)
@@ -2604,7 +2618,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <input
                         type="number"
                         step="0.01"
-                        value={formData.bonificacion_pax || ''}
+                        value={formData?.bonificacion_pax || ''}
                         onChange={(e) => {
                           const valorInput = e.target.value;
                           if (valorInput === '' || valorInput === '-') {
@@ -2649,7 +2663,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <input
                         type="number"
                         step="0.01"
-                        value={formData.precio_venta_cliente || ''}
+                        value={formData?.precio_venta_cliente || ''}
                         onChange={(e) => {
                           const valorInput = e.target.value;
                           if (valorInput === '' || valorInput === '-') {
@@ -2694,7 +2708,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                     <p className="text-sm font-semibold text-blue-900">
                       📊 Pasajeros de Pago: <span className="text-2xl">{paxPago}</span> 
-                      <span className="text-xs ml-2 text-blue-600">({totalPax} total - {formData.gratuidades || 0} gratis)</span>
+                      <span className="text-xs ml-2 text-blue-600">({totalPax} total - {formData?.gratuidades || 0} gratis)</span>
                     </p>
                   </div>
                 </div>
@@ -2733,14 +2747,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                           >
                             Pax con Individual
-                            {(!formData.sup_individual_pax || Number(formData.sup_individual_pax) === 0) && (
+                            {(!formData?.sup_individual_pax || Number(formData?.sup_individual_pax) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
                           <input
                             type="number"
                             min="0"
-                            value={formData.sup_individual_pax}
+                            value={formData?.sup_individual_pax}
                             onChange={(e) => setFormData({ ...formData, sup_individual_pax: e.target.value })}
                             className="w-full p-3 text-sm transition-all"
                             style={{
@@ -2748,7 +2762,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !formData.sup_individual_pax || Number(formData.sup_individual_pax) === 0
+                                !formData?.sup_individual_pax || Number(formData?.sup_individual_pax) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -2758,7 +2772,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                             onBlur={(e) => {
                               e.target.style.borderColor =
-                                !formData.sup_individual_pax || Number(formData.sup_individual_pax) === 0 ? '#f59e0b' : '#e2e8f0'
+                                !formData?.sup_individual_pax || Number(formData?.sup_individual_pax) === 0 ? '#f59e0b' : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
                             }}
                           />
@@ -2776,7 +2790,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                           >
                             Precio/Noche (€)
-                            {(!formData.sup_individual_precio_dia || Number(formData.sup_individual_precio_dia) === 0) && (
+                            {(!formData?.sup_individual_precio_dia || Number(formData?.sup_individual_precio_dia) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
@@ -2784,7 +2798,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             type="number"
                         step="0.01"
                             min="0"
-                            value={formData.sup_individual_precio_dia}
+                            value={formData?.sup_individual_precio_dia || ''}
                             onChange={(e) => setFormData({ ...formData, sup_individual_precio_dia: e.target.value })}
                             className="w-full p-3 text-sm transition-all"
                             style={{
@@ -2792,7 +2806,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !formData.sup_individual_precio_dia || Number(formData.sup_individual_precio_dia) === 0
+                                !formData?.sup_individual_precio_dia || Number(formData?.sup_individual_precio_dia) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -2802,7 +2816,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                             onBlur={(e) => {
                               e.target.style.borderColor =
-                                !formData.sup_individual_precio_dia || Number(formData.sup_individual_precio_dia) === 0
+                                !formData?.sup_individual_precio_dia || Number(formData?.sup_individual_precio_dia) === 0
                                   ? '#f59e0b'
                                   : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
@@ -2813,7 +2827,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <p className="mt-2 text-xs text-slate-500">
                         Importe total habitación: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
                         <span className="text-slate-400">
-                          ({formData.sup_individual_pax || 0} pax × {formData.sup_individual_precio_dia || 0}€ × {suplementos.noches} noches)
+                          ({formData?.sup_individual_pax || 0} pax × {formData?.sup_individual_precio_dia || 0}€ × {suplementos.noches} noches)
                         </span>
                       </p>
                     </div>
@@ -2837,14 +2851,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                           >
                             Pax con Seguro
-                            {(!formData.sup_seguro_pax || Number(formData.sup_seguro_pax) === 0) && (
+                            {(!formData?.sup_seguro_pax || Number(formData?.sup_seguro_pax) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
                       <input
                         type="number"
                             min="0"
-                            value={formData.sup_seguro_pax}
+                            value={formData?.sup_seguro_pax || ''}
                             onChange={(e) => setFormData({ ...formData, sup_seguro_pax: e.target.value })}
                             className="w-full p-3 text-sm transition-all"
                             style={{
@@ -2852,7 +2866,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !formData.sup_seguro_pax || Number(formData.sup_seguro_pax) === 0
+                                !formData?.sup_seguro_pax || Number(formData?.sup_seguro_pax) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -2862,7 +2876,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         }}
                         onBlur={(e) => {
                               e.target.style.borderColor =
-                                !formData.sup_seguro_pax || Number(formData.sup_seguro_pax) === 0 ? '#f59e0b' : '#e2e8f0'
+                                !formData?.sup_seguro_pax || Number(formData?.sup_seguro_pax) === 0 ? '#f59e0b' : '#e2e8f0'
                           e.target.style.boxShadow = 'none'
                         }}
                           />
@@ -2880,7 +2894,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                           >
                             Precio Total Seguro (€)
-                            {(!formData.sup_seguro_precio_total || Number(formData.sup_seguro_precio_total) === 0) && (
+                            {(!formData?.sup_seguro_precio_total || Number(formData?.sup_seguro_precio_total) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
@@ -2888,7 +2902,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             type="number"
                         step="0.01"
                             min="0"
-                            value={formData.sup_seguro_precio_total}
+                            value={formData?.sup_seguro_precio_total || ''}
                             onChange={(e) => setFormData({ ...formData, sup_seguro_precio_total: e.target.value })}
                             className="w-full p-3 text-sm transition-all"
                             style={{
@@ -2896,7 +2910,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !formData.sup_seguro_precio_total || Number(formData.sup_seguro_precio_total) === 0
+                                !formData?.sup_seguro_precio_total || Number(formData?.sup_seguro_precio_total) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -2906,7 +2920,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             }}
                             onBlur={(e) => {
                               e.target.style.borderColor =
-                                !formData.sup_seguro_precio_total || Number(formData.sup_seguro_precio_total) === 0
+                                !formData?.sup_seguro_precio_total || Number(formData?.sup_seguro_precio_total) === 0
                                   ? '#f59e0b'
                                   : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
@@ -2917,7 +2931,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <p className="mt-2 text-xs text-slate-500">
                         Importe total seguro: <span className="font-semibold text-slate-900">{suplementos.totalSupSeguro}€</span>{' '}
                         <span className="text-slate-400">
-                          ({formData.sup_seguro_pax || 0} pax × {formData.sup_seguro_precio_total || 0}€)
+                          ({formData?.sup_seguro_pax || 0} pax × {formData?.sup_seguro_precio_total || 0}€)
                         </span>
                       </p>
                     </div>
@@ -3410,7 +3424,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             </div>
           )}
 
-                    {parseInt(formData.gratuidades || 0) > 0 && (
+                    {parseInt(formData?.gratuidades || 0) > 0 && (
                       <div className="bg-orange-50 p-4 rounded-lg md:col-span-2 border-2 border-orange-300">
                         <p className="text-xs text-orange-700 font-semibold uppercase mb-1">🎁 Prorrateo Gratuidades/Pax</p>
                         <p className="text-sm text-orange-600 mb-1">
@@ -3420,7 +3434,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             </div>
           )}
 
-                    {parseFloat(formData.bonificacion_pax || 0) > 0 && (
+                    {parseFloat(formData?.bonificacion_pax || 0) > 0 && (
                       <div className="bg-yellow-50 p-4 rounded-lg md:col-span-2 border-2 border-yellow-300">
                         <p className="text-xs text-yellow-700 font-semibold uppercase mb-1">💳 Bonificación Pactada</p>
                         <p className="text-2xl font-bold text-yellow-900">+{resultados.bonificacion}€/pax</p>
@@ -3436,13 +3450,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <span className="text-blue-700 font-medium">🚌 Coste Base Servicios (por persona)</span>
                         <span className="font-bold text-blue-900">{resultados.costeBasePorPersona}€</span>
                       </div>
-                      {parseInt(formData.gratuidades || 0) > 0 && (
+                      {parseInt(formData?.gratuidades || 0) > 0 && (
                         <div className="flex justify-between py-2 border-b border-blue-200">
-                          <span className="text-orange-700 font-medium">➕ Prorrateo Gratuidades ({formData.gratuidades} × {resultados.costeBaseGratuidad}€)</span>
+                          <span className="text-orange-700 font-medium">➕ Prorrateo Gratuidades ({formData?.gratuidades || 0} × {resultados.costeBaseGratuidad}€)</span>
                           <span className="font-bold text-orange-900">+{resultados.costeGratuidadesPorPax}€</span>
                         </div>
                       )}
-                      {parseFloat(formData.bonificacion_pax || 0) > 0 && (
+                      {parseFloat(formData?.bonificacion_pax || 0) > 0 && (
                         <div className="flex justify-between py-2 border-b border-blue-200">
                           <span className="text-yellow-700 font-medium">➕ Bonificación Pactada</span>
                           <span className="font-bold text-yellow-900">+{resultados.bonificacion}€</span>
