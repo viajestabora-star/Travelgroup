@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil } from 'lucide-react'
+import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 import { createClient } from '@supabase/supabase-js'
@@ -1464,7 +1464,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                 <p className="text-sm text-gray-600 mb-2">
                   👤 {expediente.cliente_responsable || expediente.responsable || grupo.responsable || 'Sin Responsable'}
                 </p>
-                <p className="text-lg text-navy-600 font-medium">{expediente.destino || 'Sin destino'}</p>
+                <p className="flex items-center gap-2 text-2xl font-bold text-blue-700">
+                  <MapPin size={20} className="text-blue-700" />
+                  <span>{expediente.destino || 'Sin destino'}</span>
+                </p>
           </div>
               <button 
                 onClick={onClose} 

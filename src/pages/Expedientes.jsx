@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { FileText, Plus, Trash2, X, Search, UserPlus, Download, Calendar } from 'lucide-react'
+import { FileText, Plus, Trash2, X, Search, UserPlus, Download, Calendar, MapPin } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
@@ -1114,7 +1114,10 @@ const Expedientes = () => {
                         <h2 className="text-2xl font-black text-navy-900 uppercase tracking-wide mb-1">
                           {nombreGrupo}
                         </h2>
-                        <p className="text-base text-navy-600 font-medium">{destino}</p>
+                        <p className="flex items-center gap-2 text-xl text-blue-700 font-bold">
+                          <MapPin size={18} className="text-blue-700" />
+                          <span>{destino}</span>
+                        </p>
                     </div>
                       <button
                         onClick={(e) => {

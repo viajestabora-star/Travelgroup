@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Calendar, Plus, Trash2, X } from 'lucide-react'
+import { Calendar, Plus, Trash2, X, MapPin } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
@@ -372,7 +372,10 @@ const Planning = () => {
             <span className="text-sm text-gray-600 block mb-2">
               👤 {nombreResponsable}
             </span>
-            <p className="text-base text-navy-600 font-medium">{destino}</p>
+            <p className="flex items-center gap-2 text-xl text-blue-700 font-bold">
+              <MapPin size={18} className="text-blue-700" />
+              <span>{destino}</span>
+            </p>
           </div>
           <button
             onClick={(e) => {
