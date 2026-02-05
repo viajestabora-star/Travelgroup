@@ -22,10 +22,10 @@ const Clientes = () => {
     provincia: '',
     codigo_postal: '', 
     observaciones: '',
-    responsable: '', // Responsable
-    movil: '', // Móvil
-    bonificaciones: '', // Bonificaciones (en lugar de comisiones)
-    gratuidades: '' // Gratuidades
+    responsable: '',
+    movil: '',
+    bonificaciones: '',
+    gratuidades: ''
   })
 
   useEffect(() => { fetchClientes() }, [])

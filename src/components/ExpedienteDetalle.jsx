@@ -1925,13 +1925,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       storage.setClientes(clientesActualizados)
     }
     
-    // Actualizar expediente
+    // Actualizar expediente (unificar responsable en un solo campo coherente)
     const expedienteActualizado = {
       ...expediente,
       nombre_grupo: clienteEditado.nombre || '',
       cliente_responsable: clienteEditado.responsable || '',
       clienteNombre: clienteEditado.nombre || '',
-      responsable: clienteEditado.responsable || '',
+      // Eliminado campo duplicado "responsable" para evitar claves redundantes
     }
     onUpdate(expedienteActualizado)
     setEditandoCliente(false)
