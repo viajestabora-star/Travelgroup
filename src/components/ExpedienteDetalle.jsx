@@ -1548,13 +1548,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       const nombreGrupo = expediente?.nombre_grupo || grupo?.nombre || 'Sin nombre'
       const destino = expediente?.destino || 'Sin destino'
-      const concepto = `${nombreGrupo} - ${destino}`
+
+      // Usar el concepto almacenado en la factura si existe; si no, usar fallback clásico
+      const conceptoFactura =
+        (datosFactura && datosFactura.concepto) ||
+        `Viaje a ${destino} (${nombreGrupo})`
 
       doc.setFontSize(10)
       doc.setFont(undefined, 'normal')
       doc.text(`${calcularBaseFactura.paxPago} Plazas a ${calcularBaseFactura.precioNetoPax}€/pax (IVA incluido)`, 20, yPos)
       yPos += 6
-      doc.text(`Concepto: ${concepto}`, 20, yPos)
+      doc.text(`Concepto: ${conceptoFactura}`, 20, yPos)
       yPos += 6
 
       // Suplementos (si hay)
@@ -1564,12 +1568,42 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         doc.text('Suplementos (IVA incluido):', 20, yPos)
         yPos += 6
         doc.setFont(undefined, 'normal')
-        if (parseFloat(suplementos.totalSupHabitacion) > 0) {
-          doc.text(`- Habitaciones individuales: ${suplementos.totalSupHabitacion}€`, 25, yPos)
+
+        // Habitaciones individuales
+        const totalSupHabitacionNum = parseFloat(suplementos.totalSupHabitacion || 0) || 0
+        if (totalSupHabitacionNum > 0) {
+          const paxIndividualNum = parseFloat(formData?.sup_individual_pax || 0) || 0
+          const nochesSup = calcularNochesExpediente ? calcularNochesExpediente() : 1
+          const precioIndividualDiaNum = parseFloat(formData?.sup_individual_precio_dia || 0) || 0
+
+          const cantidadHabitacion = Math.max(0, paxIndividualNum * nochesSup)
+          const precioUnitHabitacion = Math.max(0, precioIndividualDiaNum)
+          const totalConceptoHabitacion = cantidadHabitacion * precioUnitHabitacion
+
+          // Asegurar coherencia: si por redondeos difiere, usar el producto cantidad × precio
+          const totalHabitacionTexto = totalConceptoHabitacion.toFixed(2)
+
+          const etiquetaHabitacion = `Habitaciones individuales (${cantidadHabitacion} x ${precioUnitHabitacion.toFixed(2)}€):`
+          doc.text(etiquetaHabitacion, 25, yPos)
+          doc.text(`${totalHabitacionTexto}€`, pageWidth - 20, yPos, { align: 'right' })
           yPos += 6
         }
-        if (parseFloat(suplementos.totalSupSeguro) > 0) {
-          doc.text(`- Seguro de cancelación: ${suplementos.totalSupSeguro}€`, 25, yPos)
+
+        // Seguro de cancelación
+        const totalSupSeguroNum = parseFloat(suplementos.totalSupSeguro || 0) || 0
+        if (totalSupSeguroNum > 0) {
+          const paxSeguroNum = parseFloat(formData?.sup_seguro_pax || 0) || 0
+          const precioSeguroTotalNum = parseFloat(formData?.sup_seguro_precio_total || 0) || 0
+
+          const cantidadSeguro = Math.max(0, paxSeguroNum)
+          const precioUnitSeguro = Math.max(0, precioSeguroTotalNum)
+          const totalConceptoSeguro = cantidadSeguro * precioUnitSeguro
+
+          const totalSeguroTexto = totalConceptoSeguro.toFixed(2)
+
+          const etiquetaSeguro = `Seguro de cancelación (${cantidadSeguro} x ${precioUnitSeguro.toFixed(2)}€):`
+          doc.text(etiquetaSeguro, 25, yPos)
+          doc.text(`${totalSeguroTexto}€`, pageWidth - 20, yPos, { align: 'right' })
           yPos += 6
         }
       }
@@ -1674,6 +1708,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       const totalSinIVA = (precioNetoPax * calcularBaseFactura.paxPago) / 1.21
       const suplementosSinIVA = parseFloat(calcularBaseFactura.totalSuplementos || 0) / 1.21
       const baseImponibleCalculada = totalSinIVA + suplementosSinIVA
+
+      // ===== CONCEPTO AUTOMÁTICO DE FACTURA =====
+      // Usar destino y fechas del expediente cuando estén disponibles.
+      const destinoFactura = expediente?.destino || ''
+      const fechaInicioRaw = expediente?.fecha_inicio || expediente?.fechaInicio || ''
+      const fechaFinalRaw = expediente?.fecha_final || expediente?.fechaFin || ''
+
+      const formatearFechaFactura = (fecha) => {
+        if (!fecha) return ''
+        const str = String(fecha)
+        // Si parece una fecha ISO (YYYY-MM-DD), usar helper para pasarla a formato español
+        if (str.includes('-')) {
+          try {
+            return convertirISOAEspañol(str)
+          } catch {
+            return str
+          }
+        }
+        return str
+      }
+
+      const fechaInicioFormateada = formatearFechaFactura(fechaInicioRaw)
+      const fechaFinalFormateada = formatearFechaFactura(fechaFinalRaw)
+
+      let conceptoFactura = 'Servicios de viaje'
+      if (destinoFactura && fechaInicioFormateada && fechaFinalFormateada) {
+        conceptoFactura = `Viaje a ${destinoFactura} del ${fechaInicioFormateada} al ${fechaFinalFormateada}`
+      }
       
       // Construir objeto limpio solo con columnas confirmadas del esquema real
       // Actualización de esquema: base_imponible y direccion_receptor confirmados
@@ -1686,6 +1748,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         direccion_receptor: formFactura.receptorDireccion.trim() || null,
         base_imponible: parseFloat(baseImponibleCalculada.toFixed(2)),
         total_factura: parseFloat(calcularBaseFactura.totalFactura),
+        concepto: conceptoFactura,
         estado: 'emitida',
       }
 
