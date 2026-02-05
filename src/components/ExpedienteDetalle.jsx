@@ -1034,6 +1034,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     ))
   }
 
+  // Guardar fecha de release de un servicio concreto en Supabase
+  const guardarFechaReleaseServicio = async (servicioId, fechaReleaseISO) => {
+    if (!servicioId) {
+      console.warn('⚠️ No se puede guardar fecha_release: servicio sin ID')
+      return
+    }
+
+    const payload = {
+      fecha_release: fechaReleaseISO || null,
+    }
+
+    console.log('Guardando fecha_release en servicios_cotizacion:', {
+      servicioId,
+      ...payload,
+    })
+
+    try {
+      const { error } = await supabase
+        .from('servicios_cotizacion')
+        .update(payload)
+        .eq('id', servicioId)
+
+      if (error) {
+        console.error('❌ Error guardando fecha_release:', error)
+      }
+    } catch (e) {
+      console.error('❌ Error inesperado guardando fecha_release:', e)
+    }
+  }
+
   // Helper: noches del expediente (prioriza campo en BD, si no, calcula por fechas)
   const calcularNochesExpediente = () => {
     // Si el expediente ya trae un campo noches, respetarlo
@@ -1556,7 +1586,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       doc.setFontSize(10)
       doc.setFont(undefined, 'normal')
-      doc.text(`${calcularBaseFactura.paxPago} Plazas a ${calcularBaseFactura.precioNetoPax}€/pax (IVA incluido)`, 20, yPos)
+
+      // Línea de plazas con mismo estilo que los suplementos
+      const totalPaxFactura = parseFloat(expediente?.total_pax || calcularBaseFactura.paxPago || 0) || 0
+      const precioPaxNum = parseFloat(calcularBaseFactura.precioNetoPax || 0) || 0
+      const totalPlazasNum = totalPaxFactura * precioPaxNum
+
+      const etiquetaPlazas = `${totalPaxFactura} Plazas x ${precioPaxNum.toFixed(2)}€:`
+      doc.text(etiquetaPlazas, 20, yPos)
+      doc.text(`${totalPlazasNum.toFixed(2)}€ (IVA incluido)`, pageWidth - 20, yPos, { align: 'right' })
       yPos += 6
       doc.text(`Concepto: ${conceptoFactura}`, 20, yPos)
       yPos += 6
@@ -3401,6 +3439,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   onBlur={(e) => {
                                     e.target.style.borderColor = '#e2e8f0'
                                     e.target.style.boxShadow = 'none'
+                                    const fechaValue = e.target.value || ''
+                                    // Persistir cambio de release en Supabase
+                                    guardarFechaReleaseServicio(servicio.id, fechaValue)
                                   }}
                                   className="input-field text-xs text-center transition-all"
                                   style={{ 
