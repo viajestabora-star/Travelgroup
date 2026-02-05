@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useLocation } from 'react-router-dom';
+import { CheckCircle2 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e';
@@ -26,6 +27,11 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   // Estado para manejar respuestas por cada nota
   const [respuestasTexto, setRespuestasTexto] = useState({});
   const [respondiendo, setRespondiendo] = useState({});
+  // Estado para filtrar notas (Pendientes por defecto)
+  const [mostrarCompletadas, setMostrarCompletadas] = useState(false);
+  // Estado para notas que están siendo completadas (para animación)
+  const [notasCompletando, setNotasCompletando] = useState(new Set());
+  const [notasOcultas, setNotasOcultas] = useState(new Set());
 
   // Colores de borde según destinatario
   const coloresDestinatario = {
@@ -38,18 +44,27 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   // Cargar notas desde Supabase
   useEffect(() => {
     cargarNotas();
-  }, []);
+  }, [mostrarCompletadas]);
 
   const cargarNotas = async () => {
     try {
       setCargando(true);
       
-      // Cargar todas las notas (sin filtro por expediente)
-      const { data, error } = await supabase
+      // Construir query base
+      let query = supabase
         .from('notas')
         .select('*')
-        .is('expediente_id', null) // Solo notas generales (sin expediente asociado)
-        .order('fecha_plazo', { ascending: false });
+        .is('expediente_id', null); // Solo notas generales (sin expediente asociado)
+      
+      // Filtrar por estado según la vista activa
+      if (!mostrarCompletadas) {
+        query = query.eq('estado', 'Pendiente');
+      } else {
+        query = query.eq('estado', 'Completado');
+      }
+      
+      // Ordenar por fecha_plazo descendente
+      const { data, error } = await query.order('fecha_plazo', { ascending: false });
 
       if (error) {
         console.error('❌ Error cargando notas:', error);
@@ -291,6 +306,60 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
     }
   };
 
+  // Función para completar una nota
+  const completarNota = async (notaId) => {
+    try {
+      // Marcar como completando para animación
+      setNotasCompletando(prev => new Set(prev).add(notaId));
+
+      // Actualizar en Supabase
+      const { error } = await supabase
+        .from('notas')
+        .update({ estado: 'Completado' })
+        .eq('id', notaId);
+
+      if (error) {
+        console.error('❌ Error completando nota:', error);
+        alert(`Error al completar la nota: ${error.message}`);
+        setNotasCompletando(prev => {
+          const nuevo = new Set(prev);
+          nuevo.delete(notaId);
+          return nuevo;
+        });
+        return;
+      }
+
+      // Esperar un momento para la animación
+      setTimeout(() => {
+        // Ocultar la nota con animación
+        setNotasOcultas(prev => new Set(prev).add(notaId));
+        
+        // Después de la animación, recargar notas
+        setTimeout(() => {
+          setNotasCompletando(prev => {
+            const nuevo = new Set(prev);
+            nuevo.delete(notaId);
+            return nuevo;
+          });
+          setNotasOcultas(prev => {
+            const nuevo = new Set(prev);
+            nuevo.delete(notaId);
+            return nuevo;
+          });
+          cargarNotas();
+        }, 300); // Tiempo de animación
+      }, 100);
+    } catch (error) {
+      console.error('❌ Error inesperado:', error);
+      alert(`Error inesperado: ${error.message}`);
+      setNotasCompletando(prev => {
+        const nuevo = new Set(prev);
+        nuevo.delete(notaId);
+        return nuevo;
+      });
+    }
+  };
+
   // Función para formatear fecha de respuesta
   const formatearFechaRespuesta = (fechaISO) => {
     try {
@@ -328,13 +397,27 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   return (
     <div className="p-8 max-w-1200 mx-auto font-sans">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">📋 Tablón de Notas Compartidas</h2>
-        <button 
-          onClick={() => setMostrarForm(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
-        >
-          + Crear Nueva Nota
-        </button>
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-bold text-gray-900">📋 Tablón de Notas Compartidas</h2>
+          <button
+            onClick={() => setMostrarCompletadas(!mostrarCompletadas)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              mostrarCompletadas
+                ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                : 'bg-green-100 text-green-700 hover:bg-green-200'
+            }`}
+          >
+            {mostrarCompletadas ? '← Ver Pendientes' : '✓ Ver Completadas'}
+          </button>
+        </div>
+        {!mostrarCompletadas && (
+          <button 
+            onClick={() => setMostrarForm(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
+          >
+            + Crear Nueva Nota
+          </button>
+        )}
       </div>
 
       {/* FORMULARIO */}
@@ -402,17 +485,36 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
 
       {/* RENDERIZADO DE NOTAS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {notas.map(nota => {
+        {notas
+          .filter(nota => !notasOcultas.has(nota.id))
+          .map(nota => {
           const colorBorde = getColorBorde(nota.destinatario);
+          const estaCompletando = notasCompletando.has(nota.id);
           return (
             <div 
               key={nota.id} 
-              className="bg-white p-4 rounded-xl shadow-md border-l-4 transition-all hover:shadow-lg"
+              className={`bg-white p-4 rounded-xl shadow-md border-l-4 transition-all hover:shadow-lg ${
+                estaCompletando ? 'opacity-0 scale-95 transform transition-all duration-300' : 'opacity-100 scale-100'
+              }`}
               style={{ borderLeftColor: colorBorde }}
             >
               <div className="text-xs text-gray-500 flex justify-between items-center mb-2">
                 <span>ID: {nota.id}</span>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  {!mostrarCompletadas && nota.estado === 'Pendiente' && (
+                    <>
+                      <button
+                        onClick={() => completarNota(nota.id)}
+                        disabled={estaCompletando}
+                        className="flex items-center gap-1 text-green-600 hover:text-green-800 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        title="Marcar como completada"
+                      >
+                        <CheckCircle2 size={16} />
+                        <span>Completar</span>
+                      </button>
+                      <span className="text-gray-300">|</span>
+                    </>
+                  )}
                   <button 
                     onClick={() => setEditando(nota)} 
                     className="text-blue-600 hover:text-blue-800 font-medium"
@@ -529,7 +631,11 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
 
       {notas.length === 0 && !cargando && (
         <div className="text-center py-12 text-gray-500">
-          <p>No hay notas aún. Crea tu primera nota para comenzar.</p>
+          <p>
+            {mostrarCompletadas 
+              ? 'No hay notas completadas aún.' 
+              : 'No hay notas pendientes. ¡Crea tu primera nota para comenzar!'}
+          </p>
         </div>
       )}
     </div>
