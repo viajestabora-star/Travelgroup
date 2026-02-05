@@ -1,22 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { useLocation } from 'react-router-dom';
 
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e';
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const NotasTrabajo = ({ user }) => {
+const NotasTrabajo = ({ user, expedienteId = null }) => {
+  const location = useLocation();
+  // Obtener expediente_id de props o del estado de navegación
+  const expedienteIdFromState = location?.state?.expedienteId;
+  const expedienteIdFinal = expedienteId || expedienteIdFromState;
+
   const [notas, setNotas] = useState([]);
   const [editando, setEditando] = useState(null);
   const [nuevaNota, setNuevaNota] = useState({ 
-    cliente: '', 
-    detalles: '', 
-    cuando: '', 
+    titulo: '', 
+    contenido: '', 
+    fecha_plazo: '', 
     destinatario: 'Todos',
     estado: 'Pendiente' 
   });
   const [mostrarForm, setMostrarForm] = useState(false);
   const [cargando, setCargando] = useState(true);
+  // Estado para manejar respuestas por cada nota
+  const [respuestasTexto, setRespuestasTexto] = useState({});
+  const [respondiendo, setRespondiendo] = useState({});
 
   // Colores de borde según destinatario
   const coloresDestinatario = {
@@ -34,27 +43,28 @@ const NotasTrabajo = ({ user }) => {
   const cargarNotas = async () => {
     try {
       setCargando(true);
+      
+      // Cargar todas las notas (sin filtro por expediente)
       const { data, error } = await supabase
-        .from('notas_trabajo')
+        .from('notas')
         .select('*')
-        .order('fecha_creacion', { ascending: false });
+        .is('expediente_id', null) // Solo notas generales (sin expediente asociado)
+        .order('fecha_plazo', { ascending: false });
 
       if (error) {
-        console.error('Error cargando notas:', error);
-        // Fallback a localStorage si falla Supabase
-        const guardadas = localStorage.getItem('notas_tabora_v1');
-        if (guardadas) {
-          setNotas(JSON.parse(guardadas));
-        }
+        console.error('❌ Error cargando notas:', error);
+        console.error('Detalles del error:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        });
+        setNotas([]);
       } else {
         setNotas(data || []);
       }
     } catch (error) {
-      console.error('Error fatal cargando notas:', error);
-      const guardadas = localStorage.getItem('notas_tabora_v1');
-      if (guardadas) {
-        setNotas(JSON.parse(guardadas));
-      }
+      console.error('❌ Error fatal cargando notas:', error);
+      setNotas([]);
     } finally {
       setCargando(false);
     }
@@ -62,55 +72,80 @@ const NotasTrabajo = ({ user }) => {
 
   const manejarGuardado = async () => {
     try {
+      // Sincronización de destinatario: usar valor del selector o 'Todos' por defecto
+      const destinatarioFinal = (editando ? editando.destinatario : nuevaNota.destinatario) || 'Todos';
+
       if (editando) {
-        // Actualizar nota existente
+        // Actualizar nota existente - Notas generales: expediente_id siempre null
+        const datosActualizar = {
+          expediente_id: null, // Notas generales sin expediente
+          titulo: editando.titulo || '',
+          contenido: editando.contenido || '',
+          destinatario: destinatarioFinal,
+          estado: editando.estado || 'Pendiente',
+          fecha_plazo: editando.fecha_plazo || null
+        };
+
+        console.log('📝 Actualizando nota:', datosActualizar);
+
         const { error } = await supabase
-          .from('notas_trabajo')
-          .update({
-            cliente: editando.cliente,
-            detalles: editando.detalles,
-            cuando: editando.cuando,
-            destinatario: editando.destinatario,
-            estado: editando.estado
-          })
+          .from('notas')
+          .update(datosActualizar)
           .eq('id', editando.id);
 
         if (error) {
-          console.error('Error actualizando nota:', error);
-          alert('Error al actualizar la nota');
+          console.error('❌ Error actualizando nota:', error);
+          console.error('Detalles:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code
+          });
+          alert(`Error al actualizar la nota: ${error.message}`);
           return;
         }
 
+        console.log('✅ Nota actualizada correctamente');
         setEditando(null);
       } else {
-        // Crear nueva nota
+        // Crear nueva nota - Notas generales: expediente_id siempre null
         const notaParaGuardar = {
-          cliente: nuevaNota.cliente,
-          detalles: nuevaNota.detalles,
-          cuando: nuevaNota.cuando,
-          destinatario: nuevaNota.destinatario,
-          estado: nuevaNota.estado,
-          creado_por: user?.nombre || 'Usuario',
-          fecha_creacion: new Date().toISOString()
+          expediente_id: null, // Notas generales sin expediente
+          titulo: nuevaNota.titulo || '',
+          contenido: nuevaNota.contenido || '',
+          destinatario: destinatarioFinal,
+          estado: nuevaNota.estado || 'Pendiente',
+          fecha_plazo: nuevaNota.fecha_plazo || null
         };
 
+        console.log('💾 Guardando nueva nota:', notaParaGuardar);
+
         const { data, error } = await supabase
-          .from('notas_trabajo')
+          .from('notas')
           .insert([notaParaGuardar])
           .select()
           .single();
 
         if (error) {
-          console.error('Error guardando nota:', error);
-          alert('Error al guardar la nota');
+          console.error('❌ Error guardando nota:', error);
+          console.error('Detalles:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code
+          });
+          alert(`Error al guardar la nota: ${error.message}`);
           return;
         }
 
+        console.log('✅ Nota guardada correctamente:', data);
+
+        // Limpiar formulario
         setMostrarForm(false);
         setNuevaNota({ 
-          cliente: '', 
-          detalles: '', 
-          cuando: '', 
+          titulo: '', 
+          contenido: '', 
+          fecha_plazo: '', 
           destinatario: 'Todos',
           estado: 'Pendiente' 
         });
@@ -119,8 +154,8 @@ const NotasTrabajo = ({ user }) => {
       // Recargar notas
       await cargarNotas();
     } catch (error) {
-      console.error('Error inesperado:', error);
-      alert('Error inesperado al guardar');
+      console.error('❌ Error inesperado:', error);
+      alert(`Error inesperado: ${error.message}`);
     }
   };
 
@@ -131,27 +166,155 @@ const NotasTrabajo = ({ user }) => {
 
     try {
       const { error } = await supabase
-        .from('notas_trabajo')
+        .from('notas')
         .delete()
         .eq('id', id);
 
       if (error) {
-        console.error('Error eliminando nota:', error);
-        alert('Error al eliminar la nota');
+        console.error('❌ Error eliminando nota:', error);
+        console.error('Detalles:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        });
+        alert(`Error al eliminar la nota: ${error.message}`);
         return;
       }
 
+      console.log('✅ Nota eliminada correctamente');
       await cargarNotas();
     } catch (error) {
-      console.error('Error inesperado:', error);
-      alert('Error inesperado al eliminar');
+      console.error('❌ Error inesperado:', error);
+      alert(`Error inesperado: ${error.message}`);
     }
   };
 
   const getColorBorde = (destinatario) => {
-    // Si no hay destinatario o es null/undefined, usar "Todos" por defecto
     const dest = destinatario || 'Todos';
     return coloresDestinatario[dest] || coloresDestinatario['Todos'];
+  };
+
+  // Obtener nombre del usuario logueado
+  const obtenerNombreUsuario = () => {
+    // Intentar obtener el nombre del usuario desde diferentes fuentes
+    if (user?.nombre) return user.nombre;
+    if (user?.name) return user.name;
+    if (user?.email) {
+      // Extraer nombre del email si es posible
+      const emailPart = user.email.split('@')[0];
+      return emailPart.charAt(0).toUpperCase() + emailPart.slice(1);
+    }
+    // Fallback: intentar desde localStorage
+    const usuarioGuardado = localStorage.getItem('user');
+    if (usuarioGuardado) {
+      try {
+        const parsed = JSON.parse(usuarioGuardado);
+        return parsed.nombre || parsed.name || 'Usuario';
+      } catch (e) {
+        return 'Usuario';
+      }
+    }
+    return 'Usuario';
+  };
+
+  // Función para agregar respuesta a una nota
+  const agregarRespuesta = async (notaId) => {
+    const textoRespuesta = respuestasTexto[notaId]?.trim();
+    if (!textoRespuesta) {
+      alert('Por favor, escribe una respuesta');
+      return;
+    }
+
+    try {
+      setRespondiendo(prev => ({ ...prev, [notaId]: true }));
+
+      // Obtener la nota actual
+      const notaActual = notas.find(n => n.id === notaId);
+      if (!notaActual) {
+        alert('Error: No se encontró la nota');
+        return;
+      }
+
+      // Crear nueva respuesta
+      const nuevaRespuesta = {
+        autor: obtenerNombreUsuario(),
+        texto: textoRespuesta,
+        fecha: new Date().toISOString()
+      };
+
+      // Obtener respuestas existentes o inicializar array vacío
+      const respuestasExistentes = Array.isArray(notaActual.respuestas) 
+        ? notaActual.respuestas 
+        : [];
+
+      // Agregar nueva respuesta
+      const respuestasActualizadas = [...respuestasExistentes, nuevaRespuesta];
+
+      // Actualización optimista: actualizar estado local inmediatamente
+      setNotas(prevNotas => 
+        prevNotas.map(nota => 
+          nota.id === notaId 
+            ? { ...nota, respuestas: respuestasActualizadas }
+            : nota
+        )
+      );
+
+      // Limpiar campo de texto
+      setRespuestasTexto(prev => ({ ...prev, [notaId]: '' }));
+
+      // Guardar en Supabase
+      const { error } = await supabase
+        .from('notas')
+        .update({ respuestas: respuestasActualizadas })
+        .eq('id', notaId);
+
+      if (error) {
+        console.error('❌ Error guardando respuesta:', error);
+        // Revertir actualización optimista
+        setNotas(prevNotas => 
+          prevNotas.map(nota => 
+            nota.id === notaId 
+              ? { ...nota, respuestas: respuestasExistentes }
+              : nota
+          )
+        );
+        alert(`Error al guardar la respuesta: ${error.message}`);
+        return;
+      }
+
+      console.log('✅ Respuesta guardada correctamente');
+    } catch (error) {
+      console.error('❌ Error inesperado:', error);
+      alert(`Error inesperado: ${error.message}`);
+    } finally {
+      setRespondiendo(prev => ({ ...prev, [notaId]: false }));
+    }
+  };
+
+  // Función para formatear fecha de respuesta
+  const formatearFechaRespuesta = (fechaISO) => {
+    try {
+      const fecha = new Date(fechaISO);
+      const ahora = new Date();
+      const diffMs = ahora - fecha;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return 'Ahora mismo';
+      if (diffMins < 60) return `Hace ${diffMins} min`;
+      if (diffHours < 24) return `Hace ${diffHours} h`;
+      if (diffDays < 7) return `Hace ${diffDays} días`;
+      
+      return fecha.toLocaleDateString('es-ES', { 
+        day: '2-digit', 
+        month: 'short', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+    } catch (e) {
+      return fechaISO;
+    }
   };
 
   if (cargando) {
@@ -180,22 +343,22 @@ const NotasTrabajo = ({ user }) => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input 
               type="text" 
-              placeholder="Cliente" 
-              value={editando ? editando.cliente : nuevaNota.cliente} 
-              onChange={e => editando ? setEditando({...editando, cliente: e.target.value}) : setNuevaNota({...nuevaNota, cliente: e.target.value})} 
+              placeholder="Título/Cliente" 
+              value={editando ? editando.titulo : nuevaNota.titulo} 
+              onChange={e => editando ? setEditando({...editando, titulo: e.target.value}) : setNuevaNota({...nuevaNota, titulo: e.target.value})} 
               className="p-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             />
             <input 
-              type="text" 
+              type="date" 
               placeholder="Fecha/Plazo" 
-              value={editando ? editando.cuando : nuevaNota.cuando} 
-              onChange={e => editando ? setEditando({...editando, cuando: e.target.value}) : setNuevaNota({...nuevaNota, cuando: e.target.value})} 
+              value={editando ? editando.fecha_plazo : nuevaNota.fecha_plazo} 
+              onChange={e => editando ? setEditando({...editando, fecha_plazo: e.target.value}) : setNuevaNota({...nuevaNota, fecha_plazo: e.target.value})} 
               className="p-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             />
             <textarea 
-              placeholder="Detalles..." 
-              value={editando ? editando.detalles : nuevaNota.detalles} 
-              onChange={e => editando ? setEditando({...editando, detalles: e.target.value}) : setNuevaNota({...nuevaNota, detalles: e.target.value})} 
+              placeholder="Contenido/Detalles..." 
+              value={editando ? editando.contenido : nuevaNota.contenido} 
+              onChange={e => editando ? setEditando({...editando, contenido: e.target.value}) : setNuevaNota({...nuevaNota, contenido: e.target.value})} 
               className="col-span-1 md:col-span-2 p-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 min-h-[80px]"
             />
             <select 
@@ -214,8 +377,7 @@ const NotasTrabajo = ({ user }) => {
               className="p-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             >
               <option value="Pendiente">🔴 Pendiente</option>
-              <option value="En Proceso">🟡 En Proceso</option>
-              <option value="Finalizada">🟢 Finalizada</option>
+              <option value="Completado">🟢 Completado</option>
             </select>
           </div>
           <div className="mt-4 flex gap-3">
@@ -249,7 +411,7 @@ const NotasTrabajo = ({ user }) => {
               style={{ borderLeftColor: colorBorde }}
             >
               <div className="text-xs text-gray-500 flex justify-between items-center mb-2">
-                <span>Por: {nota.creado_por || nota.creadoPor || 'Usuario'}</span>
+                <span>ID: {nota.id}</span>
                 <div className="flex gap-2">
                   <button 
                     onClick={() => setEditando(nota)} 
@@ -281,19 +443,80 @@ const NotasTrabajo = ({ user }) => {
                   Para: {nota.destinatario || 'Todos'}
                 </span>
               </div>
-              <h4 className="text-lg font-bold text-gray-900 mb-2">{nota.cliente}</h4>
-              <p className="text-sm text-gray-700 mb-3">{nota.detalles}</p>
-              <div className="flex justify-between items-center text-xs">
+              <h4 className="text-lg font-bold text-gray-900 mb-2">{nota.titulo || 'Sin título'}</h4>
+              <p className="text-sm text-gray-700 mb-3">{nota.contenido || 'Sin contenido'}</p>
+              
+              {/* HILO DE RESPUESTAS */}
+              {Array.isArray(nota.respuestas) && nota.respuestas.length > 0 && (
+                <div className="mt-3 mb-3 border-t border-gray-200 pt-3">
+                  <div className="space-y-2">
+                    {nota.respuestas.map((respuesta, idx) => {
+                      const colorAutor = coloresDestinatario[respuesta.autor] || '#6b7280';
+                      return (
+                        <div 
+                          key={idx} 
+                          className="ml-4 pl-3 border-l-2 border-gray-200"
+                          style={{ borderLeftColor: colorAutor + '40' }}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <span 
+                              className="text-xs font-semibold"
+                              style={{ color: colorAutor }}
+                            >
+                              {respuesta.autor}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {formatearFechaRespuesta(respuesta.fecha)}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-700">{respuesta.texto}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* CAMPO DE RESPUESTA */}
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Escribe una respuesta..."
+                    value={respuestasTexto[nota.id] || ''}
+                    onChange={(e) => setRespuestasTexto(prev => ({ 
+                      ...prev, 
+                      [nota.id]: e.target.value 
+                    }))}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        agregarRespuesta(nota.id);
+                      }
+                    }}
+                    className="flex-1 text-sm p-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+                  />
+                  <button
+                    onClick={() => agregarRespuesta(nota.id)}
+                    disabled={respondiendo[nota.id] || !respuestasTexto[nota.id]?.trim()}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    {respondiendo[nota.id] ? '...' : 'Responder'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center text-xs mt-3">
                 <div className="flex flex-col gap-1">
-                  <span className="font-semibold text-gray-600">📅 {nota.cuando}</span>
+                  <span className="font-semibold text-gray-600">
+                    📅 {nota.fecha_plazo ? new Date(nota.fecha_plazo).toLocaleDateString('es-ES') : 'Sin fecha'}
+                  </span>
                   <span className="text-gray-500">👤 {nota.destinatario || 'Todos'}</span>
                 </div>
                 <span className="px-2 py-1 rounded text-xs font-medium"
                   style={{
-                    backgroundColor: nota.estado === 'Pendiente' ? '#fee2e2' : 
-                                   nota.estado === 'En Proceso' ? '#fef3c7' : '#d1fae5',
-                    color: nota.estado === 'Pendiente' ? '#991b1b' : 
-                          nota.estado === 'En Proceso' ? '#92400e' : '#065f46'
+                    backgroundColor: nota.estado === 'Pendiente' ? '#fee2e2' : '#d1fae5',
+                    color: nota.estado === 'Pendiente' ? '#991b1b' : '#065f46'
                   }}
                 >
                   {nota.estado || 'Pendiente'}
