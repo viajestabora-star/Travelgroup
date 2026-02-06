@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import { FileText, Save, X } from 'lucide-react'
-import jsPDF from 'jspdf'
 import { createClient } from '@supabase/supabase-js'
 
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
@@ -202,27 +201,13 @@ const Composer = () => {
     return lineas.join('\n')
   }
 
-  const handleDescargarPDF = () => {
+  const handleImprimirBono = () => {
     const texto = buildVoucherText()
     if (!texto.trim()) {
-      alert('No hay contenido para generar el PDF.')
+      alert('No hay contenido para imprimir.')
       return
     }
-
-    const doc = new jsPDF()
-    const marginLeft = 20
-    const marginTop = 20
-    const maxWidth = 170
-
-    const tituloDoc = titulo.trim() || 'Bono de Bus'
-
-    doc.setFontSize(14)
-    doc.text(tituloDoc, marginLeft, marginTop)
-
-    doc.setFontSize(11)
-    doc.text(doc.splitTextToSize(texto, maxWidth), marginLeft, marginTop + 10)
-
-    doc.save(`${tituloDoc.replace(/[^a-z0-9]+/gi, '_') || 'bono_bus'}.pdf`)
+    window.print()
   }
 
   const handleGuardar = async () => {
@@ -287,19 +272,47 @@ const Composer = () => {
 
   return (
     <div className="p-6">
+      {/* CSS de impresión: solo imprimir el contenedor del bono, a tamaño A4 */}
+      <style>
+        {`
+        @media print {
+          @page {
+            size: A4;
+            margin: 10mm;
+          }
+
+          body {
+            margin: 0;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          .no-print {
+            display: none !important;
+          }
+
+          .bono-print {
+            display: block !important;
+            width: 100% !important;
+            box-shadow: none !important;
+            border: none !important;
+          }
+        }
+        `}
+      </style>
       <div className="max-w-6xl mx-auto">
         <div className="bg-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-6">
+          <div className="no-print flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-navy-900 flex items-center gap-2">
               <FileText className="text-navy-600" size={28} />
-              Composer
+              Composer - Generador de Bonos
             </h1>
           </div>
 
           <div className="space-y-6">
             {/* Selección de proveedor y expediente para bonos */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
+            <div className="no-print grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="no-print">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Proveedor para Bono
                 </label>
@@ -335,10 +348,10 @@ const Composer = () => {
               </div>
             </div>
 
-            {/* Dos columnas: izquierda datos, derecha vista previa del bono */}
-            <div className={`grid gap-6 ${modoImpresion ? '' : 'md:grid-cols-2'}`}>
+            {/* Dos columnas: izquierda datos (no-print), derecha vista previa del bono (bono-print) */}
+            <div className="grid gap-6 md:grid-cols-2">
               {/* Columna izquierda: formulario de datos */}
-              <div className={modoImpresion ? 'hidden md:block md:col-span-1' : ''}>
+              <div className="no-print">
                 {/* Metadatos de la plantilla */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                   <div className="md:col-span-2">
@@ -352,10 +365,10 @@ const Composer = () => {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
                   placeholder="Escribe un título de plantilla..."
               />
-                  </div>
+            </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                       Categoría
                     </label>
                     <select
@@ -440,8 +453,8 @@ const Composer = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Observaciones internas
-                    </label>
-                    <textarea
+              </label>
+              <textarea
                       value={observacionesInternas}
                       onChange={(e) => setObservacionesInternas(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent min-h-[80px]"
@@ -465,28 +478,28 @@ const Composer = () => {
                   >
                     Generar Bono de Bus
                   </button>
-                </div>
+            </div>
 
                 <div className="flex flex-wrap gap-3 pt-4">
-                  <button
-                    onClick={handleGuardar}
+              <button
+                onClick={handleGuardar}
                     disabled={guardando}
                     className="btn-primary flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    <Save size={18} />
+              >
+                <Save size={18} />
                     {guardando ? 'Guardando...' : 'Guardar plantilla'}
                   </button>
                   <button
                     type="button"
-                    onClick={handleDescargarPDF}
+                    onClick={handleImprimirBono}
                     className="btn-secondary flex items-center gap-2"
                   >
                     Imprimir Bono
-                  </button>
-                  <button
-                    onClick={() => {
-                      setTitulo('')
-                      setContenido('')
+              </button>
+              <button
+                onClick={() => {
+                  setTitulo('')
+                  setContenido('')
                       setCategoria('Itinerario')
                       setPrecioSugerido('')
                       setDuracion('')
@@ -496,12 +509,12 @@ const Composer = () => {
                       setTlfResponsable('')
                       setNPersonas('')
                       setObservacionesInternas('')
-                    }}
-                    className="btn-secondary flex items-center gap-2"
-                  >
-                    <X size={18} />
-                    Limpiar
-                  </button>
+                }}
+                className="btn-secondary flex items-center gap-2"
+              >
+                <X size={18} />
+                Limpiar
+              </button>
                 </div>
               </div>
 
