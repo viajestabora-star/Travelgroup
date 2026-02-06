@@ -1,19 +1,253 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { FileText, Save, X } from 'lucide-react'
+import jsPDF from 'jspdf'
+import { createClient } from '@supabase/supabase-js'
+
+const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
+const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 const Composer = () => {
   const [titulo, setTitulo] = useState('')
   const [contenido, setContenido] = useState('')
+  const [categoria, setCategoria] = useState('Itinerario')
+  const [precioSugerido, setPrecioSugerido] = useState('')
+  const [duracion, setDuracion] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const [proveedores, setProveedores] = useState([])
+  const [expedientes, setExpedientes] = useState([])
+  const [proveedorSeleccionado, setProveedorSeleccionado] = useState('')
+  const [expedienteSeleccionado, setExpedienteSeleccionado] = useState('')
+  // Campos específicos del bono / plantilla de viaje
+  const [fechaServicio, setFechaServicio] = useState('')
+  const [recogidaDetalles, setRecogidaDetalles] = useState('')
+  const [tlfGuia, setTlfGuia] = useState('')
+  const [tlfResponsable, setTlfResponsable] = useState('')
+  const [nPersonas, setNPersonas] = useState('')
+  const [observacionesInternas, setObservacionesInternas] = useState('')
+  const [modoImpresion, setModoImpresion] = useState(false)
 
-  const handleGuardar = () => {
-    // Lógica para guardar el contenido
-    console.log('Guardando:', { titulo, contenido })
-    alert('Contenido guardado')
+  // Cargar proveedores y expedientes para los selectores
+  useEffect(() => {
+    const cargarDatosRelacionados = async () => {
+      try {
+        const [provRes, expRes] = await Promise.all([
+          supabase
+            .from('proveedores')
+            .select('id, nombre_comercial, direccion, telefono, telefono_fijo, movil')
+            .order('nombre_comercial', { ascending: true }),
+          supabase
+            .from('expedientes')
+            .select('id, nombre_grupo, destino, fecha_inicio, total_pax')
+            .order('fecha_inicio', { ascending: false }),
+        ])
+
+        if (!provRes.error && Array.isArray(provRes.data)) {
+          setProveedores(provRes.data)
+        } else if (provRes.error) {
+          console.error('❌ Error cargando proveedores para Composer:', provRes.error)
+        }
+
+        if (!expRes.error && Array.isArray(expRes.data)) {
+          setExpedientes(expRes.data)
+        } else if (expRes.error) {
+          console.error('❌ Error cargando expedientes para Composer:', expRes.error)
+        }
+      } catch (err) {
+        console.error('❌ Error inesperado cargando datos en Composer:', err)
+      }
+    }
+
+    cargarDatosRelacionados()
+  }, [])
+
+  const handleCargarItinerarioBase = () => {
+    const plantillaBase = [
+      'DIA 1 - CIUDAD DE ORIGEN / DESTINO',
+      'Descripción del día 1...',
+      '',
+      'DIA 2 - DESTINO',
+      'Descripción del día 2...',
+      '',
+      'DIA 3 - DESTINO / REGRESO',
+      'Descripción del día 3...',
+      '',
+      'INCLUYE:',
+      '- ',
+      '',
+      'NO INCLUYE:',
+      '- ',
+    ].join('\n')
+
+    setCategoria('Itinerario')
+    setContenido(plantillaBase)
+  }
+
+  // Cuando se selecciona un expediente, pre-rellenar algunos campos del bono
+  useEffect(() => {
+    if (!expedienteSeleccionado) return
+    const exp = expedientes.find((e) => e.id === expedienteSeleccionado)
+    if (!exp) return
+
+    if (!titulo) {
+      setTitulo(`Bono de Bus - ${exp.nombre_grupo || 'Grupo / Cliente'}`)
+    }
+
+    // Fecha de servicio inicial = fecha_inicio del expediente (editable)
+    if (exp.fecha_inicio) {
+      try {
+        const d = new Date(exp.fecha_inicio)
+        if (!isNaN(d.getTime())) {
+          const dia = String(d.getDate()).padStart(2, '0')
+          const mes = String(d.getMonth() + 1).padStart(2, '0')
+          const año = d.getFullYear()
+          setFechaServicio(`${dia}/${mes}/${año}`)
+        }
+      } catch {
+        // dejar campo editable en blanco si falla
+      }
+    }
+
+    // Nº personas desde total_pax si existe
+    if (exp.total_pax && !nPersonas) {
+      setNPersonas(String(exp.total_pax))
+    }
+  }, [expedienteSeleccionado, expedientes])
+
+  const generarBonoBus = () => {
+    if (!proveedorSeleccionado || !expedienteSeleccionado) {
+      alert('Selecciona un proveedor y un expediente antes de generar el bono.')
+      return
+    }
+
+    const proveedor = proveedores.find((p) => p.id === proveedorSeleccionado)
+    const expediente = expedientes.find((e) => e.id === expedienteSeleccionado)
+
+    if (!proveedor || !expediente) {
+      alert('No se han podido cargar los datos seleccionados.')
+      return
+    }
+
+    const nombreProveedor = proveedor.nombre_comercial || 'Proveedor sin nombre'
+    const direccionProveedor = proveedor.direccion || ''
+    const telefonoProveedor =
+      proveedor.telefono || proveedor.telefono_fijo || proveedor.movil || ''
+
+    const nombreCliente = expediente.nombre_grupo || 'Grupo / Cliente'
+    const destino = expediente.destino || 'Destino'
+
+    let fechaTexto = 'Fecha ____/____/______'
+    if (expediente.fecha_inicio) {
+      try {
+        const d = new Date(expediente.fecha_inicio)
+        if (!isNaN(d.getTime())) {
+          fechaTexto = `Fecha ${d.toLocaleDateString('es-ES')}`
+        }
+      } catch {
+        // dejar fecha por defecto
+      }
+    }
+
+    const hoy = new Date()
+    const fechaEmision = hoy.toLocaleDateString('es-ES')
+
+    const lineas = [
+      'VIAJES TABORA',
+      'C/ Santa Amalia, nº 2 Entresuelo 2º Of. L1 (46009 Valencia) ESP',
+      'Tel: +34 96 339 04 64',
+      '',
+      'BONO/VOUCHER',
+      `Fecha de emisión: ${fechaEmision}`,
+      '',
+      `Proveedor: ${nombreProveedor}`,
+      direccionProveedor ? `Dirección: ${direccionProveedor}` : '',
+      telefonoProveedor ? `Teléfono: ${telefonoProveedor}` : '',
+      '',
+      'Rogamos facilitar los siguientes servicios:',
+      '',
+      `Cliente / Grupo: ${nombreCliente}`,
+      fechaTexto,
+      `Itinerario: ${destino}`,
+      `Fecha servicio: ${fechaServicio || '____/____/______'}`,
+      `Recogida: ${recogidaDetalles || '_____________________________'}`,
+      `Teléfono Guía: ${tlfGuia || '________________'}`,
+      `Teléfono Jefe de Grupo: ${tlfResponsable || '________________'}`,
+      `Total personas: ${nPersonas || '___'}`,
+      '',
+      'Observaciones:',
+      observacionesInternas || '___________________________________________',
+    ].filter(Boolean)
+
+    setCategoria('Itinerario')
+    setTitulo(`Bono de Bus - ${nombreCliente}`)
+    setContenido(lineas.join('\n'))
+  }
+
+  const handleDescargarPDF = () => {
+    if (!contenido.trim()) {
+      alert('No hay contenido para generar el PDF.')
+      return
+    }
+
+    const doc = new jsPDF()
+    const marginLeft = 20
+    const marginTop = 20
+    const maxWidth = 170
+
+    const tituloDoc = titulo.trim() || 'Bono de Bus'
+
+    doc.setFontSize(14)
+    doc.text(tituloDoc, marginLeft, marginTop)
+
+    doc.setFontSize(11)
+    doc.text(doc.splitTextToSize(contenido, maxWidth), marginLeft, marginTop + 10)
+
+    doc.save(`${tituloDoc.replace(/[^a-z0-9]+/gi, '_') || 'bono_bus'}.pdf`)
+  }
+
+  const handleGuardar = async () => {
+    if (!titulo.trim()) {
+      alert('Por favor, rellena al menos el título.')
+      return
+    }
+
+    try {
+      setGuardando(true)
+
+      const datosParaGuardar = {
+        titulo: titulo.trim(),
+        contenido,
+        categoria,
+        fecha_servicio: fechaServicio || null,
+        recogida_detalles: recogidaDetalles || null,
+        tlf_guia: tlfGuia || null,
+        tlf_responsable: tlfResponsable || null,
+        n_personas: nPersonas ? parseInt(nPersonas, 10) || null : null,
+        observaciones_internas: observacionesInternas || null,
+      }
+
+      const { error } = await supabase
+        .from('plantillas_viajes')
+        .insert([datosParaGuardar])
+
+      if (error) {
+        console.error('❌ Error guardando plantilla de viaje:', error)
+        alert(`Error al guardar la plantilla: ${error.message}`)
+        return
+      }
+
+      alert('Plantilla de viaje guardada correctamente')
+    } catch (err) {
+      console.error('❌ Error inesperado guardando plantilla de viaje:', err)
+      alert('Error inesperado al guardar la plantilla')
+    } finally {
+      setGuardando(false)
+    }
   }
 
   return (
     <div className="p-6">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="bg-white rounded-xl shadow-lg p-6">
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-navy-900 flex items-center gap-2">
@@ -22,8 +256,52 @@ const Composer = () => {
             </h1>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-6">
+            {/* Selección de proveedor y expediente para bonos */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Proveedor para Bono
+                </label>
+                <select
+                  value={proveedorSeleccionado}
+                  onChange={(e) => setProveedorSeleccionado(e.target.value || '')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                >
+                  <option value="">Selecciona un proveedor...</option>
+                  {proveedores.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre_comercial}
+                    </option>
+                  ))}
+                </select>
+              </div>
             <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Expediente / Grupo
+                </label>
+                <select
+                  value={expedienteSeleccionado}
+                  onChange={(e) => setExpedienteSeleccionado(e.target.value || '')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                >
+                  <option value="">Selecciona un expediente...</option>
+                  {expedientes.map((exp) => (
+                    <option key={exp.id} value={exp.id}>
+                      {exp.nombre_grupo || `Expediente ${exp.id}`} {exp.destino ? `- ${exp.destino}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Dos columnas: izquierda datos, derecha vista previa del bono */}
+            <div className={`grid gap-6 ${modoImpresion ? '' : 'md:grid-cols-2'}`}>
+              {/* Columna izquierda: formulario de datos */}
+              <div className={modoImpresion ? 'hidden md:block md:col-span-1' : ''}>
+                {/* Metadatos de la plantilla */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                  <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Título
               </label>
@@ -32,40 +310,256 @@ const Composer = () => {
                 value={titulo}
                 onChange={(e) => setTitulo(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
-                placeholder="Escribe un título..."
+                  placeholder="Escribe un título de plantilla..."
               />
-            </div>
+                  </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Contenido
-              </label>
-              <textarea
-                value={contenido}
-                onChange={(e) => setContenido(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent min-h-[400px]"
-                placeholder="Escribe tu contenido aquí..."
-              />
-            </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Categoría
+                    </label>
+                    <select
+                      value={categoria}
+                      onChange={(e) => setCategoria(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                    >
+                      <option value="Itinerario">Itinerario</option>
+                      <option value="Condiciones de Venta">Condiciones de Venta</option>
+                      <option value="Presupuesto">Presupuesto</option>
+                    </select>
+                  </div>
+                </div>
 
-            <div className="flex gap-3 pt-4">
-              <button
-                onClick={handleGuardar}
-                className="btn-primary flex items-center gap-2"
-              >
-                <Save size={18} />
-                Guardar
-              </button>
-              <button
-                onClick={() => {
-                  setTitulo('')
-                  setContenido('')
-                }}
-                className="btn-secondary flex items-center gap-2"
-              >
-                <X size={18} />
-                Limpiar
-              </button>
+                {/* Campos específicos del bono */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Fecha de servicio
+                    </label>
+                    <input
+                      type="text"
+                      value={fechaServicio}
+                      onChange={(e) => setFechaServicio(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                      placeholder="Ej: 10/10/2025"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Total personas
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={nPersonas}
+                      onChange={(e) => setNPersonas(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                      placeholder="Ej: 42"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Detalle de recogidas
+                    </label>
+                    <textarea
+                      value={recogidaDetalles}
+                      onChange={(e) => setRecogidaDetalles(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent min-h-[80px]"
+                      placeholder="Ej: 08:00h C/ Luis Vives s/n (frente al instituto). 42 pax"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Teléfono Guía
+                      </label>
+                      <input
+                        type="text"
+                        value={tlfGuia}
+                        onChange={(e) => setTlfGuia(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                        placeholder="Ej: Miguel 658 066 849"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Teléfono Jefe Grupo
+                      </label>
+                      <input
+                        type="text"
+                        value={tlfResponsable}
+                        onChange={(e) => setTlfResponsable(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                        placeholder="Ej: Pura 653 86 30 20"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Observaciones internas
+                    </label>
+                    <textarea
+                      value={observacionesInternas}
+                      onChange={(e) => setObservacionesInternas(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent min-h-[80px]"
+                      placeholder="Notas internas para logística / guía..."
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={handleCargarItinerarioBase}
+                    className="text-xs font-semibold text-navy-600 hover:text-navy-800 underline"
+                  >
+                    Cargar Itinerario Base
+                  </button>
+                  <button
+                    type="button"
+                    onClick={generarBonoBus}
+                    className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 underline"
+                  >
+                    Generar Bono de Bus
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-4">
+                  <button
+                    onClick={handleGuardar}
+                    disabled={guardando}
+                    className="btn-primary flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Save size={18} />
+                    {guardando ? 'Guardando...' : 'Guardar plantilla'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDescargarPDF}
+                    className="btn-secondary flex items-center gap-2"
+                  >
+                    Descargar PDF
+                  </button>
+                  <button
+                    onClick={() => {
+                      setTitulo('')
+                      setContenido('')
+                      setCategoria('Itinerario')
+                      setPrecioSugerido('')
+                      setDuracion('')
+                      setFechaServicio('')
+                      setRecogidaDetalles('')
+                      setTlfGuia('')
+                      setTlfResponsable('')
+                      setNPersonas('')
+                      setObservacionesInternas('')
+                    }}
+                    className="btn-secondary flex items-center gap-2"
+                  >
+                    <X size={18} />
+                    Limpiar
+                  </button>
+                </div>
+              </div>
+
+              {/* Columna derecha: vista previa del bono */}
+              <div className="border rounded-xl p-6 bg-white shadow-inner">
+                <div className="text-right text-xs text-gray-600 mb-4">
+                  <div className="font-semibold">VIAJES TABORA</div>
+                  <div>C/ Santa Amalia, nº 2 Entresuelo 2º Of. L1</div>
+                  <div>46009 Valencia (ESP)</div>
+                  <div>Tel: +34 96 339 04 64</div>
+                </div>
+                <div className="text-center mb-2">
+                  <div className="text-sm font-bold tracking-wide">BONO/VOUCHER</div>
+                  <div className="text-xs text-gray-600">
+                    Fecha de emisión: {new Date().toLocaleDateString('es-ES')}
+                  </div>
+                </div>
+
+                {/* Proveedor / Cliente */}
+                <div className="grid grid-cols-1 gap-3 text-xs mt-4">
+                  <div className="border rounded-lg p-3">
+                    <div className="font-semibold mb-1">Proveedor</div>
+                    <div>
+                      {(() => {
+                        const prov = proveedores.find((p) => p.id === proveedorSeleccionado)
+                        if (!prov) return 'Selecciona un proveedor'
+                        const telefono =
+                          prov.telefono || prov.telefono_fijo || prov.movil || ''
+                        return (
+                          <>
+                            <div>{prov.nombre_comercial}</div>
+                            {prov.direccion && <div>{prov.direccion}</div>}
+                            {telefono && <div>Tel: {telefono}</div>}
+                          </>
+                        )
+                      })()}
+                    </div>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <div className="font-semibold mb-1">Cliente / Grupo</div>
+                    <div>
+                      {(() => {
+                        const exp = expedientes.find((e) => e.id === expedienteSeleccionado)
+                        if (!exp) return 'Selecciona un expediente'
+                        return (
+                          <>
+                            <div>{exp.nombre_grupo || 'Grupo / Cliente'}</div>
+                            {exp.destino && <div>Destino: {exp.destino}</div>}
+                          </>
+                        )
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sección central: servicios */}
+                <div className="mt-4 text-xs text-gray-800 space-y-2">
+                  <div className="font-semibold">
+                    Rogamos facilitar los siguientes servicios:
+                  </div>
+                  <div>
+                    <span className="font-semibold">Fecha servicio: </span>
+                    {fechaServicio || '____/____/______'}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Descripción / Ruta: </span>
+                    {(() => {
+                      const exp = expedientes.find((e) => e.id === expedienteSeleccionado)
+                      if (exp?.destino) return `Circuito ${exp.destino}`
+                      return '_______________________________'
+                    })()}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Recogida: </span>
+                    {recogidaDetalles || '_______________________________'}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Teléfono Guía: </span>
+                    {tlfGuia || '________________'}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Teléfono Jefe Grupo: </span>
+                    {tlfResponsable || '________________'}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Total personas: </span>
+                    {nPersonas || '___'}
+                  </div>
+                </div>
+
+                {/* Observaciones visuales (lo que vería el proveedor) */}
+                <div className="mt-4 text-xs">
+                  <div className="font-semibold mb-1">Observaciones:</div>
+                  <div className="min-h-[40px] border border-dashed border-gray-300 rounded-md p-2 whitespace-pre-line">
+                    {observacionesInternas || '___________________________________________'}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
