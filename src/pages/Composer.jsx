@@ -441,7 +441,7 @@ const Composer = () => {
                     onClick={handleDescargarPDF}
                     className="btn-secondary flex items-center gap-2"
                   >
-                    Descargar PDF
+                    Imprimir Bono
                   </button>
                   <button
                     onClick={() => {
