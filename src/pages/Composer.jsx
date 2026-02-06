@@ -245,7 +245,6 @@ const Composer = () => {
 
       const datosParaGuardar = {
         titulo: safe(titulo.trim()),
-        tipo: safe(categoria), // Solo si la columna 'tipo' existe en plantillas_viajes
         contenido: safe(textoBono),
         expediente_id: safe(expedienteSeleccionado || null),
         proveedor_id: safe(proveedorSeleccionado || null),
@@ -300,20 +299,23 @@ const Composer = () => {
             print-color-adjust: exact;
           }
 
-          .no-print {
+          /* Ocultar todo lo que no sea el bono */
+          aside, nav, button, .no-print, header {
             display: none !important;
           }
 
-          .bono-print {
-            display: block !important;
+          .bono-container {
             width: 100% !important;
-            box-shadow: none !important;
-            border: none !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
         }
         `}
       </style>
-      <div className="max-w-6xl mx-auto">
+      <div className="bono-container max-w-6xl mx-auto">
         <div className="bg-white rounded-xl shadow-lg p-6">
           <div className="no-print flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-navy-900 flex items-center gap-2">
