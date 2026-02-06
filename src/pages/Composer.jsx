@@ -37,7 +37,7 @@ const Composer = () => {
             .order('nombre_comercial', { ascending: true }),
           supabase
             .from('expedientes')
-            .select('id, nombre_grupo, destino, fecha_inicio, total_pax')
+            .select('id, nombre_grupo, destino, fecha_inicio, total_pax, tlf_guia, tlf_responsable, descripcion_ruta')
             .order('fecha_inicio', { ascending: false }),
         ])
 
@@ -110,6 +110,19 @@ const Composer = () => {
     // Nº personas desde total_pax si existe
     if (exp.total_pax && !nPersonas) {
       setNPersonas(String(exp.total_pax))
+    }
+
+    // Autocompletar teléfonos si vienen del expediente
+    if (exp.tlf_guia && !tlfGuia) {
+      setTlfGuia(exp.tlf_guia)
+    }
+    if (exp.tlf_responsable && !tlfResponsable) {
+      setTlfResponsable(exp.tlf_responsable)
+    }
+
+    // Autocompletar descripción / ruta si la tiene el expediente
+    if (exp.descripcion_ruta && !duracion) {
+      setDuracion(exp.descripcion_ruta)
     }
   }, [expedienteSeleccionado, expedientes])
 
