@@ -245,7 +245,7 @@ const Composer = () => {
 
       const datosParaGuardar = {
         titulo: safe(titulo.trim()),
-        tipo: safe(categoria),
+        tipo: safe(categoria), // Solo si la columna 'tipo' existe en plantillas_viajes
         contenido: safe(textoBono),
         expediente_id: safe(expedienteSeleccionado || null),
         proveedor_id: safe(proveedorSeleccionado || null),
