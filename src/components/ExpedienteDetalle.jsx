@@ -4335,13 +4335,39 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             </div>
           )}
 
-            {/* TAB: Documentación */}
+          {/* TAB: Documentación */}
           {tab === 'documentacion' && (
-              <div className="max-w-4xl mx-auto">
-                <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200">
-                  <h3 className="text-xl font-bold text-navy-900 mb-4">Documentación del Viaje</h3>
-                  <p className="text-gray-600">Funcionalidad en desarrollo</p>
+            <div className="max-w-4xl mx-auto">
+              <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200 space-y-6">
+                <h3 className="text-xl font-bold text-navy-900">Documentación del Viaje</h3>
+                <p className="text-gray-600 text-sm">
+                  Guarda aquí el enlace a la carpeta de Google Drive donde almacenas contratos,
+                  folletos y facturas pesadas de este viaje.
+                </p>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Carpeta Google Drive
+                  </label>
+                  <input
+                    type="text"
+                    value={expediente?.drive_link || ''}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setExpediente((prev) => ({
+                        ...prev,
+                        drive_link: value,
+                      }))
+                    }}
+                    placeholder="Pega aquí el enlace a la carpeta de Google Drive (https://drive.google.com/...)"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent text-sm"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Consejo: crea una carpeta por viaje en Google Drive y enlázala aquí para tener
+                    toda la documentación centralizada.
+                  </p>
                 </div>
+              </div>
             </div>
           )}
 
