@@ -33,11 +33,11 @@ const Composer = () => {
         const [provRes, expRes] = await Promise.all([
           supabase
             .from('proveedores')
-            .select('id, nombre_comercial, direccion, telefono, telefono_fijo, movil')
+            .select('id, nombre_comercial, direccion, poblacion, telefono, telefono_fijo, movil')
             .order('nombre_comercial', { ascending: true }),
           supabase
             .from('expedientes')
-            .select('id, nombre_grupo, destino, fecha_inicio, total_pax, tlf_guia, tlf_responsable, descripcion_ruta')
+            .select('id, nombre_grupo, destino, fecha_inicio, total_pax, movil_guia, movil_responsable, descripcion_ruta')
             .order('fecha_inicio', { ascending: false }),
         ])
 
@@ -113,11 +113,11 @@ const Composer = () => {
     }
 
     // Autocompletar teléfonos si vienen del expediente
-    if (exp.tlf_guia && !tlfGuia) {
-      setTlfGuia(exp.tlf_guia)
+    if (exp.movil_guia && !tlfGuia) {
+      setTlfGuia(exp.movil_guia)
     }
-    if (exp.tlf_responsable && !tlfResponsable) {
-      setTlfResponsable(exp.tlf_responsable)
+    if (exp.movil_responsable && !tlfResponsable) {
+      setTlfResponsable(exp.movil_responsable)
     }
 
     // Autocompletar descripción / ruta si la tiene el expediente
@@ -352,11 +352,15 @@ const Composer = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-navy-500 focus:border-transparent"
                 >
                   <option value="">Selecciona un expediente...</option>
-                  {expedientes.map((exp) => (
-                    <option key={exp.id} value={exp.id}>
-                      {exp.nombre_grupo || `Expediente ${exp.id}`} {exp.destino ? `- ${exp.destino}` : ''}
-                    </option>
-                  ))}
+                  {expedientes.map((exp) => {
+                    const cliente = exp.nombre_grupo || 'Cliente sin nombre'
+                    const tituloViaje = exp.destino || 'Viaje sin título'
+                    return (
+                      <option key={exp.id} value={exp.id}>
+                        {cliente} - {tituloViaje}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
             </div>
@@ -532,12 +536,22 @@ const Composer = () => {
               </div>
 
               {/* Columna derecha: vista previa del bono */}
-              <div className="border rounded-xl p-6 bg-white shadow-inner">
-                <div className="text-right text-xs text-gray-600 mb-4">
-                  <div className="font-semibold">VIAJES TABORA</div>
-                  <div>C/ Santa Amalia, nº 2 Entresuelo 2º Of. L1</div>
-                  <div>46009 Valencia (ESP)</div>
-                  <div>Tel: +34 96 339 04 64</div>
+              <div className="bono-print border rounded-xl p-6 bg-white shadow-inner">
+                <div className="flex justify-between items-start mb-4">
+                  {/* Logo TABORA: coloca /public/tabora-logo.png en tu proyecto */}
+                  <div className="flex flex-col items-start">
+                    <img
+                      src="/tabora-logo.png"
+                      alt="Viajes Tabora"
+                      className="h-12 object-contain mb-1"
+                    />
+                  </div>
+                  <div className="text-right text-xs text-gray-600">
+                    <div className="font-semibold">VIAJES TABORA</div>
+                    <div>C/ Santa Amalia, nº 2 Entresuelo 2º Of. L1</div>
+                    <div>46009 Valencia (ESP)</div>
+                    <div>Tel: +34 96 339 04 64</div>
+                  </div>
                 </div>
                 <div className="text-center mb-2">
                   <div className="text-sm font-bold tracking-wide">BONO/VOUCHER</div>
