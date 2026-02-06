@@ -120,33 +120,53 @@ const Composer = () => {
       return
     }
 
-    const proveedor = proveedores.find((p) => p.id === proveedorSeleccionado)
     const expediente = expedientes.find((e) => e.id === expedienteSeleccionado)
-
-    if (!proveedor || !expediente) {
-      alert('No se han podido cargar los datos seleccionados.')
+    if (!expediente) {
+      alert('No se han podido cargar los datos del expediente seleccionado.')
       return
     }
 
-    const nombreProveedor = proveedor.nombre_comercial || 'Proveedor sin nombre'
-    const direccionProveedor = proveedor.direccion || ''
-    const telefonoProveedor =
-      proveedor.telefono || proveedor.telefono_fijo || proveedor.movil || ''
-
     const nombreCliente = expediente.nombre_grupo || 'Grupo / Cliente'
-    const destino = expediente.destino || 'Destino'
+    const destino = expediente.destino || ''
 
-    let fechaTexto = 'Fecha ____/____/______'
-    if (expediente.fecha_inicio) {
+    setCategoria('Itinerario')
+    if (!titulo) {
+      setTitulo(`Bono de Bus - ${nombreCliente}`)
+    }
+
+    // Si no hay descripción/ruta explícita, proponerla a partir del destino
+    if (!duracion && destino) {
+      setDuracion(`Circuito ${destino}`)
+    }
+  }
+
+  // Construir texto plano del bono desde el estado actual
+  const buildVoucherText = () => {
+    const proveedor = proveedores.find((p) => p.id === proveedorSeleccionado)
+    const expediente = expedientes.find((e) => e.id === expedienteSeleccionado)
+
+    const nombreProveedor = proveedor?.nombre_comercial || 'Proveedor sin nombre'
+    const direccionProveedor = proveedor?.direccion || ''
+    const telefonoProveedor =
+      proveedor?.telefono || proveedor?.telefono_fijo || proveedor?.movil || ''
+
+    const nombreCliente = expediente?.nombre_grupo || 'Grupo / Cliente'
+    const destino = expediente?.destino || ''
+
+    let fechaServicioTexto = fechaServicio || ''
+    if (!fechaServicioTexto && expediente?.fecha_inicio) {
       try {
         const d = new Date(expediente.fecha_inicio)
         if (!isNaN(d.getTime())) {
-          fechaTexto = `Fecha ${d.toLocaleDateString('es-ES')}`
+          fechaServicioTexto = d.toLocaleDateString('es-ES')
         }
       } catch {
-        // dejar fecha por defecto
+        // mantener vacío si falla
       }
     }
+
+    const descripcionRuta =
+      duracion || (destino ? `Circuito ${destino}` : '')
 
     const hoy = new Date()
     const fechaEmision = hoy.toLocaleDateString('es-ES')
@@ -166,9 +186,10 @@ const Composer = () => {
       'Rogamos facilitar los siguientes servicios:',
       '',
       `Cliente / Grupo: ${nombreCliente}`,
-      fechaTexto,
-      `Itinerario: ${destino}`,
-      `Fecha servicio: ${fechaServicio || '____/____/______'}`,
+      fechaServicioTexto
+        ? `Fecha servicio: ${fechaServicioTexto}`
+        : 'Fecha servicio: ____/____/______',
+      `Descripción / Ruta: ${descripcionRuta || '_____________________________'}`,
       `Recogida: ${recogidaDetalles || '_____________________________'}`,
       `Teléfono Guía: ${tlfGuia || '________________'}`,
       `Teléfono Jefe de Grupo: ${tlfResponsable || '________________'}`,
@@ -178,13 +199,12 @@ const Composer = () => {
       observacionesInternas || '___________________________________________',
     ].filter(Boolean)
 
-    setCategoria('Itinerario')
-    setTitulo(`Bono de Bus - ${nombreCliente}`)
-    setContenido(lineas.join('\n'))
+    return lineas.join('\n')
   }
 
   const handleDescargarPDF = () => {
-    if (!contenido.trim()) {
+    const texto = buildVoucherText()
+    if (!texto.trim()) {
       alert('No hay contenido para generar el PDF.')
       return
     }
@@ -200,7 +220,7 @@ const Composer = () => {
     doc.text(tituloDoc, marginLeft, marginTop)
 
     doc.setFontSize(11)
-    doc.text(doc.splitTextToSize(contenido, maxWidth), marginLeft, marginTop + 10)
+    doc.text(doc.splitTextToSize(texto, maxWidth), marginLeft, marginTop + 10)
 
     doc.save(`${tituloDoc.replace(/[^a-z0-9]+/gi, '_') || 'bono_bus'}.pdf`)
   }
@@ -214,16 +234,30 @@ const Composer = () => {
     try {
       setGuardando(true)
 
+      const textoBono = buildVoucherText()
+
+      const safe = (v) => {
+        if (v === undefined || v === null) return null
+        if (typeof v === 'string' && v.trim() === '') return null
+        return v
+      }
+
+      const nPersonasNumber =
+        nPersonas && !isNaN(parseInt(nPersonas, 10)) ? parseInt(nPersonas, 10) : null
+
       const datosParaGuardar = {
-        titulo: titulo.trim(),
-        contenido,
-        categoria,
-        fecha_servicio: fechaServicio || null,
-        recogida_detalles: recogidaDetalles || null,
-        tlf_guia: tlfGuia || null,
-        tlf_responsable: tlfResponsable || null,
-        n_personas: nPersonas ? parseInt(nPersonas, 10) || null : null,
-        observaciones_internas: observacionesInternas || null,
+        titulo: safe(titulo.trim()),
+        tipo: safe(categoria),
+        contenido: safe(textoBono),
+        expediente_id: safe(expedienteSeleccionado || null),
+        proveedor_id: safe(proveedorSeleccionado || null),
+        fecha_servicio: safe(fechaServicio),
+        descripcion_ruta: safe(duracion || ''),
+        recogida_detalles: safe(recogidaDetalles),
+        tlf_guia: safe(tlfGuia),
+        tlf_responsable: safe(tlfResponsable),
+        n_personas: nPersonasNumber,
+        observaciones_internas: safe(observacionesInternas),
       }
 
       const { error } = await supabase
@@ -231,12 +265,18 @@ const Composer = () => {
         .insert([datosParaGuardar])
 
       if (error) {
-        console.error('❌ Error guardando plantilla de viaje:', error)
-        alert(`Error al guardar la plantilla: ${error.message}`)
+        console.error('❌ Error guardando bono en plantillas_viajes:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          datosEnviados: datosParaGuardar,
+        })
+        alert(`Error al guardar el bono: ${error.message}`)
         return
       }
 
-      alert('Plantilla de viaje guardada correctamente')
+      alert('Bono guardado con éxito')
     } catch (err) {
       console.error('❌ Error inesperado guardando plantilla de viaje:', err)
       alert('Error inesperado al guardar la plantilla')
