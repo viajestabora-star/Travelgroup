@@ -1,123 +1,52 @@
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { Plus, Edit2, Trash2, X, Search, MapPin, Phone, Mail, User } from 'lucide-react'
+import { Edit2, Trash2, X, Search, MapPin, Phone, Mail } from 'lucide-react'
 
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
-// Función helper para normalizar tipos: minúsculas + sin tildes
-// Ejemplo: 'Autobús' -> 'autobus', 'Restaurante' -> 'restaurante'
-const normalizarTipo = (tipo) => {
-  if (!tipo) return '';
-  
-  return tipo
-    .toLowerCase()
-    .normalize('NFD') // Normaliza caracteres con tildes
-    .replace(/[\u0300-\u036f]/g, '') // Elimina diacríticos (tildes)
-    .trim();
-}
-
 const Proveedores = () => {
   const [proveedores, setProveedores] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
-  const [tipoFilter, setTipoFilter] = useState('todos')
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState(null)
   
   const [formData, setFormData] = useState({
-    nombre_comercial: '', tipo: 'hotel', cif: '', persona_contacto: '',
+    nombre_comercial: '', servicio: 'Hotel', ciudad: '', cif: '', persona_contacto: '',
     telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
     poblacion: '', provincia: '', iban: '', observaciones: ''
   })
 
-  const tipos = [
-    { id: 'hotel', label: 'Hotel', icon: '🏨' },
-    { id: 'restaurante', label: 'Restaurante', icon: '🍽️' },
-    { id: 'autobus', label: 'Autobús', icon: '🚌' },
-    { id: 'guia', label: 'Guía', icon: '👤' },
-    { id: 'entradas', label: 'Tickets', icon: '🎫' },
-    { id: 'otro', label: 'Otro', icon: '📦' }
+  const servicios = [
+    { value: 'Hotel', label: 'Hotel', icon: '🏨' },
+    { value: 'Guía', label: 'Guía', icon: '👤' },
+    { value: 'Restaurante', label: 'Restaurante', icon: '🍽️' },
+    { value: 'Autobús', label: 'Autobús', icon: '🚌' },
+    { value: 'Otros', label: 'Otros', icon: '📦' }
   ]
 
   useEffect(() => { fetchProveedores() }, [])
-
-  // Función de migración de un solo uso para normalizar tipos existentes
-  // Ejecutar desde la consola del navegador: window.migrarTiposProveedores()
-  const migrarTiposProveedores = async () => {
-    try {
-      console.log('🔄 Iniciando migración de tipos de proveedores...\n');
-      
-      const { data: proveedores, error: fetchError } = await supabase
-        .from('proveedores')
-        .select('id, tipo, nombre_comercial');
-      
-      if (fetchError) {
-        console.error('❌ Error obteniendo proveedores:', fetchError);
-        return;
-      }
-      
-      if (!proveedores || proveedores.length === 0) {
-        console.log('ℹ️ No hay proveedores para migrar.');
-        return;
-      }
-      
-      const proveedoresAMigrar = proveedores
-        .map(p => ({
-          id: p.id,
-          nombre: p.nombre_comercial,
-          tipoOriginal: p.tipo,
-          tipoNormalizado: normalizarTipo(p.tipo)
-        }))
-        .filter(p => p.tipoOriginal !== p.tipoNormalizado);
-      
-      if (proveedoresAMigrar.length === 0) {
-        console.log('✅ Todos los tipos ya están normalizados.');
-        return;
-      }
-      
-      console.log(`📝 Actualizando ${proveedoresAMigrar.length} proveedores...\n`);
-      
-      let actualizados = 0;
-      for (const proveedor of proveedoresAMigrar) {
-        const { error } = await supabase
-          .from('proveedores')
-          .update({ tipo: proveedor.tipoNormalizado })
-          .eq('id', proveedor.id);
-        
-        if (!error) {
-          console.log(`✅ ${proveedor.nombre}: "${proveedor.tipoOriginal}" → "${proveedor.tipoNormalizado}"`);
-          actualizados++;
-        }
-      }
-      
-      console.log(`\n✅ Migración completada: ${actualizados} proveedores actualizados.`);
-      fetchProveedores(); // Refrescar lista
-    } catch (error) {
-      console.error('❌ Error en migración:', error);
-    }
-  }
-
-  // Exponer función globalmente para ejecutar desde consola
-  if (typeof window !== 'undefined') {
-    window.migrarTiposProveedores = migrarTiposProveedores;
-  }
 
   const fetchProveedores = async () => {
     const { data, error } = await supabase
       .from('proveedores')
       .select('*')
       .order('nombre_comercial', { ascending: true })
-    if (!error) setProveedores(data)
+    if (!error) setProveedores(data || [])
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     
-    // Normalizar el tipo antes de guardar: minúsculas + sin tildes
-    const datosParaGuardar = {
+    // Forzar que el campo servicio tenga siempre un valor válido
+    const servicioNormalizado = servicios.some(s => s.value === formData.servicio)
+      ? formData.servicio
+      : 'Hotel'
+
+    const datosParaGuardar = { 
       ...formData,
-      tipo: normalizarTipo(formData.tipo)
+      servicio: servicioNormalizado
     }
     
     const action = editingId 
@@ -139,11 +68,15 @@ const Proveedores = () => {
   const openModal = (p = null) => {
     if (p) {
       setEditingId(p.id)
-      setFormData({ ...p })
+      setFormData({ 
+        ...p,
+        servicio: p.servicio || 'Hotel',
+        ciudad: p.ciudad || ''
+      })
     } else {
       setEditingId(null)
       setFormData({
-        nombre_comercial: '', tipo: 'hotel', cif: '', persona_contacto: '',
+        nombre_comercial: '', servicio: 'Hotel', ciudad: '', cif: '', persona_contacto: '',
         telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
         poblacion: '', provincia: '', iban: '', observaciones: ''
       })
@@ -153,10 +86,37 @@ const Proveedores = () => {
 
   const closeModal = () => { setShowModal(false); setEditingId(null); }
 
-  const filtered = proveedores.filter(p => 
-    (tipoFilter === 'todos' || p.tipo === tipoFilter) &&
-    (p.nombre_comercial?.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
+  // Filtrar proveedores por búsqueda (nombre comercial o ciudad)
+  const filtered = proveedores.filter(p => {
+    if (!searchTerm) return true
+    const term = searchTerm.toLowerCase()
+    return (
+      p.nombre_comercial?.toLowerCase().includes(term) ||
+      p.ciudad?.toLowerCase().includes(term)
+    )
+  })
+
+  // Agrupar proveedores por servicio y ordenar alfabéticamente dentro de cada grupo
+  const proveedoresAgrupados = filtered.reduce((acc, proveedor) => {
+    const servicio = proveedor.servicio || 'Otros'
+    if (!acc[servicio]) {
+      acc[servicio] = []
+    }
+    acc[servicio].push(proveedor)
+    return acc
+  }, {})
+
+  // Ordenar alfabéticamente dentro de cada grupo
+  Object.keys(proveedoresAgrupados).forEach(servicio => {
+    proveedoresAgrupados[servicio].sort((a, b) => 
+      (a.nombre_comercial || '').localeCompare(b.nombre_comercial || '')
+    )
+  })
+
+  // Ordenar servicios según el orden definido
+  const serviciosOrdenados = servicios.map(s => s.value).filter(s => proveedoresAgrupados[s])
+  const otrosServicios = Object.keys(proveedoresAgrupados).filter(s => !serviciosOrdenados.includes(s))
+  const ordenFinal = [...serviciosOrdenados, ...otrosServicios.sort()]
 
   return (
     <div className="p-10 max-w-[1700px] mx-auto bg-white min-h-screen text-left">
@@ -173,278 +133,213 @@ const Proveedores = () => {
       <div className="flex flex-col md:flex-row gap-4 mb-8">
         <div className="flex-1 relative">
           <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={24} />
-          <input placeholder="Buscar por nombre..." className="w-full bg-slate-50 p-6 pl-16 rounded-2xl font-bold text-lg border-none outline-none focus:ring-4 focus:ring-slate-100" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          <input 
+            placeholder="Buscar por nombre comercial o ciudad..." 
+            className="w-full bg-slate-50 p-6 pl-16 rounded-2xl font-bold text-lg border-none outline-none focus:ring-4 focus:ring-slate-100" 
+            value={searchTerm} 
+            onChange={e => setSearchTerm(e.target.value)} 
+          />
         </div>
       </div>
 
-      <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-slate-900 text-white">
-            <tr>
-              <th className="px-8 py-6 text-xs font-black uppercase">Proveedor</th>
-              <th className="px-6 py-6 text-xs font-black uppercase">Ubicación</th>
-              <th className="px-6 py-6 text-xs font-black uppercase">Contacto</th>
-              <th className="px-8 py-6 text-xs font-black uppercase text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {filtered.map(p => (
-              <tr key={p.id} className="hover:bg-slate-50 transition-all group">
-                <td className="px-8 py-6">
-                  <div className="font-black text-slate-900 text-lg uppercase italic">{p.nombre_comercial}</div>
-                  <div className="text-[10px] font-bold text-blue-600 flex items-center gap-1 uppercase tracking-widest">
-                    {tipos.find(t=>t.id===p.tipo)?.icon} {tipos.find(t=>t.id===p.tipo)?.label}
-                  </div>
-                </td>
-                <td className="px-6 py-6">
-                  <div className="text-xs font-bold text-slate-800 uppercase flex items-center gap-1">
-                    <MapPin size={12} className="text-slate-400"/> {p.direccion}
-                  </div>
-                  <div className="text-[10px] font-black text-slate-400 mt-1 uppercase ml-4">{p.poblacion} {p.provincia ? `(${p.provincia})` : ''}</div>
-                </td>
-                <td className="px-6 py-6">
-                  <div className="text-xs font-bold text-slate-600 flex items-center gap-2"><Phone size={14}/> {p.telefono || p.movil || '-'}</div>
-                  <div className="text-[10px] font-bold text-slate-400 flex items-center gap-2 mt-1"><Mail size={14}/> {p.email || '-'}</div>
-                </td>
-                <td className="px-8 py-6 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => openModal(p)} className="p-3 text-slate-900 bg-slate-100 rounded-xl hover:bg-slate-900 hover:text-white transition-all mr-2"><Edit2 size={18}/></button>
-                  <button onClick={() => deleteProveedor(p.id, p.nombre_comercial)} className="p-3 text-red-600 bg-red-50 rounded-xl hover:bg-red-600 hover:text-white transition-all"><Trash2 size={18}/></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* Renderizado agrupado por servicio */}
+      {ordenFinal.length === 0 ? (
+        <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-12 text-center">
+          <p className="text-slate-400 font-bold text-lg">No se encontraron proveedores</p>
+        </div>
+      ) : (
+        ordenFinal.map(servicio => {
+          const proveedoresDelServicio = proveedoresAgrupados[servicio]
+          const servicioInfo = servicios.find(s => s.value === servicio) || { value: servicio, label: servicio, icon: '📦' }
+          
+          return (
+            <div key={servicio} className="mb-8">
+              <div className="bg-slate-900 text-white px-8 py-4 rounded-t-[2.5rem] flex items-center gap-3">
+                <span className="text-2xl">{servicioInfo.icon}</span>
+                <h2 className="text-2xl font-black italic uppercase tracking-tighter">{servicioInfo.label}</h2>
+                <span className="text-sm font-bold text-slate-400 ml-auto">({proveedoresDelServicio.length})</span>
+              </div>
+              <div className="bg-white rounded-b-[2.5rem] shadow-sm border border-slate-100 border-t-0 overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-8 py-4 text-xs font-black uppercase text-slate-600">Proveedor</th>
+                      <th className="px-6 py-4 text-xs font-black uppercase text-slate-600">Ubicación</th>
+                      <th className="px-6 py-4 text-xs font-black uppercase text-slate-600">Contacto</th>
+                      <th className="px-8 py-4 text-xs font-black uppercase text-right text-slate-600">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {proveedoresDelServicio.map(p => (
+                      <tr key={p.id} className="hover:bg-slate-50 transition-all group">
+                        <td className="px-8 py-6">
+                          <div className="font-black text-slate-900 text-lg uppercase italic">{p.nombre_comercial}</div>
+                          {p.ciudad && (
+                            <div className="text-[10px] font-bold text-blue-600 flex items-center gap-1 uppercase tracking-widest mt-1">
+                              <MapPin size={10} className="text-blue-400"/> {p.ciudad}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-6">
+                          <div className="text-xs font-bold text-slate-800 uppercase flex items-center gap-1">
+                            <MapPin size={12} className="text-slate-400"/> {p.ciudad || p.poblacion || '-'}
+                          </div>
+                          <div className="text-[10px] font-black text-slate-400 mt-1 uppercase ml-4">
+                            {p.provincia ? `(${p.provincia})` : ''}
+                          </div>
+                        </td>
+                        <td className="px-6 py-6">
+                          <div className="text-xs font-bold text-slate-600 flex items-center gap-2">
+                            <Phone size={14}/> {p.telefono || p.movil || '-'}
+                          </div>
+                          <div className="text-[10px] font-bold text-slate-400 flex items-center gap-2 mt-1">
+                            <Mail size={14}/> {p.email || '-'}
+                          </div>
+                        </td>
+                        <td className="px-8 py-6 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openModal(p)} className="p-3 text-slate-900 bg-slate-100 rounded-xl hover:bg-slate-900 hover:text-white transition-all mr-2">
+                            <Edit2 size={18}/>
+                          </button>
+                          <button onClick={() => deleteProveedor(p.id, p.nombre_comercial)} className="p-3 text-red-600 bg-red-50 rounded-xl hover:bg-red-600 hover:text-white transition-all">
+                            <Trash2 size={18}/>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        })
+      )}
 
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-6 text-left">
           <div className="bg-white rounded-[3rem] w-full max-w-5xl max-h-[95vh] overflow-y-auto shadow-2xl p-12 border-4 border-slate-900">
             <div className="flex justify-between items-center mb-10">
               <h2 className="text-4xl font-[1000] italic uppercase tracking-tighter text-slate-900">Ficha Técnica</h2>
-              <button onClick={closeModal} className="p-4 bg-slate-100 rounded-full hover:bg-red-500 hover:text-white transition-all"><X size={32}/></button>
+              <button onClick={closeModal} className="p-4 bg-slate-100 rounded-full hover:bg-red-500 hover:text-white transition-all">
+                <X size={32}/>
+              </button>
             </div>
             
-            {/* Detección de campos faltantes */}
-            {(() => {
-              const camposFaltantes = []
-              
-              // Email
-              if (!formData.email || formData.email.trim() === '') camposFaltantes.push('Email')
-              
-              // Teléfono
-              if (!formData.telefono || formData.telefono.trim() === '') camposFaltantes.push('Teléfono')
-              
-              // Teléfono Fijo
-              if (!formData.telefono_fijo || formData.telefono_fijo.trim() === '') camposFaltantes.push('Teléfono Fijo')
-              
-              // Móvil
-              if (!formData.movil || formData.movil.trim() === '') camposFaltantes.push('Móvil')
-              
-              // Responsable (persona_contacto)
-              if (!formData.persona_contacto || formData.persona_contacto.trim() === '') camposFaltantes.push('Responsable')
-              
-              // Dirección
-              if (!formData.direccion || formData.direccion.trim() === '') camposFaltantes.push('Dirección')
-              
-              // Población
-              if (!formData.poblacion || formData.poblacion.trim() === '') camposFaltantes.push('Población')
-              
-              // Provincia
-              if (!formData.provincia || formData.provincia.trim() === '') camposFaltantes.push('Provincia')
-              
-              const hayCamposFaltantes = camposFaltantes.length > 0
-              
-              return (
-                <>
-                  {/* Banner de Aviso */}
-                  {hayCamposFaltantes && (
-                    <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                      <p className="text-sm font-medium text-amber-800">
-                        ⚠️ Faltan datos: {camposFaltantes.join(', ')}
-                      </p>
-                    </div>
-                  )}
-                  
-                  <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-8">
-               <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Nombre Comercial *</label>
-                  <input required className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-blue-100" value={formData.nombre_comercial} onChange={e=>setFormData({...formData, nombre_comercial:e.target.value})} />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Servicio</label>
-                  <select className="w-full p-6 bg-slate-50 rounded-2xl font-black text-lg border-none" value={formData.tipo} onChange={e=>setFormData({...formData, tipo:e.target.value})}>
-                    {tipos.map(t=><option key={t.id} value={t.id}>{t.label.toUpperCase()}</option>)}
-                  </select>
-               </div>
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="md:col-span-2 space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Nombre Comercial *</label>
+                <input 
+                  required 
+                  className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                  value={formData.nombre_comercial} 
+                  onChange={e=>setFormData({...formData, nombre_comercial:e.target.value})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Servicio *</label>
+                <select 
+                  required 
+                  className="w-full p-6 bg-slate-50 rounded-2xl font-black text-lg border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                  value={formData.servicio} 
+                  onChange={e=>setFormData({...formData, servicio:e.target.value})}
+                >
+                  {servicios.map(s=><option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Ciudad</label>
+                <input 
+                  className="w-full p-6 bg-slate-50 rounded-2xl font-black text-lg border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                  value={formData.ciudad} 
+                  onChange={e=>setFormData({...formData, ciudad:e.target.value})} 
+                  placeholder="Ej: Toledo, Madrid..." 
+                />
+              </div>
 
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Persona Contacto
-                    {(!formData.persona_contacto || formData.persona_contacto.trim() === '') && (
-                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
-                    )}
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-                    style={{
-                      border: (!formData.persona_contacto || formData.persona_contacto.trim() === '') ? '2px solid #f59e0b' : 'none'
-                    }}
-                    value={formData.persona_contacto} 
-                    onChange={e=>setFormData({...formData, persona_contacto:e.target.value})} 
-                  />
-                  {(!formData.persona_contacto || formData.persona_contacto.trim() === '') && (
-                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
-                  )}
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Email Reservas
-                    {(!formData.email || formData.email.trim() === '') && (
-                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
-                    )}
-                  </label>
-                  <input 
-                    type="email" 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-                    style={{
-                      border: (!formData.email || formData.email.trim() === '') ? '2px solid #f59e0b' : 'none'
-                    }}
-                    value={formData.email} 
-                    onChange={e=>setFormData({...formData, email:e.target.value})} 
-                  />
-                  {(!formData.email || formData.email.trim() === '') && (
-                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
-                  )}
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Móvil WhatsApp
-                    {(!formData.movil || formData.movil.trim() === '') && (
-                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
-                    )}
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-                    style={{
-                      border: (!formData.movil || formData.movil.trim() === '') ? '2px solid #f59e0b' : 'none'
-                    }}
-                    value={formData.movil} 
-                    onChange={e=>setFormData({...formData, movil:e.target.value})} 
-                  />
-                  {(!formData.movil || formData.movil.trim() === '') && (
-                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
-                  )}
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Teléfono Fijo
-                    {(!formData.telefono_fijo || formData.telefono_fijo.trim() === '') && (
-                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
-                    )}
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-                    style={{
-                      border: (!formData.telefono_fijo || formData.telefono_fijo.trim() === '') ? '2px solid #f59e0b' : 'none'
-                    }}
-                    value={formData.telefono_fijo || ''} 
-                    onChange={e=>setFormData({...formData, telefono_fijo:e.target.value})} 
-                  />
-                  {(!formData.telefono_fijo || formData.telefono_fijo.trim() === '') && (
-                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
-                  )}
-               </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">Persona Contacto</label>
+                <input 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  value={formData.persona_contacto} 
+                  onChange={e=>setFormData({...formData, persona_contacto:e.target.value})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">Email Reservas</label>
+                <input 
+                  type="email" 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  value={formData.email} 
+                  onChange={e=>setFormData({...formData, email:e.target.value})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">Móvil WhatsApp</label>
+                <input 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  value={formData.movil} 
+                  onChange={e=>setFormData({...formData, movil:e.target.value})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">Teléfono Fijo</label>
+                <input 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  value={formData.telefono_fijo || ''} 
+                  onChange={e=>setFormData({...formData, telefono_fijo:e.target.value})} 
+                />
+              </div>
 
-               <div className="md:col-span-3 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Dirección
-                    {(!formData.direccion || formData.direccion.trim() === '') && (
-                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
-                    )}
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-                    style={{
-                      border: (!formData.direccion || formData.direccion.trim() === '') ? '2px solid #f59e0b' : 'none'
-                    }}
-                    value={formData.direccion} 
-                    onChange={e=>setFormData({...formData, direccion:e.target.value})} 
-                  />
-                  {(!formData.direccion || formData.direccion.trim() === '') && (
-                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
-                  )}
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Población
-                    {(!formData.poblacion || formData.poblacion.trim() === '') && (
-                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
-                    )}
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-                    style={{
-                      border: (!formData.poblacion || formData.poblacion.trim() === '') ? '2px solid #f59e0b' : 'none'
-                    }}
-                    value={formData.poblacion} 
-                    onChange={e=>setFormData({...formData, poblacion:e.target.value})} 
-                  />
-                  {(!formData.poblacion || formData.poblacion.trim() === '') && (
-                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
-                  )}
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    Provincia
-                    {(!formData.provincia || formData.provincia.trim() === '') && (
-                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
-                    )}
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-                    style={{
-                      border: (!formData.provincia || formData.provincia.trim() === '') ? '2px solid #f59e0b' : 'none'
-                    }}
-                    value={formData.provincia} 
-                    onChange={e=>setFormData({...formData, provincia:e.target.value})} 
-                  />
-                  {(!formData.provincia || formData.provincia.trim() === '') && (
-                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
-                  )}
-               </div>
-               <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">
-                    CIF
-                    {(!formData.cif || formData.cif.trim() === '') && (
-                      <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
-                    )}
-                  </label>
-                  <input 
-                    className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none"
-                    style={{
-                      border: (!formData.cif || formData.cif.trim() === '') ? '2px solid #f59e0b' : 'none'
-                    }}
-                    value={formData.cif} 
-                    onChange={e=>setFormData({...formData, cif:e.target.value})} 
-                  />
-                  {(!formData.cif || formData.cif.trim() === '') && (
-                    <p className="text-xs text-amber-600 mt-1">Dato pendiente</p>
-                  )}
-               </div>
+              <div className="md:col-span-3 space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">Dirección</label>
+                <input 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  value={formData.direccion} 
+                  onChange={e=>setFormData({...formData, direccion:e.target.value})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">Población</label>
+                <input 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  value={formData.poblacion} 
+                  onChange={e=>setFormData({...formData, poblacion:e.target.value})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">Provincia</label>
+                <input 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  value={formData.provincia} 
+                  onChange={e=>setFormData({...formData, provincia:e.target.value})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">CIF</label>
+                <input 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  value={formData.cif} 
+                  onChange={e=>setFormData({...formData, cif:e.target.value})} 
+                />
+              </div>
 
-               <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase">IBAN</label>
-                  <input className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none" value={formData.iban} onChange={e=>setFormData({...formData, iban:e.target.value})} />
-               </div>
+              <div className="md:col-span-2 space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">IBAN</label>
+                <input 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none" 
+                  value={formData.iban} 
+                  onChange={e=>setFormData({...formData, iban:e.target.value})} 
+                />
+              </div>
 
-               <div className="md:col-span-3 flex gap-4 pt-10">
-                  <button type="submit" className="flex-[2] bg-slate-900 text-white py-8 rounded-[2rem] font-black italic uppercase text-2xl tracking-tighter shadow-2xl hover:bg-blue-600 transition-all">Sincronizar Proveedor</button>
-                  <button type="button" onClick={closeModal} className="flex-1 bg-slate-100 text-slate-400 py-8 rounded-[2rem] font-black uppercase italic">Descartar</button>
-               </div>
-                  </form>
-                </>
-              )
-            })()}
+              <div className="md:col-span-3 flex gap-4 pt-10">
+                <button type="submit" className="flex-[2] bg-slate-900 text-white py-8 rounded-[2rem] font-black italic uppercase text-2xl tracking-tighter shadow-2xl hover:bg-blue-600 transition-all">
+                  Sincronizar Proveedor
+                </button>
+                <button type="button" onClick={closeModal} className="flex-1 bg-slate-100 text-slate-400 py-8 rounded-[2rem] font-black uppercase italic">
+                  Descartar
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
