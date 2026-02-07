@@ -14,26 +14,13 @@ const LOGO_TABORA_BASE64 = ''
 // ============================================================================
 const safe = (value) => value || ''
 
-// Función de prioridad inteligente para teléfono de proveedor
-// Orden: movil -> telefono_fijo -> telefono
-const obtenerTelefonoProveedor = (proveedor) => {
-  if (!proveedor) return ''
-  const movil = safe(proveedor.movil)
-  if (movil) return movil
-  const telefonoFijo = safe(proveedor.telefono_fijo)
-  if (telefonoFijo) return telefonoFijo
-  return safe(proveedor.telefono) || ''
-}
-
 // ============================================================================
 // COMPONENTE PRINCIPAL
 // ============================================================================
 const Composer = () => {
-  // Estados
-  const [proveedores, setProveedores] = useState([])
-  const [expedientes, setExpedientes] = useState([])
-  const [proveedorSeleccionado, setProveedorSeleccionado] = useState('')
-  const [expedienteSeleccionado, setExpedienteSeleccionado] = useState('')
+  // Estados individuales para cada campo
+  const [proveedorId, setProveedorId] = useState('')
+  const [expedienteId, setExpedienteId] = useState('')
   const [titulo, setTitulo] = useState('')
   const [tipo, setTipo] = useState('Bono')
   const [contenido, setContenido] = useState('')
@@ -44,6 +31,10 @@ const Composer = () => {
   const [tlfResponsable, setTlfResponsable] = useState('')
   const [nPersonas, setNPersonas] = useState('')
   const [observacionesInternas, setObservacionesInternas] = useState('')
+
+  // Arrays de datos
+  const [proveedores, setProveedores] = useState([])
+  const [expedientes, setExpedientes] = useState([])
   const [guardando, setGuardando] = useState(false)
 
   // ============================================================================
@@ -83,67 +74,78 @@ const Composer = () => {
   }, [])
 
   // ============================================================================
-  // AUTOCOMPLETADO AL SELECCIONAR EXPEDIENTE
-  // ============================================================================
-  useEffect(() => {
-    if (!expedienteSeleccionado) return
-    
-    const expediente = expedientes.find((e) => e.id === expedienteSeleccionado)
-    if (!expediente) return
-
-    // Título - siempre actualizar si hay nombre_cliente
-    const nombreCliente = safe(expediente.nombre_cliente)
-    if (nombreCliente && !titulo) {
-      setTitulo(`Bono - ${nombreCliente}`)
-    }
-
-    // Fecha de servicio
-    if (expediente.fecha_inicio) {
-      try {
-        const d = new Date(expediente.fecha_inicio)
-        if (!isNaN(d.getTime())) {
-          const dia = String(d.getDate()).padStart(2, '0')
-          const mes = String(d.getMonth() + 1).padStart(2, '0')
-          const año = d.getFullYear()
-          setFechaServicio(`${dia}/${mes}/${año}`)
-        }
-      } catch {}
-    }
-
-    // Número de personas
-    if (expediente.total_pax) {
-      const totalPax = safe(expediente.total_pax)
-      if (totalPax) {
-        setNPersonas(String(totalPax))
-      }
-    }
-
-    // Teléfono Guía - desde movil_guia
-    const movilGuia = safe(expediente.movil_guia)
-    setTlfGuia(movilGuia)
-
-    // Teléfono Responsable - desde movil_responsable
-    const movilResponsable = safe(expediente.movil_responsable)
-    setTlfResponsable(movilResponsable)
-
-    // Descripción de ruta
-    const descRuta = safe(expediente.descripcion_ruta)
-    if (descRuta) {
-      setDescripcionRuta(descRuta)
-    }
-  }, [expedienteSeleccionado, expedientes])
-
-  // ============================================================================
-  // HANDLERS DE SELECCIÓN
+  // FUNCIÓN DE SELECCIÓN DE PROVEEDOR
   // ============================================================================
   const handleProveedorChange = (e) => {
-    const proveedorId = e.target.value || ''
-    setProveedorSeleccionado(proveedorId)
+    const selectedId = e.target.value
+    setProveedorId(selectedId)
+
+    if (selectedId) {
+      // Búsqueda por ID con conversión a número
+      const p = proveedores.find((item) => Number(item.id) === Number(selectedId))
+      console.log('Proveedor seleccionado:', p)
+
+      if (p) {
+        // Los datos del proveedor se muestran en la vista previa
+        // La prioridad de teléfono se calcula en obtenerTelefonoProveedor
+      }
+    }
   }
 
+  // ============================================================================
+  // FUNCIÓN DE SELECCIÓN DE EXPEDIENTE
+  // ============================================================================
   const handleExpedienteChange = (e) => {
-    const expedienteId = e.target.value || ''
-    setExpedienteSeleccionado(expedienteId)
+    const selectedId = e.target.value
+    setExpedienteId(selectedId)
+
+    if (selectedId) {
+      // Búsqueda por ID con conversión a número
+      const exp = expedientes.find((item) => Number(item.id) === Number(selectedId))
+      console.log('Expediente seleccionado:', exp)
+
+      if (exp) {
+        // Extraer datos del expediente con blindaje
+        const nombreCliente = safe(exp.nombre_cliente)
+        const movilGuia = safe(exp.movil_guia)
+        const movilResponsable = safe(exp.movil_responsable)
+        const descRuta = safe(exp.descripcion_ruta)
+        const totalPax = safe(exp.total_pax)
+
+        // Sincronización de Expediente: rellenar campos del formulario
+        if (nombreCliente && !titulo) {
+          setTitulo(`Bono - ${nombreCliente}`)
+        }
+
+        // Rellenar teléfonos siempre (sobrescribir si hay datos)
+        setTlfGuia(movilGuia || '')
+        setTlfResponsable(movilResponsable || '')
+
+        // Rellenar otros campos solo si están vacíos
+        if (descRuta && !descripcionRuta) {
+          setDescripcionRuta(descRuta)
+        }
+
+        if (totalPax && !nPersonas) {
+          setNPersonas(String(totalPax))
+        }
+
+        // Formatear fecha solo si está vacía
+        if (exp.fecha_inicio && !fechaServicio) {
+          try {
+            const d = new Date(exp.fecha_inicio)
+            if (!isNaN(d.getTime())) {
+              const dia = String(d.getDate()).padStart(2, '0')
+              const mes = String(d.getMonth() + 1).padStart(2, '0')
+              const año = d.getFullYear()
+              setFechaServicio(`${dia}/${mes}/${año}`)
+            }
+          } catch (err) {
+            console.error('Error formateando fecha:', err)
+          }
+        }
+      }
+    }
   }
 
   // ============================================================================
@@ -155,7 +157,7 @@ const Composer = () => {
       return
     }
 
-    if (!proveedorSeleccionado || !expedienteSeleccionado) {
+    if (!proveedorId || !expedienteId) {
       alert('Selecciona un proveedor y un expediente antes de guardar.')
       return
     }
@@ -206,7 +208,7 @@ const Composer = () => {
   // IMPRIMIR BONO
   // ============================================================================
   const handleImprimirBono = () => {
-    if (!proveedorSeleccionado || !expedienteSeleccionado) {
+    if (!proveedorId || !expedienteId) {
       alert('Selecciona un proveedor y un expediente antes de imprimir.')
       return
     }
@@ -227,15 +229,22 @@ const Composer = () => {
     setTlfResponsable('')
     setNPersonas('')
     setObservacionesInternas('')
-    setProveedorSeleccionado('')
-    setExpedienteSeleccionado('')
+    setProveedorId('')
+    setExpedienteId('')
   }
 
   // ============================================================================
   // DATOS ACTUALES PARA VISTA PREVIA
   // ============================================================================
-  const proveedor = proveedores.find((p) => p.id === proveedorSeleccionado)
-  const expediente = expedientes.find((e) => e.id === expedienteSeleccionado)
+  const proveedor = proveedores.find((p) => Number(p.id) === Number(proveedorId))
+  const expediente = expedientes.find((e) => Number(e.id) === Number(expedienteId))
+
+  // Función de prioridad para teléfono de proveedor
+  const obtenerTelefonoProveedor = (p) => {
+    if (!p) return ''
+    return safe(p.movil) || safe(p.telefono_fijo) || safe(p.telefono) || ''
+  }
+
   const telefonoProveedor = obtenerTelefonoProveedor(proveedor)
 
   // ============================================================================
@@ -315,9 +324,9 @@ const Composer = () => {
                   Proveedor
                 </label>
                 <select
-                  value={proveedorSeleccionado}
                   onChange={handleProveedorChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  defaultValue=""
                 >
                   <option value="">Selecciona un proveedor...</option>
                   {proveedores.map((p) => (
@@ -332,9 +341,9 @@ const Composer = () => {
                   Expediente / Cliente
                 </label>
                 <select
-                  value={expedienteSeleccionado}
                   onChange={handleExpedienteChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  defaultValue=""
                 >
                   <option value="">Selecciona un expediente...</option>
                   {expedientes.map((exp) => (
