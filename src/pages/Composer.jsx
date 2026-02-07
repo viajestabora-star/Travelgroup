@@ -14,10 +14,15 @@ const LOGO_TABORA_BASE64 = ''
 // ============================================================================
 const safe = (value) => value || ''
 
-// Función de prioridad para teléfono de proveedor
+// Función de prioridad inteligente para teléfono de proveedor
+// Orden: movil -> telefono_fijo -> telefono
 const obtenerTelefonoProveedor = (proveedor) => {
   if (!proveedor) return ''
-  return safe(proveedor.movil) || safe(proveedor.telefono_fijo) || safe(proveedor.telefono) || ''
+  const movil = safe(proveedor.movil)
+  if (movil) return movil
+  const telefonoFijo = safe(proveedor.telefono_fijo)
+  if (telefonoFijo) return telefonoFijo
+  return safe(proveedor.telefono) || ''
 }
 
 // ============================================================================
@@ -112,19 +117,23 @@ const Composer = () => {
       }
     }
 
-    // Teléfono Guía (solo si está vacío)
+    // Teléfono Guía (solo si está vacío) - desde movil_guia
     if (!tlfGuia) {
       const movilGuia = safe(expediente.movil_guia)
       if (movilGuia) {
         setTlfGuia(movilGuia)
+      } else {
+        setTlfGuia('') // Asegurar que esté vacío si no hay dato
       }
     }
 
-    // Teléfono Responsable (solo si está vacío)
+    // Teléfono Responsable (solo si está vacío) - desde movil_responsable
     if (!tlfResponsable) {
       const movilResponsable = safe(expediente.movil_responsable)
       if (movilResponsable) {
         setTlfResponsable(movilResponsable)
+      } else {
+        setTlfResponsable('') // Asegurar que esté vacío si no hay dato
       }
     }
 
@@ -250,10 +259,13 @@ const Composer = () => {
             background: white !important;
           }
 
+          /* Ocultar toda la interfaz del CRM */
           aside, .sidebar, nav, button, .no-print, header, 
           .navbar, .menu, .sidebar-menu, [class*="sidebar"], 
-          [class*="menu"], [class*="nav"] {
+          [class*="menu"], [class*="nav"], [role="navigation"],
+          [class*="header"], [class*="Header"] {
             display: none !important;
+            visibility: hidden !important;
           }
 
           .bono-container {
@@ -271,9 +283,10 @@ const Composer = () => {
             width: 100% !important;
             max-width: 100% !important;
             box-shadow: none !important;
-            border: none !important;
+            border: 1px solid #e5e7eb !important;
             padding: 20mm !important;
             background: white !important;
+            margin: 0 auto !important;
           }
 
           .logo-tabora {
@@ -309,7 +322,7 @@ const Composer = () => {
                   <option value="">Selecciona un proveedor...</option>
                   {proveedores.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {safe(p.nombre_comercial)}
+                      {safe(p.nombre_comercial) || 'Proveedor sin nombre'}
                     </option>
                   ))}
                 </select>
@@ -569,27 +582,27 @@ const Composer = () => {
                   </div>
                   <div>
                     <span className="font-semibold">Fecha servicio: </span>
-                    {fechaServicio || '____/____/______'}
+                    {safe(fechaServicio) || '____/____/______'}
                   </div>
                   <div>
                     <span className="font-semibold">Descripción / Ruta: </span>
-                    {descripcionRuta || (safe(expediente?.destino) ? `Circuito ${safe(expediente.destino)}` : '_______________________________')}
+                    {safe(descripcionRuta) || (safe(expediente?.destino) ? `Circuito ${safe(expediente.destino)}` : '_______________________________')}
                   </div>
                   <div>
                     <span className="font-semibold">Recogida: </span>
-                    {recogidaDetalles || '_______________________________'}
+                    {safe(recogidaDetalles) || '_______________________________'}
                   </div>
                   <div>
                     <span className="font-semibold">Teléfono Guía: </span>
-                    {tlfGuia || '________________'}
+                    {safe(tlfGuia) || '________________'}
                   </div>
                   <div>
                     <span className="font-semibold">Teléfono Jefe Grupo: </span>
-                    {tlfResponsable || '________________'}
+                    {safe(tlfResponsable) || '________________'}
                   </div>
                   <div>
                     <span className="font-semibold">Total personas: </span>
-                    {nPersonas || '___'}
+                    {safe(nPersonas) || '___'}
                   </div>
                 </div>
 
@@ -597,7 +610,7 @@ const Composer = () => {
                 {contenido && (
                   <div className="mt-4 text-xs">
                     <div className="font-semibold mb-1">Información adicional:</div>
-                    <div className="text-gray-700 whitespace-pre-line">{contenido}</div>
+                    <div className="text-gray-700 whitespace-pre-line">{safe(contenido)}</div>
                   </div>
                 )}
 
@@ -605,7 +618,7 @@ const Composer = () => {
                 <div className="mt-4 text-xs">
                   <div className="font-semibold mb-1">Observaciones:</div>
                   <div className="min-h-[40px] border border-dashed border-gray-300 rounded-md p-2 whitespace-pre-line">
-                    {observacionesInternas || '___________________________________________'}
+                    {safe(observacionesInternas) || '___________________________________________'}
                   </div>
                 </div>
               </div>
