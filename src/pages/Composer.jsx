@@ -91,13 +91,14 @@ const Composer = () => {
     const expediente = expedientes.find((e) => e.id === expedienteSeleccionado)
     if (!expediente) return
 
-    // Título
-    if (!titulo && safe(expediente.nombre_cliente)) {
-      setTitulo(`Bono - ${safe(expediente.nombre_cliente)}`)
+    // Título - siempre actualizar si hay nombre_cliente
+    const nombreCliente = safe(expediente.nombre_cliente)
+    if (nombreCliente && !titulo) {
+      setTitulo(`Bono - ${nombreCliente}`)
     }
 
     // Fecha de servicio
-    if (!fechaServicio && expediente.fecha_inicio) {
+    if (expediente.fecha_inicio) {
       try {
         const d = new Date(expediente.fecha_inicio)
         if (!isNaN(d.getTime())) {
@@ -110,41 +111,40 @@ const Composer = () => {
     }
 
     // Número de personas
-    if (!nPersonas && expediente.total_pax) {
+    if (expediente.total_pax) {
       const totalPax = safe(expediente.total_pax)
       if (totalPax) {
         setNPersonas(String(totalPax))
       }
     }
 
-    // Teléfono Guía (solo si está vacío) - desde movil_guia
-    if (!tlfGuia) {
-      const movilGuia = safe(expediente.movil_guia)
-      if (movilGuia) {
-        setTlfGuia(movilGuia)
-      } else {
-        setTlfGuia('') // Asegurar que esté vacío si no hay dato
-      }
-    }
+    // Teléfono Guía - desde movil_guia
+    const movilGuia = safe(expediente.movil_guia)
+    setTlfGuia(movilGuia)
 
-    // Teléfono Responsable (solo si está vacío) - desde movil_responsable
-    if (!tlfResponsable) {
-      const movilResponsable = safe(expediente.movil_responsable)
-      if (movilResponsable) {
-        setTlfResponsable(movilResponsable)
-      } else {
-        setTlfResponsable('') // Asegurar que esté vacío si no hay dato
-      }
-    }
+    // Teléfono Responsable - desde movil_responsable
+    const movilResponsable = safe(expediente.movil_responsable)
+    setTlfResponsable(movilResponsable)
 
     // Descripción de ruta
-    if (!descripcionRuta) {
-      const descRuta = safe(expediente.descripcion_ruta)
-      if (descRuta) {
-        setDescripcionRuta(descRuta)
-      }
+    const descRuta = safe(expediente.descripcion_ruta)
+    if (descRuta) {
+      setDescripcionRuta(descRuta)
     }
-  }, [expedienteSeleccionado, expedientes, titulo, fechaServicio, nPersonas, tlfGuia, tlfResponsable, descripcionRuta])
+  }, [expedienteSeleccionado, expedientes])
+
+  // ============================================================================
+  // HANDLERS DE SELECCIÓN
+  // ============================================================================
+  const handleProveedorChange = (e) => {
+    const proveedorId = e.target.value || ''
+    setProveedorSeleccionado(proveedorId)
+  }
+
+  const handleExpedienteChange = (e) => {
+    const expedienteId = e.target.value || ''
+    setExpedienteSeleccionado(expedienteId)
+  }
 
   // ============================================================================
   // GUARDAR EN PLANTILLAS_VIAJES
@@ -316,7 +316,7 @@ const Composer = () => {
                 </label>
                 <select
                   value={proveedorSeleccionado}
-                  onChange={(e) => setProveedorSeleccionado(e.target.value || '')}
+                  onChange={handleProveedorChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="">Selecciona un proveedor...</option>
@@ -333,7 +333,7 @@ const Composer = () => {
                 </label>
                 <select
                   value={expedienteSeleccionado}
-                  onChange={(e) => setExpedienteSeleccionado(e.target.value || '')}
+                  onChange={handleExpedienteChange}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="">Selecciona un expediente...</option>
