@@ -6,8 +6,8 @@ const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
-// Logo Tabora en Base64 (pendiente de incrustar)
-const LOGO_TABORA_BASE64 = ''
+// Logo Tabora - URL oficial
+const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 // ============================================================================
 // FUNCIONES HELPER: Blindaje contra NULLs
@@ -282,6 +282,10 @@ const Composer = () => {
             display: block !important;
             max-width: 200px !important;
             height: auto !important;
+            object-fit: contain !important;
+            image-rendering: -webkit-optimize-contrast !important;
+            image-rendering: crisp-edges !important;
+            page-break-inside: avoid !important;
           }
         }
         `}
@@ -502,15 +506,13 @@ const Composer = () => {
               {/* Columna Derecha: Vista Previa del Bono */}
               <div className="bono-print border rounded-xl p-6 bg-white shadow-inner">
                 {/* Encabezado con Logo */}
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex flex-col items-start">
-                    {LOGO_TABORA_BASE64 && (
-                    <img
-                        src={LOGO_TABORA_BASE64}
-                      alt="Viajes Tabora"
-                        className="logo-tabora h-12 object-contain mb-1"
+                <div className="flex justify-between items-center mb-4">
+                  <div className="flex-shrink-0">
+                    <img 
+                      src={LOGO_TABORA} 
+                      alt="Tabora" 
+                      className="h-20 w-auto object-contain print:h-24 logo-tabora" 
                     />
-                    )}
                   </div>
                   <div className="text-right text-xs text-gray-600">
                     <div className="font-semibold">VIAJES TABORA</div>
