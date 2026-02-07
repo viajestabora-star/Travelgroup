@@ -1,98 +1,73 @@
 import React, { useState, useEffect } from 'react'
-import { FileText, Save, X } from 'lucide-react'
+import { FileText, Save, X, Printer } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
+// Logo Tabora en Base64
+const LOGO_TABORA_BASE64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAACXBIWXMAAAsTAAALEwEAmpwYAAAF8WlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNy4xLWMwMDAgNzkuZWRhMmIzZmFjLCAyMDIxLzExLzE3LTE3OjIzOjE5ICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIgeG1sbnM6cGhvdG9zaG9wPSJodHRwOi8vbnMuYWRvYmUuY29tL3Bob3Rvc2hvcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RFdnQ9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZUV2ZW50IyIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgMjMuMSAoV2luZG93cykiIHhtcDpDcmVhdGVEYXRlPSIyMDI0LTAxLTE1VDEwOjAwOjAwKzAxOjAwIiB4bXA6TW9kaWZ5RGF0ZT0iMjAyNC0wMS0xNVQxMDowMDowMCswMTowMCIgeG1wOk1ldGFkYXRhRGF0ZT0iMjAyNC0wMS0xNVQxMDowMDowMCswMTowMCIgZGM6Zm9ybWF0PSJpbWFnZS9wbmciIHBob3Rvc2hvcDpDb2xvck1vZGU9IjMiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6ZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmYiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6ZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmYiIHhtcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD0ieG1wLmRpZDpmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmYiPiA8eG1wTU06SGlzdG9yeT4gPHJkZjpTZXE+IDxyZGY6bGkgc3RFdnQ6YWN0aW9uPSJjcmVhdGVkIiBzdEV2dDppbnN0YW5jZUlEPSJ4bXAuaWlkOmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZiIgc3RFdnQ6d2hlbj0iMjAyNC0wMS0xNVQxMDowMDowMCswMTowMCIgc3RFdnQ6c29mdHdhcmVBZ2VudD0iQWRvYmUgUGhvdG9zaG9wIDIzLjEgKFdpbmRvd3MpIi8+IDwvcmRmOlNlcT4gPC94bXBNTTpIaXN0b3J5PiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PgH//v38+/r5+Pf29fTz8vHw7+7t7Ovq6ejn5uXk4+Lh4N/e3dzb2tnY19bV1NPS0dDPzs3My8rJyMfGxcTDwsHAv769vLu6ubi3trW0s7KxsK+urayrqqmop6alpKOioaCfnp2cm5qZmJeWlZSTkpGQj46NjIuKiYiHhoWEg4KBgH9+fXx7enl4d3Z1dHNycXBvbm1sa2ppaGdmZWRjYmFgX15dXFtaWVhXVlVUU1JRUE9OTUxLSklIR0ZFRENCQUA/Pj08Ozo5ODc2NTQzMjEwLy4tLCsqKSgnJiUkIyIhIB8eHRwbGhkYFxYVFBMSERAPDg0MCwoJCAcGBQQDAgEAACH5BAEAAAEALAAAAAABAAEAAAICRAEAOw=='
+
 const Composer = () => {
   const [titulo, setTitulo] = useState('')
   const [contenido, setContenido] = useState('')
-  const [categoria, setCategoria] = useState('Itinerario')
-  const [precioSugerido, setPrecioSugerido] = useState('')
-  const [duracion, setDuracion] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [proveedores, setProveedores] = useState([])
   const [expedientes, setExpedientes] = useState([])
   const [proveedorSeleccionado, setProveedorSeleccionado] = useState('')
   const [expedienteSeleccionado, setExpedienteSeleccionado] = useState('')
-  // Campos específicos del bono / plantilla de viaje
   const [fechaServicio, setFechaServicio] = useState('')
   const [recogidaDetalles, setRecogidaDetalles] = useState('')
   const [tlfGuia, setTlfGuia] = useState('')
   const [tlfResponsable, setTlfResponsable] = useState('')
   const [nPersonas, setNPersonas] = useState('')
   const [observacionesInternas, setObservacionesInternas] = useState('')
-  const [modoImpresion, setModoImpresion] = useState(false)
 
-  // Cargar proveedores y expedientes para los selectores
+  // Cargar proveedores y expedientes
   useEffect(() => {
     const cargarDatosRelacionados = async () => {
       try {
         const [provRes, expRes] = await Promise.all([
           supabase
             .from('proveedores')
-            .select('id, nombre_comercial, direccion, poblacion, telefono, telefono_fijo, movil')
+            .select('id, nombre_comercial, direccion, poblacion, movil')
             .order('nombre_comercial', { ascending: true }),
           supabase
             .from('expedientes')
-            .select('id, nombre_grupo, destino, fecha_inicio, total_pax, movil_guia, movil_responsable, descripcion_ruta')
+            .select('id, nombre_cliente, destino, fecha_inicio, total_pax, movil_guia, movil_responsable, descripcion_ruta')
             .order('fecha_inicio', { ascending: false }),
         ])
 
         if (!provRes.error && Array.isArray(provRes.data)) {
           setProveedores(provRes.data)
         } else if (provRes.error) {
-          console.error('❌ Error cargando proveedores para Composer:', provRes.error)
+          console.error('❌ Error cargando proveedores:', provRes.error)
         }
 
         if (!expRes.error && Array.isArray(expRes.data)) {
           setExpedientes(expRes.data)
         } else if (expRes.error) {
-          console.error('❌ Error cargando expedientes para Composer:', expRes.error)
+          console.error('❌ Error cargando expedientes:', expRes.error)
         }
       } catch (err) {
-        console.error('❌ Error inesperado cargando datos en Composer:', err)
+        console.error('❌ Error inesperado cargando datos:', err)
       }
     }
 
     cargarDatosRelacionados()
   }, [])
 
-  const handleCargarItinerarioBase = () => {
-    const plantillaBase = [
-      'DIA 1 - CIUDAD DE ORIGEN / DESTINO',
-      'Descripción del día 1...',
-      '',
-      'DIA 2 - DESTINO',
-      'Descripción del día 2...',
-      '',
-      'DIA 3 - DESTINO / REGRESO',
-      'Descripción del día 3...',
-      '',
-      'INCLUYE:',
-      '- ',
-      '',
-      'NO INCLUYE:',
-      '- ',
-    ].join('\n')
-
-    setCategoria('Itinerario')
-    setContenido(plantillaBase)
-  }
-
-  // Cuando se selecciona un expediente, pre-rellenar algunos campos del bono
+  // Autocompletar campos al seleccionar expediente
   useEffect(() => {
     if (!expedienteSeleccionado) return
     const exp = expedientes.find((e) => e.id === expedienteSeleccionado)
     if (!exp) return
 
     if (!titulo) {
-      setTitulo(`Bono de Bus - ${exp.nombre_grupo || 'Grupo / Cliente'}`)
+      setTitulo(`Bono de Bus - ${exp.nombre_cliente || 'Cliente'}`)
     }
 
-    // Fecha de servicio inicial = fecha_inicio del expediente (editable)
     if (exp.fecha_inicio) {
       try {
         const d = new Date(exp.fecha_inicio)
@@ -103,16 +78,14 @@ const Composer = () => {
           setFechaServicio(`${dia}/${mes}/${año}`)
         }
       } catch {
-        // dejar campo editable en blanco si falla
+        // mantener vacío si falla
       }
     }
 
-    // Nº personas desde total_pax si existe
     if (exp.total_pax && !nPersonas) {
       setNPersonas(String(exp.total_pax))
     }
 
-    // Autocompletar teléfonos si vienen del expediente
     if (exp.movil_guia && !tlfGuia) {
       setTlfGuia(exp.movil_guia)
     }
@@ -120,9 +93,8 @@ const Composer = () => {
       setTlfResponsable(exp.movil_responsable)
     }
 
-    // Autocompletar descripción / ruta si la tiene el expediente
-    if (exp.descripcion_ruta && !duracion) {
-      setDuracion(exp.descripcion_ruta)
+    if (exp.descripcion_ruta && !contenido) {
+      setContenido(exp.descripcion_ruta)
     }
   }, [expedienteSeleccionado, expedientes])
 
@@ -138,31 +110,27 @@ const Composer = () => {
       return
     }
 
-    const nombreCliente = expediente.nombre_grupo || 'Grupo / Cliente'
+    const nombreCliente = expediente.nombre_cliente || 'Cliente'
     const destino = expediente.destino || ''
 
-    setCategoria('Itinerario')
     if (!titulo) {
       setTitulo(`Bono de Bus - ${nombreCliente}`)
     }
 
-    // Si no hay descripción/ruta explícita, proponerla a partir del destino
-    if (!duracion && destino) {
-      setDuracion(`Circuito ${destino}`)
+    if (!contenido && destino) {
+      setContenido(`Circuito ${destino}`)
     }
   }
 
-  // Construir texto plano del bono desde el estado actual
   const buildVoucherText = () => {
     const proveedor = proveedores.find((p) => p.id === proveedorSeleccionado)
     const expediente = expedientes.find((e) => e.id === expedienteSeleccionado)
 
     const nombreProveedor = proveedor?.nombre_comercial || 'Proveedor sin nombre'
     const direccionProveedor = proveedor?.direccion || ''
-    const telefonoProveedor =
-      proveedor?.telefono || proveedor?.telefono_fijo || proveedor?.movil || ''
+    const telefonoProveedor = proveedor?.movil || ''
 
-    const nombreCliente = expediente?.nombre_grupo || 'Grupo / Cliente'
+    const nombreCliente = expediente?.nombre_cliente || 'Cliente'
     const destino = expediente?.destino || ''
 
     let fechaServicioTexto = fechaServicio || ''
@@ -177,9 +145,7 @@ const Composer = () => {
       }
     }
 
-    const descripcionRuta =
-      duracion || (destino ? `Circuito ${destino}` : '')
-
+    const descripcionRuta = contenido || (destino ? `Circuito ${destino}` : '')
     const hoy = new Date()
     const fechaEmision = hoy.toLocaleDateString('es-ES')
 
@@ -215,9 +181,8 @@ const Composer = () => {
   }
 
   const handleImprimirBono = () => {
-    const texto = buildVoucherText()
-    if (!texto.trim()) {
-      alert('No hay contenido para imprimir.')
+    if (!proveedorSeleccionado || !expedienteSeleccionado) {
+      alert('Selecciona un proveedor y un expediente antes de imprimir.')
       return
     }
     window.print()
@@ -226,6 +191,11 @@ const Composer = () => {
   const handleGuardar = async () => {
     if (!titulo.trim()) {
       alert('Por favor, rellena al menos el título.')
+      return
+    }
+
+    if (!proveedorSeleccionado || !expedienteSeleccionado) {
+      alert('Selecciona un proveedor y un expediente antes de guardar.')
       return
     }
 
@@ -249,7 +219,7 @@ const Composer = () => {
         expediente_id: safe(expedienteSeleccionado || null),
         proveedor_id: safe(proveedorSeleccionado || null),
         fecha_servicio: safe(fechaServicio),
-        descripcion_ruta: safe(duracion || ''),
+        descripcion_ruta: safe(contenido || ''),
         recogida_detalles: safe(recogidaDetalles),
         tlf_guia: safe(tlfGuia),
         tlf_responsable: safe(tlfResponsable),
@@ -262,29 +232,25 @@ const Composer = () => {
         .insert([datosParaGuardar])
 
       if (error) {
-        console.error('❌ Error guardando bono en plantillas_viajes:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-          datosEnviados: datosParaGuardar,
-        })
+        console.error('❌ Error guardando bono:', error)
         alert(`Error al guardar el bono: ${error.message}`)
         return
       }
 
       alert('Bono guardado con éxito')
     } catch (err) {
-      console.error('❌ Error inesperado guardando plantilla de viaje:', err)
+      console.error('❌ Error inesperado guardando plantilla:', err)
       alert('Error inesperado al guardar la plantilla')
     } finally {
       setGuardando(false)
     }
   }
 
+  const proveedor = proveedores.find((p) => p.id === proveedorSeleccionado)
+  const expediente = expedientes.find((e) => e.id === expedienteSeleccionado)
+
   return (
     <div className="p-6">
-      {/* CSS de impresión: solo imprimir el contenedor del bono, a tamaño A4 */}
       <style>
         {`
         @media print {
@@ -299,42 +265,52 @@ const Composer = () => {
             print-color-adjust: exact;
           }
 
-          /* Ocultar todo lo que no sea el bono */
-          aside, nav, button, .no-print, header {
+          /* Ocultar barra lateral y elementos no deseados */
+          aside, .sidebar, nav, button, .no-print, header {
             display: none !important;
           }
 
+          /* Solo mostrar el bono */
           .bono-container {
             width: 100% !important;
+            max-width: 100% !important;
             position: absolute !important;
             top: 0 !important;
             left: 0 !important;
             margin: 0 !important;
-            padding: 0 !important;
+            padding: 20mm !important;
+            background: white !important;
+          }
+
+          .bono-print {
+            width: 100% !important;
+            box-shadow: none !important;
+            border: none !important;
           }
         }
         `}
       </style>
+
       <div className="bono-container max-w-6xl mx-auto">
         <div className="bg-white rounded-xl shadow-lg p-6">
           <div className="no-print flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold text-navy-900 flex items-center gap-2">
-              <FileText className="text-navy-600" size={28} />
+            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+              <FileText className="text-slate-600" size={28} />
               Composer - Generador de Bonos
             </h1>
           </div>
 
           <div className="space-y-6">
-            {/* Selección de proveedor y expediente para bonos */}
+            {/* Selección de proveedor y expediente */}
             <div className="no-print grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="no-print">
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Proveedor para Bono
                 </label>
                 <select
                   value={proveedorSeleccionado}
                   onChange={(e) => setProveedorSeleccionado(e.target.value || '')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="">Selecciona un proveedor...</option>
                   {proveedores.map((p) => (
@@ -344,18 +320,18 @@ const Composer = () => {
                   ))}
                 </select>
               </div>
-            <div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Expediente / Grupo
                 </label>
                 <select
                   value={expedienteSeleccionado}
                   onChange={(e) => setExpedienteSeleccionado(e.target.value || '')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="">Selecciona un expediente...</option>
                   {expedientes.map((exp) => {
-                    const cliente = exp.nombre_grupo || 'Cliente sin nombre'
+                    const cliente = exp.nombre_cliente || 'Cliente sin nombre'
                     const tituloViaje = exp.destino || 'Viaje sin título'
                     return (
                       <option key={exp.id} value={exp.id}>
@@ -367,43 +343,24 @@ const Composer = () => {
               </div>
             </div>
 
-            {/* Dos columnas: izquierda datos (no-print), derecha vista previa del bono (bono-print) */}
+            {/* Dos columnas: formulario y vista previa */}
             <div className="grid gap-6 md:grid-cols-2">
-              {/* Columna izquierda: formulario de datos */}
-              <div className="no-print">
-                {/* Metadatos de la plantilla */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                  <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Título
-              </label>
-              <input
-                type="text"
-                value={titulo}
-                onChange={(e) => setTitulo(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
-                  placeholder="Escribe un título de plantilla..."
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Categoría
-                    </label>
-                    <select
-                      value={categoria}
-                      onChange={(e) => setCategoria(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-navy-500 focus:border-transparent"
-                    >
-                      <option value="Itinerario">Itinerario</option>
-                      <option value="Condiciones de Venta">Condiciones de Venta</option>
-                      <option value="Presupuesto">Presupuesto</option>
-                    </select>
-                  </div>
+              {/* Columna izquierda: formulario */}
+              <div className="no-print space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Título
+                  </label>
+                  <input
+                    type="text"
+                    value={titulo}
+                    onChange={(e) => setTitulo(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Escribe un título de plantilla..."
+                  />
                 </div>
 
-                {/* Campos específicos del bono */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Fecha de servicio
@@ -412,7 +369,7 @@ const Composer = () => {
                       type="text"
                       value={fechaServicio}
                       onChange={(e) => setFechaServicio(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Ej: 10/10/2025"
                     />
                   </div>
@@ -425,125 +382,126 @@ const Composer = () => {
                       min="1"
                       value={nPersonas}
                       onChange={(e) => setNPersonas(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Ej: 42"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Descripción / Ruta
+                  </label>
+                  <textarea
+                    value={contenido}
+                    onChange={(e) => setContenido(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[100px]"
+                    placeholder="Descripción del viaje o ruta..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Detalle de recogidas
+                  </label>
+                  <textarea
+                    value={recogidaDetalles}
+                    onChange={(e) => setRecogidaDetalles(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[80px]"
+                    placeholder="Ej: 08:00h C/ Luis Vives s/n (frente al instituto). 42 pax"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Detalle de recogidas
+                      Teléfono Guía
                     </label>
-                    <textarea
-                      value={recogidaDetalles}
-                      onChange={(e) => setRecogidaDetalles(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent min-h-[80px]"
-                      placeholder="Ej: 08:00h C/ Luis Vives s/n (frente al instituto). 42 pax"
+                    <input
+                      type="text"
+                      value={tlfGuia}
+                      onChange={(e) => setTlfGuia(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Ej: Miguel 658 066 849"
                     />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Teléfono Guía
-                      </label>
-                      <input
-                        type="text"
-                        value={tlfGuia}
-                        onChange={(e) => setTlfGuia(e.target.value)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
-                        placeholder="Ej: Miguel 658 066 849"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Teléfono Jefe Grupo
-                      </label>
-                      <input
-                        type="text"
-                        value={tlfResponsable}
-                        onChange={(e) => setTlfResponsable(e.target.value)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent"
-                        placeholder="Ej: Pura 653 86 30 20"
-                      />
-                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Observaciones internas
-              </label>
-              <textarea
-                      value={observacionesInternas}
-                      onChange={(e) => setObservacionesInternas(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent min-h-[80px]"
-                      placeholder="Notas internas para logística / guía..."
+                      Teléfono Jefe Grupo
+                    </label>
+                    <input
+                      type="text"
+                      value={tlfResponsable}
+                      onChange={(e) => setTlfResponsable(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Ej: Pura 653 86 30 20"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Observaciones internas
+                  </label>
+                  <textarea
+                    value={observacionesInternas}
+                    onChange={(e) => setObservacionesInternas(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[80px]"
+                    placeholder="Notas internas para logística / guía..."
+                  />
                 </div>
 
                 <div className="flex flex-wrap gap-3 pt-4">
                   <button
                     type="button"
-                    onClick={handleCargarItinerarioBase}
-                    className="text-xs font-semibold text-navy-600 hover:text-navy-800 underline"
-                  >
-                    Cargar Itinerario Base
-                  </button>
-                  <button
-                    type="button"
                     onClick={generarBonoBus}
-                    className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 underline"
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-semibold"
                   >
                     Generar Bono de Bus
                   </button>
-            </div>
-
-                <div className="flex flex-wrap gap-3 pt-4">
-              <button
-                onClick={handleGuardar}
+                  <button
+                    onClick={handleGuardar}
                     disabled={guardando}
-                    className="btn-primary flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                <Save size={18} />
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-semibold"
+                  >
+                    <Save size={18} />
                     {guardando ? 'Guardando...' : 'Guardar plantilla'}
                   </button>
                   <button
                     type="button"
                     onClick={handleImprimirBono}
-                    className="btn-secondary flex items-center gap-2"
+                    className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2 text-sm font-semibold"
                   >
+                    <Printer size={18} />
                     Imprimir Bono
-              </button>
-              <button
-                onClick={() => {
-                  setTitulo('')
-                  setContenido('')
-                      setCategoria('Itinerario')
-                      setPrecioSugerido('')
-                      setDuracion('')
+                  </button>
+                  <button
+                    onClick={() => {
+                      setTitulo('')
+                      setContenido('')
                       setFechaServicio('')
                       setRecogidaDetalles('')
                       setTlfGuia('')
                       setTlfResponsable('')
                       setNPersonas('')
                       setObservacionesInternas('')
-                }}
-                className="btn-secondary flex items-center gap-2"
-              >
-                <X size={18} />
-                Limpiar
-              </button>
+                      setProveedorSeleccionado('')
+                      setExpedienteSeleccionado('')
+                    }}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors flex items-center gap-2 text-sm font-semibold"
+                  >
+                    <X size={18} />
+                    Limpiar
+                  </button>
                 </div>
               </div>
 
               {/* Columna derecha: vista previa del bono */}
               <div className="bono-print border rounded-xl p-6 bg-white shadow-inner">
                 <div className="flex justify-between items-start mb-4">
-                  {/* Logo TABORA: coloca /public/tabora-logo.png en tu proyecto */}
                   <div className="flex flex-col items-start">
                     <img
-                      src="/tabora-logo.png"
+                      src={LOGO_TABORA_BASE64}
                       alt="Viajes Tabora"
                       className="h-12 object-contain mb-1"
                     />
@@ -555,7 +513,8 @@ const Composer = () => {
                     <div>Tel: +34 96 339 04 64</div>
                   </div>
                 </div>
-                <div className="text-center mb-2">
+
+                <div className="text-center mb-4">
                   <div className="text-sm font-bold tracking-wide">BONO/VOUCHER</div>
                   <div className="text-xs text-gray-600">
                     Fecha de emisión: {new Date().toLocaleDateString('es-ES')}
@@ -567,34 +526,28 @@ const Composer = () => {
                   <div className="border rounded-lg p-3">
                     <div className="font-semibold mb-1">Proveedor</div>
                     <div>
-                      {(() => {
-                        const prov = proveedores.find((p) => p.id === proveedorSeleccionado)
-                        if (!prov) return 'Selecciona un proveedor'
-                        const telefono =
-                          prov.telefono || prov.telefono_fijo || prov.movil || ''
-                        return (
-                          <>
-                            <div>{prov.nombre_comercial}</div>
-                            {prov.direccion && <div>{prov.direccion}</div>}
-                            {telefono && <div>Tel: {telefono}</div>}
-                          </>
-                        )
-                      })()}
+                      {proveedor ? (
+                        <>
+                          <div>{proveedor.nombre_comercial}</div>
+                          {proveedor.direccion && <div>{proveedor.direccion}</div>}
+                          {proveedor.movil && <div>Tel: {proveedor.movil}</div>}
+                        </>
+                      ) : (
+                        'Selecciona un proveedor'
+                      )}
                     </div>
                   </div>
                   <div className="border rounded-lg p-3">
                     <div className="font-semibold mb-1">Cliente / Grupo</div>
                     <div>
-                      {(() => {
-                        const exp = expedientes.find((e) => e.id === expedienteSeleccionado)
-                        if (!exp) return 'Selecciona un expediente'
-                        return (
-                          <>
-                            <div>{exp.nombre_grupo || 'Grupo / Cliente'}</div>
-                            {exp.destino && <div>Destino: {exp.destino}</div>}
-                          </>
-                        )
-                      })()}
+                      {expediente ? (
+                        <>
+                          <div>{expediente.nombre_cliente || 'Cliente'}</div>
+                          {expediente.destino && <div>Destino: {expediente.destino}</div>}
+                        </>
+                      ) : (
+                        'Selecciona un expediente'
+                      )}
                     </div>
                   </div>
                 </div>
@@ -610,11 +563,7 @@ const Composer = () => {
                   </div>
                   <div>
                     <span className="font-semibold">Descripción / Ruta: </span>
-                    {(() => {
-                      const exp = expedientes.find((e) => e.id === expedienteSeleccionado)
-                      if (exp?.destino) return `Circuito ${exp.destino}`
-                      return '_______________________________'
-                    })()}
+                    {contenido || (expediente?.destino ? `Circuito ${expediente.destino}` : '_______________________________')}
                   </div>
                   <div>
                     <span className="font-semibold">Recogida: </span>
@@ -634,7 +583,7 @@ const Composer = () => {
                   </div>
                 </div>
 
-                {/* Observaciones visuales (lo que vería el proveedor) */}
+                {/* Observaciones */}
                 <div className="mt-4 text-xs">
                   <div className="font-semibold mb-1">Observaciones:</div>
                   <div className="min-h-[40px] border border-dashed border-gray-300 rounded-md p-2 whitespace-pre-line">
