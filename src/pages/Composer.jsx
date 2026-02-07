@@ -31,6 +31,10 @@ const Composer = () => {
   const [tlfResponsable, setTlfResponsable] = useState('')
   const [nPersonas, setNPersonas] = useState('')
   const [observacionesInternas, setObservacionesInternas] = useState('')
+  // Estados para datos del proveedor
+  const [telefono, setTelefono] = useState('')
+  const [direccion, setDireccion] = useState('')
+  const [poblacion, setPoblacion] = useState('')
 
   // Arrays de datos
   const [proveedores, setProveedores] = useState([])
@@ -50,8 +54,8 @@ const Composer = () => {
             .order('nombre_comercial', { ascending: true }),
           supabase
             .from('expedientes')
-            .select('id, nombre_cliente, movil_guia, movil_responsable, destino, fecha_inicio, total_pax, descripcion_ruta')
-            .order('fecha_inicio', { ascending: false }),
+            .select('*')
+            .order('fecha_viaje', { ascending: false }),
         ])
 
         if (!provRes.error && Array.isArray(provRes.data)) {
@@ -62,6 +66,10 @@ const Composer = () => {
 
         if (!expRes.error && Array.isArray(expRes.data)) {
           setExpedientes(expRes.data)
+          console.log('Datos cargados:', expRes.data)
+          if (expRes.data.length > 0) {
+            console.log('Primer expediente - cliente_nombre:', expRes.data[0].cliente_nombre)
+          }
         } else if (expRes.error) {
           console.error('❌ Error cargando expedientes:', expRes.error)
         }
@@ -81,13 +89,15 @@ const Composer = () => {
     setProveedorId(selectedId)
 
     if (selectedId) {
-      // Búsqueda por ID con conversión a número
-      const p = proveedores.find((item) => Number(item.id) === Number(selectedId))
+      // Forzamos String porque son IDs de tipo int8
+      const p = proveedores.find((item) => String(item.id) === String(e.target.value))
       console.log('Proveedor seleccionado:', p)
 
       if (p) {
-        // Los datos del proveedor se muestran en la vista previa
-        // La prioridad de teléfono se calcula en obtenerTelefonoProveedor
+        // Mapeo de Datos: actualizar estados del formulario
+        setTelefono(p.movil || p.telefono_fijo || p.telefono || '')
+        setDireccion(p.direccion || '')
+        setPoblacion(p.poblacion || '')
       }
     }
   }
@@ -96,54 +106,25 @@ const Composer = () => {
   // FUNCIÓN DE SELECCIÓN DE EXPEDIENTE
   // ============================================================================
   const handleExpedienteChange = (e) => {
-    const selectedId = e.target.value
-    setExpedienteId(selectedId)
+    const id = e.target.value
+    setExpedienteId(id)
+    
+    // Son UUIDs, no uses Number - comparación directa
+    const exp = expedientes.find((item) => item.id === e.target.value)
+    console.log('Expediente seleccionado:', exp)
 
-    if (selectedId) {
-      // Búsqueda por ID con conversión a número
-      const exp = expedientes.find((item) => Number(item.id) === Number(selectedId))
-      console.log('Expediente seleccionado:', exp)
+    if (exp) {
+      // Mapeo de Datos de Viaje: inyectar campos en formulario y bono
+      setTitulo(exp.cliente_nombre ? `Bono para ${exp.cliente_nombre}` : '')
+      setFechaServicio(exp.fecha_viaje || '')
+      setNPersonas(exp.total_pax ? String(exp.total_pax) : '')
+      setTlfGuia(exp.movil_guia || '')
+      setTlfResponsable(exp.movil_responsable || '')
 
-      if (exp) {
-        // Extraer datos del expediente con blindaje
-        const nombreCliente = safe(exp.nombre_cliente)
-        const movilGuia = safe(exp.movil_guia)
-        const movilResponsable = safe(exp.movil_responsable)
-        const descRuta = safe(exp.descripcion_ruta)
-        const totalPax = safe(exp.total_pax)
-
-        // Sincronización de Expediente: rellenar campos del formulario
-        if (nombreCliente && !titulo) {
-          setTitulo(`Bono - ${nombreCliente}`)
-        }
-
-        // Rellenar teléfonos siempre (sobrescribir si hay datos)
-        setTlfGuia(movilGuia || '')
-        setTlfResponsable(movilResponsable || '')
-
-        // Rellenar otros campos solo si están vacíos
-        if (descRuta && !descripcionRuta) {
-          setDescripcionRuta(descRuta)
-        }
-
-        if (totalPax && !nPersonas) {
-          setNPersonas(String(totalPax))
-        }
-
-        // Formatear fecha solo si está vacía
-        if (exp.fecha_inicio && !fechaServicio) {
-          try {
-            const d = new Date(exp.fecha_inicio)
-            if (!isNaN(d.getTime())) {
-              const dia = String(d.getDate()).padStart(2, '0')
-              const mes = String(d.getMonth() + 1).padStart(2, '0')
-              const año = d.getFullYear()
-              setFechaServicio(`${dia}/${mes}/${año}`)
-            }
-          } catch (err) {
-            console.error('Error formateando fecha:', err)
-          }
-        }
+      // Rellenar otros campos si están disponibles y vacíos
+      const descRuta = safe(exp.descripcion_ruta)
+      if (descRuta && !descripcionRuta) {
+        setDescripcionRuta(descRuta)
       }
     }
   }
@@ -231,21 +212,20 @@ const Composer = () => {
     setObservacionesInternas('')
     setProveedorId('')
     setExpedienteId('')
+    setTelefono('')
+    setDireccion('')
+    setPoblacion('')
   }
 
   // ============================================================================
   // DATOS ACTUALES PARA VISTA PREVIA
   // ============================================================================
-  const proveedor = proveedores.find((p) => Number(p.id) === Number(proveedorId))
-  const expediente = expedientes.find((e) => Number(e.id) === Number(expedienteId))
+  // Unificar búsqueda: proveedores usan int8, convertir ambos a String
+  const proveedor = proveedores.find((p) => String(p.id) === String(proveedorId))
+  // Expedientes usan UUIDs, comparación directa sin Number()
+  const expediente = expedientes.find((e) => e.id === expedienteId)
 
-  // Función de prioridad para teléfono de proveedor
-  const obtenerTelefonoProveedor = (p) => {
-    if (!p) return ''
-    return safe(p.movil) || safe(p.telefono_fijo) || safe(p.telefono) || ''
-  }
-
-  const telefonoProveedor = obtenerTelefonoProveedor(proveedor)
+  // El teléfono del proveedor se lee del estado 'telefono'
 
   // ============================================================================
   // RENDER
@@ -331,12 +311,12 @@ const Composer = () => {
                   <option value="">Selecciona un proveedor...</option>
                   {proveedores.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {safe(p.nombre_comercial) || 'Proveedor sin nombre'}
+                      {p.nombre_comercial || 'Proveedor sin nombre'}
                     </option>
                   ))}
                 </select>
               </div>
-              <div>
+            <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Expediente / Cliente
                 </label>
@@ -346,9 +326,9 @@ const Composer = () => {
                   defaultValue=""
                 >
                   <option value="">Selecciona un expediente...</option>
-                  {expedientes.map((exp) => (
+                  {expedientes && expedientes.length > 0 && expedientes.map((exp) => (
                     <option key={exp.id} value={exp.id}>
-                      {safe(exp.nombre_cliente) || 'Cliente sin nombre'}
+                      {exp.cliente_nombre || 'Sin Nombre'}
                     </option>
                   ))}
                 </select>
@@ -360,31 +340,31 @@ const Composer = () => {
               {/* Columna Izquierda: Formulario */}
               <div className="no-print space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                     Título *
-                  </label>
-                  <input
-                    type="text"
-                    value={titulo}
-                    onChange={(e) => setTitulo(e.target.value)}
+              </label>
+              <input
+                type="text"
+                value={titulo}
+                onChange={(e) => setTitulo(e.target.value)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Ej: Bono de Bus - Cliente"
-                  />
-                </div>
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                     Tipo
-                  </label>
-                  <select
+                    </label>
+                    <select
                     value={tipo}
                     onChange={(e) => setTipo(e.target.value)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="Bono">Bono</option>
                     <option value="Voucher">Voucher</option>
-                    <option value="Itinerario">Itinerario</option>
-                  </select>
+                      <option value="Itinerario">Itinerario</option>
+                    </select>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -427,44 +407,44 @@ const Composer = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Detalle de recogidas
-                  </label>
-                  <textarea
-                    value={recogidaDetalles}
-                    onChange={(e) => setRecogidaDetalles(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[80px]"
-                    placeholder="Ej: 08:00h C/ Luis Vives s/n (frente al instituto). 42 pax"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Teléfono Guía
+                      Detalle de recogidas
                     </label>
-                    <input
-                      type="text"
-                      value={tlfGuia}
-                      onChange={(e) => setTlfGuia(e.target.value)}
+                    <textarea
+                      value={recogidaDetalles}
+                      onChange={(e) => setRecogidaDetalles(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[80px]"
+                      placeholder="Ej: 08:00h C/ Luis Vives s/n (frente al instituto). 42 pax"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Teléfono Guía
+                      </label>
+                      <input
+                        type="text"
+                        value={tlfGuia}
+                        onChange={(e) => setTlfGuia(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Ej: 658 066 849"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Teléfono Jefe Grupo
-                    </label>
-                    <input
-                      type="text"
-                      value={tlfResponsable}
-                      onChange={(e) => setTlfResponsable(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Teléfono Jefe Grupo
+                      </label>
+                      <input
+                        type="text"
+                        value={tlfResponsable}
+                        onChange={(e) => setTlfResponsable(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Ej: 653 86 30 20"
-                    />
+                      />
+                    </div>
                   </div>
-                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -478,26 +458,26 @@ const Composer = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Observaciones internas
-                  </label>
-                  <textarea
-                    value={observacionesInternas}
-                    onChange={(e) => setObservacionesInternas(e.target.value)}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Observaciones internas
+              </label>
+              <textarea
+                      value={observacionesInternas}
+                      onChange={(e) => setObservacionesInternas(e.target.value)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[80px]"
-                    placeholder="Notas internas para logística / guía..."
-                  />
+                      placeholder="Notas internas para logística / guía..."
+                    />
                 </div>
 
                 {/* Botones de acción */}
                 <div className="flex flex-wrap gap-3 pt-4">
-                  <button
-                    onClick={handleGuardar}
+              <button
+                onClick={handleGuardar}
                     disabled={guardando}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-semibold"
-                  >
-                    <Save size={18} />
+              >
+                <Save size={18} />
                     {guardando ? 'Guardando...' : 'Guardar'}
                   </button>
                   <button
@@ -507,15 +487,15 @@ const Composer = () => {
                   >
                     <Printer size={18} />
                     Imprimir
-                  </button>
-                  <button
+              </button>
+              <button
                     type="button"
                     onClick={handleLimpiar}
                     className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors flex items-center gap-2 text-sm font-semibold"
-                  >
-                    <X size={18} />
-                    Limpiar
-                  </button>
+              >
+                <X size={18} />
+                Limpiar
+              </button>
                 </div>
               </div>
 
@@ -525,11 +505,11 @@ const Composer = () => {
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex flex-col items-start">
                     {LOGO_TABORA_BASE64 && (
-                      <img
+                    <img
                         src={LOGO_TABORA_BASE64}
-                        alt="Viajes Tabora"
+                      alt="Viajes Tabora"
                         className="logo-tabora h-12 object-contain mb-1"
-                      />
+                    />
                     )}
                   </div>
                   <div className="text-right text-xs text-gray-600">
@@ -554,27 +534,29 @@ const Composer = () => {
                   {proveedor ? (
                     <div>
                       <div className="font-medium">{safe(proveedor.nombre_comercial)}</div>
-                      {safe(proveedor.direccion) && (
-                        <div className="text-gray-600 mt-1">{safe(proveedor.direccion)}</div>
+                      {direccion && (
+                        <div className="text-gray-600 mt-1">{safe(direccion)}</div>
                       )}
-                      {safe(proveedor.poblacion) && (
-                        <div className="text-gray-600">{safe(proveedor.poblacion)}</div>
+                      {poblacion && (
+                        <div className="text-gray-600">{safe(poblacion)}</div>
                       )}
-                      {telefonoProveedor && (
-                        <div className="text-gray-600 mt-1">Tel: {telefonoProveedor}</div>
+                      {telefono && (
+                        <div className="text-gray-600 mt-1">Tel: {telefono}</div>
                       )}
                     </div>
                   ) : (
                     <div className="text-gray-400 italic">Selecciona un proveedor</div>
                   )}
-                </div>
+                  </div>
 
                 {/* Información del Cliente */}
                 <div className="border rounded-lg p-3 mb-3 text-xs">
                   <div className="font-semibold mb-2">Cliente / Grupo</div>
                   {expediente ? (
                     <div>
-                      <div className="font-medium">{safe(expediente.nombre_cliente) || 'Cliente'}</div>
+                      <div className="font-medium">
+                        {safe(expediente.cliente_nombre) || 'Cliente'}
+                      </div>
                       {safe(expediente.destino) && (
                         <div className="text-gray-600 mt-1">Destino: {safe(expediente.destino)}</div>
                       )}
