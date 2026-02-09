@@ -15,6 +15,9 @@ import {
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
+// Logo Tabora - URL oficial
+const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
+
 const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
@@ -45,11 +48,23 @@ const Layout = () => {
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
       <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-slate-800 text-white transition-all duration-300 flex flex-col`}>
-        <div className="p-4 flex justify-between items-center border-b border-slate-700">
-          {sidebarOpen && <span className="font-bold text-xl text-sky-400">TABORA ERP</span>}
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-700 rounded">
-            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
+        <div className="border-b border-slate-700">
+          {sidebarOpen ? (
+            <div className="flex items-center justify-between p-4">
+              <div className="flex items-center justify-center flex-1 py-8 px-4">
+                <img src={LOGO_TABORA} alt="Tabora" className="h-14 w-auto object-contain" />
+              </div>
+              <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-700 rounded">
+                <X size={20} />
+              </button>
+            </div>
+          ) : (
+            <div className="p-4 flex justify-center items-center">
+              <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-700 rounded">
+                <Menu size={20} />
+              </button>
+            </div>
+          )}
         </div>
 
         <nav className="flex-1 overflow-y-auto py-4">
