@@ -47,7 +47,7 @@ const Cierres = () => {
     try {
       const { data, error } = await supabase
         .from('facturas_emitidas_global')
-        .select('*')
+        .select('id, numero_factura, cliente_nombre, cliente_documento, importe_total, fecha_emision, datos_json')
         .order('fecha_emision', { ascending: false })
       console.log('Facturas cargadas:', data)
       if (error) {
@@ -192,7 +192,7 @@ const Cierres = () => {
         {
           numero_factura: numeroFactura,
           cliente_nombre: clienteSeleccionado.nombre,
-          tipo_factura: 'DIRECTA',
+          cliente_documento: clienteSeleccionado.cif_nif || clienteSeleccionado.cif || '',
           importe_total: totalFactura,
           fecha_emision: fechaEmisionISO,
           datos_json
@@ -655,10 +655,10 @@ const Cierres = () => {
                       Nº Factura
                     </th>
                     <th className="px-6 py-3 text-xs font-black uppercase tracking-[0.2em] text-left">
-                      Tipo
+                      Cliente
                     </th>
                     <th className="px-6 py-3 text-xs font-black uppercase tracking-[0.2em] text-left">
-                      Cliente
+                      Documento
                     </th>
                     <th className="px-6 py-3 text-xs font-black uppercase tracking-[0.2em] text-right">
                       Importe
@@ -683,21 +683,11 @@ const Cierres = () => {
                       <td className="px-6 py-3 font-semibold text-slate-900">
                         {factura.numero_factura || '-'}
                       </td>
-                      <td className="px-6 py-3">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                            factura.tipo_factura === 'DIRECTA'
-                              ? 'bg-sky-100 text-sky-800'
-                              : factura.tipo_factura === 'PASAJERO'
-                            ? 'bg-blue-100 text-blue-800' 
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {factura.tipo_factura || 'N/D'}
-                        </span>
-                      </td>
                       <td className="px-6 py-3 text-slate-700">
                         {factura.cliente_nombre || 'Sin cliente'}
+                      </td>
+                      <td className="px-6 py-3 text-slate-700">
+                        {factura.cliente_documento || factura.datos_json?.receptor?.cif_nif || '-'}
                       </td>
                       <td className="px-6 py-3 text-right font-bold text-emerald-700">
                         {factura.importe_total
