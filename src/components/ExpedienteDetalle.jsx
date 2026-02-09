@@ -713,6 +713,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }, [tab, expediente?.id])
 
   // ============ CARGAR VERSIONES DE FACTURAS ============
+  // ============ CARGAR VERSIONES DE FACTURA (SINCRONIZADO) ============
+  // Historial dinámico: se actualiza automáticamente al borrar facturas en Supabase
   const cargarVersionesFactura = async () => {
     if (!expediente?.id) {
       setVersionesFactura([])
@@ -721,6 +723,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     
     setCargandoVersiones(true)
     try {
+      // Cargar desde facturas_versiones (versiones históricas antes de emitir)
       const { data, error } = await supabase
         .from('facturas_versiones')
         .select('*')
@@ -733,7 +736,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         return
       }
       
+      // Si se borraron facturas, el historial se actualiza automáticamente
       setVersionesFactura(data || [])
+      console.log(`📋 Historial de versiones cargado: ${data?.length || 0} versiones`)
     } catch (error) {
       console.error('Error fatal cargando versiones de factura:', error)
       setVersionesFactura([])
@@ -1798,13 +1803,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }, [formData?.precio_venta_cliente, formData?.bonificacion_pax, paxPago, suplementos.totalSuplementos])
 
-  // ============ OBTENER SIGUIENTE NÚMERO DE FACTURA ============
+  // ============ OBTENER SIGUIENTE NÚMERO DE FACTURA (NUMERACIÓN GLOBAL ÚNICA) ============
+  // IMPORTANTE: Consulta facturas_emitidas_global para numeración correlativa global
+  // Si se crea 2026-0001 en un expediente, la siguiente en Cierres será 2026-0002
   const obtenerSiguienteNumeroFactura = async () => {
+    const año = new Date().getFullYear()
+
     try {
       // En modo prueba usamos una serie ficticia TEST-XXX para no consumir numeración real
       if (MODO_PRUEBA_FACTURACION) {
         const { data, error } = await supabase
-          .from('facturas')
+          .from('facturas_emitidas_global')
           .select('numero_factura')
           .ilike('numero_factura', 'TEST-%')
           .order('numero_factura', { ascending: false })
@@ -1812,7 +1821,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
         if (error) {
           console.error('Error obteniendo último número de factura de prueba:', error)
-          return 'TEST-001'
+          return 'TEST-0001'
         }
 
         let siguienteSecuencia = 1
@@ -1827,13 +1836,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           }
         }
 
-        const sufijo = String(siguienteSecuencia).padStart(3, '0')
+        const sufijo = String(siguienteSecuencia).padStart(4, '0')
         return `TEST-${sufijo}`
       }
 
-      const año = new Date().getFullYear()
+      // NUMERACIÓN GLOBAL: Consultar facturas_emitidas_global (fuente única de verdad)
       const { data, error } = await supabase
-        .from('facturas')
+        .from('facturas_emitidas_global')
         .select('numero_factura')
         .ilike('numero_factura', `${año}-%`)
         .order('numero_factura', { ascending: false })
@@ -1841,26 +1850,31 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       if (error) {
         console.error('Error obteniendo último número de factura:', error)
-        return `${año}-001`
+        console.warn('Usando número inicial del año debido a error en consulta')
+        return `${año}-0001`
       }
 
-      let siguienteSecuencia = 1
-
-      if (Array.isArray(data) && data.length > 0 && data[0]?.numero_factura) {
-        const partes = String(data[0].numero_factura).split('-')
-        if (partes.length === 2) {
-          const numeroActual = parseInt(partes[1], 10)
-          if (!isNaN(numeroActual) && numeroActual >= 0) {
-            siguienteSecuencia = numeroActual + 1
-          }
-        }
+      // Si la tabla está vacía o no hay datos, devolver el primer número
+      if (!data || data.length === 0 || !data[0]?.numero_factura) {
+        console.log('Tabla vacía o sin facturas del año actual. Iniciando numeración.')
+        return `${año}-0001`
       }
 
-      const sufijo = String(siguienteSecuencia).padStart(3, '0')
-      return `${año}-${sufijo}`
+      // Extraer el número, sumarle 1 y mantener el formato 2026-XXXX (4 dígitos)
+      const ultimoNumero = String(data[0].numero_factura)
+      const partes = ultimoNumero.split('-')
+      
+      if (partes.length !== 2) {
+        console.warn('Formato de número de factura inesperado. Iniciando numeración.')
+        return `${año}-0001`
+      }
+
+      const siguienteNum = parseInt(partes[1] || '0', 10) + 1
+      return `${año}-${String(siguienteNum).padStart(4, '0')}`
     } catch (err) {
       console.error('Error inesperado generando numero_factura:', err)
-      return `${new Date().getFullYear()}-001`
+      // Fallback seguro: devolver el primer número del año
+      return `${año}-0001`
     }
   }
 
@@ -2371,6 +2385,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       console.log('✅ [SEGURIDAD] Factura guardada correctamente. Expediente NO modificado.')
       alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente.`)
+      
+      // Recargar historial de versiones para reflejar la nueva factura emitida
+      await cargarVersionesFactura()
     } catch (error) {
       console.error('Error emitiendo factura:', error)
       alert(`❌ Error emitiendo factura: ${error.message}`)
