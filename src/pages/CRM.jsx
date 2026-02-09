@@ -219,26 +219,64 @@ const CRM = () => {
         </>
       )}
 
-      {/* MODAL (Mejorado con autocomplete de clientes) */}
+      {/* MODAL COMPLETO CON TODOS LOS CAMPOS */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xl flex items-end z-50 p-4">
           <div className="bg-white w-full max-w-md rounded-[3.5rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh]">
              <form onSubmit={async (e) => {
                e.preventDefault();
-               const res = editandoId ? await supabase.from('prospectos').update(nuevo).eq('id', editandoId) : await supabase.from('prospectos').insert([nuevo]);
-               if (!res.error) { cerrarModal(); cargarDatos(); }
+               
+               // Preparar datos completos para guardar
+               const datosCompletos = {
+                 fecha: nuevo.fecha,
+                 grupo: nuevo.grupo,
+                 contacto: nuevo.contacto || '',
+                 telefono: nuevo.telefono || '',
+                 interes: nuevo.interes || 'Medio',
+                 notas: nuevo.notas || '',
+                 ubicacion: nuevo.ubicacion || '',
+                 cliente_id: nuevo.cliente_id || null,
+                 cif: nuevo.cif || '',
+                 direccion: nuevo.direccion || '',
+                 poblacion: nuevo.poblacion || '',
+                 provincia: nuevo.provincia || ''
+               }
+               
+               // Usar upsert para insertar o actualizar
+               const res = editandoId 
+                 ? await supabase.from('prospectos').update(datosCompletos).eq('id', editandoId)
+                 : await supabase.from('prospectos').insert([datosCompletos])
+               
+               if (!res.error) { 
+                 cerrarModal()
+                 cargarDatos()
+               } else {
+                 alert('Error al guardar: ' + res.error.message)
+               }
              }} className="space-y-4">
                 <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-2xl font-black italic uppercase tracking-tighter">Nueva Visita</h2>
+                  <h2 className="text-2xl font-black italic uppercase tracking-tighter">
+                    {editandoId ? 'Editar Visita' : 'Nueva Visita'}
+                  </h2>
                   <button type="button" onClick={cerrarModal}><X/></button>
                 </div>
                 
-                <input type="date" className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" value={nuevo.fecha} onChange={e => setNuevo({...nuevo, fecha: e.target.value})} />
+                {/* FECHA */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Fecha</label>
+                  <input 
+                    type="date" 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={nuevo.fecha} 
+                    onChange={e => setNuevo({...nuevo, fecha: e.target.value})} 
+                  />
+                </div>
                 
                 {/* AUTCOMPLETE DE CLIENTES */}
                 <div className="relative">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Buscar Cliente Existente</label>
                   <input 
-                    placeholder="🔍 Buscar cliente existente (ej: Llombai)..." 
+                    placeholder="🔍 Escribe para buscar (ej: Llombai)..." 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
                     value={busquedaCliente} 
                     onChange={e => {
@@ -277,47 +315,131 @@ const CRM = () => {
                   )}
                 </div>
                 
-                <input 
-                  placeholder="Nombre del Grupo" 
-                  required 
-                  className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                  value={nuevo.grupo} 
-                  onChange={e => setNuevo({...nuevo, grupo: e.target.value})} 
-                />
+                {/* NOMBRE DEL GRUPO */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Nombre del Grupo *</label>
+                  <input 
+                    placeholder="Nombre del Grupo" 
+                    required 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={nuevo.grupo} 
+                    onChange={e => setNuevo({...nuevo, grupo: e.target.value})} 
+                  />
+                </div>
                 
-                {/* Campos auto-rellenados (solo lectura si hay cliente seleccionado) */}
+                {/* CIF */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">CIF/NIF</label>
+                  <input 
+                    placeholder="CIF/NIF" 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={nuevo.cif} 
+                    onChange={e => setNuevo({...nuevo, cif: e.target.value})} 
+                  />
+                </div>
+                
+                {/* TELÉFONO */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Teléfono</label>
+                  <input 
+                    placeholder="Teléfono" 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={nuevo.telefono} 
+                    onChange={e => setNuevo({...nuevo, telefono: e.target.value})} 
+                  />
+                </div>
+                
+                {/* CONTACTO */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Persona de Contacto</label>
+                  <input 
+                    placeholder="Persona de Contacto" 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={nuevo.contacto} 
+                    onChange={e => setNuevo({...nuevo, contacto: e.target.value})} 
+                  />
+                </div>
+                
+                {/* DIRECCIÓN */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Dirección</label>
+                  <input 
+                    placeholder="Dirección" 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={nuevo.direccion} 
+                    onChange={e => setNuevo({...nuevo, direccion: e.target.value})} 
+                  />
+                </div>
+                
+                {/* POBLACIÓN */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Población</label>
+                  <input 
+                    placeholder="Población" 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={nuevo.poblacion} 
+                    onChange={e => setNuevo({...nuevo, poblacion: e.target.value})} 
+                  />
+                </div>
+                
+                {/* PROVINCIA */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Provincia</label>
+                  <input 
+                    placeholder="Provincia" 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={nuevo.provincia} 
+                    onChange={e => setNuevo({...nuevo, provincia: e.target.value})} 
+                  />
+                </div>
+                
+                {/* UBICACIÓN (para mapa) */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Ubicación Completa (para mapa)</label>
+                  <input 
+                    placeholder="Ubicación completa..." 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={nuevo.ubicacion} 
+                    onChange={e => setNuevo({...nuevo, ubicacion: e.target.value})} 
+                  />
+                </div>
+                
+                {/* INTERÉS */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Nivel de Interés</label>
+                  <select 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={nuevo.interes} 
+                    onChange={e => setNuevo({...nuevo, interes: e.target.value})}
+                  >
+                    <option value="Alto">Alto</option>
+                    <option value="Medio">Medio</option>
+                    <option value="Bajo">Bajo</option>
+                  </select>
+                </div>
+                
+                {/* NOTAS COMERCIALES */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Notas Comerciales</label>
+                  <textarea 
+                    placeholder="Notas comerciales..." 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] h-28 font-medium" 
+                    value={nuevo.notas} 
+                    onChange={e => setNuevo({...nuevo, notas: e.target.value})} 
+                  />
+                </div>
+                
+                {/* Indicador si es cliente existente */}
                 {clienteSeleccionado && (
-                  <div className="space-y-3 p-4 bg-blue-50 rounded-[1.5rem] border border-blue-100">
-                    <div className="text-xs font-black text-blue-600 uppercase tracking-widest mb-2">Datos del Cliente</div>
-                    {nuevo.cif && <div className="text-sm"><span className="font-bold">CIF:</span> {nuevo.cif}</div>}
-                    {nuevo.direccion && <div className="text-sm"><span className="font-bold">Dirección:</span> {nuevo.direccion}</div>}
-                    {nuevo.poblacion && <div className="text-sm"><span className="font-bold">Población:</span> {nuevo.poblacion}</div>}
-                    {nuevo.telefono && <div className="text-sm"><span className="font-bold">Teléfono:</span> {nuevo.telefono}</div>}
+                  <div className="p-4 bg-green-50 rounded-[1.5rem] border border-green-200">
+                    <div className="text-xs font-black text-green-600 uppercase tracking-widest mb-1">✓ Cliente Existente Vinculado</div>
+                    <div className="text-sm text-green-700">Los datos se han rellenado automáticamente. Puedes editarlos si es necesario.</div>
                   </div>
                 )}
                 
-                <input 
-                  placeholder="Teléfono" 
-                  className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                  value={nuevo.telefono} 
-                  onChange={e => setNuevo({...nuevo, telefono: e.target.value})} 
-                />
-                
-                <input 
-                  placeholder="Ubicación/Dirección" 
-                  className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                  value={nuevo.ubicacion} 
-                  onChange={e => setNuevo({...nuevo, ubicacion: e.target.value})} 
-                />
-                
-                <textarea 
-                  placeholder="Notas comerciales..." 
-                  className="w-full p-5 bg-slate-50 rounded-[1.5rem] h-28" 
-                  value={nuevo.notas} 
-                  onChange={e => setNuevo({...nuevo, notas: e.target.value})} 
-                />
-                
-                <button type="submit" className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black uppercase italic shadow-xl">Sincronizar</button>
+                <button type="submit" className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black uppercase italic shadow-xl hover:bg-blue-600 transition-all">
+                  Sincronizar
+                </button>
              </form>
           </div>
         </div>
