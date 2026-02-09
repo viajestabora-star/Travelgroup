@@ -11,6 +11,7 @@ const Proveedores = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState(null)
+  const [cargando, setCargando] = useState(true)
   
   const [formData, setFormData] = useState({
     nombre_comercial: '', servicio: 'hotel', ciudad: '', cif: '', persona_contacto: '',
@@ -40,11 +41,28 @@ const Proveedores = () => {
   useEffect(() => { fetchProveedores() }, [])
 
   const fetchProveedores = async () => {
-    const { data, error } = await supabase
-      .from('proveedores')
-      .select('*')
-      .order('nombre_comercial', { ascending: true })
-    if (!error) setProveedores(data || [])
+    try {
+      setCargando(true)
+      const { data, error } = await supabase
+        .from('proveedores')
+        .select('*')
+        .order('nombre_comercial', { ascending: true })
+      
+      if (error) {
+        console.error('Error cargando proveedores:', error)
+        setProveedores([])
+        setCargando(false)
+        return
+      }
+      
+      // Control de errores: asegurar que siempre sea un array
+      setProveedores(Array.isArray(data) ? data : [])
+      setCargando(false)
+    } catch (err) {
+      console.error('Error inesperado cargando proveedores:', err)
+      setProveedores([])
+      setCargando(false)
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -108,19 +126,25 @@ const Proveedores = () => {
 
   const closeModal = () => { setShowModal(false); setEditingId(null); }
 
+  // Control de errores: asegurar que proveedores sea siempre un array
+  const proveedoresSeguros = Array.isArray(proveedores) ? proveedores : []
+
   // Filtrar proveedores por búsqueda (nombre comercial o ciudad)
-  const filtered = proveedores.filter(p => {
+  const filtered = proveedoresSeguros.filter(p => {
+    if (!p) return false // Filtrar elementos null/undefined
     if (!searchTerm) return true
     const term = searchTerm.toLowerCase()
     return (
-      p.nombre_comercial?.toLowerCase().includes(term) ||
-      p.ciudad?.toLowerCase().includes(term)
+      (p.nombre_comercial && p.nombre_comercial.toLowerCase().includes(term)) ||
+      (p.ciudad && p.ciudad.toLowerCase().includes(term))
     )
   })
 
   // Agrupar proveedores por tipo (servicio) y ordenar alfabéticamente dentro de cada grupo
   // IMPORTANTE: Usar 'tipo' de la BD, normalizado para comparación
   const proveedoresAgrupados = filtered.reduce((acc, proveedor) => {
+    if (!proveedor) return acc // Saltar si el proveedor es null/undefined
+    
     // Leer 'tipo' de la BD (o 'servicio' como fallback para compatibilidad)
     const tipoBD = proveedor.tipo || proveedor.servicio || 'otros'
     const tipoNormalizado = normalizarTipoServicio(tipoBD)
@@ -173,18 +197,27 @@ const Proveedores = () => {
       </div>
 
       {/* Renderizado agrupado por servicio */}
-      {ordenFinal.length === 0 ? (
+      {cargando ? (
+        <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-12 text-center">
+          <p className="text-slate-400 font-bold text-lg">Cargando proveedores...</p>
+        </div>
+      ) : ordenFinal.length === 0 ? (
         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-12 text-center">
           <p className="text-slate-400 font-bold text-lg">No se encontraron proveedores</p>
         </div>
       ) : (
         ordenFinal.map(servicioLabel => {
-          const proveedoresDelServicio = proveedoresAgrupados[servicioLabel]
+          const proveedoresDelServicio = proveedoresAgrupados[servicioLabel] || []
           // Buscar servicio por label (no por value)
           const servicioInfo = servicios.find(s => s.label === servicioLabel) || { value: servicioLabel.toLowerCase(), label: servicioLabel, icon: '📦' }
           
+          // Control de errores: asegurar que proveedoresDelServicio sea un array
+          if (!Array.isArray(proveedoresDelServicio) || proveedoresDelServicio.length === 0) {
+            return null // No renderizar si no hay proveedores
+          }
+          
           return (
-            <div key={servicio} className="mb-8">
+            <div key={servicioLabel} className="mb-8">
               <div className="bg-slate-900 text-white px-8 py-4 rounded-t-[2.5rem] flex items-center gap-3">
                 <span className="text-2xl">{servicioInfo.icon}</span>
                 <h2 className="text-2xl font-black italic uppercase tracking-tighter">{servicioInfo.label}</h2>
