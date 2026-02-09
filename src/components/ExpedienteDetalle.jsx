@@ -777,50 +777,69 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }
 
       let errorOperacion = null
+      let operacionExitosa = false
 
       if (cobroEnEdicionId) {
+        // UPDATE: Modificar cobro existente
         const { error } = await supabase
           .from('cobros_expediente')
           .update(datosCobro)
           .eq('id', cobroEnEdicionId)
         errorOperacion = error
+        
+        if (!error) {
+          operacionExitosa = true
+          // INSERT EN LOGS INMEDIATAMENTE DESPUÉS DEL UPDATE EXITOSO
+          const { error: logError } = await supabase
+            .from('logs_financieros')
+            .insert([{
+              expediente_id: expediente.id,
+              tipo: 'COBRO',
+              descripcion: `Cambio manual en cobro: ${importeLimpio}€ - ${formCobro.concepto || 'Sin concepto'}`,
+              importe: importeLimpio,
+              usuario: 'Admin'
+            }])
+          if (logError) {
+            console.error("Error guardando log:", logError)
+          } else {
+            // Refrescar historial inmediatamente
+            await cargarLogsFinancieros()
+            console.log("✅ Historial actualizado")
+          }
+        }
       } else {
+        // INSERT: Crear nuevo cobro
         const { error } = await supabase
           .from('cobros_expediente')
           .insert([datosCobro])
         errorOperacion = error
+        
+        if (!error) {
+          operacionExitosa = true
+          // INSERT EN LOGS INMEDIATAMENTE DESPUÉS DEL INSERT EXITOSO
+          const { error: logError } = await supabase
+            .from('logs_financieros')
+            .insert([{
+              expediente_id: expediente.id,
+              tipo: 'COBRO',
+              descripcion: `Cobro registrado: ${importeLimpio}€ - ${formCobro.concepto || 'Sin concepto'}`,
+              importe: importeLimpio,
+              usuario: 'Admin'
+            }])
+          if (logError) {
+            console.error("Error guardando log:", logError)
+          } else {
+            // Refrescar historial inmediatamente
+            await cargarLogsFinancieros()
+            console.log("✅ Historial actualizado")
+          }
+        }
       }
 
       if (errorOperacion) {
         console.error('Error guardando cobro:', errorOperacion)
         alert(`❌ Error guardando cobro:\n\n${errorOperacion.message || JSON.stringify(errorOperacion)}`)
         return
-      }
-
-      // Registrar en logs_financieros
-      try {
-        const descripcion = cobroEnEdicionId 
-          ? `Cobro actualizado: ${formCobro.concepto || 'Sin concepto'}`
-          : `Cobro registrado: ${formCobro.concepto || 'Sin concepto'}`
-        
-        const logFinanciero = {
-          expediente_id: expediente.id,
-          tipo: 'cobro',
-          descripcion: descripcion,
-          importe: importeLimpio
-        }
-        
-        const { error: errorLog } = await supabase
-          .from('logs_financieros')
-          .insert([logFinanciero])
-        
-        if (errorLog) {
-          console.error('Error guardando log financiero:', errorLog)
-          // No bloqueamos el flujo si falla el log
-        }
-      } catch (err) {
-        console.error('Error inesperado guardando log:', err)
-        // No bloqueamos el flujo si falla el log
       }
 
       // Recargar lista de cobros inmediatamente para refrescar la UI
