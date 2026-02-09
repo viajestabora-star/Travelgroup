@@ -117,14 +117,14 @@ const Cierres = () => {
         }
       }
 
-      const todasLasFacturas = Array.from(porNumero.values())
+    const todasLasFacturas = Array.from(porNumero.values())
 
-      // 5) Orden cronológico profesional por fecha_emision descendente
-      todasLasFacturas.sort((a, b) => {
-        const fechaA = a.fecha_emision ? new Date(a.fecha_emision).getTime() : 0
-        const fechaB = b.fecha_emision ? new Date(b.fecha_emision).getTime() : 0
-        return fechaB - fechaA
-      })
+    // 5) Orden cronológico profesional por fecha_emision descendente (más nuevas primero)
+    todasLasFacturas.sort((a, b) => {
+      const fechaA = a.fecha_emision ? new Date(a.fecha_emision).getTime() : 0
+      const fechaB = b.fecha_emision ? new Date(b.fecha_emision).getTime() : 0
+      return fechaB - fechaA
+    })
 
       console.log('Facturas cargadas (unificadas + normalizadas + únicas):', todasLasFacturas)
 
@@ -469,7 +469,14 @@ const Cierres = () => {
 
   const totalFacturado = useMemo(() => {
     if (!facturas || facturas.length === 0) return 0
-    return facturas.reduce((acc, f) => acc + (parseFloat(f.importe_total) || 0), 0)
+    return facturas.reduce((acc, f) => {
+      const total =
+        f.display_total ??
+        f.importe_total ??
+        f.total_factura ??
+        0
+      return acc + (parseFloat(total) || 0)
+    }, 0)
   }, [facturas])
 
   return (
@@ -712,7 +719,7 @@ const Cierres = () => {
 
             {cargandoFacturas ? (
               <div className="py-10 text-center text-slate-500 text-sm">Cargando facturas...</div>
-            ) : facturas.length === 0 ? (
+          ) : facturas.length === 0 ? (
               <div className="py-10 text-center text-slate-500 text-sm flex flex-col items-center gap-2">
                 <FileText className="text-slate-300" size={40} />
                 <span>No hay facturas emitidas todavía.</span>
@@ -753,8 +760,16 @@ const Cierres = () => {
                             })
                           : '-'}
                       </td>
-                      <td className="px-6 py-3 font-semibold text-slate-900">
-                        {factura.display_num || factura.numero_factura || '-'}
+                      <td className="px-6 py-3 font-semibold">
+                        <span
+                          className={
+                            factura.cliente_nombre // heurística: registros de facturas_emitidas_global
+                              ? 'text-emerald-700 font-extrabold'
+                              : 'text-slate-900 font-semibold'
+                          }
+                        >
+                          {factura.display_num || factura.numero_factura || '-'}
+                        </span>
                       </td>
                       <td className="px-6 py-3 text-slate-700">
                         {factura.display_nombre ||
