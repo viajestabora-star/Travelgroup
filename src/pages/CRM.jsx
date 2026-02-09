@@ -177,13 +177,14 @@ const CRM = () => {
   // Función para seleccionar cliente y auto-rellenar
   const seleccionarCliente = (cliente) => {
     setClienteSeleccionado(cliente)
-    setBusquedaCliente(cliente.nombre)
+    // El buscador y el campo grupo se unifican
+    setBusquedaCliente(cliente.nombre || '')
     setMostrarSugerencias(false)
     
     // Auto-rellenar datos del cliente
     setNuevo({
       ...nuevo,
-      grupo: cliente.nombre,
+      grupo: cliente.nombre || '',
       cliente_id: cliente.id,
       cif: cliente.cif_nif || '',
       telefono: cliente.telefono || cliente.movil || '',
@@ -291,9 +292,18 @@ const CRM = () => {
              <form onSubmit={async (e) => {
                e.preventDefault();
 
+               // Validación: el buscador (campo unificado) no puede estar vacío
+               if (!busquedaCliente || !busquedaCliente.trim()) {
+                 alert('Debes indicar el nombre del grupo/cliente en el buscador antes de sincronizar.')
+                 return
+               }
+
                // ========= MAPEO REAL A LA TABLA `prospectos` =========
                // La tabla solo acepta: grupo, contacto, telefono, interes, notas, ubicacion, fecha
                // CIF / Población / Provincia se inyectan temporalmente dentro de "notas"
+
+               // Asegurar que el nombre de grupo viene del buscador unificado
+               const nombreGrupo = busquedaCliente.trim()
 
                // Construir notas extendidas sin enviar columnas inexistentes
                let notasExtendidas = nuevo.notas || ''
@@ -315,7 +325,7 @@ const CRM = () => {
 
                const datosCompletos = {
                  fecha: nuevo.fecha,
-                 grupo: nuevo.grupo,
+                 grupo: nombreGrupo,
                  contacto: nuevo.contacto || '',
                  telefono: nuevo.telefono || '',
                  interes: nuevo.interes || 'Medio',
@@ -355,17 +365,28 @@ const CRM = () => {
                 
                 {/* AUTCOMPLETE DE CLIENTES */}
                 <div className="relative">
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Buscar Cliente Existente</label>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Cliente / Grupo *</label>
                   <input 
                     placeholder="🔍 Escribe para buscar (ej: Llombai)..." 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
                     value={busquedaCliente} 
                     onChange={e => {
-                      setBusquedaCliente(e.target.value)
+                      const valor = e.target.value
+                      setBusquedaCliente(valor)
+                      // El buscador es el ÚNICO origen de grupo
+                      setNuevo({...nuevo, grupo: valor})
                       setMostrarSugerencias(true)
-                      if (!e.target.value) {
+                      if (!valor) {
                         setClienteSeleccionado(null)
-                        setNuevo({...nuevo, cliente_id: null, cif: '', direccion: '', poblacion: '', provincia: '', ubicacion: ''})
+                        setNuevo({
+                          ...nuevo,
+                          cliente_id: null,
+                          cif: '',
+                          direccion: '',
+                          poblacion: '',
+                          provincia: '',
+                          ubicacion: ''
+                        })
                       }
                     }}
                     onFocus={() => setMostrarSugerencias(true)}
@@ -394,18 +415,6 @@ const CRM = () => {
                       No se encontraron clientes
                     </div>
                   )}
-                </div>
-                
-                {/* NOMBRE DEL GRUPO */}
-                <div>
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Nombre del Grupo *</label>
-                  <input 
-                    placeholder="Nombre del Grupo" 
-                    required 
-                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={nuevo.grupo} 
-                    onChange={e => setNuevo({...nuevo, grupo: e.target.value})} 
-                  />
                 </div>
                 
                 {/* CIF */}
