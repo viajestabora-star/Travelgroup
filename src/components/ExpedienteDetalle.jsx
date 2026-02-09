@@ -1736,15 +1736,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         'tipo': typeof datosParaSupabase.id_expediente,
         'coincide_con_expediente_actual': datosParaSupabase.id_expediente === String(expediente.id).trim()
       })
+      console.log('✅ TABLA CORRECTA: servicios_cotizacion')
+      console.log('✅ VALOR RESTAURANTE: El mapeo convierte "Restaurante" -> "restaurante" (igual que en Proveedores.jsx)')
       
-      // Si el servicio tiene ID de Supabase (UUID largo), actualizar; si no, insertar
+      // ============ VERIFICAR SI EL SERVICIO YA EXISTE EN SUPABASE ============
+      // Para evitar duplicados: verificar si ya existe un servicio con el mismo ID en la BD
+      let servicioExiste = false
       if (servicio.id && typeof servicio.id === 'string' && servicio.id.length > 10 && servicio.id.includes('-')) {
-        // Es un UUID de Supabase, actualizar
+        // Verificar si el servicio existe en Supabase
+        const { data: servicioExistente, error: errorVerificacion } = await supabase
+          .from('servicios_cotizacion')
+          .select('id')
+          .eq('id', servicio.id)
+          .eq('id_expediente', String(expediente.id).trim())
+          .single()
+        
+        if (!errorVerificacion && servicioExistente) {
+          servicioExiste = true
+        }
+      }
+      
+      // Si el servicio tiene ID de Supabase y existe, actualizar; si no, insertar
+      if (servicioExiste) {
+        // Es un UUID de Supabase que existe, actualizar
         console.log('🔄 OPERACIÓN: UPDATE (servicio existente en Supabase)')
+        console.log('🔍 ID del servicio a actualizar:', servicio.id)
         const { error } = await supabase
           .from('servicios_cotizacion')
           .update(datosParaSupabase)
           .eq('id', servicio.id)
+          .eq('id_expediente', String(expediente.id).trim()) // Doble verificación para seguridad
         
         if (error) {
           console.error('❌ Error actualizando servicio:', error)
@@ -1752,8 +1773,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           console.log('✅ Servicio actualizado en Supabase:', servicio.id)
         }
       } else {
-        // Es un UUID temporal, insertar nuevo
+        // Es un UUID temporal o no existe, insertar nuevo
         console.log('➕ OPERACIÓN: INSERT (nuevo servicio)')
+        console.log('🔍 ID temporal del servicio:', servicio.id)
         const { data, error } = await supabase
           .from('servicios_cotizacion')
           .insert([datosParaSupabase])
