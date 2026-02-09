@@ -16,8 +16,15 @@ const CRM = () => {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [fechaSeleccionada, setFechaSeleccionada] = useState(new Date().toISOString().split('T')[0])
   const [nuevo, setNuevo] = useState({
-    grupo: '', contacto: '', telefono: '', interes: 'Medio', notas: '', ubicacion: '', fecha: new Date().toISOString().split('T')[0]
+    grupo: '', contacto: '', telefono: '', interes: 'Medio', notas: '', ubicacion: '', fecha: new Date().toISOString().split('T')[0],
+    cliente_id: null, cif: '', direccion: '', poblacion: '', provincia: ''
   })
+  
+  // Estados para autocomplete de clientes
+  const [clientes, setClientes] = useState([])
+  const [busquedaCliente, setBusquedaCliente] = useState('')
+  const [mostrarSugerencias, setMostrarSugerencias] = useState(false)
+  const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
 
   const cargarDatos = async () => {
     const { data: pros } = await supabase.from('prospectos').select('*').order('fecha', { ascending: false })
@@ -25,8 +32,19 @@ const CRM = () => {
     if (pros) setProspectos(pros)
     if (countCli !== null) setTotalClientes(countCli)
   }
+  
+  const cargarClientes = async () => {
+    const { data, error } = await supabase
+      .from('clientes')
+      .select('id, nombre, cif_nif, telefono, direccion, poblacion, provincia, movil')
+      .order('nombre', { ascending: true })
+    if (!error && data) setClientes(data || [])
+  }
 
-  useEffect(() => { cargarDatos() }, [])
+  useEffect(() => { 
+    cargarDatos()
+    cargarClientes()
+  }, [])
 
   // KPIs Estratégicos (Calculados para la pestaña Métricas)
   const stats = useMemo(() => {
@@ -44,9 +62,19 @@ const CRM = () => {
   const visitasAgenda = prospectos.filter(p => p.fecha === fechaSeleccionada)
   const visitasHistorial = prospectos.filter(p => p.fecha < hoyStr)
   
-  const datosMostrar = busqueda 
-    ? prospectos.filter(p => p.grupo.toLowerCase().includes(busqueda.toLowerCase()))
-    : (activeTab === 'agenda' ? visitasAgenda : visitasHistorial)
+  // Filtrar y ordenar datos para mostrar (orden alfabético en historial)
+  const datosMostrar = useMemo(() => {
+    let datos = busqueda 
+      ? prospectos.filter(p => p.grupo.toLowerCase().includes(busqueda.toLowerCase()))
+      : (activeTab === 'agenda' ? visitasAgenda : visitasHistorial)
+    
+    // Orden alfabético en historial
+    if (activeTab === 'historial' && !busqueda) {
+      datos = [...datos].sort((a, b) => (a.grupo || '').localeCompare(b.grupo || ''))
+    }
+    
+    return datos
+  }, [busqueda, activeTab, prospectos, visitasAgenda, visitasHistorial])
 
   const renderCalendar = () => {
     const firstDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay()
@@ -70,9 +98,39 @@ const CRM = () => {
   }
 
   const cerrarModal = () => {
-    setNuevo({ grupo: '', contacto: '', telefono: '', interes: 'Medio', notas: '', ubicacion: '', fecha: new Date().toISOString().split('T')[0] })
-    setEditandoId(null); setShowModal(false)
+    setNuevo({ grupo: '', contacto: '', telefono: '', interes: 'Medio', notas: '', ubicacion: '', fecha: new Date().toISOString().split('T')[0],
+      cliente_id: null, cif: '', direccion: '', poblacion: '', provincia: '' })
+    setEditandoId(null)
+    setShowModal(false)
+    setBusquedaCliente('')
+    setClienteSeleccionado(null)
+    setMostrarSugerencias(false)
   }
+  
+  // Función para seleccionar cliente y auto-rellenar
+  const seleccionarCliente = (cliente) => {
+    setClienteSeleccionado(cliente)
+    setBusquedaCliente(cliente.nombre)
+    setMostrarSugerencias(false)
+    
+    // Auto-rellenar datos del cliente
+    setNuevo({
+      ...nuevo,
+      grupo: cliente.nombre,
+      cliente_id: cliente.id,
+      cif: cliente.cif_nif || '',
+      telefono: cliente.telefono || cliente.movil || '',
+      direccion: cliente.direccion || '',
+      poblacion: cliente.poblacion || '',
+      provincia: cliente.provincia || '',
+      ubicacion: `${cliente.direccion || ''}, ${cliente.poblacion || ''}, ${cliente.provincia || ''}`.replace(/^,\s*|,\s*$/g, '').replace(/,\s*,/g, ',')
+    })
+  }
+  
+  // Filtrar clientes para autocomplete
+  const clientesFiltrados = clientes.filter(c => 
+    !busquedaCliente || c.nombre.toLowerCase().includes(busquedaCliente.toLowerCase())
+  ).slice(0, 10) // Limitar a 10 resultados
 
   return (
     <div className="p-4 bg-[#F8FAFC] min-h-screen pb-32 font-sans text-slate-900">
@@ -132,7 +190,26 @@ const CRM = () => {
             </h3>
             {datosMostrar.map(p => (
               <VisitaCard key={p.id} p={p} 
-                onEdit={() => {setEditandoId(p.id); setNuevo(p); setShowModal(true)}} 
+                onEdit={async () => {
+                  setEditandoId(p.id)
+                  setNuevo(p)
+                  // Si tiene cliente_id, cargar datos del cliente
+                  if (p.cliente_id) {
+                    const { data: cliente } = await supabase
+                      .from('clientes')
+                      .select('*')
+                      .eq('id', p.cliente_id)
+                      .single()
+                    if (cliente) {
+                      setClienteSeleccionado(cliente)
+                      setBusquedaCliente(cliente.nombre)
+                    }
+                  } else {
+                    setClienteSeleccionado(null)
+                    setBusquedaCliente('')
+                  }
+                  setShowModal(true)
+                }} 
                 onDelete={async () => { if(window.confirm(`¿Borrar visita?`)) { await supabase.from('prospectos').delete().eq('id', p.id); cargarDatos() } }}
                 onPass={async () => { if(window.confirm(`¿Convertir a cliente?`)) { await supabase.from('clientes').insert([{nombre: p.grupo, telefono: p.telefono, contacto: p.contacto, notas: p.notas}]); await supabase.from('prospectos').delete().eq('id', p.id); cargarDatos() } }}
               />
@@ -142,7 +219,7 @@ const CRM = () => {
         </>
       )}
 
-      {/* MODAL (Simplificado para brevedad, misma lógica) */}
+      {/* MODAL (Mejorado con autocomplete de clientes) */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xl flex items-end z-50 p-4">
           <div className="bg-white w-full max-w-md rounded-[3.5rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -151,10 +228,95 @@ const CRM = () => {
                const res = editandoId ? await supabase.from('prospectos').update(nuevo).eq('id', editandoId) : await supabase.from('prospectos').insert([nuevo]);
                if (!res.error) { cerrarModal(); cargarDatos(); }
              }} className="space-y-4">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-black italic uppercase tracking-tighter">Gestionar</h2><button type="button" onClick={cerrarModal}><X/></button></div>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-2xl font-black italic uppercase tracking-tighter">Nueva Visita</h2>
+                  <button type="button" onClick={cerrarModal}><X/></button>
+                </div>
+                
                 <input type="date" className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" value={nuevo.fecha} onChange={e => setNuevo({...nuevo, fecha: e.target.value})} />
-                <input placeholder="Nombre del Grupo" required className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" value={nuevo.grupo} onChange={e => setNuevo({...nuevo, grupo: e.target.value})} />
-                <textarea placeholder="Notas comerciales..." className="w-full p-5 bg-slate-50 rounded-[1.5rem] h-28" value={nuevo.notas} onChange={e => setNuevo({...nuevo, notas: e.target.value})} />
+                
+                {/* AUTCOMPLETE DE CLIENTES */}
+                <div className="relative">
+                  <input 
+                    placeholder="🔍 Buscar cliente existente (ej: Llombai)..." 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                    value={busquedaCliente} 
+                    onChange={e => {
+                      setBusquedaCliente(e.target.value)
+                      setMostrarSugerencias(true)
+                      if (!e.target.value) {
+                        setClienteSeleccionado(null)
+                        setNuevo({...nuevo, cliente_id: null, cif: '', direccion: '', poblacion: '', provincia: '', ubicacion: ''})
+                      }
+                    }}
+                    onFocus={() => setMostrarSugerencias(true)}
+                    onBlur={() => setTimeout(() => setMostrarSugerencias(false), 200)}
+                  />
+                  {mostrarSugerencias && busquedaCliente && clientesFiltrados.length > 0 && (
+                    <div className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl max-h-48 overflow-y-auto">
+                      {clientesFiltrados.map(cliente => (
+                        <button
+                          key={cliente.id}
+                          type="button"
+                          onClick={() => seleccionarCliente(cliente)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          className="w-full text-left px-5 py-4 hover:bg-blue-50 border-b border-slate-100 transition-colors"
+                        >
+                          <div className="font-bold text-slate-900">{cliente.nombre}</div>
+                          {cliente.poblacion && (
+                            <div className="text-xs text-slate-500">{cliente.poblacion}</div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {mostrarSugerencias && busquedaCliente && clientesFiltrados.length === 0 && (
+                    <div className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 text-center text-slate-400 text-sm">
+                      No se encontraron clientes
+                    </div>
+                  )}
+                </div>
+                
+                <input 
+                  placeholder="Nombre del Grupo" 
+                  required 
+                  className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                  value={nuevo.grupo} 
+                  onChange={e => setNuevo({...nuevo, grupo: e.target.value})} 
+                />
+                
+                {/* Campos auto-rellenados (solo lectura si hay cliente seleccionado) */}
+                {clienteSeleccionado && (
+                  <div className="space-y-3 p-4 bg-blue-50 rounded-[1.5rem] border border-blue-100">
+                    <div className="text-xs font-black text-blue-600 uppercase tracking-widest mb-2">Datos del Cliente</div>
+                    {nuevo.cif && <div className="text-sm"><span className="font-bold">CIF:</span> {nuevo.cif}</div>}
+                    {nuevo.direccion && <div className="text-sm"><span className="font-bold">Dirección:</span> {nuevo.direccion}</div>}
+                    {nuevo.poblacion && <div className="text-sm"><span className="font-bold">Población:</span> {nuevo.poblacion}</div>}
+                    {nuevo.telefono && <div className="text-sm"><span className="font-bold">Teléfono:</span> {nuevo.telefono}</div>}
+                  </div>
+                )}
+                
+                <input 
+                  placeholder="Teléfono" 
+                  className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                  value={nuevo.telefono} 
+                  onChange={e => setNuevo({...nuevo, telefono: e.target.value})} 
+                />
+                
+                <input 
+                  placeholder="Ubicación/Dirección" 
+                  className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
+                  value={nuevo.ubicacion} 
+                  onChange={e => setNuevo({...nuevo, ubicacion: e.target.value})} 
+                />
+                
+                <textarea 
+                  placeholder="Notas comerciales..." 
+                  className="w-full p-5 bg-slate-50 rounded-[1.5rem] h-28" 
+                  value={nuevo.notas} 
+                  onChange={e => setNuevo({...nuevo, notas: e.target.value})} 
+                />
+                
                 <button type="submit" className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black uppercase italic shadow-xl">Sincronizar</button>
              </form>
           </div>
@@ -176,22 +338,42 @@ const MetricCard = ({ icon, label, value, color }) => (
   </div>
 )
 
-const VisitaCard = ({ p, onEdit, onDelete, onPass }) => (
-  <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-slate-50 relative group">
-    <div className="flex justify-between mb-4">
-      <span className="text-[9px] font-black px-4 py-1.5 rounded-full uppercase bg-blue-50 text-blue-500 tracking-tighter">{p.fecha}</span>
-      <div className="flex gap-4">
-        <button onClick={onEdit} className="text-slate-300"><Edit3 size={18}/></button>
-        <button onClick={onDelete} className="text-slate-100 hover:text-red-500"><Trash2 size={18}/></button>
+const VisitaCard = ({ p, onEdit, onDelete, onPass }) => {
+  // Obtener datos del cliente si está vinculado
+  const telefonoParaLlamar = p.telefono || ''
+  const direccionParaMapa = p.ubicacion || p.direccion || ''
+  const urlMapa = direccionParaMapa ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccionParaMapa)}` : '#'
+  
+  return (
+    <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-slate-50 relative group">
+      <div className="flex justify-between mb-4">
+        <span className="text-[9px] font-black px-4 py-1.5 rounded-full uppercase bg-blue-50 text-blue-500 tracking-tighter">{p.fecha}</span>
+        <div className="flex gap-4">
+          <button onClick={onEdit} className="text-slate-300"><Edit3 size={18}/></button>
+          <button onClick={onDelete} className="text-slate-100 hover:text-red-500"><Trash2 size={18}/></button>
+        </div>
+      </div>
+      <h3 className="font-bold text-xl text-slate-800 mb-1 leading-tight">{p.grupo}</h3>
+      {p.cliente_id && (
+        <span className="inline-block text-[9px] font-black px-3 py-1 rounded-full uppercase bg-green-50 text-green-600 tracking-tighter mb-2">
+          Cliente Existente
+        </span>
+      )}
+      <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">{p.notas || 'Sin anotaciones'}</p>
+      <div className="grid grid-cols-2 gap-4">
+        {telefonoParaLlamar ? (
+          <a href={`tel:${telefonoParaLlamar}`} className="bg-slate-900 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase tracking-widest"><Phone size={14}/> LLAMAR</a>
+        ) : (
+          <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase"><Phone size={14}/> LLAMAR</button>
+        )}
+        {direccionParaMapa ? (
+          <a href={urlMapa} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase shadow-lg shadow-blue-100"><Navigation size={14}/> MAPA</a>
+        ) : (
+          <button onClick={onPass} className="bg-blue-600 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase shadow-lg shadow-blue-100"><UserPlus size={14}/> CLIENTE</button>
+        )}
       </div>
     </div>
-    <h3 className="font-bold text-xl text-slate-800 mb-1 leading-tight">{p.grupo}</h3>
-    <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">{p.notas || 'Sin anotaciones'}</p>
-    <div className="grid grid-cols-2 gap-4">
-      <a href={`tel:${p.telefono}`} className="bg-slate-900 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase tracking-widest"><Phone size={14}/> LLAMAR</a>
-      <button onClick={onPass} className="bg-blue-600 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase shadow-lg shadow-blue-100"><UserPlus size={14}/> CLIENTE</button>
-    </div>
-  </div>
-)
+  )
+}
 
 export default CRM
