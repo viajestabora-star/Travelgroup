@@ -41,23 +41,87 @@ const Cierres = () => {
     }
   }, [tabActiva])
 
-  // ===================== LECTURA FACTURAS (SINCRONIZADO CON facturas_emitidas_global) =====================
+  // ===================== LECTURA FACTURAS (UNIFICADA + NORMALIZADA) =====================
   const cargarFacturas = async () => {
     setCargandoFacturas(true)
     try {
-      const { data, error } = await supabase
+      // 1) Lectura de facturas globales (facturas_emitidas_global)
+      const { data: facturasGlobal, error: errorGlobal } = await supabase
         .from('facturas_emitidas_global')
-        .select('id, numero_factura, cliente_nombre, cliente_documento, importe_total, fecha_emision, datos_json')
-        .order('fecha_emision', { ascending: false })
-      console.log('Facturas cargadas:', data)
-      if (error) {
-        console.error('Error cargando facturas:', error)
-        setFacturas([])
-        return
+        .select('*')
+
+      // 2) Lectura de facturas de expedientes normales (tabla facturas)
+      const { data: facturasExpedientes, error: errorExpedientes } = await supabase
+        .from('facturas')
+        .select('*')
+
+      if (errorGlobal) {
+        console.error('Error cargando facturas_emitidas_global:', errorGlobal)
       }
-      setFacturas(data || [])
+      if (errorExpedientes) {
+        console.error('Error cargando facturas (expedientes):', errorExpedientes)
+      }
+
+      const listaGlobal = Array.isArray(facturasGlobal) ? facturasGlobal : []
+      const listaExpedientes = Array.isArray(facturasExpedientes) ? facturasExpedientes : []
+
+      // 3) Normalización de ambas fuentes a un shape uniforme
+      const normalizadasGlobal = listaGlobal.map((f) => {
+        const datos = f.datos_json || f.datos_factura || {}
+        const receptor = datos.receptor || datos.formFactura || {}
+        return {
+          ...f,
+          num_final: f.numero_factura || '',
+          nombre_final:
+            f.cliente_nombre ||
+            f.cliente ||
+            f.nombre_cliente ||
+            receptor.nombre ||
+            '',
+          doc_final:
+            f.cliente_documento ||
+            receptor.cif_nif ||
+            receptor.dni ||
+            ''
+        }
+      })
+
+      const normalizadasExpedientes = listaExpedientes.map((f) => {
+        const datos = f.datos_json || f.datos_factura || {}
+        const receptor = datos.receptor || datos.formFactura || {}
+        return {
+          ...f,
+          num_final: f.numero_factura || '',
+          nombre_final:
+            f.cliente_nombre ||
+            f.cliente ||
+            f.nombre_cliente ||
+            f.grupo ||
+            receptor.nombre ||
+            '',
+          doc_final:
+            f.cliente_documento ||
+            receptor.cif_nif ||
+            receptor.dni ||
+            ''
+        }
+      })
+
+      // 4) Unificación de ambas fuentes en un solo array
+      const todasLasFacturas = [...normalizadasGlobal, ...normalizadasExpedientes]
+
+      // 5) Orden cronológico profesional por fecha_emision descendente
+      todasLasFacturas.sort((a, b) => {
+        const fechaA = a.fecha_emision ? new Date(a.fecha_emision).getTime() : 0
+        const fechaB = b.fecha_emision ? new Date(b.fecha_emision).getTime() : 0
+        return fechaB - fechaA
+      })
+
+      console.log('Facturas cargadas (unificadas + normalizadas):', todasLasFacturas)
+
+      setFacturas(todasLasFacturas)
     } catch (err) {
-      console.error('Error inesperado:', err)
+      console.error('Error inesperado unificando facturas:', err)
       setFacturas([])
     } finally {
       setCargandoFacturas(false)
@@ -681,13 +745,21 @@ const Cierres = () => {
                           : '-'}
                       </td>
                       <td className="px-6 py-3 font-semibold text-slate-900">
-                        {factura.numero_factura || '-'}
+                        {factura.num_final || factura.numero_factura || '-'}
                       </td>
                       <td className="px-6 py-3 text-slate-700">
-                        {factura.cliente_nombre || 'Sin cliente'}
+                        {factura.nombre_final ||
+                          factura.cliente_nombre ||
+                          factura.cliente ||
+                          factura.nombre_cliente ||
+                          'Sin cliente'}
                       </td>
                       <td className="px-6 py-3 text-slate-700">
-                        {factura.cliente_documento || factura.datos_json?.receptor?.cif_nif || '-'}
+                        {factura.doc_final ||
+                          factura.cliente_documento ||
+                          factura.datos_json?.receptor?.cif_nif ||
+                          factura.datos_json?.receptor?.dni ||
+                          '-'}
                       </td>
                       <td className="px-6 py-3 text-right font-bold text-emerald-700">
                         {factura.importe_total
