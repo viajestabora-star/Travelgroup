@@ -1804,40 +1804,56 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }, [formData?.precio_venta_cliente, formData?.bonificacion_pax, paxPago, suplementos.totalSuplementos])
 
   // ============ OBTENER SIGUIENTE NÚMERO DE FACTURA (NUMERACIÓN GLOBAL ÚNICA) ============
-  // IMPORTANTE: Consulta facturas_emitidas_global para numeración correlativa global
-  // Si se crea 2026-0001 en un expediente, la siguiente en Cierres será 2026-0002
+  // SIEMPRE consulta AMBAS tablas (facturas_emitidas_global Y facturas) para garantizar numeración única
   const obtenerSiguienteNumeroFactura = async () => {
     const año = new Date().getFullYear()
 
     try {
       // En modo prueba usamos una serie ficticia TEST-XXX para no consumir numeración real
+      // PERO TAMBIÉN consultamos ambas tablas en modo prueba
       if (MODO_PRUEBA_FACTURACION) {
-        const { data, error } = await supabase
+        // Consultar ambas tablas para TEST
+        const { data: dataGlobalTest, error: errorGlobalTest } = await supabase
           .from('facturas_emitidas_global')
           .select('numero_factura')
           .ilike('numero_factura', 'TEST-%')
-          .order('numero_factura', { ascending: false })
-          .limit(1)
 
-        if (error) {
-          console.error('Error obteniendo último número de factura de prueba:', error)
+        const { data: dataExpedientesTest, error: errorExpedientesTest } = await supabase
+          .from('facturas')
+          .select('numero_factura')
+          .ilike('numero_factura', 'TEST-%')
+
+        if (errorGlobalTest) {
+          console.error('Error obteniendo facturas TEST de facturas_emitidas_global:', errorGlobalTest)
+        }
+        if (errorExpedientesTest) {
+          console.error('Error obteniendo facturas TEST de facturas:', errorExpedientesTest)
+        }
+
+        const todasLasFacturasTest = [
+          ...(Array.isArray(dataGlobalTest) ? dataGlobalTest : []),
+          ...(Array.isArray(dataExpedientesTest) ? dataExpedientesTest : [])
+        ]
+
+        let maxNumeroTest = 0
+        todasLasFacturasTest.forEach((f) => {
+          if (f?.numero_factura) {
+            const partes = String(f.numero_factura).split('-')
+            if (partes.length === 2) {
+              const numero = parseInt(partes[1], 10)
+              if (!isNaN(numero) && numero > maxNumeroTest) {
+                maxNumeroTest = numero
+              }
+            }
+          }
+        })
+
+        if (maxNumeroTest === 0) {
           return 'TEST-0001'
         }
 
-        let siguienteSecuencia = 1
-
-        if (Array.isArray(data) && data.length > 0 && data[0]?.numero_factura) {
-          const partes = String(data[0].numero_factura).split('-')
-          if (partes.length === 2) {
-            const numeroActual = parseInt(partes[1], 10)
-            if (!isNaN(numeroActual) && numeroActual >= 0) {
-              siguienteSecuencia = numeroActual + 1
-            }
-          }
-        }
-
-        const sufijo = String(siguienteSecuencia).padStart(4, '0')
-        return `TEST-${sufijo}`
+        const siguienteNumTest = maxNumeroTest + 1
+        return `TEST-${String(siguienteNumTest).padStart(4, '0')}`
       }
 
       // NUMERACIÓN GLOBAL Y ÚNICA: Consultar AMBAS tablas para garantizar unicidad
@@ -1846,14 +1862,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         .from('facturas_emitidas_global')
         .select('numero_factura')
         .ilike('numero_factura', `${año}-%`)
-        .order('numero_factura', { ascending: false })
 
       // 2) Consultar facturas (expedientes)
       const { data: dataExpedientes, error: errorExpedientes } = await supabase
         .from('facturas')
         .select('numero_factura')
         .ilike('numero_factura', `${año}-%`)
-        .order('numero_factura', { ascending: false })
 
       if (errorGlobal) {
         console.error('Error obteniendo facturas de facturas_emitidas_global:', errorGlobal)
@@ -1882,10 +1896,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         }
       })
 
-      // 5) Si no hay facturas, iniciar numeración
+      // 5) Si no hay facturas (maxNumero === 0), devolver 2026-0001
       if (maxNumero === 0) {
-        console.log('No hay facturas del año actual. Iniciando numeración.')
-        return `${año}-0001`
+        console.log('No hay facturas del año actual. Iniciando numeración con 2026-0001.')
+        return '2026-0001'
       }
 
       // 6) Devolver el siguiente número
@@ -1894,7 +1908,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     } catch (err) {
       console.error('Error inesperado generando numero_factura:', err)
       // Fallback seguro: devolver el primer número del año
-      return `${año}-0001`
+      return '2026-0001'
     }
   }
 

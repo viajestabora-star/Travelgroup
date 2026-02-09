@@ -194,7 +194,7 @@ const Cierres = () => {
   }
 
   // ===================== GENERACIÓN NÚMERO DE FACTURA (ÚNICO Y GLOBAL) =====================
-  // Consulta AMBAS tablas para garantizar numeración única y global
+  // SIEMPRE consulta AMBAS tablas (facturas_emitidas_global Y facturas) para garantizar numeración única
   const obtenerSiguienteNumeroFactura = async () => {
     const año = new Date().getFullYear()
 
@@ -204,14 +204,12 @@ const Cierres = () => {
         .from('facturas_emitidas_global')
         .select('numero_factura')
         .ilike('numero_factura', `${año}-%`)
-        .order('numero_factura', { ascending: false })
 
       // 2) Consultar facturas (expedientes)
       const { data: dataExpedientes, error: errorExpedientes } = await supabase
         .from('facturas')
         .select('numero_factura')
         .ilike('numero_factura', `${año}-%`)
-        .order('numero_factura', { ascending: false })
 
       if (errorGlobal) {
         console.error('Error obteniendo facturas de facturas_emitidas_global:', errorGlobal)
@@ -240,10 +238,10 @@ const Cierres = () => {
         }
       })
 
-      // 5) Si no hay facturas, iniciar numeración
+      // 5) Si no hay facturas (maxNumero === 0), devolver 2026-0001
       if (maxNumero === 0) {
-        console.log('No hay facturas del año actual. Iniciando numeración.')
-        return `${año}-0001`
+        console.log('No hay facturas del año actual. Iniciando numeración con 2026-0001.')
+        return '2026-0001'
       }
 
       // 6) Devolver el siguiente número
@@ -252,7 +250,7 @@ const Cierres = () => {
     } catch (err) {
       console.error('Error inesperado obteniendo número de factura:', err)
       // Fallback seguro: devolver el primer número del año
-      return `${año}-0001`
+      return '2026-0001'
     }
   }
 
