@@ -815,6 +815,87 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }, [tab, expediente?.id])
 
+  // ============ CARGAR FACTURAS EMITIDAS ============
+  const cargarFacturasEmitidas = async () => {
+    if (!expediente?.id) {
+      setFacturasEmitidas([])
+      return
+    }
+    
+    setCargandoFacturasEmitidas(true)
+    try {
+      const { data, error } = await supabase
+        .from('facturas_emitidas')
+        .select('*')
+        .eq('expediente_id', expediente.id)
+        .order('created_at', { ascending: false })
+      
+      if (error) {
+        console.error('Error cargando facturas emitidas:', error)
+        setFacturasEmitidas([])
+        return
+      }
+      
+      setFacturasEmitidas(data || [])
+    } catch (error) {
+      console.error('Error fatal cargando facturas emitidas:', error)
+      setFacturasEmitidas([])
+    } finally {
+      setCargandoFacturasEmitidas(false)
+    }
+  }
+
+  // Cargar facturas emitidas cuando se abre la pestaña de cierres
+  useEffect(() => {
+    if (tab === 'cierre' && expediente?.id) {
+      cargarFacturasEmitidas()
+    }
+  }, [tab, expediente?.id])
+
+  // ============ REGENERAR PDF DESDE DATOS ============
+  const regenerarPDFDesdeDatos = async (facturaEmitida) => {
+    if (!facturaEmitida?.datos_factura) {
+      alert('❌ Error: No hay datos de factura para regenerar el PDF')
+      return
+    }
+    
+    const datos = facturaEmitida.datos_factura
+    const numeroFactura = facturaEmitida.numero_factura || datos.numero_factura
+    
+    // Restaurar datos del formulario temporalmente para generar el PDF
+    if (datos.formFactura) {
+      setFormFactura(datos.formFactura)
+    }
+    
+    // Generar PDF con los datos guardados
+    await generarFacturaPDF(numeroFactura, datos)
+    
+    alert('✅ PDF regenerado y descargado')
+  }
+
+  // ============ FACTURAR A PASAJERO INDIVIDUAL ============
+  const facturarPasajeroIndividual = async (pasajero) => {
+    if (!pasajero) {
+      alert('❌ Error: No se ha seleccionado un pasajero')
+      return
+    }
+    
+    // Usar datos del pasajero para el receptor
+    setFormFactura({
+      receptorNombre: pasajero.nombre || pasajero.nombre_completo || 'Sin nombre',
+      receptorCIF: pasajero.dni || pasajero.cif || '',
+      receptorDireccion: pasajero.direccion || '',
+      receptorPoblacion: pasajero.poblacion || '',
+      receptorProvincia: pasajero.provincia || '',
+      receptorCP: pasajero.cp || ''
+    })
+    
+    // Cambiar a la pestaña de facturación
+    setTab('facturacion')
+    
+    alert('✅ Datos del pasajero cargados. Completa la factura y emítela.')
+  }
+
   // ============ CARGAR LOGS FINANCIEROS ============
   const cargarLogsFinancieros = async () => {
     if (!expediente?.id) {
@@ -1230,6 +1311,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // Estados para Versiones de Facturas
   const [versionesFactura, setVersionesFactura] = useState([])
   const [cargandoVersiones, setCargandoVersiones] = useState(false)
+  
+  // Estados para Facturas Emitidas (Cierres)
+  const [facturasEmitidas, setFacturasEmitidas] = useState([])
+  const [cargandoFacturasEmitidas, setCargandoFacturasEmitidas] = useState(false)
 
   // Tabs
   const tabs = [
@@ -2208,6 +2293,80 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       // Generar PDF
       await generarFacturaPDF(numeroFactura, datosFactura)
+
+      // INSERT EN facturas_emitidas DESPUÉS DE GENERAR EL PDF
+      try {
+        // Obtener cliente_nombre del expediente
+        const clienteNombre = expediente?.cliente_nombre || 
+                              expediente?.nombre_grupo || 
+                              expediente?.clienteNombre || 
+                              grupo?.nombre || 
+                              'Sin nombre'
+        
+        // Preparar datos_factura (JSON completo)
+        const datosFacturaCompletos = {
+          ...datosFactura,
+          formFactura: { ...formFactura },
+          calcularBaseFactura: {
+            precioVentaPax: calcularBaseFactura.precioVentaPax,
+            precioNetoPax: calcularBaseFactura.precioNetoPax,
+            paxPago: calcularBaseFactura.paxPago,
+            totalServiciosConIVA: calcularBaseFactura.totalServiciosConIVA,
+            totalSuplementos: calcularBaseFactura.totalSuplementos,
+            baseImponible: calcularBaseFactura.baseImponible,
+            iva: calcularBaseFactura.iva,
+            totalFactura: calcularBaseFactura.totalFactura
+          },
+          expediente: {
+            id: expediente.id,
+            nombre_grupo: expediente?.nombre_grupo || '',
+            destino: expediente?.destino || '',
+            fecha_inicio: expediente?.fecha_inicio || expediente?.fechaInicio || '',
+            fecha_final: expediente?.fecha_final || expediente?.fechaFin || ''
+          }
+        }
+        
+        const { error: errorEmitida } = await supabase
+          .from('facturas_emitidas')
+          .insert([{
+            expediente_id: expediente.id,
+            cliente_nombre: clienteNombre,
+            importe_total: parseFloat(calcularBaseFactura.totalFactura),
+            datos_factura: datosFacturaCompletos,
+            numero_factura: numeroFactura,
+            url_pdf: null // Se puede subir después si es necesario
+          }])
+        
+        if (errorEmitida) {
+          console.error('❌ Error guardando en facturas_emitidas:', errorEmitida)
+          // No bloqueamos el flujo si falla
+        } else {
+          console.log('✅ Factura registrada en facturas_emitidas')
+        }
+
+        // INSERT EN facturas_emitidas_global (sincronización total)
+        const { error: errorGlobal } = await supabase
+          .from('facturas_emitidas_global')
+          .insert([{
+            expediente_id: expediente.id,
+            cliente_nombre: clienteNombre,
+            importe_total: parseFloat(calcularBaseFactura.totalFactura),
+            datos_factura: datosFacturaCompletos,
+            numero_factura: numeroFactura,
+            tipo: 'grupo', // Factura de grupo
+            url_pdf: null
+          }])
+        
+        if (errorGlobal) {
+          console.error('❌ Error guardando en facturas_emitidas_global:', errorGlobal)
+          // No bloqueamos el flujo si falla
+        } else {
+          console.log('✅ Factura registrada en facturas_emitidas_global')
+        }
+      } catch (err) {
+        console.error('❌ Error inesperado guardando en facturas_emitidas:', err)
+        // No bloqueamos el flujo si falla
+      }
 
       console.log('✅ [SEGURIDAD] Factura guardada correctamente. Expediente NO modificado.')
       alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente.`)
@@ -5026,9 +5185,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
             {/* TAB: Cierre de Grupo */}
           {tab === 'cierre' && (
-              <div className="max-w-4xl mx-auto">
+              <div className="max-w-6xl mx-auto space-y-6">
+                {/* Resumen Financiero */}
                 <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200">
-                  <h3 className="text-xl font-bold text-navy-900 mb-6">Cierre de Grupo</h3>
+                  <h3 className="text-xl font-bold text-navy-900 mb-6">Resumen Financiero</h3>
                   
                   {expediente?.cotizacion?.resultados ? (
                     <div className="space-y-4">
@@ -5037,7 +5197,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <span className="text-xl font-bold text-green-600">
                           {(expediente.cotizacion.resultados.totalIngresos || 0).toFixed(2)}€
                         </span>
-            </div>
+                      </div>
                       <div className="flex justify-between py-3 border-b">
                         <span className="font-semibold">Total Gastos:</span>
                         <span className="text-xl font-bold text-red-600">
@@ -5061,9 +5221,88 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                     <p className="text-center text-gray-500 py-8">
                       No hay datos de cotización. Completa la cotización primero.
                     </p>
-          )}
-        </div>
-            </div>
+                  )}
+                </div>
+
+                {/* Historial de Facturas Emitidas */}
+                <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-bold text-navy-900">Facturas Emitidas</h3>
+                    <button
+                      onClick={() => setTab('facturacion')}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+                    >
+                      <FileText size={18} />
+                      Nueva Factura
+                    </button>
+                  </div>
+                  
+                  {cargandoFacturasEmitidas ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <p>Cargando facturas...</p>
+                    </div>
+                  ) : facturasEmitidas.length === 0 ? (
+                    <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                      <p className="text-gray-600 text-center">No hay facturas emitidas para este expediente.</p>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                      <table className="w-full">
+                        <thead className="bg-slate-900 text-white">
+                          <tr>
+                            <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Nº Factura</th>
+                            <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Cliente</th>
+                            <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-right">Importe</th>
+                            <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Fecha</th>
+                            <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-center">Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {facturasEmitidas.map((factura) => (
+                            <tr key={factura.id} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-4 py-3 text-sm font-semibold text-gray-900">
+                                {factura.numero_factura || '-'}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700">
+                                {factura.cliente_nombre || '-'}
+                              </td>
+                              <td className="px-4 py-3 text-sm font-bold text-green-700 text-right">
+                                {factura.importe_total ? `${Number(factura.importe_total).toFixed(2)}€` : '-'}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700">
+                                {factura.created_at 
+                                  ? new Date(factura.created_at).toLocaleDateString('es-ES', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                      year: 'numeric'
+                                    })
+                                  : '-'
+                                }
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <button
+                                  onClick={() => {
+                                    if (factura.url_pdf) {
+                                      window.open(factura.url_pdf, '_blank')
+                                    } else {
+                                      regenerarPDFDesdeDatos(factura)
+                                    }
+                                  }}
+                                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-1 mx-auto"
+                                  title={factura.url_pdf ? 'Ver PDF' : 'Regenerar PDF'}
+                                >
+                                  <FileText size={14} />
+                                  {factura.url_pdf ? 'Ver PDF' : 'Generar PDF'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
           )}
             
           </div>
