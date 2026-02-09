@@ -48,8 +48,9 @@ const Cierres = () => {
       const { data, error } = await supabase
         .from('facturas_emitidas_global')
         .select('*')
-        // ✅ Ordenamos SOLO por fecha_emision (no usamos created_at para el orden)
         .order('fecha_emision', { ascending: false })
+
+      console.log('Facturas cargadas:', data)
 
       if (error) {
         console.error('Error cargando facturas desde facturas_emitidas_global:', error)
