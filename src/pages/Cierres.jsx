@@ -41,7 +41,7 @@ const Cierres = () => {
     }
   }, [tabActiva])
 
-  // ===================== LECTURA FACTURAS (UNIFICADA + NORMALIZADA) =====================
+  // ===================== LECTURA FACTURAS (UNIFICADA + NORMALIZADA + ÚNICA) =====================
   const cargarFacturas = async () => {
     setCargandoFacturas(true)
     try {
@@ -67,48 +67,57 @@ const Cierres = () => {
 
       // 3) Normalización de ambas fuentes a un shape uniforme
       const normalizadasGlobal = listaGlobal.map((f) => {
-        const datos = f.datos_json || f.datos_factura || {}
-        const receptor = datos.receptor || datos.formFactura || {}
         return {
           ...f,
-          num_final: f.numero_factura || '',
-          nombre_final:
-            f.cliente_nombre ||
-            f.cliente ||
-            f.nombre_cliente ||
-            receptor.nombre ||
-            '',
-          doc_final:
-            f.cliente_documento ||
-            receptor.cif_nif ||
-            receptor.dni ||
-            ''
+          display_num: f.numero_factura || '',
+          display_nombre: f.cliente_nombre || 'Sin nombre',
+          display_doc: f.cliente_documento || '-',
+          display_total: f.importe_total ?? 0
         }
       })
 
       const normalizadasExpedientes = listaExpedientes.map((f) => {
-        const datos = f.datos_json || f.datos_factura || {}
-        const receptor = datos.receptor || datos.formFactura || {}
         return {
           ...f,
-          num_final: f.numero_factura || '',
-          nombre_final:
-            f.cliente_nombre ||
-            f.cliente ||
-            f.nombre_cliente ||
-            f.grupo ||
-            receptor.nombre ||
-            '',
-          doc_final:
-            f.cliente_documento ||
-            receptor.cif_nif ||
-            receptor.dni ||
-            ''
+          display_num: f.numero_factura || '',
+          display_nombre: f.nombre_receptor || 'Sin nombre',
+          display_doc: f.cif_receptor || '-',
+          display_total: f.total_factura ?? 0
         }
       })
 
-      // 4) Unificación de ambas fuentes en un solo array
-      const todasLasFacturas = [...normalizadasGlobal, ...normalizadasExpedientes]
+      // 4) Unificación y eliminación de duplicados por numero_factura
+      const porNumero = new Map()
+
+      const candidatas = [...normalizadasGlobal, ...normalizadasExpedientes]
+
+      const score = (f) => {
+        let s = 0
+        if (f.display_nombre && f.display_nombre !== 'Sin nombre') s++
+        if (f.display_doc && f.display_doc !== '-') s++
+        if (f.display_total && Number(f.display_total) !== 0) s++
+        if (f.fecha_emision) s++
+        return s
+      }
+
+      for (const f of candidatas) {
+        const key = f.display_num || f.numero_factura || ''
+        if (!key) {
+          // Sin número: igualmente lo dejamos entrar con clave única artificial
+          porNumero.set(`__NO_NUM__${Math.random().toString(36).slice(2)}`, f)
+          continue
+        }
+        const existente = porNumero.get(key)
+        if (!existente) {
+          porNumero.set(key, f)
+        } else {
+          const sNuevo = score(f)
+          const sViejo = score(existente)
+          porNumero.set(key, sNuevo >= sViejo ? f : existente)
+        }
+      }
+
+      const todasLasFacturas = Array.from(porNumero.values())
 
       // 5) Orden cronológico profesional por fecha_emision descendente
       todasLasFacturas.sort((a, b) => {
@@ -117,7 +126,7 @@ const Cierres = () => {
         return fechaB - fechaA
       })
 
-      console.log('Facturas cargadas (unificadas + normalizadas):', todasLasFacturas)
+      console.log('Facturas cargadas (unificadas + normalizadas + únicas):', todasLasFacturas)
 
       setFacturas(todasLasFacturas)
     } catch (err) {
@@ -745,26 +754,31 @@ const Cierres = () => {
                           : '-'}
                       </td>
                       <td className="px-6 py-3 font-semibold text-slate-900">
-                        {factura.num_final || factura.numero_factura || '-'}
+                        {factura.display_num || factura.numero_factura || '-'}
                       </td>
                       <td className="px-6 py-3 text-slate-700">
-                        {factura.nombre_final ||
+                        {factura.display_nombre ||
                           factura.cliente_nombre ||
-                          factura.cliente ||
-                          factura.nombre_cliente ||
-                          'Sin cliente'}
+                          factura.nombre_recep ||
+                          'Sin nombre'}
                       </td>
                       <td className="px-6 py-3 text-slate-700">
-                        {factura.doc_final ||
+                        {factura.display_doc ||
                           factura.cliente_documento ||
+                          factura.cif_receptor ||
                           factura.datos_json?.receptor?.cif_nif ||
                           factura.datos_json?.receptor?.dni ||
                           '-'}
                       </td>
                       <td className="px-6 py-3 text-right font-bold text-emerald-700">
-                        {factura.importe_total
-                          ? `${Number(factura.importe_total).toFixed(2)} €`
-                          : '-'}
+                        {(() => {
+                          const total =
+                            factura.display_total ??
+                            factura.importe_total ??
+                            factura.total_factura ??
+                            0
+                          return `${Number(total).toFixed(2)} €`
+                        })()}
                       </td>
                       <td className="px-6 py-3 text-center">
                         <button
