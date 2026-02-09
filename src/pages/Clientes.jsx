@@ -70,13 +70,13 @@ const Clientes = () => {
 
     setCargandoExpedientes(true)
     try {
-      const { data: expedientes, error } = await supabase
+      const { data, error } = await supabase
         .from('expedientes')
-        .select('id, cliente_nombre, fecha_viaje, estado, precio_venta_cliente, pax_pago, total_pax')
+        .select('*')
         .ilike('cliente_nombre', nombreNormalizado)
         .order('fecha_viaje', { ascending: false })
 
-      console.log("Resultado:", expedientes)
+      console.log("DATOS RECUPERADOS:", data)
 
       if (error) {
         console.error('Error cargando expedientes:', error)
@@ -84,9 +84,16 @@ const Clientes = () => {
         return
       }
 
+      if (!data || data.length === 0) {
+        console.log("No se encontraron expedientes")
+        setExpedientesCliente([])
+        setCargandoExpedientes(false)
+        return
+      }
+
       // Para cada expediente, calcular el beneficio neto consultando los servicios
       const expedientesConBeneficio = await Promise.all(
-        (expedientes || []).map(async (exp) => {
+        data.map(async (exp) => {
           try {
             // Consultar servicios del expediente para calcular coste total
             const { data: servicios } = await supabase
@@ -718,7 +725,7 @@ const Clientes = () => {
                         <thead className="bg-slate-900 text-white">
                           <tr>
                             <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Nombre del Viaje</th>
-                            <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Fecha</th>
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Destino</th>
                             <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Estado</th>
                             <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-right">Beneficio Neto</th>
                           </tr>
@@ -728,10 +735,18 @@ const Clientes = () => {
                             <tr key={exp.id} className="hover:bg-green-50/30 transition-all">
                               <td className="px-6 py-4">
                                 <div className="font-bold text-slate-900">{exp.cliente_nombre || 'Sin nombre'}</div>
+                                {exp.fecha_viaje && (
+                                  <div className="text-xs text-slate-500 mt-1">
+                                    {new Date(exp.fecha_viaje).toLocaleDateString('es-ES')}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-6 py-4">
-                                <div className="text-sm text-slate-700">
-                                  {exp.fecha_viaje ? new Date(exp.fecha_viaje).toLocaleDateString('es-ES') : '-'}
+                                <div className="text-sm text-slate-700 font-medium">
+                                  {(() => {
+                                    const destinoMostrar = exp.poblacion_destino || exp.destino || 'Sin destino'
+                                    return destinoMostrar
+                                  })()}
                                 </div>
                               </td>
                               <td className="px-6 py-4">

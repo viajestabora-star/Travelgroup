@@ -240,13 +240,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
     setCargandoHistorial(true)
     try {
-      const { data: expedientes, error } = await supabase
+      const { data, error } = await supabase
         .from('expedientes')
-        .select('id, cliente_nombre, fecha_viaje, estado, precio_venta_cliente, pax_pago, total_pax')
+        .select('*')
         .ilike('cliente_nombre', nombreNormalizado)
         .order('fecha_viaje', { ascending: false })
 
-      console.log("Resultado:", expedientes)
+      console.log("DATOS RECUPERADOS:", data)
 
       if (error) {
         console.error('Error cargando historial de expedientes:', error)
@@ -254,9 +254,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         return
       }
 
+      if (!data || data.length === 0) {
+        setExpedientesHistorial([])
+        setCargandoHistorial(false)
+        return
+      }
+
       // Para cada expediente, calcular el beneficio neto consultando los servicios
       const expedientesConBeneficio = await Promise.all(
-        (expedientes || []).map(async (exp) => {
+        data.map(async (exp) => {
           try {
             // Consultar servicios del expediente para calcular coste total
             const { data: servicios } = await supabase
@@ -288,15 +294,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
               beneficioNeto: isNaN(beneficioNeto) ? null : beneficioNeto
             }
           } catch (err) {
-            console.error('Error calculando beneficio para expediente:', exp.id, err)
+            console.error('❌ [Historial] Error calculando beneficio para expediente:', exp.id, err)
             return { ...exp, beneficioNeto: null }
           }
         })
       )
 
+      console.log("✅ [Historial] Expedientes procesados:", expedientesConBeneficio.length)
       setExpedientesHistorial(expedientesConBeneficio)
     } catch (err) {
-      console.error('Error inesperado cargando historial:', err)
+      console.error('❌ [Historial] Error inesperado cargando historial:', err)
       setExpedientesHistorial([])
     } finally {
       setCargandoHistorial(false)
@@ -2638,45 +2645,56 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           <thead className="bg-slate-900 text-white">
                             <tr>
                               <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Nombre Viaje</th>
+                              <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Destino</th>
                               <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Estado</th>
                               <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-right">Beneficio Neto</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {expedientesHistorial.map((exp) => (
-                              <tr key={exp.id} className="hover:bg-green-50/30 transition-all">
-                                <td className="px-4 py-3">
-                                  <div className="font-bold text-slate-900 text-sm">{exp.cliente_nombre || 'Sin nombre'}</div>
-                                  {exp.fecha_viaje && (
-                                    <div className="text-xs text-slate-500 mt-1">
-                                      {new Date(exp.fecha_viaje).toLocaleDateString('es-ES')}
+                            {expedientesHistorial.map((exp) => {
+                              // Calcular destino con fallback seguro
+                              const destinoMostrar = exp.poblacion_destino || exp.destino || 'Sin destino'
+                              
+                              return (
+                                <tr key={exp.id} className="hover:bg-green-50/30 transition-all">
+                                  <td className="px-4 py-3">
+                                    <div className="font-bold text-slate-900 text-sm">{exp.cliente_nombre || 'Sin nombre'}</div>
+                                    {exp.fecha_viaje && (
+                                      <div className="text-xs text-slate-500 mt-1">
+                                        {new Date(exp.fecha_viaje).toLocaleDateString('es-ES')}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="text-sm text-slate-700 font-medium">
+                                      {destinoMostrar}
                                     </div>
-                                  )}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className={`inline-block px-2 py-1 rounded-full text-xs font-bold ${
-                                    exp.estado === 'cerrado' ? 'bg-green-100 text-green-800' :
-                                    exp.estado === 'confirmado' ? 'bg-blue-100 text-blue-800' :
-                                    exp.estado === 'peticion' ? 'bg-yellow-100 text-yellow-800' :
-                                    'bg-slate-100 text-slate-800'
-                                  }`}>
-                                    {exp.estado || 'Sin estado'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                  <div className={`font-bold text-sm ${
-                                    exp.beneficioNeto !== null 
-                                      ? (exp.beneficioNeto >= 0 ? 'text-green-700' : 'text-red-700')
-                                      : 'text-slate-500'
-                                  }`}>
-                                    {exp.beneficioNeto !== null 
-                                      ? `${exp.beneficioNeto >= 0 ? '+' : ''}${exp.beneficioNeto.toFixed(2)}€`
-                                      : 'N/A'
-                                    }
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className={`inline-block px-2 py-1 rounded-full text-xs font-bold ${
+                                      exp.estado === 'cerrado' ? 'bg-green-100 text-green-800' :
+                                      exp.estado === 'confirmado' ? 'bg-blue-100 text-blue-800' :
+                                      exp.estado === 'peticion' ? 'bg-yellow-100 text-yellow-800' :
+                                      'bg-slate-100 text-slate-800'
+                                    }`}>
+                                      {exp.estado || 'Sin estado'}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className={`font-bold text-sm ${
+                                      exp.beneficioNeto !== null 
+                                        ? (exp.beneficioNeto >= 0 ? 'text-green-700' : 'text-red-700')
+                                        : 'text-slate-500'
+                                    }`}>
+                                      {exp.beneficioNeto !== null 
+                                        ? `${exp.beneficioNeto >= 0 ? '+' : ''}${exp.beneficioNeto.toFixed(2)}€`
+                                        : 'N/A'
+                                      }
+                                    </div>
+                                  </td>
+                                </tr>
+                              )
+                            })}
                           </tbody>
                         </table>
                       </div>
