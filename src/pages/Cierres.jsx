@@ -42,18 +42,22 @@ const Cierres = () => {
   }, [tabActiva])
 
   // ===================== LECTURA FACTURAS (UNIFICADA + NORMALIZADA + ÚNICA) =====================
+  // Historial dinámico: muestra facturas_emitidas_global ordenadas por fecha DESC
+  // Se actualiza automáticamente al borrar filas en Supabase (refrescar página)
   const cargarFacturas = async () => {
     setCargandoFacturas(true)
     try {
-      // 1) Lectura de facturas globales (facturas_emitidas_global)
+      // 1) Lectura de facturas globales (facturas_emitidas_global) - FUENTE PRINCIPAL
       const { data: facturasGlobal, error: errorGlobal } = await supabase
         .from('facturas_emitidas_global')
         .select('*')
-
-      // 2) Lectura de facturas de expedientes normales (tabla facturas)
+        .order('fecha_emision', { ascending: false })
+      
+      // 2) Lectura de facturas de expedientes normales (tabla facturas) - COMPLEMENTARIA
       const { data: facturasExpedientes, error: errorExpedientes } = await supabase
         .from('facturas')
         .select('*')
+        .order('fecha_emision', { ascending: false })
 
       if (errorGlobal) {
         console.error('Error cargando facturas_emitidas_global:', errorGlobal)
@@ -119,16 +123,27 @@ const Cierres = () => {
 
     const todasLasFacturas = Array.from(porNumero.values())
 
-    // 5) Orden cronológico profesional por fecha_emision descendente (más nuevas primero)
+    // 5) Orden cronológico estricto por fecha_emision descendente (más nuevas primero)
+    // Si no hay fecha, se colocan al final
     todasLasFacturas.sort((a, b) => {
       const fechaA = a.fecha_emision ? new Date(a.fecha_emision).getTime() : 0
       const fechaB = b.fecha_emision ? new Date(b.fecha_emision).getTime() : 0
-      return fechaB - fechaA
+      
+      // Si ambas tienen fecha, ordenar descendente
+      if (fechaA > 0 && fechaB > 0) {
+        return fechaB - fechaA
+      }
+      // Si solo una tiene fecha, la que tiene fecha va primero
+      if (fechaA > 0) return -1
+      if (fechaB > 0) return 1
+      // Si ninguna tiene fecha, mantener orden original
+      return 0
     })
 
-      console.log('Facturas cargadas (unificadas + normalizadas + únicas):', todasLasFacturas)
+    console.log('Facturas cargadas (unificadas + normalizadas + únicas):', todasLasFacturas)
+    console.log(`Total facturas en historial: ${todasLasFacturas.length}`)
 
-      setFacturas(todasLasFacturas)
+    setFacturas(todasLasFacturas)
     } catch (err) {
       console.error('Error inesperado unificando facturas:', err)
       setFacturas([])
@@ -178,29 +193,48 @@ const Cierres = () => {
     setClienteSearch(cliente.nombre || '')
   }
 
-  // ===================== GENERACIÓN NÚMERO DE FACTURA =====================
+  // ===================== GENERACIÓN NÚMERO DE FACTURA (ROBUSTO) =====================
   const obtenerSiguienteNumeroFactura = async () => {
     const año = new Date().getFullYear()
 
+    try {
+      // Consultar el MAX(numero_factura) en facturas_emitidas_global
       const { data, error } = await supabase
-      .from('facturas_emitidas_global')
-      .select('numero_factura')
-      .ilike('numero_factura', `${año}-%`)
-      .order('numero_factura', { ascending: false })
-      .limit(1)
+        .from('facturas_emitidas_global')
+        .select('numero_factura')
+        .ilike('numero_factura', `${año}-%`)
+        .order('numero_factura', { ascending: false })
+        .limit(1)
 
-    if (error) {
-      console.error('Error obteniendo última factura:', error)
-      throw new Error('No se pudo obtener el último número de factura')
-    }
+      if (error) {
+        console.error('Error obteniendo última factura:', error)
+        // Si hay error pero no crítico, devolver el primer número del año
+        console.warn('Usando número inicial del año debido a error en consulta')
+        return `${año}-0001`
+      }
 
-    if (data && data.length > 0 && data[0]?.numero_factura) {
-      const partes = String(data[0].numero_factura).split('-')
+      // Si la tabla está vacía o no hay datos, devolver el primer número
+      if (!data || data.length === 0 || !data[0]?.numero_factura) {
+        console.log('Tabla vacía o sin facturas del año actual. Iniciando numeración.')
+        return `${año}-0001`
+      }
+
+      // Extraer el número, sumarle 1 y mantener el formato
+      const ultimoNumero = String(data[0].numero_factura)
+      const partes = ultimoNumero.split('-')
+      
+      if (partes.length !== 2) {
+        console.warn('Formato de número de factura inesperado. Iniciando numeración.')
+        return `${año}-0001`
+      }
+
       const siguienteNum = parseInt(partes[1] || '0', 10) + 1
       return `${año}-${String(siguienteNum).padStart(4, '0')}`
+    } catch (err) {
+      console.error('Error inesperado obteniendo número de factura:', err)
+      // Fallback seguro: devolver el primer número del año
+      return `${año}-0001`
     }
-
-    return `${año}-0001`
   }
 
   // ===================== FACTURACIÓN DIRECTA (CLIENTE SIN EXPEDIENTE) =====================
@@ -261,12 +295,29 @@ const Cierres = () => {
         }
       }
 
+      // Validación robusta: asegurar que los campos críticos nunca estén vacíos
+      const nombreCliente = String(clienteSeleccionado.nombre || '').trim()
+      if (!nombreCliente) {
+        alert('Error: El nombre del cliente no puede estar vacío.')
+        return
+      }
+
+      const importeFinal = Number(totalFactura) || 0
+      if (importeFinal <= 0) {
+        alert('Error: El importe total debe ser mayor que cero.')
+        return
+      }
+
+      const documentoCliente = String(
+        clienteSeleccionado.cif_nif || clienteSeleccionado.cif || ''
+      ).trim()
+
       const { error: errorInsert } = await supabase.from('facturas_emitidas_global').insert([
         {
           numero_factura: numeroFactura,
-          cliente_nombre: clienteSeleccionado.nombre,
-          cliente_documento: clienteSeleccionado.cif_nif || clienteSeleccionado.cif || '',
-          importe_total: totalFactura,
+          cliente_nombre: nombreCliente,
+          cliente_documento: documentoCliente || '',
+          importe_total: importeFinal,
           fecha_emision: fechaEmisionISO,
           datos_json
         }
