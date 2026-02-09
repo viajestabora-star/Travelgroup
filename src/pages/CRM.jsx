@@ -46,6 +46,73 @@ const CRM = () => {
     cargarClientes()
   }, [])
 
+  // Convertir un prospecto en cliente oficial (acción manual)
+  const convertirProspectoACliente = async (p) => {
+    try {
+      const nombre = (p.grupo || '').trim()
+      if (!nombre) {
+        alert('El nombre del grupo/cliente está vacío. No se puede crear el cliente.')
+        return
+      }
+
+      // Comprobar si ya existe un cliente con ese nombre
+      const { data: existentes, error: errorExistentes } = await supabase
+        .from('clientes')
+        .select('id')
+        .ilike('nombre', nombre)
+        .limit(1)
+
+      if (!errorExistentes && Array.isArray(existentes) && existentes.length > 0) {
+        alert('Ya existe un cliente oficial con este nombre. No se ha creado un duplicado.')
+        return
+      }
+
+      // Intentar extraer CIF desde las notas (línea que empiece por "CIF:")
+      let cifDesdeNotas = ''
+      if (p.notas) {
+        const lineaCif = String(p.notas)
+          .split('\n')
+          .find(linea => linea.trim().toUpperCase().startsWith('CIF:'))
+        if (lineaCif) {
+          cifDesdeNotas = lineaCif.split(':').slice(1).join(':').trim()
+        }
+      }
+
+      const nuevoCliente = {
+        nombre,
+        cif_nif: cifDesdeNotas,
+        telefono: p.telefono || '',
+        email: '',
+        direccion: p.ubicacion || '',
+        poblacion: '',
+        provincia: '',
+        codigo_postal: '',
+        observaciones: p.notas || '',
+        responsable: p.contacto || '',
+        movil: '',
+        bonificaciones: '',
+        gratuidades: '',
+      }
+
+      const { error } = await supabase
+        .from('clientes')
+        .insert([nuevoCliente])
+
+      if (error) {
+        console.error('Error convirtiendo a cliente:', error)
+        alert('Error al crear el cliente: ' + (error.message || 'desconocido'))
+        return
+      }
+
+      alert('¡Cliente creado con éxito!')
+      // Recargar listado de clientes para que quede disponible en autocomplete y CRM
+      cargarClientes()
+    } catch (err) {
+      console.error('Error inesperado convirtiendo a cliente:', err)
+      alert('Error inesperado al crear el cliente.')
+    }
+  }
+
   // KPIs Estratégicos (Calculados para la pestaña Métricas)
   const stats = useMemo(() => {
     const mesActual = currentDate.getMonth()
@@ -188,32 +255,30 @@ const CRM = () => {
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 italic">
               {busqueda ? 'Resultados de búsqueda' : (activeTab === 'agenda' ? `Visitas: ${fechaSeleccionada}` : 'Archivo de visitas')}
             </h3>
-            {datosMostrar.map(p => (
+            {datosMostrar.map(p => {
+              const esClienteOficial = clientes.some(
+                c => (c.nombre || '').toLowerCase().trim() === (p.grupo || '').toLowerCase().trim()
+              )
+
+              return (
               <VisitaCard key={p.id} p={p} 
+                esClienteOficial={esClienteOficial}
                 onEdit={async () => {
                   setEditandoId(p.id)
                   setNuevo(p)
-                  // Si tiene cliente_id, cargar datos del cliente
-                  if (p.cliente_id) {
-                    const { data: cliente } = await supabase
-                      .from('clientes')
-                      .select('*')
-                      .eq('id', p.cliente_id)
-                      .single()
-                    if (cliente) {
-                      setClienteSeleccionado(cliente)
-                      setBusquedaCliente(cliente.nombre)
-                    }
-                  } else {
-                    setClienteSeleccionado(null)
-                    setBusquedaCliente('')
-                  }
+                  // Reset selección de cliente en edición (se puede vincular después)
+                  setClienteSeleccionado(null)
+                  setBusquedaCliente('')
                   setShowModal(true)
                 }} 
                 onDelete={async () => { if(window.confirm(`¿Borrar visita?`)) { await supabase.from('prospectos').delete().eq('id', p.id); cargarDatos() } }}
-                onPass={async () => { if(window.confirm(`¿Convertir a cliente?`)) { await supabase.from('clientes').insert([{nombre: p.grupo, telefono: p.telefono, contacto: p.contacto, notas: p.notas}]); await supabase.from('prospectos').delete().eq('id', p.id); cargarDatos() } }}
+                onConvert={async () => {
+                  if (window.confirm(`¿Convertir "${p.grupo}" en cliente oficial?`)) {
+                    await convertirProspectoACliente(p)
+                  }
+                }}
               />
-            ))}
+            )})}
             {datosMostrar.length === 0 && <div className="text-center py-20 text-slate-300 italic">Sin registros</div>}
           </div>
         </>
@@ -476,8 +541,8 @@ const MetricCard = ({ icon, label, value, color }) => (
   </div>
 )
 
-const VisitaCard = ({ p, onEdit, onDelete, onPass }) => {
-  // Obtener datos del cliente si está vinculado
+const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
+  // Obtener datos para acciones rápidas
   const telefonoParaLlamar = p.telefono || ''
   const direccionParaMapa = p.ubicacion || p.direccion || ''
   const urlMapa = direccionParaMapa ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccionParaMapa)}` : '#'
@@ -492,7 +557,7 @@ const VisitaCard = ({ p, onEdit, onDelete, onPass }) => {
         </div>
       </div>
       <h3 className="font-bold text-xl text-slate-800 mb-1 leading-tight">{p.grupo}</h3>
-      {p.cliente_id && (
+      {esClienteOficial && (
         <span className="inline-block text-[9px] font-black px-3 py-1 rounded-full uppercase bg-green-50 text-green-600 tracking-tighter mb-2">
           Cliente Existente
         </span>
@@ -507,9 +572,17 @@ const VisitaCard = ({ p, onEdit, onDelete, onPass }) => {
         {direccionParaMapa ? (
           <a href={urlMapa} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase shadow-lg shadow-blue-100"><Navigation size={14}/> MAPA</a>
         ) : (
-          <button onClick={onPass} className="bg-blue-600 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase shadow-lg shadow-blue-100"><UserPlus size={14}/> CLIENTE</button>
+          <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase"><Navigation size={14}/> MAPA</button>
         )}
       </div>
+      {!esClienteOficial && (
+        <button
+          onClick={onConvert}
+          className="mt-4 w-full bg-white text-blue-600 border border-blue-200 py-3 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase hover:bg-blue-50 transition-all"
+        >
+          <UserPlus size={14}/> Convertir a Cliente
+        </button>
+      )}
     </div>
   )
 }
