@@ -199,17 +199,18 @@ const Cierres = () => {
     const año = new Date().getFullYear()
 
     try {
-      // 1) Consultar facturas_emitidas_global
-      const { data: dataGlobal, error: errorGlobal } = await supabase
-        .from('facturas_emitidas_global')
-        .select('numero_factura')
-        .ilike('numero_factura', `${año}-%`)
+      // 1) Consultar ambas tablas en paralelo (Promise.all)
+      const [globalRes, expedientesRes] = await Promise.all([
+        supabase
+          .from('facturas_emitidas_global')
+          .select('numero_factura'),
+        supabase
+          .from('facturas')
+          .select('numero_factura'),
+      ])
 
-      // 2) Consultar facturas (expedientes)
-      const { data: dataExpedientes, error: errorExpedientes } = await supabase
-        .from('facturas')
-        .select('numero_factura')
-        .ilike('numero_factura', `${año}-%`)
+      const { data: dataGlobal, error: errorGlobal } = globalRes || {}
+      const { data: dataExpedientes, error: errorExpedientes } = expedientesRes || {}
 
       if (errorGlobal) {
         console.error('Error obteniendo facturas de facturas_emitidas_global:', errorGlobal)
@@ -218,39 +219,40 @@ const Cierres = () => {
         console.error('Error obteniendo facturas de facturas:', errorExpedientes)
       }
 
-      // 3) Unificar y encontrar el máximo número entre ambas tablas
+      // 2) Unificar y encontrar el máximo número entre ambas tablas
       const todasLasFacturas = [
         ...(Array.isArray(dataGlobal) ? dataGlobal : []),
-        ...(Array.isArray(dataExpedientes) ? dataExpedientes : [])
+        ...(Array.isArray(dataExpedientes) ? dataExpedientes : []),
       ]
 
-      // 4) Extraer números y encontrar el máximo
+      const regexFactura = /^(\d{4})-(\d{1,4})$/ // AÑO-#### (4 dígitos, sin TEST)
       let maxNumero = 0
+
       todasLasFacturas.forEach((f) => {
-        if (f?.numero_factura) {
-          const partes = String(f.numero_factura).split('-')
-          if (partes.length === 2) {
-            const numero = parseInt(partes[1], 10)
-            if (!isNaN(numero) && numero > maxNumero) {
-              maxNumero = numero
-            }
-          }
+        const raw = f?.numero_factura ? String(f.numero_factura).trim() : ''
+        if (!raw) return
+
+        const match = raw.match(regexFactura)
+        if (!match) return
+
+        const numero = parseInt(match[2], 10)
+        if (!isNaN(numero) && numero > maxNumero) {
+          maxNumero = numero
         }
       })
 
-      // 5) Si no hay facturas (maxNumero === 0), devolver 2026-0001
+      // 3) Si no hay facturas, iniciar numeración en AÑO-0001
       if (maxNumero === 0) {
-        console.log('No hay facturas del año actual. Iniciando numeración con 2026-0001.')
-        return '2026-0001'
+        return `${año}-0001`
       }
 
-      // 6) Devolver el siguiente número
+      // 4) Devolver el siguiente número
       const siguienteNum = maxNumero + 1
       return `${año}-${String(siguienteNum).padStart(4, '0')}`
     } catch (err) {
       console.error('Error inesperado obteniendo número de factura:', err)
-      // Fallback seguro: devolver el primer número del año
-      return '2026-0001'
+      // Fallback seguro: devolver el primer número del año actual
+      return `${año}-0001`
     }
   }
 
