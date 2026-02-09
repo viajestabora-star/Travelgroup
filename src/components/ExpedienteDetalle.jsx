@@ -2344,21 +2344,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           console.log('✅ Factura registrada en facturas_emitidas')
         }
 
-        // INSERT EN facturas_emitidas_global (sincronización total)
+        // INSERT EN facturas_emitidas_global (sincronización total) - OBLIGATORIO
         const { error: errorGlobal } = await supabase
           .from('facturas_emitidas_global')
           .insert([{
             expediente_id: expediente.id,
+            numero_factura: numeroFactura,
             cliente_nombre: clienteNombre,
             importe_total: parseFloat(calcularBaseFactura.totalFactura),
-            datos_factura: datosFacturaCompletos,
-            numero_factura: numeroFactura,
-            tipo: 'grupo', // Factura de grupo
-            url_pdf: null
+            tipo_factura: 'GRUPO',
+            datos_json: datosFacturaCompletos,
+            fecha_emision: new Date().toISOString()
           }])
         
         if (errorGlobal) {
-          console.error('❌ Error guardando en facturas_emitidas_global:', errorGlobal)
+          console.error('FALLO CRÍTICO EN CIERRES:', errorGlobal)
+          console.error('❌ Error guardando en facturas_emitidas_global:', JSON.stringify(errorGlobal, null, 2))
           // No bloqueamos el flujo si falla
         } else {
           console.log('✅ Factura registrada en facturas_emitidas_global')

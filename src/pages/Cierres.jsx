@@ -35,14 +35,21 @@ const Cierres = () => {
         .order('fecha_emision', { ascending: false })
       
       if (error) {
-        console.error('Error cargando facturas:', error)
+        console.error('FALLO CRÍTICO EN CIERRES:', error)
+        console.error('Error cargando facturas:', JSON.stringify(error, null, 2))
         alert(`Error cargando facturas: ${error.message}`)
         setFacturas([])
         return
       }
       
       setFacturas(data || [])
+      
+      // Verificación: si no hay datos pero debería haberlos
+      if (!data || data.length === 0) {
+        console.log('⚠️ No hay facturas en facturas_emitidas_global')
+      }
     } catch (error) {
+      console.error('FALLO CRÍTICO EN CIERRES:', error)
       console.error('Error fatal cargando facturas:', error)
       setFacturas([])
     } finally {
@@ -101,12 +108,15 @@ const Cierres = () => {
   }
 
   const regenerarPDFDesdeDatos = async (factura) => {
-    if (!factura?.datos_factura) {
+    // Aceptar tanto datos_factura como datos_json
+    const datos = factura?.datos_factura || factura?.datos_json
+    
+    if (!datos) {
+      console.error('FALLO CRÍTICO EN CIERRES: No hay datos_factura ni datos_json')
       alert('❌ Error: No hay datos de factura para regenerar el PDF')
       return
     }
     
-    const datos = factura.datos_factura
     const numeroFactura = factura.numero_factura || datos.numero_factura || 'SIN-NUMERO'
     
     try {
@@ -157,6 +167,7 @@ const Cierres = () => {
       doc.setFont(undefined, 'normal')
       
       if (datos.formFactura) {
+        // Estructura de ExpedienteDetalle (factura de grupo)
         doc.text(datos.formFactura.receptorNombre || 'Sin nombre', 20, yPos)
         yPos += 6
         if (datos.formFactura.receptorCIF) {
@@ -171,6 +182,27 @@ const Cierres = () => {
           datos.formFactura.receptorCP,
           datos.formFactura.receptorPoblacion,
           datos.formFactura.receptorProvincia
+        ].filter(Boolean).join(' ')
+        if (direccionCompleta) {
+          doc.text(direccionCompleta, 20, yPos)
+          yPos += 6
+        }
+      } else if (datos.receptor) {
+        // Estructura de factura de pasajero
+        doc.text(datos.receptor.nombre || 'Sin nombre', 20, yPos)
+        yPos += 6
+        if (datos.receptor.dni) {
+          doc.text(`DNI: ${datos.receptor.dni}`, 20, yPos)
+          yPos += 6
+        }
+        if (datos.receptor.direccion) {
+          doc.text(datos.receptor.direccion, 20, yPos)
+          yPos += 6
+        }
+        const direccionCompleta = [
+          datos.receptor.cp,
+          datos.receptor.poblacion,
+          datos.receptor.provincia
         ].filter(Boolean).join(' ')
         if (direccionCompleta) {
           doc.text(direccionCompleta, 20, yPos)
@@ -234,8 +266,15 @@ const Cierres = () => {
   const verPDF = (factura) => {
     if (factura.url_pdf) {
       window.open(factura.url_pdf, '_blank')
-    } else {
+    } else if (factura.datos_json) {
+      // Usar datos_json si existe (estructura correcta)
+      regenerarPDFDesdeDatos({ ...factura, datos_factura: factura.datos_json })
+    } else if (factura.datos_factura) {
+      // Fallback a datos_factura (compatibilidad)
       regenerarPDFDesdeDatos(factura)
+    } else {
+      console.error('FALLO CRÍTICO EN CIERRES: No hay datos disponibles para generar PDF')
+      alert('❌ No hay datos disponibles para generar el PDF')
     }
   }
 
@@ -260,15 +299,142 @@ const Cierres = () => {
     }
   }
 
-  const facturarPasajero = (pasajero) => {
+  // ============ EMITIR FACTURA DE PASAJERO ============
+  const facturarPasajero = async (pasajero) => {
     if (!expedienteSeleccionado) {
       alert('⚠️ Por favor, selecciona un expediente primero')
       return
     }
     
-    // Redirigir a ExpedienteDetalle con el pasajero seleccionado
-    const url = `/expedientes?expediente=${expedienteSeleccionado.id}&pasajero=${encodeURIComponent(JSON.stringify(pasajero))}`
-    window.location.href = url
+    if (!pasajero) {
+      alert('⚠️ Por favor, selecciona un pasajero')
+      return
+    }
+
+    try {
+      // Obtener número de factura (similar a ExpedienteDetalle)
+      const año = new Date().getFullYear()
+      const { data: ultimaFactura } = await supabase
+        .from('facturas_emitidas_global')
+        .select('numero_factura')
+        .ilike('numero_factura', `${año}-%`)
+        .order('numero_factura', { ascending: false })
+        .limit(1)
+      
+      let numeroFactura = ''
+      if (ultimaFactura && ultimaFactura.length > 0 && ultimaFactura[0]?.numero_factura) {
+        const partes = String(ultimaFactura[0].numero_factura).split('-')
+        const siguienteNum = parseInt(partes[1] || '0') + 1
+        numeroFactura = `${año}-${String(siguienteNum).padStart(4, '0')}`
+      } else {
+        numeroFactura = `${año}-0001`
+      }
+
+      // Obtener datos del expediente para cálculos
+      const { data: expedienteData } = await supabase
+        .from('expedientes')
+        .select('*')
+        .eq('id', expedienteSeleccionado.id)
+        .single()
+
+      // Calcular importe (simplificado - se puede mejorar)
+      const importeTotal = parseFloat(expedienteData?.precio_venta_cliente || 0) || 0
+
+      // Preparar datos_json completo
+      const datosFacturaCompletos = {
+        numero_factura: numeroFactura,
+        expediente_id: expedienteSeleccionado.id,
+        tipo_factura: 'PASAJERO',
+        receptor: {
+          nombre: pasajero.nombre || pasajero.nombre_completo || 'Sin nombre',
+          dni: pasajero.dni || '',
+          direccion: pasajero.direccion || '',
+          poblacion: pasajero.poblacion || '',
+          provincia: pasajero.provincia || '',
+          cp: pasajero.cp || '',
+          email: pasajero.email || ''
+        },
+        concepto: `Servicios de viaje - ${expedienteSeleccionado.destino || 'Viaje'}`,
+        importe_total: importeTotal,
+        fecha_emision: new Date().toISOString()
+      }
+
+      // INSERT EN facturas_emitidas_global - OBLIGATORIO
+      const { error: errorInsert } = await supabase
+        .from('facturas_emitidas_global')
+        .insert([{
+          expediente_id: expedienteSeleccionado.id,
+          numero_factura: numeroFactura,
+          cliente_nombre: pasajero.nombre || pasajero.nombre_completo || 'Pasajero Individual',
+          importe_total: importeTotal,
+          tipo_factura: 'PASAJERO',
+          datos_json: datosFacturaCompletos,
+          fecha_emision: new Date().toISOString()
+        }])
+
+      if (errorInsert) {
+        console.error('FALLO CRÍTICO EN CIERRES:', errorInsert)
+        console.error('❌ Error guardando factura de pasajero:', JSON.stringify(errorInsert, null, 2))
+        alert(`❌ Error guardando factura: ${errorInsert.message}`)
+        return
+      }
+
+      // Generar PDF básico
+      try {
+        const doc = new jsPDF()
+        const pageWidth = doc.internal.pageSize.getWidth()
+        
+        doc.setFontSize(20)
+        doc.setTextColor(33, 150, 243)
+        doc.setFont(undefined, 'bold')
+        doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
+        
+        let yPos = 50
+        doc.setFontSize(12)
+        doc.setFont(undefined, 'bold')
+        doc.text('FACTURAR A:', 20, yPos)
+        yPos += 8
+        doc.setFontSize(10)
+        doc.setFont(undefined, 'normal')
+        doc.text(datosFacturaCompletos.receptor.nombre, 20, yPos)
+        yPos += 6
+        if (datosFacturaCompletos.receptor.dni) {
+          doc.text(`DNI: ${datosFacturaCompletos.receptor.dni}`, 20, yPos)
+          yPos += 6
+        }
+        
+        yPos += 10
+        doc.setFontSize(12)
+        doc.setFont(undefined, 'bold')
+        doc.text('CONCEPTO:', 20, yPos)
+        yPos += 8
+        doc.setFontSize(10)
+        doc.setFont(undefined, 'normal')
+        doc.text(datosFacturaCompletos.concepto, 20, yPos)
+        yPos += 10
+        
+        doc.setFont(undefined, 'bold')
+        doc.setFontSize(14)
+        doc.text('TOTAL:', 20, yPos)
+        doc.text(`${importeTotal.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+        
+        doc.save(`Factura_${numeroFactura}_Pasajero.pdf`)
+      } catch (pdfError) {
+        console.error('Error generando PDF:', pdfError)
+      }
+
+      alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente`)
+      
+      // Cerrar modal y recargar facturas
+      setShowModalPasajero(false)
+      setExpedienteSeleccionado(null)
+      setPasajeros([])
+      await cargarFacturas()
+    } catch (error) {
+      console.error('FALLO CRÍTICO EN CIERRES:', error)
+      console.error('Error inesperado emitiendo factura de pasajero:', error)
+      alert(`❌ Error inesperado: ${error.message}`)
+    }
   }
 
   const facturarGrupo = () => {
@@ -389,11 +555,11 @@ const Cierres = () => {
                       </td>
                       <td className="px-6 py-4 text-sm">
                         <span className={`inline-block px-2 py-1 rounded-full text-xs font-bold ${
-                          factura.tipo === 'pasajero' 
+                          factura.tipo_factura === 'PASAJERO' 
                             ? 'bg-blue-100 text-blue-800' 
                             : 'bg-green-100 text-green-800'
                         }`}>
-                          {factura.tipo === 'pasajero' ? 'Pasajero' : 'Grupo'}
+                          {factura.tipo_factura === 'PASAJERO' ? 'Pasajero' : 'Grupo'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-700">
