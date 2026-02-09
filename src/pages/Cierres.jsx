@@ -1,394 +1,223 @@
-import React, { useState, useEffect } from 'react'
-import { FileText, Plus, Eye, Briefcase, User, Receipt, TrendingUp } from 'lucide-react'
+import React, { useEffect, useMemo, useState } from 'react'
+import {
+  FileText,
+  Eye,
+  Receipt,
+  TrendingUp,
+  Search,
+  User,
+  Euro,
+  CheckCircle2
+} from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 import jsPDF from 'jspdf'
 
-const supabase = createClient(
-  'https://gtwyqxfkpdwpakmgrkbu.supabase.co',
-  'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
-)
+const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
+const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 const Cierres = () => {
   const [tabActiva, setTabActiva] = useState('facturas')
+
+  // Facturas ya emitidas (lectura unificada desde facturas_emitidas_global)
   const [facturas, setFacturas] = useState([])
-  const [cargando, setCargando] = useState(false)
-  const [showModalPasajero, setShowModalPasajero] = useState(false)
-  const [showModalGrupo, setShowModalGrupo] = useState(false)
-  const [expedientes, setExpedientes] = useState([])
-  const [expedienteSeleccionado, setExpedienteSeleccionado] = useState(null)
-  const [pasajeros, setPasajeros] = useState([])
-  const [cargandoExpedientes, setCargandoExpedientes] = useState(false)
-  const [cargandoPasajeros, setCargandoPasajeros] = useState(false)
+  const [cargandoFacturas, setCargandoFacturas] = useState(false)
+
+  // Facturación directa a clientes (sin expediente)
+  const [clientes, setClientes] = useState([])
+  const [cargandoClientes, setCargandoClientes] = useState(false)
+  const [clienteSearch, setClienteSearch] = useState('')
+  const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
+  const [importeBase, setImporteBase] = useState('')
+  const [ivaPorcentaje, setIvaPorcentaje] = useState(21)
+  const [concepto, setConcepto] = useState('')
+  const [aplicandoFacturaDirecta, setAplicandoFacturaDirecta] = useState(false)
 
   useEffect(() => {
     if (tabActiva === 'facturas') {
       cargarFacturas()
+      cargarClientes()
     }
   }, [tabActiva])
 
+  // ===================== LECTURA FACTURAS (SINCRONIZADO CON facturas_emitidas_global) =====================
   const cargarFacturas = async () => {
-    setCargando(true)
+    setCargandoFacturas(true)
     try {
       const { data, error } = await supabase
         .from('facturas_emitidas_global')
         .select('*')
+        // ✅ Ordenamos SOLO por fecha_emision (no usamos created_at para el orden)
         .order('fecha_emision', { ascending: false })
-      
+
       if (error) {
-        console.error('FALLO CRÍTICO EN CIERRES:', error)
-        console.error('Error cargando facturas:', JSON.stringify(error, null, 2))
+        console.error('Error cargando facturas desde facturas_emitidas_global:', error)
         alert(`Error cargando facturas: ${error.message}`)
         setFacturas([])
         return
       }
-      
+
       setFacturas(data || [])
-      
-      // Verificación: si no hay datos pero debería haberlos
-      if (!data || data.length === 0) {
-        console.log('⚠️ No hay facturas en facturas_emitidas_global')
-      }
-    } catch (error) {
-      console.error('FALLO CRÍTICO EN CIERRES:', error)
-      console.error('Error fatal cargando facturas:', error)
+    } catch (err) {
+      console.error('Error inesperado cargando facturas:', err)
       setFacturas([])
     } finally {
-      setCargando(false)
+      setCargandoFacturas(false)
     }
   }
 
-  const cargarExpedientes = async () => {
-    setCargandoExpedientes(true)
+  // ===================== CLIENTES PARA FACTURACIÓN DIRECTA =====================
+  const cargarClientes = async () => {
+    // Ya cargados: no recargar si ya tenemos datos
+    if (clientes.length > 0) return
+
+    setCargandoClientes(true)
     try {
       const { data, error } = await supabase
-        .from('expedientes')
-        .select('id, cliente_nombre, nombre_grupo, destino, fecha_viaje, estado')
-        .order('fecha_viaje', { ascending: false })
-        .limit(200)
-      
-      if (error) {
-        console.error('Error cargando expedientes:', error)
-        setExpedientes([])
-        return
-      }
-      
-      setExpedientes(data || [])
-    } catch (error) {
-      console.error('Error fatal cargando expedientes:', error)
-      setExpedientes([])
-    } finally {
-      setCargandoExpedientes(false)
-    }
-  }
-
-  const cargarPasajeros = async (expedienteId) => {
-    setCargandoPasajeros(true)
-    try {
-      const { data, error } = await supabase
-        .from('expedientes')
-        .select('pasajeros')
-        .eq('id', expedienteId)
-        .single()
-      
-      if (error || !data) {
-        console.error('Error cargando pasajeros:', error)
-        setPasajeros([])
-        return
-      }
-      
-      // pasajeros es un JSON array
-      const pasajerosArray = data.pasajeros || []
-      setPasajeros(Array.isArray(pasajerosArray) ? pasajerosArray : [])
-    } catch (error) {
-      console.error('Error fatal cargando pasajeros:', error)
-      setPasajeros([])
-    } finally {
-      setCargandoPasajeros(false)
-    }
-  }
-
-  const regenerarPDFDesdeDatos = async (factura) => {
-    // Aceptar tanto datos_factura como datos_json
-    const datos = factura?.datos_factura || factura?.datos_json
-    
-    if (!datos) {
-      console.error('FALLO CRÍTICO EN CIERRES: No hay datos_factura ni datos_json')
-      alert('❌ Error: No hay datos de factura para regenerar el PDF')
-      return
-    }
-    
-    const numeroFactura = factura.numero_factura || datos.numero_factura || 'SIN-NUMERO'
-    
-    try {
-      const doc = new jsPDF()
-      const pageWidth = doc.internal.pageSize.getWidth()
-      const pageHeight = doc.internal.pageSize.getHeight()
-      
-      // Número de factura
-      doc.setFontSize(20)
-      doc.setTextColor(33, 150, 243)
-      doc.setFont(undefined, 'bold')
-      doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
-      
-      // Fecha
-      const fechaActual = new Date()
-      const fechaFormateada = fechaActual.toLocaleDateString('es-ES', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric'
-      })
-      doc.setFontSize(10)
-      doc.setTextColor(100, 100, 100)
-      doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 35, { align: 'right' })
-      
-      // Datos del emisor (Valservice Incoming S.L.)
-      let yPos = 50
-      doc.setFontSize(12)
-      doc.setFont(undefined, 'bold')
-      doc.text('VALSERVICE INCOMING S.L.', 20, yPos)
-      yPos += 6
-      doc.setFontSize(10)
-      doc.setFont(undefined, 'normal')
-      doc.text('CIF: B12345678', 20, yPos)
-      yPos += 6
-      doc.text('C/ Santa Amalia, nº 2 Entresuelo 2º Of. L1', 20, yPos)
-      yPos += 6
-      doc.text('46009 Valencia (ESP)', 20, yPos)
-      yPos += 6
-      doc.text('Tel: +34 96 339 04 64', 20, yPos)
-      
-      // Receptor
-      yPos += 15
-      doc.setFontSize(12)
-      doc.setFont(undefined, 'bold')
-      doc.text('FACTURAR A:', 20, yPos)
-      yPos += 8
-      doc.setFontSize(10)
-      doc.setFont(undefined, 'normal')
-      
-      if (datos.formFactura) {
-        // Estructura de ExpedienteDetalle (factura de grupo)
-        doc.text(datos.formFactura.receptorNombre || 'Sin nombre', 20, yPos)
-        yPos += 6
-        if (datos.formFactura.receptorCIF) {
-          doc.text(`CIF/NIF: ${datos.formFactura.receptorCIF}`, 20, yPos)
-          yPos += 6
-        }
-        if (datos.formFactura.receptorDireccion) {
-          doc.text(datos.formFactura.receptorDireccion, 20, yPos)
-          yPos += 6
-        }
-        const direccionCompleta = [
-          datos.formFactura.receptorCP,
-          datos.formFactura.receptorPoblacion,
-          datos.formFactura.receptorProvincia
-        ].filter(Boolean).join(' ')
-        if (direccionCompleta) {
-          doc.text(direccionCompleta, 20, yPos)
-          yPos += 6
-        }
-      } else if (datos.receptor) {
-        // Estructura de factura de pasajero
-        doc.text(datos.receptor.nombre || 'Sin nombre', 20, yPos)
-        yPos += 6
-        if (datos.receptor.dni) {
-          doc.text(`DNI: ${datos.receptor.dni}`, 20, yPos)
-          yPos += 6
-        }
-        if (datos.receptor.direccion) {
-          doc.text(datos.receptor.direccion, 20, yPos)
-          yPos += 6
-        }
-        const direccionCompleta = [
-          datos.receptor.cp,
-          datos.receptor.poblacion,
-          datos.receptor.provincia
-        ].filter(Boolean).join(' ')
-        if (direccionCompleta) {
-          doc.text(direccionCompleta, 20, yPos)
-          yPos += 6
-        }
-      }
-      
-      // Concepto
-      yPos += 10
-      doc.setFontSize(12)
-      doc.setFont(undefined, 'bold')
-      doc.text('CONCEPTO:', 20, yPos)
-      yPos += 8
-      doc.setFontSize(10)
-      doc.setFont(undefined, 'normal')
-      
-      const concepto = datos.concepto || datos.concepts?.concepto || 'Servicios de viaje'
-      doc.text(concepto, 20, yPos)
-      yPos += 10
-      
-      // Desglose si existe
-      if (datos.calcularBaseFactura) {
-        const calc = datos.calcularBaseFactura
-        if (calc.paxPago && calc.precioNetoPax) {
-          doc.text(`${calc.paxPago} Plazas x ${calc.precioNetoPax}€:`, 20, yPos)
-          doc.text(`${calc.totalServiciosConIVA || '0.00'}€ (IVA incluido)`, pageWidth - 20, yPos, { align: 'right' })
-          yPos += 6
-        }
-        if (calc.totalSuplementos && parseFloat(calc.totalSuplementos) > 0) {
-          doc.text('Suplementos (IVA incluido):', 20, yPos)
-          doc.text(`${calc.totalSuplementos}€`, pageWidth - 20, yPos, { align: 'right' })
-          yPos += 6
-        }
-      }
-      
-      // Totales
-      yPos += 10
-      doc.setFont(undefined, 'bold')
-      doc.text('Base Imponible:', 20, yPos)
-      doc.text(`${datos.calcularBaseFactura?.baseImponible || datos.base_imponible || '0.00'}€`, pageWidth - 20, yPos, { align: 'right' })
-      yPos += 8
-      doc.text('IVA (21%):', 20, yPos)
-      doc.text(`${datos.calcularBaseFactura?.iva || '0.00'}€`, pageWidth - 20, yPos, { align: 'right' })
-      yPos += 8
-      doc.setFontSize(14)
-      doc.setFont(undefined, 'bold')
-      doc.text('TOTAL:', 20, yPos)
-      doc.text(`${datos.calcularBaseFactura?.totalFactura || datos.importe_total || '0.00'}€`, pageWidth - 20, yPos, { align: 'right' })
-      
-      // Descargar PDF
-      const nombreArchivo = `Factura_${numeroFactura}.pdf`
-      doc.save(nombreArchivo)
-      
-      alert('✅ PDF regenerado y descargado')
-    } catch (error) {
-      console.error('Error generando PDF:', error)
-      alert('❌ Error generando PDF: ' + error.message)
-    }
-  }
-
-  const verPDF = (factura) => {
-    if (factura.url_pdf) {
-      window.open(factura.url_pdf, '_blank')
-    } else if (factura.datos_json) {
-      // Usar datos_json si existe (estructura correcta)
-      regenerarPDFDesdeDatos({ ...factura, datos_factura: factura.datos_json })
-    } else if (factura.datos_factura) {
-      // Fallback a datos_factura (compatibilidad)
-      regenerarPDFDesdeDatos(factura)
-    } else {
-      console.error('FALLO CRÍTICO EN CIERRES: No hay datos disponibles para generar PDF')
-      alert('❌ No hay datos disponibles para generar el PDF')
-    }
-  }
-
-  const abrirModalPasajero = () => {
-    setShowModalPasajero(true)
-    setExpedienteSeleccionado(null)
-    setPasajeros([])
-    cargarExpedientes()
-  }
-
-  const abrirModalGrupo = () => {
-    setShowModalGrupo(true)
-    setExpedienteSeleccionado(null)
-    cargarExpedientes()
-  }
-
-  const seleccionarExpediente = async (expedienteId) => {
-    const exp = expedientes.find(e => e.id === expedienteId)
-    setExpedienteSeleccionado(exp)
-    if (showModalPasajero && expedienteId) {
-      await cargarPasajeros(expedienteId)
-    }
-  }
-
-  // ============ EMITIR FACTURA DE PASAJERO ============
-  const facturarPasajero = async (pasajero) => {
-    if (!expedienteSeleccionado) {
-      alert('⚠️ Por favor, selecciona un expediente primero')
-      return
-    }
-    
-    if (!pasajero) {
-      alert('⚠️ Por favor, selecciona un pasajero')
-      return
-    }
-
-    try {
-      // Obtener número de factura (similar a ExpedienteDetalle)
-      const año = new Date().getFullYear()
-      const { data: ultimaFactura } = await supabase
-        .from('facturas_emitidas_global')
-        .select('numero_factura')
-        .ilike('numero_factura', `${año}-%`)
-        .order('numero_factura', { ascending: false })
-        .limit(1)
-      
-      let numeroFactura = ''
-      if (ultimaFactura && ultimaFactura.length > 0 && ultimaFactura[0]?.numero_factura) {
-        const partes = String(ultimaFactura[0].numero_factura).split('-')
-        const siguienteNum = parseInt(partes[1] || '0') + 1
-        numeroFactura = `${año}-${String(siguienteNum).padStart(4, '0')}`
-      } else {
-        numeroFactura = `${año}-0001`
-      }
-
-      // Obtener datos del expediente para cálculos
-      const { data: expedienteData } = await supabase
-        .from('expedientes')
+        .from('clientes')
         .select('*')
-        .eq('id', expedienteSeleccionado.id)
-        .single()
+        .order('nombre', { ascending: true })
 
-      // Calcular importe (simplificado - se puede mejorar)
-      const importeTotal = parseFloat(expedienteData?.precio_venta_cliente || 0) || 0
-
-      // Preparar datos_json completo
-      const datosFacturaCompletos = {
-        numero_factura: numeroFactura,
-        expediente_id: expedienteSeleccionado.id,
-        tipo_factura: 'PASAJERO',
-        receptor: {
-          nombre: pasajero.nombre || pasajero.nombre_completo || 'Sin nombre',
-          dni: pasajero.dni || '',
-          direccion: pasajero.direccion || '',
-          poblacion: pasajero.poblacion || '',
-          provincia: pasajero.provincia || '',
-          cp: pasajero.cp || '',
-          email: pasajero.email || ''
-        },
-        concepto: `Servicios de viaje - ${expedienteSeleccionado.destino || 'Viaje'}`,
-        importe_total: importeTotal,
-        fecha_emision: new Date().toISOString()
+      if (error) {
+        console.error('Error cargando clientes para facturación directa:', error)
+        alert(`Error cargando clientes: ${error.message}`)
+        setClientes([])
+        return
       }
 
-      // INSERT EN facturas_emitidas_global - OBLIGATORIO
-      const { error: errorInsert } = await supabase
-        .from('facturas_emitidas_global')
-        .insert([{
-          expediente_id: expedienteSeleccionado.id,
+      setClientes(data || [])
+    } catch (err) {
+      console.error('Error inesperado cargando clientes:', err)
+      setClientes([])
+    } finally {
+      setCargandoClientes(false)
+    }
+  }
+
+  const clientesFiltrados = useMemo(() => {
+    const term = clienteSearch.trim().toLowerCase()
+    if (!term) return []
+    return clientes
+      .filter((c) => (c.nombre || '').toLowerCase().includes(term))
+      .slice(0, 20)
+  }, [clientes, clienteSearch])
+
+  const seleccionarCliente = (cliente) => {
+    setClienteSeleccionado(cliente)
+    setClienteSearch(cliente.nombre || '')
+  }
+
+  // ===================== GENERACIÓN NÚMERO DE FACTURA =====================
+  const obtenerSiguienteNumeroFactura = async () => {
+    const año = new Date().getFullYear()
+
+    const { data, error } = await supabase
+      .from('facturas_emitidas_global')
+      .select('numero_factura')
+      .ilike('numero_factura', `${año}-%`)
+      .order('numero_factura', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      console.error('Error obteniendo última factura:', error)
+      throw new Error('No se pudo obtener el último número de factura')
+    }
+
+    if (data && data.length > 0 && data[0]?.numero_factura) {
+      const partes = String(data[0].numero_factura).split('-')
+      const siguienteNum = parseInt(partes[1] || '0', 10) + 1
+      return `${año}-${String(siguienteNum).padStart(4, '0')}`
+    }
+
+    return `${año}-0001`
+  }
+
+  // ===================== FACTURACIÓN DIRECTA (CLIENTE SIN EXPEDIENTE) =====================
+  const handleApplyFacturacionDirecta = async () => {
+    if (!clienteSeleccionado) {
+      alert('Por favor, selecciona un cliente de la lista.')
+      return
+    }
+
+    const base = parseFloat(String(importeBase).replace(',', '.'))
+    if (!base || base <= 0) {
+      alert('Importe base no válido.')
+      return
+    }
+
+    const ivaPct = parseFloat(String(ivaPorcentaje))
+    if (Number.isNaN(ivaPct) || ivaPct < 0) {
+      alert('Porcentaje de IVA no válido.')
+      return
+    }
+
+    if (!concepto || concepto.trim().length < 3) {
+      alert('Indica un concepto de factura más descriptivo.')
+      return
+    }
+
+    setAplicandoFacturaDirecta(true)
+    try {
+      const numeroFactura = await obtenerSiguienteNumeroFactura()
+
+      const baseImponible = base
+      const iva = +(baseImponible * (ivaPct / 100)).toFixed(2)
+      const totalFactura = +(baseImponible + iva).toFixed(2)
+
+      const fechaEmisionISO = new Date().toISOString()
+
+      const datos_json = {
+        numero_factura: numeroFactura,
+        tipo_factura: 'DIRECTA',
+        fecha_emision: fechaEmisionISO,
+        receptor: {
+          nombre: clienteSeleccionado.nombre || '',
+          cif_nif: clienteSeleccionado.cif_nif || clienteSeleccionado.cif || '',
+          direccion: clienteSeleccionado.direccion || '',
+          poblacion: clienteSeleccionado.poblacion || '',
+          provincia: clienteSeleccionado.provincia || '',
+          cp: clienteSeleccionado.codigo_postal || clienteSeleccionado.cp || '',
+          telefono: clienteSeleccionado.movil || clienteSeleccionado.telefono || '',
+          email: clienteSeleccionado.email || ''
+        },
+        concepto: concepto.trim(),
+        calcularBaseFactura: {
+          baseImponible: baseImponible.toFixed(2),
+          iva: iva.toFixed(2),
+          totalFactura: totalFactura.toFixed(2),
+          tipoIVA: ivaPct
+        }
+      }
+
+      const { error: errorInsert } = await supabase.from('facturas_emitidas_global').insert([
+        {
           numero_factura: numeroFactura,
-          cliente_nombre: pasajero.nombre || pasajero.nombre_completo || 'Pasajero Individual',
-          importe_total: importeTotal,
-          tipo_factura: 'PASAJERO',
-          datos_json: datosFacturaCompletos,
-          fecha_emision: new Date().toISOString()
-        }])
+          cliente_id: clienteSeleccionado.id,
+          cliente_nombre: clienteSeleccionado.nombre,
+          tipo_factura: 'DIRECTA',
+          importe_total: totalFactura,
+          fecha_emision: fechaEmisionISO,
+          datos_json
+        }
+      ])
 
       if (errorInsert) {
-        console.error('FALLO CRÍTICO EN CIERRES:', errorInsert)
-        console.error('❌ Error guardando factura de pasajero:', JSON.stringify(errorInsert, null, 2))
-        alert(`❌ Error guardando factura: ${errorInsert.message}`)
+        console.error('Error insertando factura directa en facturas_emitidas_global:', errorInsert)
+        alert(`Error guardando factura directa: ${errorInsert.message}`)
         return
       }
 
-      // Generar PDF básico
+      // Generar PDF básico inmediatamente (opcional pero profesional)
       try {
         const doc = new jsPDF()
         const pageWidth = doc.internal.pageSize.getWidth()
-        
+
         doc.setFontSize(20)
         doc.setTextColor(33, 150, 243)
         doc.setFont(undefined, 'bold')
         doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
-        
+
         let yPos = 50
         doc.setFontSize(12)
         doc.setFont(undefined, 'bold')
@@ -396,13 +225,21 @@ const Cierres = () => {
         yPos += 8
         doc.setFontSize(10)
         doc.setFont(undefined, 'normal')
-        doc.text(datosFacturaCompletos.receptor.nombre, 20, yPos)
+        doc.text(clienteSeleccionado.nombre || '-', 20, yPos)
         yPos += 6
-        if (datosFacturaCompletos.receptor.dni) {
-          doc.text(`DNI: ${datosFacturaCompletos.receptor.dni}`, 20, yPos)
+        if (clienteSeleccionado.cif_nif || clienteSeleccionado.cif) {
+          doc.text(
+            `CIF/NIF: ${clienteSeleccionado.cif_nif || clienteSeleccionado.cif}`,
+            20,
+            yPos
+          )
           yPos += 6
         }
-        
+        if (clienteSeleccionado.direccion) {
+          doc.text(clienteSeleccionado.direccion, 20, yPos)
+          yPos += 6
+        }
+
         yPos += 10
         doc.setFontSize(12)
         doc.setFont(undefined, 'bold')
@@ -410,169 +247,453 @@ const Cierres = () => {
         yPos += 8
         doc.setFontSize(10)
         doc.setFont(undefined, 'normal')
-        doc.text(datosFacturaCompletos.concepto, 20, yPos)
-        yPos += 10
-        
+        doc.text(concepto.trim(), 20, yPos)
+        yPos += 12
+
         doc.setFont(undefined, 'bold')
+        doc.text('Base imponible:', 20, yPos)
+        doc.text(`${baseImponible.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+        yPos += 8
+        doc.text(`IVA (${ivaPct}%):`, 20, yPos)
+        doc.text(`${iva.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+        yPos += 10
         doc.setFontSize(14)
         doc.text('TOTAL:', 20, yPos)
-        doc.text(`${importeTotal.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
-        
-        doc.save(`Factura_${numeroFactura}_Pasajero.pdf`)
+        doc.text(`${totalFactura.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+
+        doc.save(`Factura_${numeroFactura}_Directa.pdf`)
       } catch (pdfError) {
-        console.error('Error generando PDF:', pdfError)
+        console.error('Error generando PDF de factura directa:', pdfError)
       }
 
-      alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente`)
-      
-      // Cerrar modal y recargar facturas
-      setShowModalPasajero(false)
-      setExpedienteSeleccionado(null)
-      setPasajeros([])
+      alert(`✅ Factura directa ${numeroFactura} emitida correctamente`)
+
+      // Reset formulario
+      setImporteBase('')
+      setConcepto('')
+      setClienteSeleccionado(null)
+      setClienteSearch('')
+
+      // Refrescar listado
       await cargarFacturas()
-    } catch (error) {
-      console.error('FALLO CRÍTICO EN CIERRES:', error)
-      console.error('Error inesperado emitiendo factura de pasajero:', error)
-      alert(`❌ Error inesperado: ${error.message}`)
+    } catch (err) {
+      console.error('Error inesperado en facturación directa:', err)
+      alert(`Error inesperado emitiendo factura directa: ${err.message}`)
+    } finally {
+      setAplicandoFacturaDirecta(false)
     }
   }
 
-  const facturarGrupo = () => {
-    if (!expedienteSeleccionado) {
-      alert('⚠️ Por favor, selecciona un expediente')
+  // ===================== PDF: VISOR / REGENERADOR PARA CUALQUIER FACTURA =====================
+  const regenerarPDFDesdeDatos = async (factura) => {
+    const datos = factura?.datos_factura || factura?.datos_json
+
+    if (!datos) {
+      console.error('No hay datos_factura ni datos_json para esta factura')
+      alert('No hay datos de factura para regenerar el PDF')
       return
     }
-    
-    // Redirigir a ExpedienteDetalle con el expediente seleccionado
-    const url = `/expedientes?expediente=${expedienteSeleccionado.id}&tab=facturacion`
-    window.location.href = url
+
+    const numeroFactura = factura.numero_factura || datos.numero_factura || 'SIN-NUMERO'
+
+    try {
+      const doc = new jsPDF()
+      const pageWidth = doc.internal.pageSize.getWidth()
+
+      doc.setFontSize(20)
+      doc.setTextColor(33, 150, 243)
+      doc.setFont(undefined, 'bold')
+      doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
+
+      const fecha = datos.fecha_emision
+        ? new Date(datos.fecha_emision)
+        : new Date(factura.fecha_emision || Date.now())
+      const fechaFormateada = fecha.toLocaleDateString('es-ES', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+      })
+      doc.setFontSize(10)
+      doc.setTextColor(100, 100, 100)
+      doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 35, { align: 'right' })
+
+      let yPos = 50
+      doc.setFontSize(12)
+      doc.setFont(undefined, 'bold')
+      doc.text('FACTURAR A:', 20, yPos)
+      yPos += 8
+      doc.setFontSize(10)
+      doc.setFont(undefined, 'normal')
+
+      const receptor =
+        datos.receptor ||
+        datos.formFactura?.receptor ||
+        datos.formFactura || {
+          nombre: factura.cliente_nombre || ''
+        }
+
+      if (receptor.nombre) {
+        doc.text(receptor.nombre, 20, yPos)
+        yPos += 6
+      }
+      if (receptor.cif_nif || receptor.cif) {
+        doc.text(`CIF/NIF: ${receptor.cif_nif || receptor.cif}`, 20, yPos)
+        yPos += 6
+      }
+      if (receptor.direccion) {
+        doc.text(receptor.direccion, 20, yPos)
+        yPos += 6
+      }
+
+      yPos += 10
+      doc.setFontSize(12)
+      doc.setFont(undefined, 'bold')
+      doc.text('CONCEPTO:', 20, yPos)
+      yPos += 8
+      doc.setFontSize(10)
+      doc.setFont(undefined, 'normal')
+
+      const concepto =
+        datos.concepto || datos.concepts?.concepto || factura.concepto || 'Servicios de viaje'
+      doc.text(concepto, 20, yPos)
+      yPos += 12
+
+      const calc = datos.calcularBaseFactura || {}
+      const baseImponible = parseFloat(calc.baseImponible || factura.base_imponible || 0) || 0
+      const iva = parseFloat(calc.iva || 0) || 0
+      const total =
+        parseFloat(calc.totalFactura || datos.importe_total || factura.importe_total || 0) || 0
+
+      doc.setFont(undefined, 'bold')
+      doc.text('Base imponible:', 20, yPos)
+      doc.text(`${baseImponible.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+      yPos += 8
+      doc.text('IVA:', 20, yPos)
+      doc.text(`${iva.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+      yPos += 10
+      doc.setFontSize(14)
+      doc.text('TOTAL:', 20, yPos)
+      doc.text(`${total.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+
+      doc.save(`Factura_${numeroFactura}.pdf`)
+      alert('PDF regenerado y descargado correctamente')
+    } catch (error) {
+      console.error('Error generando PDF:', error)
+      alert('Error generando PDF: ' + error.message)
+    }
   }
 
+  const verPDF = (factura) => {
+    if (factura.url_pdf) {
+      window.open(factura.url_pdf, '_blank')
+      return
+    }
+
+    if (factura.datos_json || factura.datos_factura) {
+      regenerarPDFDesdeDatos(factura)
+      return
+    }
+
+    alert('No hay PDF ni datos para generar el documento.')
+  }
+
+  const totalFacturado = useMemo(() => {
+    if (!facturas || facturas.length === 0) return 0
+    return facturas.reduce((acc, f) => acc + (parseFloat(f.importe_total) || 0), 0)
+  }, [facturas])
+
   return (
-    <div className="p-8">
-      {/* Header */}
+    <div className="p-8 max-w-[1600px] mx-auto">
+      {/* HEADER PRINCIPAL */}
       <div className="mb-8 flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-navy-900 mb-2">Cierres</h1>
-          <p className="text-gray-600">Gestión contable y facturación global</p>
+          <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">
+            Cierres &amp; Facturación
+          </h1>
+          <p className="text-slate-500 font-medium text-sm mt-1">
+            Control global de facturas y cierres de ejercicio
+          </p>
         </div>
-        {tabActiva === 'facturas' && (
-          <div className="flex gap-3">
-            <button
-              onClick={abrirModalPasajero}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
-            >
-              <User size={18} />
-              Nueva Factura Pasajero
-            </button>
-            <button
-              onClick={abrirModalGrupo}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
-            >
-              <Briefcase size={18} />
-              Nueva Factura Grupo
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* Sistema de Pestañas */}
-      <div className="mb-6 border-b border-gray-200">
+      {/* PESTAÑAS: FACTURAS / CIERRES (LIQUIDACIÓN) */}
+      <div className="mb-6 border-b border-slate-200">
         <div className="flex gap-1">
           <button
             onClick={() => setTabActiva('facturas')}
             className={`px-6 py-3 font-semibold transition-colors flex items-center gap-2 ${
               tabActiva === 'facturas'
                 ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Receipt size={18} />
-            Facturas Emitidas
+            Facturas
           </button>
           <button
             onClick={() => setTabActiva('cierres')}
             className={`px-6 py-3 font-semibold transition-colors flex items-center gap-2 ${
               tabActiva === 'cierres'
                 ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <TrendingUp size={18} />
-            Cierres de Expedientes
+            Cierres (Liquidación)
           </button>
         </div>
       </div>
 
-      {/* Contenido de Pestaña: Facturas Emitidas */}
+      {/* ===================== TAB: FACTURAS ===================== */}
       {tabActiva === 'facturas' && (
-        <>
-          {cargando ? (
-            <div className="text-center py-12 text-gray-500">
-              <p>Cargando facturas...</p>
+        <div className="space-y-6">
+          {/* BLOQUE FACTURACIÓN DIRECTA A CLIENTES */}
+          <div className="bg-white rounded-2xl shadow-md border border-slate-200 p-6">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-full bg-blue-50">
+                  <User className="text-blue-600" size={22} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">
+                    Facturación directa a Cliente (sin expediente)
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Ideal para entidades como Arrancapins u otros clientes de cartera.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <CheckCircle2 className="text-emerald-500" size={16} />
+                <span>Sincronizado con `facturas_emitidas_global`</span>
+              </div>
             </div>
-          ) : facturas.length === 0 ? (
-            <div className="bg-white rounded-xl shadow-md p-12 border border-gray-200 text-center">
-              <FileText className="mx-auto text-gray-400 mb-4" size={64} />
-              <h3 className="text-xl font-bold text-gray-700 mb-2">No hay facturas emitidas</h3>
-              <p className="text-gray-600">Las facturas emitidas aparecerán aquí</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Selector de cliente con búsqueda */}
+              <div className="md:col-span-1">
+                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-[0.18em] mb-2">
+                  Cliente
+                </label>
+                <div className="relative">
+                  <Search
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"
+                    size={18}
+                  />
+                  <input
+                    type="text"
+                    value={clienteSearch}
+                    onChange={(e) => {
+                      setClienteSearch(e.target.value)
+                      setClienteSeleccionado(null)
+                    }}
+                    placeholder="Buscar cliente (Arrancapins, Puzol, etc.)..."
+                    className="w-full pl-10 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                {cargandoClientes && (
+                  <p className="text-xs text-slate-400 mt-1">Cargando clientes...</p>
+                )}
+                {clienteSearch && clientesFiltrados.length > 0 && (
+                  <div className="mt-2 max-h-52 overflow-y-auto border border-slate-200 rounded-lg shadow-sm bg-white text-sm">
+                    {clientesFiltrados.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => seleccionarCliente(c)}
+                        className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-b-0"
+                      >
+                        <div className="font-semibold text-slate-900">{c.nombre}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {c.poblacion} {c.provincia}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {clienteSearch && !cargandoClientes && clientesFiltrados.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    No se han encontrado clientes con ese nombre.
+                  </p>
+                )}
+                {clienteSeleccionado && (
+                  <div className="mt-3 p-3 rounded-lg border border-emerald-200 bg-emerald-50 text-xs text-emerald-800">
+                    Seleccionado: <strong>{clienteSeleccionado.nombre}</strong>
+                    {clienteSeleccionado.cif_nif || clienteSeleccionado.cif ? (
+                      <span className="ml-2">
+                        · CIF/NIF: {clienteSeleccionado.cif_nif || clienteSeleccionado.cif}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+
+              {/* Importe e IVA */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-[0.18em] mb-2">
+                    Base imponible
+                  </label>
+                  <div className="relative">
+                    <Euro className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={importeBase}
+                      onChange={(e) => setImporteBase(e.target.value)}
+                      placeholder="0,00"
+                      className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-[0.18em] mb-2">
+                    IVA (%)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={ivaPorcentaje}
+                    onChange={(e) => setIvaPorcentaje(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div className="bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-600">
+                  <div className="flex justify-between">
+                    <span>Total estimado</span>
+                    <span className="font-semibold text-slate-900">
+                      {(() => {
+                        const base = parseFloat(String(importeBase).replace(',', '.')) || 0
+                        const ivaPct = parseFloat(String(ivaPorcentaje)) || 0
+                        const iva = base * (ivaPct / 100)
+                        const total = base + iva
+                        return `${total.toFixed(2)} €`
+                      })()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Concepto + BOTÓN APPLY */}
+              <div className="flex flex-col justify-between gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-[0.18em] mb-2">
+                    Concepto
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={concepto}
+                    onChange={(e) => setConcepto(e.target.value)}
+                    placeholder="Ej: Servicios de organización de viaje para el grupo Arrancapins."
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  />
+                </div>
+                <div className="flex justify-end mt-1">
+                  {/* ✅ BOTÓN PRINCIPAL APPLY */}
+                  <button
+                    type="button"
+                    onClick={handleApplyFacturacionDirecta}
+                    disabled={aplicandoFacturaDirecta}
+                    className="inline-flex items-center justify-center px-8 py-3 rounded-xl bg-slate-900 hover:bg-blue-700 text-white text-sm font-extrabold tracking-[0.25em] uppercase shadow-md transition disabled:bg-slate-400 disabled:cursor-not-allowed"
+                  >
+                    APPLY
+                  </button>
+                </div>
+              </div>
             </div>
-          ) : (
-            <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-              <table className="w-full">
+          </div>
+
+          {/* LISTADO DE FACTURAS EMITIDAS */}
+          <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <FileText className="text-slate-500" size={18} />
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-[0.2em]">
+                  Facturas emitidas (facturas_emitidas_global)
+                </h3>
+              </div>
+              <div className="text-xs text-slate-500 font-medium">
+                Total facturado:{' '}
+                <span className="font-semibold text-emerald-700">
+                  {totalFacturado.toFixed(2)} €
+                </span>
+              </div>
+            </div>
+
+            {cargandoFacturas ? (
+              <div className="py-10 text-center text-slate-500 text-sm">Cargando facturas...</div>
+            ) : facturas.length === 0 ? (
+              <div className="py-10 text-center text-slate-500 text-sm flex flex-col items-center gap-2">
+                <FileText className="text-slate-300" size={40} />
+                <span>No hay facturas emitidas todavía.</span>
+              </div>
+            ) : (
+              <table className="w-full text-sm">
                 <thead className="bg-slate-900 text-white">
                   <tr>
-                    <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Fecha</th>
-                    <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Nº Factura</th>
-                    <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Tipo</th>
-                    <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Cliente</th>
-                    <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-right">Importe</th>
-                    <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center">PDF</th>
+                    <th className="px-6 py-3 text-xs font-black uppercase tracking-[0.2em] text-left">
+                      Fecha emisión
+                    </th>
+                    <th className="px-6 py-3 text-xs font-black uppercase tracking-[0.2em] text-left">
+                      Nº Factura
+                    </th>
+                    <th className="px-6 py-3 text-xs font-black uppercase tracking-[0.2em] text-left">
+                      Tipo
+                    </th>
+                    <th className="px-6 py-3 text-xs font-black uppercase tracking-[0.2em] text-left">
+                      Cliente
+                    </th>
+                    <th className="px-6 py-3 text-xs font-black uppercase tracking-[0.2em] text-right">
+                      Importe
+                    </th>
+                    <th className="px-6 py-3 text-xs font-black uppercase tracking-[0.2em] text-center">
+                      PDF
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-slate-100">
                   {facturas.map((factura) => (
-                    <tr key={factura.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 text-sm text-gray-700">
-                        {factura.fecha_emision 
+                    <tr key={factura.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-3 text-slate-700">
+                        {factura.fecha_emision
                           ? new Date(factura.fecha_emision).toLocaleDateString('es-ES', {
                               day: '2-digit',
                               month: '2-digit',
                               year: 'numeric'
                             })
-                          : (factura.created_at 
-                              ? new Date(factura.created_at).toLocaleDateString('es-ES', {
-                                  day: '2-digit',
-                                  month: '2-digit',
-                                  year: 'numeric'
-                                })
-                              : '-'
-                            )
-                        }
+                          : '-'}
                       </td>
-                      <td className="px-6 py-4 text-sm font-semibold text-gray-900">
+                      <td className="px-6 py-3 font-semibold text-slate-900">
                         {factura.numero_factura || '-'}
                       </td>
-                      <td className="px-6 py-4 text-sm">
-                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-bold ${
-                          factura.tipo_factura === 'PASAJERO' 
-                            ? 'bg-blue-100 text-blue-800' 
-                            : 'bg-green-100 text-green-800'
-                        }`}>
-                          {factura.tipo_factura === 'PASAJERO' ? 'Pasajero' : 'Grupo'}
+                      <td className="px-6 py-3">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                            factura.tipo_factura === 'DIRECTA'
+                              ? 'bg-sky-100 text-sky-800'
+                              : factura.tipo_factura === 'PASAJERO'
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {factura.tipo_factura || 'N/D'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-700">
-                        {factura.cliente_nombre || '-'}
+                      <td className="px-6 py-3 text-slate-700">
+                        {factura.cliente_nombre || 'Sin cliente'}
                       </td>
-                      <td className="px-6 py-4 text-sm font-bold text-green-700 text-right">
-                        {factura.importe_total ? `${Number(factura.importe_total).toFixed(2)}€` : '-'}
+                      <td className="px-6 py-3 text-right font-bold text-emerald-700">
+                        {factura.importe_total
+                          ? `${Number(factura.importe_total).toFixed(2)} €`
+                          : '-'}
                       </td>
-                      <td className="px-6 py-4 text-center">
+                      <td className="px-6 py-3 text-center">
                         <button
+                          type="button"
                           onClick={() => verPDF(factura)}
-                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-1 mx-auto"
-                          title={factura.url_pdf ? 'Ver PDF' : 'Regenerar PDF desde datos'}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors"
                         >
                           <Eye size={14} />
                           PDF
@@ -582,188 +703,57 @@ const Cierres = () => {
                   ))}
                 </tbody>
               </table>
-            </div>
-          )}
-        </>
+            )}
+          </div>
+        </div>
       )}
 
-      {/* Contenido de Pestaña: Cierres de Expedientes */}
+      {/* ===================== TAB: CIERRES (LIQUIDACIÓN) ===================== */}
       {tabActiva === 'cierres' && (
-        <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
           <div className="p-8 text-center">
-            <TrendingUp className="mx-auto text-gray-400 mb-4" size={64} />
-            <h3 className="text-xl font-bold text-gray-700 mb-2">Módulo de Cuadre de Gastos para Hacienda</h3>
-            <p className="text-gray-600 mb-6">Próximamente</p>
+            <TrendingUp className="mx-auto text-slate-300 mb-4" size={56} />
+            <h3 className="text-xl font-bold text-slate-900 mb-2">
+              Cierres de ejercicio y liquidación
+            </h3>
+            <p className="text-slate-500 text-sm max-w-xl mx-auto mb-6">
+              Esta pestaña estará dedicada al cuadre de gastos/ingresos por expediente y a la
+              liquidación fina para Hacienda.
+            </p>
           </div>
-          
-          {/* Tabla vacía con estructura */}
-          <table className="w-full">
+          <table className="w-full text-sm">
             <thead className="bg-slate-900 text-white">
               <tr>
-                <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Expediente</th>
-                <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Destino</th>
-                <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Estado Liquidación</th>
-                <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center">Acción</th>
+                <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.2em] text-left">
+                  Expediente / Grupo
+                </th>
+                <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.2em] text-left">
+                  Destino
+                </th>
+                <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.2em] text-left">
+                  Estado liquidación
+                </th>
+                <th className="px-6 py-4 text-xs font-black uppercase tracking-[0.2em] text-center">
+                  Acción
+                </th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td colSpan="4" className="px-6 py-12 text-center text-gray-500">
-                  <p className="text-sm">Esta funcionalidad estará disponible próximamente</p>
+                <td
+                  colSpan={4}
+                  className="px-6 py-12 text-center text-slate-500 text-sm bg-slate-50"
+                >
+                  El módulo de cierres y liquidación detallada se implementará en la siguiente
+                  fase. De momento, toda la facturación está sincronizada contra{' '}
+                  <span className="font-mono text-xs bg-slate-800 text-slate-100 px-2 py-1 rounded">
+                    facturas_emitidas_global
+                  </span>
+                  .
                 </td>
               </tr>
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* Modal Nueva Factura Pasajero */}
-      {showModalPasajero && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-2xl font-bold text-navy-900 mb-6">Nueva Factura - Pasajero Individual</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Seleccionar Expediente
-                </label>
-                <select
-                  value={expedienteSeleccionado?.id || ''}
-                  onChange={(e) => seleccionarExpediente(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  disabled={cargandoExpedientes}
-                >
-                  <option value="">-- Selecciona un expediente --</option>
-                  {expedientes.map((exp) => (
-                    <option key={exp.id} value={exp.id}>
-                      {exp.cliente_nombre || exp.nombre_grupo || 'Sin nombre'} - {exp.destino || 'Sin destino'}
-                    </option>
-                  ))}
-                </select>
-                {cargandoExpedientes && (
-                  <p className="text-xs text-gray-500 mt-1">Cargando expedientes...</p>
-                )}
-              </div>
-
-              {expedienteSeleccionado && (
-                <>
-                  {cargandoPasajeros ? (
-                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                      <p className="text-blue-800 text-sm">Cargando pasajeros...</p>
-                    </div>
-                  ) : pasajeros.length > 0 ? (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Seleccionar Pasajero
-                      </label>
-                      <div className="space-y-2 max-h-64 overflow-y-auto border border-gray-200 rounded-lg p-2">
-                        {pasajeros.map((pasajero, index) => (
-                          <button
-                            key={index}
-                            onClick={() => facturarPasajero(pasajero)}
-                            className="w-full text-left px-4 py-3 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-200"
-                          >
-                            <div className="font-medium text-gray-900">
-                              {pasajero.nombre || pasajero.nombre_completo || `Pasajero ${index + 1}`}
-                            </div>
-                            {pasajero.dni && (
-                              <div className="text-sm text-gray-600">DNI: {pasajero.dni}</div>
-                            )}
-                            {pasajero.email && (
-                              <div className="text-xs text-gray-500">{pasajero.email}</div>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-                      <p className="text-yellow-800 text-sm">No hay pasajeros registrados en este expediente.</p>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => {
-                  setShowModalPasajero(false)
-                  setExpedienteSeleccionado(null)
-                  setPasajeros([])
-                }}
-                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors flex-1"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Nueva Factura Grupo */}
-      {showModalGrupo && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-2xl font-bold text-navy-900 mb-6">Nueva Factura - Grupo</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Seleccionar Expediente
-                </label>
-                <select
-                  value={expedienteSeleccionado?.id || ''}
-                  onChange={(e) => seleccionarExpediente(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  disabled={cargandoExpedientes}
-                >
-                  <option value="">-- Selecciona un expediente --</option>
-                  {expedientes.map((exp) => (
-                    <option key={exp.id} value={exp.id}>
-                      {exp.cliente_nombre || exp.nombre_grupo || 'Sin nombre'} - {exp.destino || 'Sin destino'}
-                    </option>
-                  ))}
-                </select>
-                {cargandoExpedientes && (
-                  <p className="text-xs text-gray-500 mt-1">Cargando expedientes...</p>
-                )}
-              </div>
-
-              {expedienteSeleccionado && (
-                <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-                  <p className="text-green-800 font-medium mb-2">Expediente seleccionado:</p>
-                  <p className="text-green-900 font-semibold">{expedienteSeleccionado.cliente_nombre || expedienteSeleccionado.nombre_grupo}</p>
-                  <p className="text-sm text-green-700">{expedienteSeleccionado.destino}</p>
-                  {expedienteSeleccionado.fecha_viaje && (
-                    <p className="text-xs text-green-600 mt-1">
-                      Fecha: {new Date(expedienteSeleccionado.fecha_viaje).toLocaleDateString('es-ES')}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => {
-                  setShowModalGrupo(false)
-                  setExpedienteSeleccionado(null)
-                }}
-                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors flex-1"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={facturarGrupo}
-                disabled={!expedienteSeleccionado}
-                className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex-1 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                Continuar a Facturación
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>
