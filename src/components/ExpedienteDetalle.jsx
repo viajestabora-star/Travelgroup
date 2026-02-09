@@ -1700,7 +1700,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // ============ GUARDAR SERVICIO EN SUPABASE ============
   // Guarda automáticamente cada servicio cuando se modifica (con debounce)
   const guardarServicioEnSupabase = async (servicio) => {
-    if (!expediente?.id || !servicio) return
+    if (!expediente?.id || !servicio) {
+      console.log('⚠️ guardarServicioEnSupabase: No se puede guardar - expediente.id:', expediente?.id, 'servicio:', servicio)
+      return
+    }
     
     try {
       const datosParaSupabase = {
@@ -1718,9 +1721,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         nombre_proveedor_manual: servicio.proveedorNombreTemporal || null
       }
       
+      // ============ CONSOLE.LOG DE DEBUG ============
+      console.log('📋 DATOS QUE SE ENVIARÁN A SUPABASE:', {
+        'expediente.id (original)': expediente.id,
+        'expediente.id (string trim)': String(expediente.id).trim(),
+        'servicio.id (actual)': servicio.id,
+        'tipo_servicio_id': typeof servicio.id === 'string' && servicio.id.length > 10 && servicio.id.includes('-') ? 'UUID Supabase (UPDATE)' : 'UUID Temporal (INSERT)',
+        'datos_completos': datosParaSupabase,
+        'servicio_completo_original': servicio
+      })
+      console.log('📊 ESTRUCTURA DE COLUMNAS QUE SE ENVIARÁN:', Object.keys(datosParaSupabase))
+      console.log('🔗 VINCULACIÓN AL EXPEDIENTE:', {
+        'id_expediente_enviado': datosParaSupabase.id_expediente,
+        'tipo': typeof datosParaSupabase.id_expediente,
+        'coincide_con_expediente_actual': datosParaSupabase.id_expediente === String(expediente.id).trim()
+      })
+      
       // Si el servicio tiene ID de Supabase (UUID largo), actualizar; si no, insertar
       if (servicio.id && typeof servicio.id === 'string' && servicio.id.length > 10 && servicio.id.includes('-')) {
         // Es un UUID de Supabase, actualizar
+        console.log('🔄 OPERACIÓN: UPDATE (servicio existente en Supabase)')
         const { error } = await supabase
           .from('servicios_cotizacion')
           .update(datosParaSupabase)
@@ -1733,6 +1753,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         }
       } else {
         // Es un UUID temporal, insertar nuevo
+        console.log('➕ OPERACIÓN: INSERT (nuevo servicio)')
         const { data, error } = await supabase
           .from('servicios_cotizacion')
           .insert([datosParaSupabase])
@@ -1741,8 +1762,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         
         if (error) {
           console.error('❌ Error insertando servicio:', error)
+          console.error('❌ Detalles del error:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code
+          })
         } else if (data) {
           console.log('✅ Servicio insertado en Supabase:', data.id)
+          console.log('📦 Datos devueltos por Supabase:', data)
           // Actualizar el ID del servicio en el estado local con el ID real de Supabase
           setServicios(prevServicios => prevServicios.map(s => 
             s.id === servicio.id ? { ...s, id: data.id } : s
