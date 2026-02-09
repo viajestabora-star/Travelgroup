@@ -11,6 +11,8 @@ const Clientes = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState(null)
+  const [expedientesCliente, setExpedientesCliente] = useState([])
+  const [cargandoExpedientes, setCargandoExpedientes] = useState(false)
   
   const [formData, setFormData] = useState({
     nombre: '', 
@@ -56,6 +58,81 @@ const Clientes = () => {
     }
   }
 
+  const cargarExpedientesCliente = async (nombreCliente) => {
+    if (!nombreCliente || nombreCliente.trim() === '') {
+      setExpedientesCliente([])
+      return
+    }
+
+    // Normalizar nombre: eliminar espacios extra y trim
+    const nombreNormalizado = nombreCliente.trim().replace(/\s+/g, ' ')
+    console.log("Buscando expedientes para:", nombreNormalizado)
+
+    setCargandoExpedientes(true)
+    try {
+      const { data: expedientes, error } = await supabase
+        .from('expedientes')
+        .select('id, cliente_nombre, fecha_viaje, estado, precio_venta_cliente, pax_pago, total_pax')
+        .ilike('cliente_nombre', nombreNormalizado)
+        .order('fecha_viaje', { ascending: false })
+
+      console.log("Resultado:", expedientes)
+
+      if (error) {
+        console.error('Error cargando expedientes:', error)
+        setExpedientesCliente([])
+        return
+      }
+
+      // Para cada expediente, calcular el beneficio neto consultando los servicios
+      const expedientesConBeneficio = await Promise.all(
+        (expedientes || []).map(async (exp) => {
+          try {
+            // Consultar servicios del expediente para calcular coste total
+            const { data: servicios } = await supabase
+              .from('servicios_cotizacion')
+              .select('coste_unitario, tipo_servicio, noches')
+              .eq('id_expediente', exp.id)
+
+            let costeTotal = 0
+            if (servicios && servicios.length > 0) {
+              servicios.forEach(servicio => {
+                const coste = parseFloat(servicio.coste_unitario) || 0
+                const cantidad = servicio.tipo_servicio === 'Hotel' || servicio.tipo_servicio === 'Guía' 
+                  ? (parseInt(servicio.noches) || 1)
+                  : 1
+                costeTotal += coste * cantidad
+              })
+            }
+
+            // Calcular beneficio neto
+            const precioVenta = parseFloat(exp.precio_venta_cliente) || 0
+            const paxPago = parseInt(exp.pax_pago) || parseInt(exp.total_pax) || 0
+            const precioVentaTotal = precioVenta * paxPago
+            const beneficioTotal = precioVentaTotal - costeTotal
+            const iva = beneficioTotal * 0.21
+            const beneficioNeto = beneficioTotal - iva
+
+            return {
+              ...exp,
+              beneficioNeto: isNaN(beneficioNeto) ? null : beneficioNeto
+            }
+          } catch (err) {
+            console.error('Error calculando beneficio para expediente:', exp.id, err)
+            return { ...exp, beneficioNeto: null }
+          }
+        })
+      )
+
+      setExpedientesCliente(expedientesConBeneficio)
+    } catch (err) {
+      console.error('Error inesperado cargando expedientes:', err)
+      setExpedientesCliente([])
+    } finally {
+      setCargandoExpedientes(false)
+    }
+  }
+
   const openModal = (c = null) => {
     if (c) {
       setEditingId(c.id); setFormData({ 
@@ -73,6 +150,8 @@ const Clientes = () => {
         bonificaciones: c.bonificaciones || c.comisiones || '',
         gratuidades: c.gratuidades || ''
       })
+      // Cargar expedientes del cliente
+      cargarExpedientesCliente(c.nombre)
     } else {
       setEditingId(null); setFormData({ 
         nombre: '', 
@@ -89,6 +168,7 @@ const Clientes = () => {
         bonificaciones: '',
         gratuidades: ''
       })
+      setExpedientesCliente([])
     }
     setShowModal(true)
   }
@@ -613,6 +693,77 @@ const Clientes = () => {
                   </button>
                 </div>
               </form>
+              
+              {/* Historial de Expedientes - Fuera del formulario, siempre visible */}
+              {editingId && (
+                <div className="mt-8 border-t pt-8" style={{ borderColor: '#f1f5f9' }}>
+                  <h2 className="text-2xl font-bold text-slate-900 mb-6">📂 Historial de Expedientes</h2>
+                  
+                  {(() => {
+                    console.log("Expedientes encontrados:", expedientesCliente)
+                    return null
+                  })()}
+                  
+                  {cargandoExpedientes ? (
+                    <div className="text-center py-8 text-slate-500">
+                      <p>Cargando expedientes...</p>
+                    </div>
+                  ) : expedientesCliente.length === 0 ? (
+                    <div className="bg-slate-50 p-6 rounded-lg border border-slate-200">
+                      <p className="text-slate-600 text-center">No hay expedientes registrados para este nombre.</p>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                      <table className="w-full">
+                        <thead className="bg-slate-900 text-white">
+                          <tr>
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Nombre del Viaje</th>
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Fecha</th>
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-left">Estado</th>
+                            <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-right">Beneficio Neto</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {expedientesCliente.map((exp) => (
+                            <tr key={exp.id} className="hover:bg-green-50/30 transition-all">
+                              <td className="px-6 py-4">
+                                <div className="font-bold text-slate-900">{exp.cliente_nombre || 'Sin nombre'}</div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="text-sm text-slate-700">
+                                  {exp.fecha_viaje ? new Date(exp.fecha_viaje).toLocaleDateString('es-ES') : '-'}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${
+                                  exp.estado === 'cerrado' ? 'bg-green-100 text-green-800' :
+                                  exp.estado === 'confirmado' ? 'bg-blue-100 text-blue-800' :
+                                  exp.estado === 'peticion' ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-slate-100 text-slate-800'
+                                }`}>
+                                  {exp.estado || 'Sin estado'}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <div className={`font-bold ${
+                                  exp.beneficioNeto !== null 
+                                    ? (exp.beneficioNeto >= 0 ? 'text-green-700' : 'text-red-700')
+                                    : 'text-slate-500'
+                                }`}>
+                                  {exp.beneficioNeto !== null 
+                                    ? `${exp.beneficioNeto >= 0 ? '+' : ''}${exp.beneficioNeto.toFixed(2)}€`
+                                    : 'N/A'
+                                  }
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
                     </div>
                   </>
                 )

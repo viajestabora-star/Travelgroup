@@ -165,6 +165,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const [busquedaProveedor, setBusquedaProveedor] = useState({}) // { servicioId: 'texto búsqueda' }
   const [mostrarSugerencias, setMostrarSugerencias] = useState({}) // { servicioId: true/false }
   
+  // Estados para Historial de Expedientes
+  const [expedientesHistorial, setExpedientesHistorial] = useState([])
+  const [cargandoHistorial, setCargandoHistorial] = useState(false)
+  
   // Estado para Modal de Nuevo Proveedor (reutiliza ProveedorForm)
   const [showModal, setShowModal] = useState(false)
   const [nombreNuevoProveedor, setNombreNuevoProveedor] = useState('')
@@ -222,6 +226,90 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   useEffect(() => {
     cargarProveedores();
   }, [])
+
+  // Función para cargar historial de expedientes del mismo cliente
+  const cargarHistorialExpedientes = async (nombreCliente) => {
+    if (!nombreCliente || nombreCliente.trim() === '') {
+      setExpedientesHistorial([])
+      return
+    }
+
+    // Normalizar nombre: eliminar espacios extra y trim
+    const nombreNormalizado = nombreCliente.trim().replace(/\s+/g, ' ')
+    console.log("Buscando expedientes para:", nombreNormalizado)
+
+    setCargandoHistorial(true)
+    try {
+      const { data: expedientes, error } = await supabase
+        .from('expedientes')
+        .select('id, cliente_nombre, fecha_viaje, estado, precio_venta_cliente, pax_pago, total_pax')
+        .ilike('cliente_nombre', nombreNormalizado)
+        .order('fecha_viaje', { ascending: false })
+
+      console.log("Resultado:", expedientes)
+
+      if (error) {
+        console.error('Error cargando historial de expedientes:', error)
+        setExpedientesHistorial([])
+        return
+      }
+
+      // Para cada expediente, calcular el beneficio neto consultando los servicios
+      const expedientesConBeneficio = await Promise.all(
+        (expedientes || []).map(async (exp) => {
+          try {
+            // Consultar servicios del expediente para calcular coste total
+            const { data: servicios } = await supabase
+              .from('servicios_cotizacion')
+              .select('coste_unitario, tipo_servicio, noches')
+              .eq('id_expediente', exp.id)
+
+            let costeTotal = 0
+            if (servicios && servicios.length > 0) {
+              servicios.forEach(servicio => {
+                const coste = parseFloat(servicio.coste_unitario) || 0
+                const cantidad = servicio.tipo_servicio === 'Hotel' || servicio.tipo_servicio === 'Guía' 
+                  ? (parseInt(servicio.noches) || 1)
+                  : 1
+                costeTotal += coste * cantidad
+              })
+            }
+
+            // Calcular beneficio neto
+            const precioVenta = parseFloat(exp.precio_venta_cliente) || 0
+            const paxPago = parseInt(exp.pax_pago) || parseInt(exp.total_pax) || 0
+            const precioVentaTotal = precioVenta * paxPago
+            const beneficioTotal = precioVentaTotal - costeTotal
+            const iva = beneficioTotal * 0.21
+            const beneficioNeto = beneficioTotal - iva
+
+            return {
+              ...exp,
+              beneficioNeto: isNaN(beneficioNeto) ? null : beneficioNeto
+            }
+          } catch (err) {
+            console.error('Error calculando beneficio para expediente:', exp.id, err)
+            return { ...exp, beneficioNeto: null }
+          }
+        })
+      )
+
+      setExpedientesHistorial(expedientesConBeneficio)
+    } catch (err) {
+      console.error('Error inesperado cargando historial:', err)
+      setExpedientesHistorial([])
+    } finally {
+      setCargandoHistorial(false)
+    }
+  }
+
+  // Cargar historial cuando cambie el nombre del cliente
+  useEffect(() => {
+    const nombreCliente = expediente?.cliente_nombre || expediente?.nombre_grupo || ''
+    if (nombreCliente) {
+      cargarHistorialExpedientes(nombreCliente)
+    }
+  }, [expediente?.cliente_nombre, expediente?.nombre_grupo])
   
   // Cerrar sugerencias al hacer clic fuera
   useEffect(() => {
@@ -2531,6 +2619,69 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       )}
                     </div>
                     </div>
+
+                  {/* Historial de Expedientes - Compacto */}
+                  <div className="mt-8 pt-6 border-t" style={{ borderColor: '#f1f5f9' }}>
+                    <h4 className="text-lg font-bold text-slate-900 mb-4">📂 Historial de Expedientes</h4>
+                    
+                    {cargandoHistorial ? (
+                      <div className="text-center py-4 text-slate-500 text-sm">
+                        <p>Cargando expedientes...</p>
+                      </div>
+                    ) : expedientesHistorial.length === 0 ? (
+                      <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                        <p className="text-slate-600 text-center text-sm">No hay expedientes registrados para este nombre.</p>
+                      </div>
+                    ) : (
+                      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                        <table className="w-full">
+                          <thead className="bg-slate-900 text-white">
+                            <tr>
+                              <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Nombre Viaje</th>
+                              <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Estado</th>
+                              <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-right">Beneficio Neto</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {expedientesHistorial.map((exp) => (
+                              <tr key={exp.id} className="hover:bg-green-50/30 transition-all">
+                                <td className="px-4 py-3">
+                                  <div className="font-bold text-slate-900 text-sm">{exp.cliente_nombre || 'Sin nombre'}</div>
+                                  {exp.fecha_viaje && (
+                                    <div className="text-xs text-slate-500 mt-1">
+                                      {new Date(exp.fecha_viaje).toLocaleDateString('es-ES')}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className={`inline-block px-2 py-1 rounded-full text-xs font-bold ${
+                                    exp.estado === 'cerrado' ? 'bg-green-100 text-green-800' :
+                                    exp.estado === 'confirmado' ? 'bg-blue-100 text-blue-800' :
+                                    exp.estado === 'peticion' ? 'bg-yellow-100 text-yellow-800' :
+                                    'bg-slate-100 text-slate-800'
+                                  }`}>
+                                    {exp.estado || 'Sin estado'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <div className={`font-bold text-sm ${
+                                    exp.beneficioNeto !== null 
+                                      ? (exp.beneficioNeto >= 0 ? 'text-green-700' : 'text-red-700')
+                                      : 'text-slate-500'
+                                  }`}>
+                                    {exp.beneficioNeto !== null 
+                                      ? `${exp.beneficioNeto >= 0 ? '+' : ''}${exp.beneficioNeto.toFixed(2)}€`
+                                      : 'N/A'
+                                    }
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                     
                   {/* Botón Editar Cliente abajo a la derecha */}
                   <div className="flex justify-end mt-6 pt-6 border-t" style={{ borderColor: '#f1f5f9' }}>
