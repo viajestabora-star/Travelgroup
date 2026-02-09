@@ -751,34 +751,39 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     
     const datos = version.datos_json
     
-    // Restaurar datos del receptor
-    if (datos.formFactura) {
+    // Restaurar datos del receptor desde clientData
+    if (datos.clientData) {
       setFormFactura({
-        receptorNombre: datos.formFactura.receptorNombre || '',
-        receptorCIF: datos.formFactura.receptorCIF || '',
-        receptorDireccion: datos.formFactura.receptorDireccion || '',
-        receptorPoblacion: datos.formFactura.receptorPoblacion || '',
-        receptorProvincia: datos.formFactura.receptorProvincia || '',
-        receptorCP: datos.formFactura.receptorCP || '',
+        receptorNombre: datos.clientData.nombre || '',
+        receptorCIF: datos.clientData.cif || '',
+        receptorDireccion: datos.clientData.direccion || '',
+        receptorPoblacion: datos.clientData.poblacion || '',
+        receptorProvincia: datos.clientData.provincia || '',
+        receptorCP: datos.clientData.cp || '',
       })
     }
     
-    // Restaurar datos del formulario principal si existen
-    if (datos.formData) {
+    // Restaurar datos del formulario principal desde totals si existen
+    if (datos.totals) {
+      // Calcular precio_venta_cliente desde los datos guardados
+      const precioNetoPax = parseFloat(datos.totals.precio_neto_pax || 0)
+      const precioVentaPax = parseFloat(datos.totals.precio_venta_pax || 0)
+      const bonificacionPax = precioVentaPax - precioNetoPax
+      
       setFormData(prev => ({
         ...prev,
-        precio_venta_cliente: datos.formData.precio_venta_cliente || prev.precio_venta_cliente,
-        bonificacion_pax: datos.formData.bonificacion_pax || prev.bonificacion_pax,
-        total_pax: datos.formData.total_pax || prev.total_pax
+        precio_venta_cliente: precioVentaPax || prev.precio_venta_cliente,
+        bonificacion_pax: bonificacionPax || prev.bonificacion_pax,
+        total_pax: parseFloat(datos.totals.pax_pago || prev.total_pax) || prev.total_pax
       }))
     }
     
-    alert('✅ Versión de factura cargada en el editor')
+    alert('✅ Versión de factura cargada en el editor. Los datos están listos para editar o reemitir.')
   }
 
   // ============ BORRAR VERSIÓN DE FACTURA ============
   const borrarVersionFactura = async (versionId, numeroFactura) => {
-    if (!window.confirm('¿Estás seguro de que quieres eliminar esta versión de la factura?')) {
+    if (!window.confirm('¿Estás seguro de que quieres eliminar esta versión histórica?')) {
       return
     }
     
@@ -794,9 +799,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         return
       }
       
-      // Recargar versiones
+      // Recargar versiones para actualizar la vista
       await cargarVersionesFactura()
-      alert('✅ Versión eliminada correctamente')
+      alert('✅ Versión histórica eliminada correctamente')
     } catch (error) {
       console.error('Error inesperado borrando versión:', error)
       alert(`❌ Error inesperado: ${error.message}`)
@@ -2051,13 +2056,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       // INSERT EN facturas_versiones INMEDIATAMENTE DESPUÉS DE GENERAR EL NÚMERO
       try {
-        // Obtener versiones existentes para calcular el número de versión
+        // Obtener versiones existentes para calcular el número de versión correcto
         const { data: versionesExistentes } = await supabase
           .from('facturas_versiones')
-          .select('id')
+          .select('version_numero')
           .eq('expediente_id', expediente.id)
+          .order('version_numero', { ascending: false })
+          .limit(1)
         
-        const versionNumero = versionesExistentes ? versionesExistentes.length + 1 : 1
+        // Calcular número de versión: usar el máximo + 1, o 1 si no hay versiones
+        let versionNumero = 1
+        if (versionesExistentes && versionesExistentes.length > 0 && versionesExistentes[0]?.version_numero) {
+          versionNumero = versionesExistentes[0].version_numero + 1
+        }
         
         // Preparar datos completos de la factura para el JSON
         const concepts = {
