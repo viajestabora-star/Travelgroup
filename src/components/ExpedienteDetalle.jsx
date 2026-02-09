@@ -781,6 +781,40 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       if (cobroEnEdicionId) {
         // UPDATE: Modificar cobro existente
+        // Obtener cobro original para comparación
+        const cobroOriginal = cobros.find(c => c.id === cobroEnEdicionId)
+        
+        // Comparar valores y generar descripción inteligente
+        const cambios = []
+        
+        if (cobroOriginal) {
+          // Comparar cuenta_destino
+          if (cobroOriginal.cuenta_destino !== formCobro.cuenta_destino) {
+            cambios.push(`Cambio de cuenta: ${cobroOriginal.cuenta_destino || 'Sin cuenta'} -> ${formCobro.cuenta_destino}`)
+          }
+          
+          // Comparar metodo_pago
+          if (cobroOriginal.metodo_pago !== formCobro.metodo_pago) {
+            cambios.push(`Cambio de método: ${cobroOriginal.metodo_pago || 'Sin método'} -> ${formCobro.metodo_pago}`)
+          }
+          
+          // Comparar importe
+          const importeOriginal = Number(cobroOriginal.importe) || 0
+          if (Math.abs(importeOriginal - importeLimpio) > 0.01) {
+            cambios.push(`Cambio de importe: ${importeOriginal.toFixed(2)}€ -> ${importeLimpio.toFixed(2)}€`)
+          }
+        }
+        
+        // Generar descripción final
+        let descripcion = ''
+        if (cambios.length === 0) {
+          descripcion = `Cobro actualizado sin cambios detectados: ${importeLimpio}€ - ${formCobro.concepto || 'Sin concepto'}`
+        } else if (cambios.length === 1) {
+          descripcion = cambios[0]
+        } else {
+          descripcion = `Actualización múltiple de datos del cobro: ${cambios.join(', ')}`
+        }
+        
         const { error } = await supabase
           .from('cobros_expediente')
           .update(datosCobro)
@@ -795,7 +829,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             .insert([{
               expediente_id: expediente.id,
               tipo: 'COBRO',
-              descripcion: `Cambio manual en cobro: ${importeLimpio}€ - ${formCobro.concepto || 'Sin concepto'}`,
+              descripcion: descripcion,
               importe: importeLimpio,
               usuario: 'Admin'
             }])
