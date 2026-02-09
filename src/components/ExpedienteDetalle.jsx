@@ -712,6 +712,33 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }, [tab, expediente?.id])
 
+  // ============ CARGAR LOGS FINANCIEROS ============
+  const cargarLogsFinancieros = async () => {
+    if (!expediente?.id) {
+      setLogsFinancieros([])
+      return
+    }
+    
+    try {
+      const { data, error } = await supabase
+        .from('logs_financieros')
+        .select('*')
+        .eq('expediente_id', expediente.id)
+        .order('fecha_registro', { ascending: false })
+      
+      if (error) {
+        console.error('Error cargando logs financieros:', error)
+        setLogsFinancieros([])
+        return
+      }
+      
+      setLogsFinancieros(data || [])
+    } catch (error) {
+      console.error('Error fatal cargando logs financieros:', error)
+      setLogsFinancieros([])
+    }
+  }
+
   // ============ GUARDAR COBRO ============
   const guardarCobro = async () => {
     if (!expediente?.id) {
@@ -768,6 +795,32 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         console.error('Error guardando cobro:', errorOperacion)
         alert(`❌ Error guardando cobro:\n\n${errorOperacion.message || JSON.stringify(errorOperacion)}`)
         return
+      }
+
+      // Registrar en logs_financieros
+      try {
+        const descripcion = cobroEnEdicionId 
+          ? `Cobro actualizado: ${formCobro.concepto || 'Sin concepto'}`
+          : `Cobro registrado: ${formCobro.concepto || 'Sin concepto'}`
+        
+        const logFinanciero = {
+          expediente_id: expediente.id,
+          tipo: 'cobro',
+          descripcion: descripcion,
+          importe: importeLimpio
+        }
+        
+        const { error: errorLog } = await supabase
+          .from('logs_financieros')
+          .insert([logFinanciero])
+        
+        if (errorLog) {
+          console.error('Error guardando log financiero:', errorLog)
+          // No bloqueamos el flujo si falla el log
+        }
+      } catch (err) {
+        console.error('Error inesperado guardando log:', err)
+        // No bloqueamos el flujo si falla el log
       }
 
       // Recargar lista de cobros inmediatamente para refrescar la UI
@@ -899,6 +952,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     cuenta_destino: 'Caixabank',
     concepto: ''
   })
+  
+  // Estados para Historial de Logs Financieros
+  const [logsFinancieros, setLogsFinancieros] = useState([])
+  const [showModalLogs, setShowModalLogs] = useState(false)
   
   // Cliente editable
   const grupo = clientes.find(c => c.id === expediente?.clienteId) || {
@@ -4112,6 +4169,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       )}
                     </table>
                   </div>
+                  
+                  {/* Botón Ver Historial */}
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      onClick={async () => {
+                        await cargarLogsFinancieros()
+                        setShowModalLogs(true)
+                      }}
+                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2 text-sm"
+                    >
+                      <FileText size={16} />
+                      Ver Historial de Cambios
+                    </button>
+                  </div>
                 </div>
               </div>
           )}
@@ -4247,6 +4318,69 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   </button>
                 </div>
                 </div>
+            </div>
+          )}
+
+          {/* Modal de Historial de Logs Financieros */}
+          {showModalLogs && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-2xl font-bold text-navy-900">Historial de Cambios Financieros</h3>
+                  <button
+                    onClick={() => setShowModalLogs(false)}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+
+                {logsFinancieros.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <p>No hay registros en el historial</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-900 text-white">
+                        <tr>
+                          <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Fecha</th>
+                          <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Descripción</th>
+                          <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-right">Importe</th>
+                          <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Usuario</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {logsFinancieros.map((log) => (
+                          <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-4 py-3 text-sm">
+                              {log.fecha_registro 
+                                ? new Date(log.fecha_registro).toLocaleDateString('es-ES', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                : '-'
+                              }
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700">
+                              {log.descripcion || '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm font-semibold text-right">
+                              {log.importe ? `${Number(log.importe).toFixed(2)}€` : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {log.usuario || 'Sistema'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
