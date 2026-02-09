@@ -225,28 +225,44 @@ const CRM = () => {
           <div className="bg-white w-full max-w-md rounded-[3.5rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh]">
              <form onSubmit={async (e) => {
                e.preventDefault();
-               
-               // Preparar datos completos para guardar
+
+               // ========= MAPEO REAL A LA TABLA `prospectos` =========
+               // La tabla solo acepta: grupo, contacto, telefono, interes, notas, ubicacion, fecha
+               // CIF / Población / Provincia se inyectan temporalmente dentro de "notas"
+
+               // Construir notas extendidas sin enviar columnas inexistentes
+               let notasExtendidas = nuevo.notas || ''
+
+               if (nuevo.cif) {
+                 notasExtendidas += (notasExtendidas ? '\n' : '') + `CIF: ${nuevo.cif}`
+               }
+
+               if (nuevo.poblacion || nuevo.provincia) {
+                 const zona = `${nuevo.poblacion || ''}${nuevo.provincia ? ` (${nuevo.provincia})` : ''}`.trim()
+                 if (zona) {
+                   notasExtendidas += (notasExtendidas ? '\n' : '') + `Zona: ${zona}`
+                 }
+               }
+
+               if (nuevo.direccion) {
+                 notasExtendidas += (notasExtendidas ? '\n' : '') + `Dirección: ${nuevo.direccion}`
+               }
+
                const datosCompletos = {
                  fecha: nuevo.fecha,
                  grupo: nuevo.grupo,
                  contacto: nuevo.contacto || '',
                  telefono: nuevo.telefono || '',
                  interes: nuevo.interes || 'Medio',
-                 notas: nuevo.notas || '',
+                 notas: notasExtendidas.trim(),
                  ubicacion: nuevo.ubicacion || '',
-                 cliente_id: nuevo.cliente_id || null,
-                 cif: nuevo.cif || '',
-                 direccion: nuevo.direccion || '',
-                 poblacion: nuevo.poblacion || '',
-                 provincia: nuevo.provincia || ''
                }
-               
-               // Usar upsert para insertar o actualizar
+
+               // INSERT / UPDATE usando los campos reales de la tabla
                const res = editandoId 
                  ? await supabase.from('prospectos').update(datosCompletos).eq('id', editandoId)
                  : await supabase.from('prospectos').insert([datosCompletos])
-               
+
                if (!res.error) { 
                  cerrarModal()
                  cargarDatos()
