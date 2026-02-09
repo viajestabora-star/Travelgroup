@@ -1199,8 +1199,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       const beneficioTotal = margenPorPersona * paxPago
       const margenPorcentaje = costeRealPorPersona > 0 ? ((margenPorPersona / costeRealPorPersona) * 100) : 0
       
-      const iva = beneficioTotal > 0 ? beneficioTotal * 0.21 : 0
-      const beneficioNeto = beneficioTotal - iva
+      // CÁLCULO DE IVA: 21% sobre el Beneficio Neto (Base)
+      // Beneficio Neto (Base) = Venta - Coste = beneficioTotal
+      const beneficioNetoBase = beneficioTotal
+      const iva = beneficioNetoBase * 0.21
+      // Total Neto tras Impuestos = Beneficio Neto - IVA
+      const beneficioNeto = beneficioNetoBase - iva
       
       return {
         // Gastos fijos (divididos entre pasajeros de pago)
@@ -1232,8 +1236,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         margenPorPersona: margenPorPersona.toFixed(2), // NUEVO: Margen informativo
         margenPorcentaje: margenPorcentaje.toFixed(2), // NUEVO: % informativo
         beneficioTotal: beneficioTotal.toFixed(2),
+        beneficioNetoBase: beneficioNetoBase.toFixed(2), // Beneficio Neto (Base) = Venta - Coste
         iva: iva.toFixed(2),
-        beneficioNeto: beneficioNeto.toFixed(2),
+        beneficioNeto: beneficioNeto.toFixed(2), // Total Neto tras Impuestos
         
         // Info
         paxPagadores: paxPago,
@@ -1262,6 +1267,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         margenPorPersona: '0.00',
         margenPorcentaje: '0.00',
         beneficioTotal: '0.00',
+        beneficioNetoBase: '0.00',
         iva: '0.00',
         beneficioNeto: '0.00',
         paxPagadores: 1,
@@ -3631,6 +3637,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         <span className={`text-2xl font-black ${parseFloat(resultados.beneficioTotal) >= 0 ? 'text-green-900' : 'text-red-900'}`}>
                           {parseFloat(resultados.beneficioTotal) >= 0 ? '+' : ''}{resultados.beneficioTotal}€
                         </span>
+                      </div>
+                    </div>
+
+                    {/* Desglose de IVA y Beneficio Líquido */}
+                    <div className="mt-4 space-y-3">
+                      {/* IVA a pagar (21%) */}
+                      <div className="bg-red-50 p-4 rounded-lg border-2 border-red-300">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-bold text-red-700">
+                            IVA a pagar (21%):
+                          </span>
+                          <span className="text-xl font-bold text-red-700">
+                            {parseFloat(resultados.iva) >= 0 ? '+' : ''}{resultados.iva}€
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Beneficio Líquido Real - Dato más destacado */}
+                      <div className="bg-gradient-to-r from-green-200 to-emerald-200 p-5 rounded-lg border-3 border-green-600 shadow-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-lg font-black text-green-900">
+                            💰 Beneficio Líquido Real:
+                          </span>
+                          <span className="text-3xl font-black text-green-900">
+                            {parseFloat(resultados.beneficioNeto) >= 0 ? '+' : ''}{resultados.beneficioNeto}€
+                          </span>
+                        </div>
+                        <p className="text-xs text-green-700 mt-2 font-semibold">
+                          Dinero real disponible tras impuestos
+                        </p>
                       </div>
                     </div>
 
