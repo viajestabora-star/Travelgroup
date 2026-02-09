@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { Edit2, Trash2, X, Search, MapPin, Phone, Mail } from 'lucide-react'
+import { Edit2, Trash2, X, Search, MapPin, Phone, Mail, Navigation } from 'lucide-react'
 
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
@@ -260,13 +260,45 @@ const Proveedores = () => {
                             <Mail size={14}/> {p.email || '-'}
                           </div>
                         </td>
-                        <td className="px-8 py-6 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => openModal(p)} className="p-3 text-slate-900 bg-slate-100 rounded-xl hover:bg-slate-900 hover:text-white transition-all mr-2">
-                            <Edit2 size={18}/>
-                          </button>
-                          <button onClick={() => deleteProveedor(p.id, p.nombre_comercial)} className="p-3 text-red-600 bg-red-50 rounded-xl hover:bg-red-600 hover:text-white transition-all">
-                            <Trash2 size={18}/>
-                          </button>
+                        <td className="px-8 py-6 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {/* Botón LLAMAR */}
+                            {(p.telefono || p.movil) && (
+                              <button 
+                                onClick={() => {
+                                  const telefono = p.telefono || p.movil
+                                  window.open(`tel:${telefono}`, '_blank')
+                                }}
+                                className="p-3 text-green-600 bg-green-50 rounded-xl hover:bg-green-600 hover:text-white transition-all"
+                                title={`Llamar a ${p.telefono || p.movil}`}
+                              >
+                                <Phone size={18}/>
+                              </button>
+                            )}
+                            {/* Botón MAPA */}
+                            {(p.direccion || p.poblacion) && (
+                              <button 
+                                onClick={() => {
+                                  const direccion = `${p.direccion || ''}, ${p.poblacion || ''}, ${p.provincia || ''}`.replace(/^,\s*|,\s*$/g, '').replace(/,\s*,/g, ',')
+                                  if (direccion) {
+                                    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccion)}`, '_blank')
+                                  }
+                                }}
+                                className="p-3 text-blue-600 bg-blue-50 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
+                                title="Abrir en Google Maps"
+                              >
+                                <Navigation size={18}/>
+                              </button>
+                            )}
+                            {/* Botón EDITAR */}
+                            <button onClick={() => openModal(p)} className="p-3 text-slate-900 bg-slate-100 rounded-xl hover:bg-slate-900 hover:text-white transition-all">
+                              <Edit2 size={18}/>
+                            </button>
+                            {/* Botón ELIMINAR */}
+                            <button onClick={() => deleteProveedor(p.id, p.nombre_comercial)} className="p-3 text-red-600 bg-red-50 rounded-xl hover:bg-red-600 hover:text-white transition-all">
+                              <Trash2 size={18}/>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

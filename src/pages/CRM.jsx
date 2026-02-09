@@ -483,15 +483,20 @@ const CRM = () => {
                   />
                 </div>
                 
-                {/* UBICACIÓN (para mapa) */}
+                {/* UBICACIÓN GPS (acepta links de Google Maps) */}
                 <div>
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Ubicación Completa (para mapa)</label>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">
+                    Ubicación GPS / Link de Google Maps
+                  </label>
                   <input 
-                    placeholder="Ubicación completa..." 
+                    placeholder="Pega el link de Google Maps o escribe la dirección..." 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
                     value={nuevo.ubicacion} 
                     onChange={e => setNuevo({...nuevo, ubicacion: e.target.value})} 
                   />
+                  <p className="text-[10px] text-slate-400 mt-1 italic">
+                    💡 Puedes pegar el link que te envía el cliente por WhatsApp (ej: https://maps.google.com/...)
+                  </p>
                 </div>
                 
                 {/* INTERÉS */}
@@ -554,7 +559,22 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
   // Obtener datos para acciones rápidas
   const telefonoParaLlamar = p.telefono || ''
   const direccionParaMapa = p.ubicacion || p.direccion || ''
-  const urlMapa = direccionParaMapa ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccionParaMapa)}` : '#'
+  
+  // Detectar si es un link de Google Maps o una dirección normal
+  const esLinkGoogleMaps = direccionParaMapa && (
+    direccionParaMapa.startsWith('http://') || 
+    direccionParaMapa.startsWith('https://') ||
+    direccionParaMapa.includes('maps.google.com') ||
+    direccionParaMapa.includes('goo.gl/maps') ||
+    direccionParaMapa.includes('maps.app.goo.gl')
+  )
+  
+  // Construir URL del mapa: si es link directo, usarlo; si no, buscar por query
+  const urlMapa = direccionParaMapa 
+    ? (esLinkGoogleMaps 
+        ? direccionParaMapa 
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccionParaMapa)}`)
+    : '#'
   
   return (
     <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-slate-50 relative group">
@@ -574,12 +594,22 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
       <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">{p.notas || 'Sin anotaciones'}</p>
       <div className="grid grid-cols-2 gap-4">
         {telefonoParaLlamar ? (
-          <a href={`tel:${telefonoParaLlamar}`} className="bg-slate-900 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase tracking-widest"><Phone size={14}/> LLAMAR</a>
+          <button 
+            onClick={() => window.open(`tel:${telefonoParaLlamar}`, '_blank')}
+            className="bg-slate-900 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase tracking-widest hover:bg-slate-800 transition-all"
+          >
+            <Phone size={14}/> LLAMAR
+          </button>
         ) : (
           <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase"><Phone size={14}/> LLAMAR</button>
         )}
         {direccionParaMapa ? (
-          <a href={urlMapa} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase shadow-lg shadow-blue-100"><Navigation size={14}/> MAPA</a>
+          <button 
+            onClick={() => window.open(urlMapa, '_blank')}
+            className="bg-blue-600 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all"
+          >
+            <Navigation size={14}/> MAPA
+          </button>
         ) : (
           <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase"><Navigation size={14}/> MAPA</button>
         )}

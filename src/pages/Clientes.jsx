@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone, Users } from 'lucide-react'
+import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone, Users, Navigation } from 'lucide-react'
 
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
@@ -690,11 +690,41 @@ const Clientes = () => {
                   </div>
                 </div>
 
-                {/* Botón Guardar abajo a la derecha */}
-                <div className="flex justify-end mt-8 pt-6 border-t" style={{ borderColor: '#f1f5f9' }}>
+                {/* Botones de Acción: Llamar, Mapa y Guardar */}
+                <div className="flex justify-between items-center mt-8 pt-6 border-t" style={{ borderColor: '#f1f5f9' }}>
+                  <div className="flex gap-3">
+                    {/* Botón LLAMAR */}
+                    {(formData.telefono || formData.movil) && (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const telefono = formData.telefono || formData.movil
+                          window.open(`tel:${telefono}`, '_blank')
+                        }}
+                        className="bg-green-600 hover:bg-green-700 text-white py-3 px-6 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
+                      >
+                        <Phone size={18}/> LLAMAR
+                      </button>
+                    )}
+                    {/* Botón MAPA */}
+                    {(formData.direccion || formData.poblacion) && (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const direccion = `${formData.direccion || ''}, ${formData.poblacion || ''}, ${formData.provincia || ''}`.replace(/^,\s*|,\s*$/g, '').replace(/,\s*,/g, ',')
+                          if (direccion) {
+                            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccion)}`, '_blank')
+                          }
+                        }}
+                        className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
+                      >
+                        <Navigation size={18}/> MAPA
+                      </button>
+                    )}
+                  </div>
                   <button 
                     type="submit" 
-                    className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-lg font-semibold transition-colors shadow-md"
+                    className="bg-slate-900 hover:bg-slate-800 text-white py-3 px-6 rounded-lg font-semibold transition-colors shadow-md"
                   >
                     Guardar Cliente
                   </button>
