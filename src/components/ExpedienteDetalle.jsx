@@ -725,7 +725,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         .from('facturas_versiones')
         .select('*')
         .eq('expediente_id', expediente.id)
-        .order('created_at', { ascending: false })
+        .order('fecha_creacion', { ascending: false })
       
       if (error) {
         console.error('Error cargando versiones de factura:', error)
@@ -2049,6 +2049,73 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       // Obtener número de factura
       const numeroFactura = await obtenerSiguienteNumeroFactura()
 
+      // INSERT EN facturas_versiones INMEDIATAMENTE DESPUÉS DE GENERAR EL NÚMERO
+      try {
+        // Obtener versiones existentes para calcular el número de versión
+        const { data: versionesExistentes } = await supabase
+          .from('facturas_versiones')
+          .select('id')
+          .eq('expediente_id', expediente.id)
+        
+        const versionNumero = versionesExistentes ? versionesExistentes.length + 1 : 1
+        
+        // Preparar datos completos de la factura para el JSON
+        const concepts = {
+          concepto: expediente?.destino ? `Viaje a ${expediente.destino}` : 'Servicios de viaje',
+          fecha_inicio: expediente?.fecha_inicio || expediente?.fechaInicio || '',
+          fecha_final: expediente?.fecha_final || expediente?.fechaFin || ''
+        }
+        
+        const totals = {
+          base_imponible: calcularBaseFactura.baseImponible,
+          iva: calcularBaseFactura.iva,
+          total_factura: calcularBaseFactura.totalFactura,
+          precio_venta_pax: calcularBaseFactura.precioVentaPax,
+          precio_neto_pax: calcularBaseFactura.precioNetoPax,
+          total_servicios_con_iva: calcularBaseFactura.totalServiciosConIVA,
+          total_suplementos: calcularBaseFactura.totalSuplementos,
+          pax_pago: calcularBaseFactura.paxPago
+        }
+        
+        const clientData = {
+          nombre: formFactura.receptorNombre,
+          cif: formFactura.receptorCIF,
+          direccion: formFactura.receptorDireccion,
+          poblacion: formFactura.receptorPoblacion,
+          provincia: formFactura.receptorProvincia,
+          cp: formFactura.receptorCP
+        }
+        
+        // INSERT limpio: solo los 4 campos requeridos
+        const datosVersion = {
+          expediente_id: expediente.id,
+          numero_factura: numeroFactura,
+          datos_json: {
+            concepts,
+            totals,
+            clientData,
+            fecha: new Date().toISOString()
+          },
+          version_numero: versionNumero
+        }
+        
+        const { error: versionError } = await supabase
+          .from('facturas_versiones')
+          .insert([datosVersion])
+        
+        if (versionError) {
+          console.error("❌ Error en versión:", versionError)
+        } else {
+          console.log("✅ Nueva versión de factura guardada")
+          console.log("🚀 VERSIÓN GUARDADA EN BD")
+          // Recargar versiones para actualizar la vista
+          await cargarVersionesFactura()
+        }
+      } catch (err) {
+        console.error("Error inesperado guardando versión:", err)
+        // No bloqueamos el flujo si falla el versionado
+      }
+
       // Preparar datos para guardar según esquema real de la DB
       // El total_factura ya incluye la bonificación (precio - bonificación) calculado implícitamente
       // NO se envía el campo bonificacion a Supabase
@@ -2130,61 +2197,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       // Generar PDF
       await generarFacturaPDF(numeroFactura, datosFactura)
-
-      // Guardar versión en facturas_versiones
-      try {
-        // Calcular número de versión: contar versiones existentes + 1
-        const { data: versionesExistentes, error: errorCount } = await supabase
-          .from('facturas_versiones')
-          .select('id')
-          .eq('expediente_id', expediente.id)
-        
-        const versionNumero = versionesExistentes ? versionesExistentes.length + 1 : 1
-        
-        // Construir objeto completo de la factura para guardar en datos_json
-        const datosCompletosFactura = {
-          ...datosFactura,
-          formFactura: { ...formFactura },
-          calcularBaseFactura: {
-            precioVentaPax: calcularBaseFactura.precioVentaPax,
-            precioNetoPax: calcularBaseFactura.precioNetoPax,
-            paxPago: calcularBaseFactura.paxPago,
-            totalServiciosConIVA: calcularBaseFactura.totalServiciosConIVA,
-            totalSuplementos: calcularBaseFactura.totalSuplementos,
-            baseImponible: calcularBaseFactura.baseImponible,
-            iva: calcularBaseFactura.iva,
-            totalFactura: calcularBaseFactura.totalFactura
-          },
-          formData: {
-            precio_venta_cliente: formData?.precio_venta_cliente || 0,
-            bonificacion_pax: formData?.bonificacion_pax || 0,
-            total_pax: formData?.total_pax || 0
-          },
-          fecha_emision: new Date().toISOString()
-        }
-        
-        // INSERT en facturas_versiones
-        const { error: errorVersion } = await supabase
-          .from('facturas_versiones')
-          .insert([{
-            expediente_id: expediente.id,
-            numero_factura: numeroFactura,
-            datos_json: datosCompletosFactura,
-            version_numero: versionNumero
-          }])
-        
-        if (errorVersion) {
-          console.error('❌ Error guardando versión de factura:', errorVersion)
-          // No bloqueamos el flujo si falla el versionado
-        } else {
-          console.log("✅ Nueva versión de factura guardada")
-          // Recargar versiones siempre para actualizar la vista
-          await cargarVersionesFactura()
-        }
-      } catch (err) {
-        console.error('❌ Error inesperado guardando versión:', err)
-        // No bloqueamos el flujo si falla el versionado
-      }
 
       console.log('✅ [SEGURIDAD] Factura guardada correctamente. Expediente NO modificado.')
       alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente.`)
@@ -4916,15 +4928,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   )}
                                 </td>
                                 <td className="px-4 py-3 text-sm text-gray-700">
-                                  {version.created_at 
-                                    ? new Date(version.created_at).toLocaleDateString('es-ES', {
+                                  {version.fecha_creacion 
+                                    ? new Date(version.fecha_creacion).toLocaleDateString('es-ES', {
                                         day: '2-digit',
                                         month: '2-digit',
                                         year: 'numeric',
                                         hour: '2-digit',
                                         minute: '2-digit'
                                       })
-                                    : '-'
+                                    : (version.created_at 
+                                        ? new Date(version.created_at).toLocaleDateString('es-ES', {
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                            year: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                          })
+                                        : '-'
+                                      )
                                   }
                                 </td>
                                 <td className="px-4 py-3 text-center">
