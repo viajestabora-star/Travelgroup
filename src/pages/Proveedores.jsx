@@ -13,18 +13,29 @@ const Proveedores = () => {
   const [editingId, setEditingId] = useState(null)
   
   const [formData, setFormData] = useState({
-    nombre_comercial: '', servicio: 'Hotel', ciudad: '', cif: '', persona_contacto: '',
+    nombre_comercial: '', servicio: 'hotel', ciudad: '', cif: '', persona_contacto: '',
     telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
     poblacion: '', provincia: '', iban: '', observaciones: ''
   })
 
+  // Servicios normalizados (minúsculas, sin tildes) para coincidir con la base de datos
   const servicios = [
-    { value: 'Hotel', label: 'Hotel', icon: '🏨' },
-    { value: 'Guía', label: 'Guía', icon: '👤' },
-    { value: 'Restaurante', label: 'Restaurante', icon: '🍽️' },
-    { value: 'Autobús', label: 'Autobús', icon: '🚌' },
-    { value: 'Otros', label: 'Otros', icon: '📦' }
+    { value: 'hotel', label: 'Hotel', icon: '🏨' },
+    { value: 'guia', label: 'Guía', icon: '👤' },
+    { value: 'restaurante', label: 'Restaurante', icon: '🍽️' },
+    { value: 'autobus', label: 'Autobús', icon: '🚌' },
+    { value: 'otros', label: 'Otros', icon: '📦' }
   ]
+  
+  // Función para normalizar tipo de servicio (minúsculas, sin tildes)
+  const normalizarTipoServicio = (tipo) => {
+    if (!tipo) return 'hotel'
+    return String(tipo)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+  }
 
   useEffect(() => { fetchProveedores() }, [])
 
@@ -39,15 +50,23 @@ const Proveedores = () => {
   const handleSubmit = async (e) => {
     e.preventDefault()
     
-    // Forzar que el campo servicio tenga siempre un valor válido
-    const servicioNormalizado = servicios.some(s => s.value === formData.servicio)
-      ? formData.servicio
-      : 'Hotel'
+    // Normalizar el tipo de servicio (minúsculas, sin tildes) para coincidir con la BD
+    const servicioNormalizado = normalizarTipoServicio(formData.servicio)
+    
+    // Validar que el servicio normalizado esté en la lista válida
+    const servicioValido = servicios.some(s => s.value === servicioNormalizado)
+      ? servicioNormalizado
+      : 'hotel'
 
+    // IMPORTANTE: Guardar como 'tipo' en la base de datos (no 'servicio')
     const datosParaGuardar = { 
       ...formData,
-      servicio: servicioNormalizado
+      tipo: servicioValido, // Campo correcto en la BD
+      servicio: undefined // Eliminar campo 'servicio' si existe
     }
+    
+    // Eliminar campo 'servicio' del objeto antes de guardar
+    delete datosParaGuardar.servicio
     
     const action = editingId 
       ? supabase.from('proveedores').update(datosParaGuardar).eq('id', editingId)
@@ -68,15 +87,18 @@ const Proveedores = () => {
   const openModal = (p = null) => {
     if (p) {
       setEditingId(p.id)
+      // Mapear 'tipo' de la BD a 'servicio' del formulario, normalizando
+      const tipoBD = p.tipo || p.servicio || 'hotel'
+      const tipoNormalizado = normalizarTipoServicio(tipoBD)
       setFormData({ 
         ...p,
-        servicio: p.servicio || 'Hotel',
+        servicio: tipoNormalizado, // Usar 'servicio' en el formulario
         ciudad: p.ciudad || ''
       })
     } else {
       setEditingId(null)
       setFormData({
-        nombre_comercial: '', servicio: 'Hotel', ciudad: '', cif: '', persona_contacto: '',
+        nombre_comercial: '', servicio: 'hotel', ciudad: '', cif: '', persona_contacto: '',
         telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
         poblacion: '', provincia: '', iban: '', observaciones: ''
       })
@@ -96,13 +118,21 @@ const Proveedores = () => {
     )
   })
 
-  // Agrupar proveedores por servicio y ordenar alfabéticamente dentro de cada grupo
+  // Agrupar proveedores por tipo (servicio) y ordenar alfabéticamente dentro de cada grupo
+  // IMPORTANTE: Usar 'tipo' de la BD, normalizado para comparación
   const proveedoresAgrupados = filtered.reduce((acc, proveedor) => {
-    const servicio = proveedor.servicio || 'Otros'
-    if (!acc[servicio]) {
-      acc[servicio] = []
+    // Leer 'tipo' de la BD (o 'servicio' como fallback para compatibilidad)
+    const tipoBD = proveedor.tipo || proveedor.servicio || 'otros'
+    const tipoNormalizado = normalizarTipoServicio(tipoBD)
+    
+    // Mapear tipo normalizado a label para mostrar
+    const servicioInfo = servicios.find(s => s.value === tipoNormalizado) || { value: tipoNormalizado, label: tipoNormalizado, icon: '📦' }
+    const servicioLabel = servicioInfo.label || tipoNormalizado
+    
+    if (!acc[servicioLabel]) {
+      acc[servicioLabel] = []
     }
-    acc[servicio].push(proveedor)
+    acc[servicioLabel].push(proveedor)
     return acc
   }, {})
 
@@ -113,8 +143,8 @@ const Proveedores = () => {
     )
   })
 
-  // Ordenar servicios según el orden definido
-  const serviciosOrdenados = servicios.map(s => s.value).filter(s => proveedoresAgrupados[s])
+  // Ordenar servicios según el orden definido (usar labels para mostrar)
+  const serviciosOrdenados = servicios.map(s => s.label).filter(label => proveedoresAgrupados[label])
   const otrosServicios = Object.keys(proveedoresAgrupados).filter(s => !serviciosOrdenados.includes(s))
   const ordenFinal = [...serviciosOrdenados, ...otrosServicios.sort()]
 
@@ -148,9 +178,10 @@ const Proveedores = () => {
           <p className="text-slate-400 font-bold text-lg">No se encontraron proveedores</p>
         </div>
       ) : (
-        ordenFinal.map(servicio => {
-          const proveedoresDelServicio = proveedoresAgrupados[servicio]
-          const servicioInfo = servicios.find(s => s.value === servicio) || { value: servicio, label: servicio, icon: '📦' }
+        ordenFinal.map(servicioLabel => {
+          const proveedoresDelServicio = proveedoresAgrupados[servicioLabel]
+          // Buscar servicio por label (no por value)
+          const servicioInfo = servicios.find(s => s.label === servicioLabel) || { value: servicioLabel.toLowerCase(), label: servicioLabel, icon: '📦' }
           
           return (
             <div key={servicio} className="mb-8">

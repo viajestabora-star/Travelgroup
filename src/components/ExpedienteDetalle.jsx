@@ -481,10 +481,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             }
           })
 
+          // IMPORTANTE: Solo actualizar si no hay servicios nuevos sin guardar
+          // Preservar servicios nuevos (con UUID temporal) que aún no se han guardado
+          setServicios(prevServicios => {
+            const serviciosNuevos = prevServicios.filter(s => 
+              !s.id || typeof s.id !== 'string' || s.id.length <= 10 || !s.id.includes('-')
+            )
+            // Combinar servicios cargados de BD con servicios nuevos sin guardar
+            return [...serviciosMapeados, ...serviciosNuevos]
+          })
+          
           setBusquedaProveedor(busquedaProveedoresRestaurada)
-          setServicios(serviciosMapeados)
           serviciosInicializados.current = true
         } else {
+          // Si no hay servicios en BD, preservar los servicios nuevos si existen
+          setServicios(prevServicios => {
+            const serviciosNuevos = prevServicios.filter(s => 
+              !s.id || typeof s.id !== 'string' || s.id.length <= 10 || !s.id.includes('-')
+            )
+            return serviciosNuevos
+          })
           serviciosInicializados.current = false
         }
       } catch (err) {
@@ -1589,14 +1605,42 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       tipoCalculo: 'porPersona', // 'porPersona' o 'porGrupo'
     }
     setServicios([...servicios, nuevoServicio])
+    
+    // Guardar automáticamente en Supabase
+    if (expediente?.id) {
+      guardarServicioEnSupabase(nuevoServicio)
+    }
   }
 
-  const eliminarServicio = (id) => {
+  const eliminarServicio = async (id) => {
     const servicio = servicios.find(s => s.id === id)
     const nombre = servicio?.descripcion || servicio?.tipo || 'este servicio'
     
-    if (window.confirm(`¿Está seguro de que desea eliminar el servicio "${nombre}"?\n\nEsta acción no se puede deshacer.`)) {
+    if (window.confirm(`¿Está seguro que desea eliminar el servicio "${nombre}"?\n\nEsta acción no se puede deshacer.`)) {
+      // Eliminar de Supabase si tiene ID de Supabase
+      if (servicio.id && typeof servicio.id === 'string' && servicio.id.length > 10 && expediente?.id) {
+        try {
+          const { error } = await supabase
+            .from('servicios_cotizacion')
+            .delete()
+            .eq('id', servicio.id)
+          
+          if (error) {
+            console.error('❌ Error eliminando servicio de Supabase:', error)
+            alert('Error eliminando servicio de la base de datos')
+            return
+          }
+        } catch (err) {
+          console.error('❌ Error inesperado eliminando servicio:', err)
+        }
+      }
+      
+      // Eliminar del estado local
       setServicios(servicios.filter(s => s.id !== id))
+      // Limpiar búsqueda de proveedor asociada
+      const busquedaActualizada = { ...busquedaProveedor }
+      delete busquedaActualizada[id]
+      setBusquedaProveedor(busquedaActualizada)
     }
   }
 
@@ -1628,10 +1672,86 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     return isNaN(total) ? 0 : total
   }
 
+  // Ref para debounce de guardado automático
+  const timeoutsGuardado = useRef({})
+  
   const actualizarServicio = (id, campo, valor) => {
-    setServicios(servicios.map(s => 
+    const serviciosActualizados = servicios.map(s => 
       s.id === id ? { ...s, [campo]: valor } : s
-    ))
+    )
+    setServicios(serviciosActualizados)
+    
+    // Guardar automáticamente en Supabase con debounce (500ms)
+    const servicioActualizado = serviciosActualizados.find(s => s.id === id)
+    if (servicioActualizado && expediente?.id) {
+      // Cancelar timeout anterior para este servicio
+      if (timeoutsGuardado.current[id]) {
+        clearTimeout(timeoutsGuardado.current[id])
+      }
+      
+      // Crear nuevo timeout
+      timeoutsGuardado.current[id] = setTimeout(() => {
+        guardarServicioEnSupabase(servicioActualizado)
+        delete timeoutsGuardado.current[id]
+      }, 500)
+    }
+  }
+  
+  // ============ GUARDAR SERVICIO EN SUPABASE ============
+  // Guarda automáticamente cada servicio cuando se modifica (con debounce)
+  const guardarServicioEnSupabase = async (servicio) => {
+    if (!expediente?.id || !servicio) return
+    
+    try {
+      const datosParaSupabase = {
+        id_expediente: String(expediente.id).trim(),
+        tipo_servicio: servicio.tipo || 'Hotel',
+        nombre_especifico: servicio.nombreEspecifico || '',
+        localizacion: servicio.localizacion || '',
+        coste_unitario: servicio.costeUnitario ? Number(servicio.costeUnitario) : 0,
+        precio_venta: servicio.precioVenta ? Number(servicio.precioVenta) : 0,
+        margen_pax: servicio.margen ? Number(servicio.margen) : 0,
+        noches: servicio.noches ? Number(servicio.noches) : 1,
+        fecha_release: servicio.fechaRelease || null,
+        tipo_calculo: servicio.tipoCalculo || 'porPersona',
+        proveedor_id_int: servicio.proveedorId ? Number(servicio.proveedorId) : null,
+        nombre_proveedor_manual: servicio.proveedorNombreTemporal || null
+      }
+      
+      // Si el servicio tiene ID de Supabase (UUID largo), actualizar; si no, insertar
+      if (servicio.id && typeof servicio.id === 'string' && servicio.id.length > 10 && servicio.id.includes('-')) {
+        // Es un UUID de Supabase, actualizar
+        const { error } = await supabase
+          .from('servicios_cotizacion')
+          .update(datosParaSupabase)
+          .eq('id', servicio.id)
+        
+        if (error) {
+          console.error('❌ Error actualizando servicio:', error)
+        } else {
+          console.log('✅ Servicio actualizado en Supabase:', servicio.id)
+        }
+      } else {
+        // Es un UUID temporal, insertar nuevo
+        const { data, error } = await supabase
+          .from('servicios_cotizacion')
+          .insert([datosParaSupabase])
+          .select()
+          .single()
+        
+        if (error) {
+          console.error('❌ Error insertando servicio:', error)
+        } else if (data) {
+          console.log('✅ Servicio insertado en Supabase:', data.id)
+          // Actualizar el ID del servicio en el estado local con el ID real de Supabase
+          setServicios(prevServicios => prevServicios.map(s => 
+            s.id === servicio.id ? { ...s, id: data.id } : s
+          ))
+        }
+      }
+    } catch (err) {
+      console.error('❌ Error inesperado guardando servicio:', err)
+    }
   }
 
   // Guardar fecha de release de un servicio concreto en Supabase
