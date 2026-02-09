@@ -712,6 +712,104 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }, [tab, expediente?.id])
 
+  // ============ CARGAR VERSIONES DE FACTURAS ============
+  const cargarVersionesFactura = async () => {
+    if (!expediente?.id) {
+      setVersionesFactura([])
+      return
+    }
+    
+    setCargandoVersiones(true)
+    try {
+      const { data, error } = await supabase
+        .from('facturas_versiones')
+        .select('*')
+        .eq('expediente_id', expediente.id)
+        .order('created_at', { ascending: false })
+      
+      if (error) {
+        console.error('Error cargando versiones de factura:', error)
+        setVersionesFactura([])
+        return
+      }
+      
+      setVersionesFactura(data || [])
+    } catch (error) {
+      console.error('Error fatal cargando versiones de factura:', error)
+      setVersionesFactura([])
+    } finally {
+      setCargandoVersiones(false)
+    }
+  }
+
+  // ============ CARGAR UNA VERSIÓN DE FACTURA ============
+  const cargarVersionFactura = (version) => {
+    if (!version?.datos_json) {
+      alert('❌ Error: La versión no contiene datos válidos')
+      return
+    }
+    
+    const datos = version.datos_json
+    
+    // Restaurar datos del receptor
+    if (datos.formFactura) {
+      setFormFactura({
+        receptorNombre: datos.formFactura.receptorNombre || '',
+        receptorCIF: datos.formFactura.receptorCIF || '',
+        receptorDireccion: datos.formFactura.receptorDireccion || '',
+        receptorPoblacion: datos.formFactura.receptorPoblacion || '',
+        receptorProvincia: datos.formFactura.receptorProvincia || '',
+        receptorCP: datos.formFactura.receptorCP || '',
+      })
+    }
+    
+    // Restaurar datos del formulario principal si existen
+    if (datos.formData) {
+      setFormData(prev => ({
+        ...prev,
+        precio_venta_cliente: datos.formData.precio_venta_cliente || prev.precio_venta_cliente,
+        bonificacion_pax: datos.formData.bonificacion_pax || prev.bonificacion_pax,
+        total_pax: datos.formData.total_pax || prev.total_pax
+      }))
+    }
+    
+    alert('✅ Versión de factura cargada en el editor')
+  }
+
+  // ============ BORRAR VERSIÓN DE FACTURA ============
+  const borrarVersionFactura = async (versionId, numeroFactura) => {
+    if (!window.confirm('¿Estás seguro de que quieres eliminar esta versión de la factura?')) {
+      return
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('facturas_versiones')
+        .delete()
+        .eq('id', versionId)
+      
+      if (error) {
+        console.error('Error borrando versión:', error)
+        alert(`❌ Error borrando versión: ${error.message}`)
+        return
+      }
+      
+      // Recargar versiones
+      await cargarVersionesFactura()
+      alert('✅ Versión eliminada correctamente')
+    } catch (error) {
+      console.error('Error inesperado borrando versión:', error)
+      alert(`❌ Error inesperado: ${error.message}`)
+    }
+  }
+
+  // Cargar versiones cuando se abre la pestaña de facturación
+  useEffect(() => {
+    if (tab === 'facturacion' && expediente?.id) {
+      cargarVersionesFactura()
+    }
+  }, [tab, expediente?.id])
+
   // ============ CARGAR LOGS FINANCIEROS ============
   const cargarLogsFinancieros = async () => {
     if (!expediente?.id) {
@@ -1123,6 +1221,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     receptorProvincia: '',
     receptorCP: '',
   })
+  
+  // Estados para Versiones de Facturas
+  const [versionesFactura, setVersionesFactura] = useState([])
+  const [cargandoVersiones, setCargandoVersiones] = useState(false)
 
   // Tabs
   const tabs = [
@@ -2028,6 +2130,51 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       // Generar PDF
       await generarFacturaPDF(numeroFactura, datosFactura)
+
+      // Guardar versión en facturas_versiones
+      try {
+        const datosCompletosFactura = {
+          ...datosFactura,
+          formFactura: { ...formFactura },
+          calcularBaseFactura: {
+            precioVentaPax: calcularBaseFactura.precioVentaPax,
+            precioNetoPax: calcularBaseFactura.precioNetoPax,
+            paxPago: calcularBaseFactura.paxPago,
+            totalServiciosConIVA: calcularBaseFactura.totalServiciosConIVA,
+            totalSuplementos: calcularBaseFactura.totalSuplementos,
+            baseImponible: calcularBaseFactura.baseImponible,
+            iva: calcularBaseFactura.iva,
+            totalFactura: calcularBaseFactura.totalFactura
+          },
+          formData: {
+            precio_venta_cliente: formData?.precio_venta_cliente || 0,
+            bonificacion_pax: formData?.bonificacion_pax || 0,
+            total_pax: formData?.total_pax || 0
+          }
+        }
+        
+        const { error: errorVersion } = await supabase
+          .from('facturas_versiones')
+          .insert([{
+            expediente_id: expediente.id,
+            factura_id: null, // Se puede vincular después si es necesario
+            datos_json: datosCompletosFactura,
+            numero_factura: numeroFactura
+          }])
+        
+        if (errorVersion) {
+          console.error('Error guardando versión de factura:', errorVersion)
+          // No bloqueamos el flujo si falla el versionado
+        } else {
+          // Recargar versiones si estamos en la pestaña de facturación
+          if (tab === 'facturacion') {
+            await cargarVersionesFactura()
+          }
+        }
+      } catch (err) {
+        console.error('Error inesperado guardando versión:', err)
+        // No bloqueamos el flujo si falla el versionado
+      }
 
       console.log('✅ [SEGURIDAD] Factura guardada correctamente. Expediente NO modificado.')
       alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente.`)
@@ -4722,6 +4869,78 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <FileText size={24} />
                       Emitir Factura
                     </button>
+                  </div>
+
+                  {/* Historial de Versiones */}
+                  <div className="mt-8 pt-6 border-t border-gray-200">
+                    <h4 className="text-lg font-bold text-navy-900 mb-4">📋 Historial de Versiones</h4>
+                    
+                    {cargandoVersiones ? (
+                      <div className="text-center py-4 text-gray-500 text-sm">
+                        <p>Cargando versiones...</p>
+                      </div>
+                    ) : versionesFactura.length === 0 ? (
+                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <p className="text-gray-600 text-center text-sm">No hay versiones guardadas de esta factura.</p>
+                      </div>
+                    ) : (
+                      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                        <table className="w-full">
+                          <thead className="bg-slate-900 text-white">
+                            <tr>
+                              <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Versión</th>
+                              <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Fecha</th>
+                              <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-center">Acción</th>
+                              <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-center">Borrar</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {versionesFactura.map((version, index) => (
+                              <tr key={version.id} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-4 py-3 text-sm font-semibold text-gray-900">
+                                  Versión {versionesFactura.length - index}
+                                  {version.numero_factura && (
+                                    <div className="text-xs text-gray-500 mt-1">
+                                      Factura: {version.numero_factura}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-700">
+                                  {version.created_at 
+                                    ? new Date(version.created_at).toLocaleDateString('es-ES', {
+                                        day: '2-digit',
+                                        month: '2-digit',
+                                        year: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })
+                                    : '-'
+                                  }
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <button
+                                    onClick={() => cargarVersionFactura(version)}
+                                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-1 mx-auto"
+                                  >
+                                    <FileText size={14} />
+                                    Ver/Cargar
+                                  </button>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <button
+                                    onClick={() => borrarVersionFactura(version.id, version.numero_factura)}
+                                    className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-1 mx-auto"
+                                  >
+                                    <Trash2 size={14} />
+                                    Borrar
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 </div>
             </div>
