@@ -2133,6 +2133,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       // Guardar versión en facturas_versiones
       try {
+        // Calcular número de versión: contar versiones existentes + 1
+        const { data: versionesExistentes, error: errorCount } = await supabase
+          .from('facturas_versiones')
+          .select('id')
+          .eq('expediente_id', expediente.id)
+        
+        const versionNumero = versionesExistentes ? versionesExistentes.length + 1 : 1
+        
+        // Construir objeto completo de la factura para guardar en datos_json
         const datosCompletosFactura = {
           ...datosFactura,
           formFactura: { ...formFactura },
@@ -2150,29 +2159,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             precio_venta_cliente: formData?.precio_venta_cliente || 0,
             bonificacion_pax: formData?.bonificacion_pax || 0,
             total_pax: formData?.total_pax || 0
-          }
+          },
+          fecha_emision: new Date().toISOString()
         }
         
+        // INSERT en facturas_versiones
         const { error: errorVersion } = await supabase
           .from('facturas_versiones')
           .insert([{
             expediente_id: expediente.id,
-            factura_id: null, // Se puede vincular después si es necesario
+            numero_factura: numeroFactura,
             datos_json: datosCompletosFactura,
-            numero_factura: numeroFactura
+            version_numero: versionNumero
           }])
         
         if (errorVersion) {
-          console.error('Error guardando versión de factura:', errorVersion)
+          console.error('❌ Error guardando versión de factura:', errorVersion)
           // No bloqueamos el flujo si falla el versionado
         } else {
-          // Recargar versiones si estamos en la pestaña de facturación
-          if (tab === 'facturacion') {
-            await cargarVersionesFactura()
-          }
+          console.log("✅ Nueva versión de factura guardada")
+          // Recargar versiones siempre para actualizar la vista
+          await cargarVersionesFactura()
         }
       } catch (err) {
-        console.error('Error inesperado guardando versión:', err)
+        console.error('❌ Error inesperado guardando versión:', err)
         // No bloqueamos el flujo si falla el versionado
       }
 
