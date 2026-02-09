@@ -858,24 +858,222 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }, [tab, expediente?.id])
 
   // ============ REGENERAR PDF DESDE DATOS ============
+  // Usa la función unificada que acepta objeto factura completo
   const regenerarPDFDesdeDatos = async (facturaEmitida) => {
-    if (!facturaEmitida?.datos_factura) {
+    if (!facturaEmitida) {
       alert('❌ Error: No hay datos de factura para regenerar el PDF')
       return
     }
     
-    const datos = facturaEmitida.datos_factura
-    const numeroFactura = facturaEmitida.numero_factura || datos.numero_factura
-    
-    // Restaurar datos del formulario temporalmente para generar el PDF
-    if (datos.formFactura) {
-      setFormFactura(datos.formFactura)
+    // Si tiene datos_factura, construir objeto factura completo para la función unificada
+    const facturaCompleta = {
+      ...facturaEmitida,
+      datos_factura: facturaEmitida.datos_factura || facturaEmitida.datos_json,
+      numero_factura: facturaEmitida.numero_factura || facturaEmitida.datos_factura?.numero_factura,
+      cliente_nombre: facturaEmitida.cliente_nombre || facturaEmitida.nombre_receptor || facturaEmitida.datos_factura?.receptor?.nombre,
+      cliente_documento: facturaEmitida.cliente_documento || facturaEmitida.cif_receptor || facturaEmitida.datos_factura?.receptor?.cif_nif,
+      importe_total: facturaEmitida.importe_total || facturaEmitida.total_factura || facturaEmitida.datos_factura?.calcularBaseFactura?.totalFactura,
+      fecha_emision: facturaEmitida.fecha_emision || facturaEmitida.datos_factura?.fecha_emision
     }
     
-    // Generar PDF con los datos guardados
-    await generarFacturaPDF(numeroFactura, datos)
+    // Llamar a la función unificada de Cierres (copiada aquí para evitar dependencias)
+    await generarFacturaPDFUnificado(facturaCompleta)
+  }
+  
+  // ============ FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF (COMPARTIDA) ============
+  // Misma función que en Cierres.jsx para garantizar diseño unificado
+  const generarFacturaPDFUnificado = async (factura) => {
+    // Extraer datos de forma robusta desde cualquier fuente
+    const datos = factura?.datos_factura || factura?.datos_json || {}
+    const receptor = datos.receptor || datos.formFactura?.receptor || datos.formFactura || {}
     
-    alert('✅ PDF regenerado y descargado')
+    // Número de factura
+    const numeroFactura = factura?.numero_factura || datos.numero_factura || 'SIN-NUMERO'
+    
+    // Datos del cliente/receptor
+    const clienteNombre = receptor.nombre || factura?.cliente_nombre || factura?.nombre_receptor || factura?.display_nombre || 'Sin nombre'
+    const clienteCIF = receptor.cif_nif || receptor.cif || factura?.cliente_documento || factura?.cif_receptor || factura?.display_doc || ''
+    const clienteDireccion = receptor.direccion || ''
+    const clientePoblacion = receptor.poblacion || ''
+    const clienteProvincia = receptor.provincia || ''
+    const clienteCP = receptor.cp || receptor.codigo_postal || ''
+    
+    // Concepto
+    const concepto = datos.concepto || datos.concepts?.concepto || factura?.concepto || 'Servicios de viaje'
+    
+    // Cálculos financieros
+    const calc = datos.calcularBaseFactura || {}
+    let baseImponible = parseFloat(calc.baseImponible || factura?.base_imponible || 0) || 0
+    let iva = parseFloat(calc.iva || factura?.iva || 0) || 0
+    const total = parseFloat(calc.totalFactura || datos.importe_total || factura?.importe_total || factura?.total_factura || factura?.display_total || 0) || 0
+    
+    // Si solo tenemos el total, calcular base e IVA (asumiendo 21% de IVA)
+    if (total > 0 && baseImponible === 0 && iva === 0) {
+      const tipoIVA = parseFloat(calc.tipoIVA || datos.tipoIVA || 21) || 21
+      baseImponible = +(total / (1 + tipoIVA / 100)).toFixed(2)
+      iva = +(total - baseImponible).toFixed(2)
+    }
+    
+    // Fecha
+    const fechaEmision = datos.fecha_emision || factura?.fecha_emision || new Date().toISOString()
+    const fecha = new Date(fechaEmision)
+    const fechaFormateada = fecha.toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric'
+    })
+    
+    // Datos del emisor
+    const datosEmisor = {
+      nombre: 'VALSERVICE INCOMING S.L.',
+      cif: 'B-12345678',
+      licencia: 'CV-1234',
+      direccion: 'C/ Santa Amalia, nº 2 Entresuelo 2º Of. L1, 46009 Valencia (ESP)',
+      telefono: '+34 96 339 04 64',
+      email: 'info@viajestabora.com',
+      banco1: 'ES12 1234 5678 9012 3456 7890',
+      banco2: 'ES98 9876 5432 1098 7654 3210'
+    }
+    
+    const crearDocumento = (logoImg) => {
+      const doc = new jsPDF()
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      
+      // Logo
+      if (logoImg) {
+        try {
+          doc.setFillColor(255, 255, 255)
+          doc.rect(20, 15, 40, 15, 'F')
+          doc.addImage(logoImg, 'PNG', 20, 15, 40, 15)
+        } catch (e) {
+          console.warn('Error añadiendo logo a factura:', e)
+        }
+      }
+      
+      // Número de factura
+      doc.setFontSize(20)
+      doc.setTextColor(33, 150, 243)
+      doc.setFont(undefined, 'bold')
+      doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
+      
+      // Fecha
+      doc.setFontSize(10)
+      doc.setTextColor(100, 100, 100)
+      doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 35, { align: 'right' })
+      
+      // Datos del emisor
+      let yPos = 50
+      doc.setFontSize(12)
+      doc.setTextColor(0, 0, 0)
+      doc.setFont(undefined, 'bold')
+      doc.text(datosEmisor.nombre, 20, yPos)
+      yPos += 6
+      doc.setFontSize(10)
+      doc.setFont(undefined, 'normal')
+      doc.text(`CIF: ${datosEmisor.cif}`, 20, yPos)
+      yPos += 6
+      doc.text(`Licencia: ${datosEmisor.licencia}`, 20, yPos)
+      yPos += 6
+      doc.text(datosEmisor.direccion, 20, yPos)
+      yPos += 6
+      doc.text(`Tel: ${datosEmisor.telefono} | Email: ${datosEmisor.email}`, 20, yPos)
+      
+      // Datos del receptor
+      yPos += 15
+      doc.setFontSize(12)
+      doc.setFont(undefined, 'bold')
+      doc.text('FACTURAR A:', 20, yPos)
+      yPos += 8
+      doc.setFontSize(10)
+      doc.setFont(undefined, 'normal')
+      doc.text(clienteNombre, 20, yPos)
+      yPos += 6
+      if (clienteCIF) {
+        doc.text(`CIF/NIF: ${clienteCIF}`, 20, yPos)
+        yPos += 6
+      }
+      if (clienteDireccion) {
+        doc.text(clienteDireccion, 20, yPos)
+        yPos += 6
+      }
+      const direccionCompleta = [clienteCP, clientePoblacion, clienteProvincia].filter(Boolean).join(' ')
+      if (direccionCompleta) {
+        doc.text(direccionCompleta, 20, yPos)
+        yPos += 6
+      }
+      
+      // Concepto
+      yPos += 10
+      doc.setFontSize(12)
+      doc.setFont(undefined, 'bold')
+      doc.text('CONCEPTO:', 20, yPos)
+      yPos += 8
+      doc.setFontSize(10)
+      doc.setFont(undefined, 'normal')
+      const conceptoLineas = doc.splitTextToSize(concepto, pageWidth - 40)
+      conceptoLineas.forEach((linea) => {
+        doc.text(linea, 20, yPos)
+        yPos += 6
+      })
+      
+      // Totales
+      yPos += 10
+      doc.setDrawColor(200, 200, 200)
+      doc.setLineWidth(0.3)
+      doc.line(20, yPos, pageWidth - 20, yPos)
+      yPos += 8
+      
+      doc.setFontSize(10)
+      doc.setTextColor(0, 0, 0)
+      doc.setFont(undefined, 'bold')
+      doc.text('Base Imponible:', pageWidth - 60, yPos, { align: 'right' })
+      doc.text(`${baseImponible.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+      yPos += 6
+      
+      doc.setFont(undefined, 'normal')
+      doc.text('IVA (21%):', pageWidth - 60, yPos, { align: 'right' })
+      doc.text(`${iva.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+      yPos += 6
+      
+      doc.setFontSize(12)
+      doc.setFont(undefined, 'bold')
+      doc.setTextColor(34, 197, 94)
+      doc.text('TOTAL (IVA incluido):', pageWidth - 60, yPos, { align: 'right' })
+      doc.text(`${total.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+      
+      // Pie de página
+      const footerY = pageHeight - 40
+      doc.setDrawColor(200, 200, 200)
+      doc.setLineWidth(0.3)
+      doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
+      
+      doc.setFontSize(8)
+      doc.setTextColor(100, 100, 100)
+      doc.text(datosEmisor.nombre, 20, footerY)
+      doc.text(`CIF: ${datosEmisor.cif} | Licencia: ${datosEmisor.licencia}`, 20, footerY + 6)
+      doc.text(datosEmisor.direccion, 20, footerY + 12)
+      
+      const nombreArchivo = `Factura_${numeroFactura}_${clienteNombre.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
+      doc.save(nombreArchivo)
+    }
+    
+    // Cargar logo
+    const logo = new Image()
+    logo.src = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png'
+    logo.onload = () => {
+      crearDocumento(logo)
+    }
+    logo.onerror = () => {
+      const fallbackLogo = new Image()
+      fallbackLogo.src = '/Logo tabora 2023.png'
+      fallbackLogo.onload = () => {
+        crearDocumento(fallbackLogo)
+      }
+      fallbackLogo.onerror = () => {
+        crearDocumento(null)
+      }
+    }
   }
 
   // ============ FACTURAR A PASAJERO INDIVIDUAL ============
