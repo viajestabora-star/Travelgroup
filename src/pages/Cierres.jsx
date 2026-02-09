@@ -29,7 +29,7 @@ const Cierres = () => {
   const [cargandoClientes, setCargandoClientes] = useState(false)
   const [clienteSearch, setClienteSearch] = useState('')
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
-  const [importeBase, setImporteBase] = useState('')
+  const [importeTotalInput, setImporteTotalInput] = useState('')
   const [ivaPorcentaje, setIvaPorcentaje] = useState(21)
   const [concepto, setConcepto] = useState('')
   const [aplicandoFacturaDirecta, setAplicandoFacturaDirecta] = useState(false)
@@ -49,19 +49,15 @@ const Cierres = () => {
         .from('facturas_emitidas_global')
         .select('*')
         .order('fecha_emision', { ascending: false })
-
       console.log('Facturas cargadas:', data)
-
       if (error) {
-        console.error('Error cargando facturas desde facturas_emitidas_global:', error)
-        alert(`Error cargando facturas: ${error.message}`)
+        console.error('Error cargando facturas:', error)
         setFacturas([])
         return
       }
-
       setFacturas(data || [])
     } catch (err) {
-      console.error('Error inesperado cargando facturas:', err)
+      console.error('Error inesperado:', err)
       setFacturas([])
     } finally {
       setCargandoFacturas(false)
@@ -79,14 +75,14 @@ const Cierres = () => {
         .from('clientes')
         .select('*')
         .order('nombre', { ascending: true })
-
+      
       if (error) {
         console.error('Error cargando clientes para facturación directa:', error)
         alert(`Error cargando clientes: ${error.message}`)
         setClientes([])
         return
       }
-
+      
       setClientes(data || [])
     } catch (err) {
       console.error('Error inesperado cargando clientes:', err)
@@ -113,7 +109,7 @@ const Cierres = () => {
   const obtenerSiguienteNumeroFactura = async () => {
     const año = new Date().getFullYear()
 
-    const { data, error } = await supabase
+      const { data, error } = await supabase
       .from('facturas_emitidas_global')
       .select('numero_factura')
       .ilike('numero_factura', `${año}-%`)
@@ -140,10 +136,10 @@ const Cierres = () => {
       alert('Por favor, selecciona un cliente de la lista.')
       return
     }
-
-    const base = parseFloat(String(importeBase).replace(',', '.'))
-    if (!base || base <= 0) {
-      alert('Importe base no válido.')
+    
+    const totalInput = parseFloat(String(importeTotalInput).replace(',', '.'))
+    if (!totalInput || totalInput <= 0) {
+      alert('Importe total no válido.')
       return
     }
 
@@ -152,7 +148,7 @@ const Cierres = () => {
       alert('Porcentaje de IVA no válido.')
       return
     }
-
+    
     if (!concepto || concepto.trim().length < 3) {
       alert('Indica un concepto de factura más descriptivo.')
       return
@@ -162,9 +158,10 @@ const Cierres = () => {
     try {
       const numeroFactura = await obtenerSiguienteNumeroFactura()
 
-      const baseImponible = base
-      const iva = +(baseImponible * (ivaPct / 100)).toFixed(2)
-      const totalFactura = +(baseImponible + iva).toFixed(2)
+      // El usuario introduce el TOTAL, calculamos base e IVA a partir de ese total
+      const totalFactura = +totalInput.toFixed(2)
+      const baseImponible = +(totalFactura / (1 + ivaPct / 100)).toFixed(2)
+      const iva = +(totalFactura - baseImponible).toFixed(2)
 
       const fechaEmisionISO = new Date().toISOString()
 
@@ -194,7 +191,6 @@ const Cierres = () => {
       const { error: errorInsert } = await supabase.from('facturas_emitidas_global').insert([
         {
           numero_factura: numeroFactura,
-          cliente_id: clienteSeleccionado.id,
           cliente_nombre: clienteSeleccionado.nombre,
           tipo_factura: 'DIRECTA',
           importe_total: totalFactura,
@@ -213,12 +209,12 @@ const Cierres = () => {
       try {
         const doc = new jsPDF()
         const pageWidth = doc.internal.pageSize.getWidth()
-
+        
         doc.setFontSize(20)
         doc.setTextColor(33, 150, 243)
         doc.setFont(undefined, 'bold')
         doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
-
+        
         let yPos = 50
         doc.setFontSize(12)
         doc.setFont(undefined, 'bold')
@@ -240,7 +236,7 @@ const Cierres = () => {
           doc.text(clienteSeleccionado.direccion, 20, yPos)
           yPos += 6
         }
-
+        
         yPos += 10
         doc.setFontSize(12)
         doc.setFont(undefined, 'bold')
@@ -250,7 +246,7 @@ const Cierres = () => {
         doc.setFont(undefined, 'normal')
         doc.text(concepto.trim(), 20, yPos)
         yPos += 12
-
+        
         doc.setFont(undefined, 'bold')
         doc.text('Base imponible:', 20, yPos)
         doc.text(`${baseImponible.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
@@ -261,7 +257,7 @@ const Cierres = () => {
         doc.setFontSize(14)
         doc.text('TOTAL:', 20, yPos)
         doc.text(`${totalFactura.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
-
+        
         doc.save(`Factura_${numeroFactura}_Directa.pdf`)
       } catch (pdfError) {
         console.error('Error generando PDF de factura directa:', pdfError)
@@ -270,7 +266,7 @@ const Cierres = () => {
       alert(`✅ Factura directa ${numeroFactura} emitida correctamente`)
 
       // Reset formulario
-      setImporteBase('')
+      setImporteTotalInput('')
       setConcepto('')
       setClienteSeleccionado(null)
       setClienteSearch('')
@@ -394,7 +390,7 @@ const Cierres = () => {
       regenerarPDFDesdeDatos(factura)
       return
     }
-
+    
     alert('No hay PDF ni datos para generar el documento.')
   }
 
@@ -529,11 +525,11 @@ const Cierres = () => {
                 )}
               </div>
 
-              {/* Importe e IVA */}
+              {/* Importe total (con IVA) + desglose automático */}
               <div className="space-y-3">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-[0.18em] mb-2">
-                    Base imponible
+                    Importe total (IVA incluido)
                   </label>
                   <div className="relative">
                     <Euro className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
@@ -541,9 +537,9 @@ const Cierres = () => {
                       type="number"
                       min="0"
                       step="0.01"
-                      value={importeBase}
-                      onChange={(e) => setImporteBase(e.target.value)}
-                      placeholder="0,00"
+                      value={importeTotalInput}
+                      onChange={(e) => setImporteTotalInput(e.target.value)}
+                      placeholder="0,00 (total factura)"
                       className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
@@ -561,19 +557,37 @@ const Cierres = () => {
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
-                <div className="bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-600">
-                  <div className="flex justify-between">
-                    <span>Total estimado</span>
-                    <span className="font-semibold text-slate-900">
-                      {(() => {
-                        const base = parseFloat(String(importeBase).replace(',', '.')) || 0
-                        const ivaPct = parseFloat(String(ivaPorcentaje)) || 0
-                        const iva = base * (ivaPct / 100)
-                        const total = base + iva
-                        return `${total.toFixed(2)} €`
-                      })()}
-                    </span>
-                  </div>
+                <div className="bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-600 space-y-1">
+                  {(() => {
+                    const totalInput = parseFloat(String(importeTotalInput).replace(',', '.')) || 0
+                    const ivaPct = parseFloat(String(ivaPorcentaje)) || 0
+                    const base =
+                      totalInput > 0 ? +(totalInput / (1 + ivaPct / 100)).toFixed(2) : 0
+                    const iva = totalInput > 0 ? +(totalInput - base).toFixed(2) : 0
+
+                    return (
+                      <>
+                        <div className="flex justify-between">
+                          <span>Base imponible estimada</span>
+                          <span className="font-semibold text-slate-900">
+                            {base.toFixed(2)} €
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>IVA ({Number.isNaN(ivaPct) ? 0 : ivaPct}% )</span>
+                          <span className="font-semibold text-slate-900">
+                            {iva.toFixed(2)} €
+                          </span>
+                        </div>
+                        <div className="flex justify-between border-t border-slate-200 pt-1 mt-1">
+                          <span>Total</span>
+                          <span className="font-semibold text-slate-900">
+                            {totalInput.toFixed(2)} €
+                          </span>
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
 
@@ -629,8 +643,8 @@ const Cierres = () => {
               <div className="py-10 text-center text-slate-500 text-sm flex flex-col items-center gap-2">
                 <FileText className="text-slate-300" size={40} />
                 <span>No hay facturas emitidas todavía.</span>
-              </div>
-            ) : (
+            </div>
+          ) : (
               <table className="w-full text-sm">
                 <thead className="bg-slate-900 text-white">
                   <tr>
@@ -658,7 +672,7 @@ const Cierres = () => {
                   {facturas.map((factura) => (
                     <tr key={factura.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-3 text-slate-700">
-                        {factura.fecha_emision
+                        {factura.fecha_emision 
                           ? new Date(factura.fecha_emision).toLocaleDateString('es-ES', {
                               day: '2-digit',
                               month: '2-digit',
@@ -675,7 +689,7 @@ const Cierres = () => {
                             factura.tipo_factura === 'DIRECTA'
                               ? 'bg-sky-100 text-sky-800'
                               : factura.tipo_factura === 'PASAJERO'
-                              ? 'bg-blue-100 text-blue-800'
+                            ? 'bg-blue-100 text-blue-800' 
                               : 'bg-emerald-100 text-emerald-800'
                           }`}
                         >
@@ -706,7 +720,7 @@ const Cierres = () => {
               </table>
             )}
           </div>
-        </div>
+            </div>
       )}
 
       {/* ===================== TAB: CIERRES (LIQUIDACIÓN) ===================== */}
