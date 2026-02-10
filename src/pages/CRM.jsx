@@ -26,6 +26,7 @@ const CRM = () => {
   const [busquedaCliente, setBusquedaCliente] = useState('')
   const [mostrarSugerencias, setMostrarSugerencias] = useState(false)
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
+  const [guardando, setGuardando] = useState(false)
 
   const cargarDatos = async () => {
     const { data: pros } = await supabase.from('prospectos').select('*').order('fecha', { ascending: false })
@@ -338,88 +339,123 @@ const CRM = () => {
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xl flex items-end z-50 p-4">
           <div className="bg-white w-full max-w-md rounded-[3.5rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh]">
-             <form onSubmit={async (e) => {
-               e.preventDefault();
+             <form
+               onSubmit={async (e) => {
+                 e.preventDefault();
 
-               // Validación: el buscador (campo unificado) no puede estar vacío
-               if (!busquedaCliente || !busquedaCliente.trim()) {
-                 alert('Debes indicar el nombre del grupo/cliente en el buscador antes de sincronizar.')
-                 return
-               }
+                 if (guardando) return
 
-               // ========= CHECK-IN GEOGRÁFICO =========
-               let geoData = { latitude: null, longitude: null }
-               try {
-                 geoData = await obtenerGeolocalizacion()
-                 console.log('📍 Geolocalización capturada:', geoData)
-               } catch (err) {
-                 console.warn('⚠️ No se pudo obtener geolocalización:', err)
-               }
-
-               // ========= MAPEO REAL A LA TABLA `prospectos` =========
-               // La tabla solo acepta: grupo, contacto, telefono, interes, notas, ubicacion, fecha
-               // CIF / Población / Provincia / Objeciones / Próximo Contacto / GPS se inyectan en "notas"
-
-               // Asegurar que el nombre de grupo viene del buscador unificado
-               const nombreGrupo = busquedaCliente.trim()
-
-               // Construir notas extendidas sin enviar columnas inexistentes
-               let notasExtendidas = nuevo.notas || ''
-
-               if (nuevo.cif) {
-                 notasExtendidas += (notasExtendidas ? '\n' : '') + `CIF: ${nuevo.cif}`
-               }
-
-               if (nuevo.poblacion || nuevo.provincia) {
-                 const zona = `${nuevo.poblacion || ''}${nuevo.provincia ? ` (${nuevo.provincia})` : ''}`.trim()
-                 if (zona) {
-                   notasExtendidas += (notasExtendidas ? '\n' : '') + `Zona: ${zona}`
+                 // Validación: el buscador (campo unificado) no puede estar vacío
+                 if (!busquedaCliente || !busquedaCliente.trim()) {
+                   alert('Debes indicar el nombre del grupo/cliente en el buscador antes de sincronizar.')
+                   return
                  }
-               }
 
-               if (nuevo.direccion) {
-                 notasExtendidas += (notasExtendidas ? '\n' : '') + `Dirección: ${nuevo.direccion}`
-               }
+                 // Confirmación explícita antes de usar la ubicación actual
+                 const confirmado = window.confirm('¿Estás seguro de que quieres guardar la visita con tu ubicación actual?')
+                 if (!confirmado) return
 
-               if (nuevo.objeciones_competencia) {
-                 notasExtendidas += (notasExtendidas ? '\n\n' : '') + `OBJECIONES Y COMPETENCIA:\n${nuevo.objeciones_competencia}`
-               }
+                 setGuardando(true)
 
-               if (nuevo.proximo_contacto) {
-                 notasExtendidas += (notasExtendidas ? '\n' : '') + `Próximo Contacto: ${nuevo.proximo_contacto}`
-               }
+                 // ========= CHECK-IN GEOGRÁFICO =========
+                 let geoData = { latitude: null, longitude: null, timestamp: null }
+                 try {
+                   geoData = await new Promise((resolve) => {
+                     if (!navigator.geolocation) {
+                       resolve({ latitude: null, longitude: null, timestamp: null })
+                       return
+                     }
+                     navigator.geolocation.getCurrentPosition(
+                       (position) => {
+                         resolve({
+                           latitude: position.coords.latitude,
+                           longitude: position.coords.longitude,
+                           timestamp: position.timestamp || Date.now(),
+                         })
+                       },
+                       (error) => {
+                         console.warn('Error obteniendo geolocalización:', error)
+                         resolve({ latitude: null, longitude: null, timestamp: null })
+                       },
+                       { timeout: 5000, enableHighAccuracy: false }
+                     )
+                   })
+                   console.log('📍 Geolocalización capturada:', geoData)
+                 } catch (err) {
+                   console.warn('⚠️ No se pudo obtener geolocalización:', err)
+                 }
 
-               if (geoData.latitude && geoData.longitude) {
-                 notasExtendidas += (notasExtendidas ? '\n' : '') + `GPS: ${geoData.latitude}, ${geoData.longitude}`
-               }
+                 // ========= MAPEO REAL A LA TABLA `prospectos` =========
+                 // La tabla acepta: grupo, contacto, telefono, interes, notas, ubicacion, fecha
+                 // Nuevos campos: latitude, longitude, checkin_timestamp (ya creados en Supabase)
 
-               const datosCompletos = {
-                 fecha: nuevo.fecha,
-                 grupo: nombreGrupo,
-                 contacto: nuevo.contacto || '',
-                 telefono: nuevo.telefono || '',
-                 interes: nuevo.interes || 'Medio',
-                 notas: notasExtendidas.trim(),
-                 ubicacion: nuevo.ubicacion || '',
-               }
+                 // Asegurar que el nombre de grupo viene del buscador unificado
+                 const nombreGrupo = busquedaCliente.trim()
 
-               // ========= USAR .upsert() BASADO EN ID =========
-               // Si hay editandoId, incluir el id para actualizar; si no, insertar nuevo
-               const datosParaUpsert = editandoId 
-                 ? { ...datosCompletos, id: editandoId }
-                 : datosCompletos
+                 // Construir notas extendidas sin enviar columnas inexistentes
+                 let notasExtendidas = nuevo.notas || ''
 
-               const res = await supabase
-                 .from('prospectos')
-                 .upsert(datosParaUpsert, { onConflict: 'id' })
+                 if (nuevo.cif) {
+                   notasExtendidas += (notasExtendidas ? '\n' : '') + `CIF: ${nuevo.cif}`
+                 }
 
-               if (!res.error) { 
-                 cerrarModal()
-                 cargarDatos()
-               } else {
-                 alert('Error al guardar: ' + res.error.message)
-               }
-             }} className="space-y-4">
+                 if (nuevo.poblacion || nuevo.provincia) {
+                   const zona = `${nuevo.poblacion || ''}${nuevo.provincia ? ` (${nuevo.provincia})` : ''}`.trim()
+                   if (zona) {
+                     notasExtendidas += (notasExtendidas ? '\n' : '') + `Zona: ${zona}`
+                   }
+                 }
+
+                 if (nuevo.direccion) {
+                   notasExtendidas += (notasExtendidas ? '\n' : '') + `Dirección: ${nuevo.direccion}`
+                 }
+
+                 if (nuevo.objeciones_competencia) {
+                   notasExtendidas += (notasExtendidas ? '\n\n' : '') + `OBJECIONES Y COMPETENCIA:\n${nuevo.objeciones_competencia}`
+                 }
+
+                 if (nuevo.proximo_contacto) {
+                   notasExtendidas += (notasExtendidas ? '\n' : '') + `Próximo Contacto: ${nuevo.proximo_contacto}`
+                 }
+
+                 if (geoData.latitude && geoData.longitude) {
+                   notasExtendidas += (notasExtendidas ? '\n' : '') + `GPS: ${geoData.latitude}, ${geoData.longitude}`
+                 }
+
+                 const datosCompletos = {
+                   fecha: nuevo.fecha,
+                   grupo: nombreGrupo,
+                   contacto: nuevo.contacto || '',
+                   telefono: nuevo.telefono || '',
+                   interes: nuevo.interes || 'Medio',
+                   notas: notasExtendidas.trim(),
+                   ubicacion: nuevo.ubicacion || '',
+                   latitude: geoData.latitude,
+                   longitude: geoData.longitude,
+                   checkin_timestamp: geoData.timestamp ? new Date(geoData.timestamp).toISOString() : null,
+                 }
+
+                 // ========= USAR .upsert() BASADO EN ID =========
+                 // Si hay editandoId, incluir el id para actualizar; si no, insertar nuevo
+                 const datosParaUpsert = editandoId
+                   ? { ...datosCompletos, id: editandoId }
+                   : datosCompletos
+
+                 const res = await supabase
+                   .from('prospectos')
+                   .upsert(datosParaUpsert, { onConflict: 'id' })
+
+                 setGuardando(false)
+
+                 if (!res.error) {
+                   cerrarModal()
+                   cargarDatos()
+                 } else {
+                   alert('Error al guardar: ' + res.error.message)
+                 }
+               }}
+               className="space-y-4"
+             >
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-2xl font-black italic uppercase tracking-tighter">
                     {editandoId ? 'Editar Visita' : 'Nueva Visita'}
@@ -674,8 +710,16 @@ const CRM = () => {
                   </div>
                 )}
                 
-                <button type="submit" className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black uppercase italic shadow-xl hover:bg-blue-600 transition-all">
-                  Sincronizar
+                <button
+                  type="submit"
+                  disabled={guardando}
+                  className={`w-full py-6 rounded-[2rem] font-black uppercase italic shadow-xl transition-all min-h-[60px] ${
+                    guardando
+                      ? 'bg-slate-400 text-slate-100 cursor-wait'
+                      : 'bg-slate-900 text-white hover:bg-blue-600'
+                  }`}
+                >
+                  {guardando ? 'Obteniendo ubicación...' : 'Sincronizar'}
                 </button>
              </form>
           </div>
