@@ -948,39 +948,28 @@ const Cierres = () => {
       {/* PESTAÑAS: FACTURAS / CIERRES (LIQUIDACIÓN) / INFORME HACIENDA */}
       <div className="mb-6 border-b border-slate-200">
         <div className="flex gap-1">
-          <button
-            onClick={() => setTabActiva('facturas')}
-            className={`px-6 py-3 font-semibold transition-colors flex items-center gap-2 ${
-              tabActiva === 'facturas'
-                ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Receipt size={18} />
-            Facturas
-          </button>
-          <button
-            onClick={() => setTabActiva('cierres')}
-            className={`px-6 py-3 font-semibold transition-colors flex items-center gap-2 ${
-              tabActiva === 'cierres'
-                ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <TrendingUp size={18} />
-            Cierres (Liquidación)
-          </button>
-          <button
-            onClick={() => setTabActiva('informe_hacienda')}
-            className={`px-6 py-3 font-semibold transition-colors flex items-center gap-2 ${
-              tabActiva === 'informe_hacienda'
-                ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <FileText size={18} />
-            Informe Hacienda
-          </button>
+          {[
+            { id: 'facturas', nombre: 'Facturas', icon: Receipt },
+            { id: 'cierres', nombre: 'Cierres (Liquidación)', icon: TrendingUp },
+            { id: 'informe_hacienda', nombre: 'Informe Hacienda', icon: FileText },
+          ].map((tab) => {
+            const Icon = tab.icon
+            const isActive = tabActiva === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setTabActiva(tab.id)}
+                className={`px-6 py-3 font-semibold transition-colors flex items-center gap-2 ${
+                  isActive
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Icon size={18} />
+                {tab.nombre}
+              </button>
+            )
+          })}
         </div>
       </div>
 
