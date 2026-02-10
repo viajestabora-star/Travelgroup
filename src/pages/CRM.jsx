@@ -856,7 +856,8 @@ const MetricCard = ({ icon, label, value, color }) => (
 
 const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert, onAddPrograma }) => {
   // Obtener datos para acciones rápidas
-  const telefonoParaLlamar = p.telefono || ''
+  const rawTelefono = p.telefono || p.movil || p.telefono_contacto || ''
+  const telefonoParaLlamar = String(rawTelefono).trim()
   
   // Construir texto de búsqueda para el mapa combinando nombre + localidad
   const partesDireccion = [
@@ -1085,7 +1086,7 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert, onAddPro
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {/* BOTÓN LLAMAR - Móvil Nativo */}
+        {/* BOTÓN LLAMAR - Móvil / Escritorio (tel:) */}
         {telefonoParaLlamar ? (
           <button 
             onClick={() => {
@@ -1096,7 +1097,11 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert, onAddPro
             <Phone size={16}/> LLAMAR
           </button>
         ) : (
-          <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase min-h-[60px]">
+          <button
+            disabled
+            title="Añade un teléfono para llamar"
+            className="bg-slate-300 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase min-h-[60px]"
+          >
             <Phone size={16}/> LLAMAR
           </button>
         )}
