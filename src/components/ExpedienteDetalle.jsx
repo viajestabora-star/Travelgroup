@@ -1517,6 +1517,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const paxPago = Math.max(1, (parseInt(formData?.total_pax) || 1) - (parseInt(formData?.gratuidades) || 0))
   const totalPax = Math.max(1, parseInt(formData?.total_pax) || 1)
 
+  // Recalcular automáticamente el coste por pax de todos los servicios "Total a dividir"
+  // cuando cambian los pasajeros de pago (pax_pago).
+  useEffect(() => {
+    setServicios((prevServicios) => {
+      const nuevos = prevServicios.map((s) => {
+        const tipoCalculo = s.tipoCalculo || 'porPersona'
+        if (tipoCalculo !== 'porGrupo') return s
+
+        const totalServicio =
+          s.totalServicio !== undefined && s.totalServicio !== null
+            ? Number(s.totalServicio)
+            : NaN
+
+        if (!isNaN(totalServicio) && paxPago > 0) {
+          const costePorPax = totalServicio / paxPago
+          return { ...s, costeUnitario: costePorPax }
+        }
+
+        return s
+      })
+      return nuevos
+    })
+  }, [paxPago])
+
   // Estados para Facturación
   const [formFactura, setFormFactura] = useState({
     receptorNombre: '',
@@ -1645,30 +1669,38 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }
 
   // ============ FUNCIÓN UNIVERSAL PARA CALCULAR TOTAL DE FILA ============
-  // Fórmula obligatoria: cantidad × precio (siempre, sin excepciones)
-  // Esta función se ejecuta en cada render para asegurar actualización en tiempo real
+  // Para servicios "Precio por Persona": cantidad × costeUnitario
+  // Para servicios "Total a dividir": usar siempre el importe total de servicio
+  // (independiente del nº de pax) para que cuadre con las facturas de proveedores.
   const calcularTotalFila = (servicio) => {
-    // Convertir precio a número (limpia cualquier formato)
     const precio = Number(servicio.costeUnitario) || 0
-    
-    // Determinar cantidad según el tipo de servicio
+    const tipoCalculo = servicio.tipoCalculo || 'porPersona'
+
+    // Si el servicio es "Total a dividir", el total es el importe de la factura del proveedor
+    if (tipoCalculo === 'porGrupo') {
+      const totalServicio =
+        servicio.totalServicio !== undefined && servicio.totalServicio !== null
+          ? Number(servicio.totalServicio)
+          : NaN
+      if (!isNaN(totalServicio) && totalServicio >= 0) {
+        return totalServicio
+      }
+      // Fallback: si no hay totalServicio aún, usar el valor actual del campo precio como total
+      return isNaN(precio) ? 0 : precio
+    }
+
+    // Para "Precio por Persona": cantidad × precio
     let cantidad = 1
     if (servicio.tipo === 'Guía' || servicio.tipo === 'Hotel') {
-      // Para Guías y Hoteles: usar el campo 'noches' como cantidad
-      // Convertir a número explícitamente para evitar problemas con strings
       const cantidadRaw = servicio.noches
-      cantidad = cantidadRaw !== null && cantidadRaw !== undefined && cantidadRaw !== '' 
-        ? Number(cantidadRaw) 
-        : 1
-      // Asegurar que la cantidad sea al menos 1
+      cantidad =
+        cantidadRaw !== null && cantidadRaw !== undefined && cantidadRaw !== ''
+          ? Number(cantidadRaw)
+          : 1
       cantidad = Math.max(1, cantidad)
     }
-    // Para otros servicios: cantidad = 1 (por defecto)
-    
-    // Fórmula universal: cantidad × precio (siempre, sin excepciones)
+
     const total = precio * cantidad
-    
-    // Retornar el total (puede ser 0 si el precio es 0)
     return isNaN(total) ? 0 : total
   }
 
@@ -1706,17 +1738,47 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
     
     try {
+      const tipoCalculo = servicio.tipoCalculo || 'porPersona'
+      const noches = servicio.noches ? Number(servicio.noches) : 1
+      const costePaxLocal = servicio.costeUnitario ? Number(servicio.costeUnitario) : 0
+
+      // paxPago ya está calculado en el componente (coste por pax de cálculo)
+      const paxPagoLocal = paxPago > 0 ? paxPago : 1
+
+      // total_servicio = importe total de la factura del proveedor para este servicio
+      let totalServicio = 0
+      if (tipoCalculo === 'porGrupo') {
+        // Para "Total a dividir" esperamos tener almacenado el total del grupo
+        if (servicio.totalServicio !== undefined && servicio.totalServicio !== null) {
+          totalServicio = Number(servicio.totalServicio) || 0
+        } else {
+          // Fallback: derivar total a partir del coste por pax
+          totalServicio = costePaxLocal * paxPagoLocal
+        }
+      } else {
+        // Para "Precio por Persona", el total corresponde a coste por pax × noches × pax_pago (cuando aplique)
+        const cantidad =
+          servicio.tipo === 'Guía' || servicio.tipo === 'Hotel'
+            ? Math.max(1, noches)
+            : 1
+        totalServicio = costePaxLocal * cantidad * paxPagoLocal
+      }
+
+      // coste_pax: coste REAL por persona (para Supabase)
+      const costePax = costePaxLocal
       const datosParaSupabase = {
         id_expediente: String(expediente.id).trim(),
         tipo_servicio: servicio.tipo || 'Hotel',
         nombre_especifico: servicio.nombreEspecifico || '',
         localizacion: servicio.localizacion || '',
-        coste_unitario: servicio.costeUnitario ? Number(servicio.costeUnitario) : 0,
+        coste_unitario: costePax, // siempre coste por pax
+        coste_pax: costePax,
+        total_servicio: totalServicio,
         precio_venta: servicio.precioVenta ? Number(servicio.precioVenta) : 0,
         margen_pax: servicio.margen ? Number(servicio.margen) : 0,
-        noches: servicio.noches ? Number(servicio.noches) : 1,
+        noches: noches,
         fecha_release: servicio.fechaRelease || null,
-        tipo_calculo: servicio.tipoCalculo || 'porPersona',
+        tipo_calculo: tipoCalculo,
         proveedor_id_int: servicio.proveedorId ? Number(servicio.proveedorId) : null,
         nombre_proveedor_manual: servicio.proveedorNombreTemporal || null
       }
@@ -1877,9 +1939,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       
       // Calcular cada servicio con TIPO DE CÁLCULO FLEXIBLE
       servicios.forEach(servicio => {
-        const coste = parseFloat(servicio.costeUnitario) || 0
-        const noches = Math.max(0, parseInt(servicio.noches) || 0)
         const tipoCalculo = servicio.tipoCalculo || 'porPersona'
+
+        // Para servicios "Total a dividir", el usuario introduce el total de la factura
+        // y el sistema calcula el coste por pax = total_servicio / paxPago.
+        // Para "Precio por Persona", costeUnitario ya es el coste por pax.
+        const totalServicioLinea = calcularTotalFila(servicio)
+        const costePorPaxDesdeTotalGrupo =
+          tipoCalculo === 'porGrupo' && paxPago > 0 ? totalServicioLinea / paxPago : null
+
+        const coste =
+          tipoCalculo === 'porGrupo' && costePorPaxDesdeTotalGrupo !== null
+            ? costePorPaxDesdeTotalGrupo
+            : parseFloat(servicio.costeUnitario) || 0
+
+        const noches = Math.max(0, parseInt(servicio.noches) || 0)
         
         if (servicio.tipo === 'Autobús') {
           // SIEMPRE: Autobús / Pasajeros de Pago
@@ -4357,7 +4431,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                     
                                     // Si es un número válido, actualizar; si no, mantener el string para permitir edición
                                     if (!isNaN(valorNumerico)) {
-                                      actualizarServicio(servicio.id, 'costeUnitario', valorNumerico);
+                                      if ((servicio.tipoCalculo || 'porPersona') === 'porGrupo') {
+                                        // El usuario introduce el total de grupo; convertir a coste por pax
+                                        const totalGrupo = valorNumerico
+                                        const costePorPax =
+                                          paxPago > 0 ? totalGrupo / paxPago : 0
+                                        actualizarServicio(servicio.id, 'totalServicio', totalGrupo)
+                                        actualizarServicio(servicio.id, 'costeUnitario', costePorPax)
+                                      } else {
+                                        actualizarServicio(servicio.id, 'costeUnitario', valorNumerico);
+                                      }
                                     } else {
                                       // Permitir edición parcial (ej: usuario escribiendo "66.")
                                       actualizarServicio(servicio.id, 'costeUnitario', valorLimpio);
@@ -4375,7 +4458,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                       const valorLimpio = valor.replace(/,/g, '.');
                                       const valorNumerico = parseFloat(valorLimpio);
                                       if (!isNaN(valorNumerico)) {
-                                        actualizarServicio(servicio.id, 'costeUnitario', valorNumerico);
+                                        if ((servicio.tipoCalculo || 'porPersona') === 'porGrupo') {
+                                          const totalGrupo = valorNumerico
+                                          const costePorPax =
+                                            paxPago > 0 ? totalGrupo / paxPago : 0
+                                          actualizarServicio(servicio.id, 'totalServicio', totalGrupo)
+                                          actualizarServicio(servicio.id, 'costeUnitario', costePorPax)
+                                        } else {
+                                          actualizarServicio(servicio.id, 'costeUnitario', valorNumerico);
+                                        }
                                       } else {
                                         actualizarServicio(servicio.id, 'costeUnitario', 0);
                                       }
