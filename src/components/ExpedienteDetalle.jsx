@@ -1670,28 +1670,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }
   
   // ============ MOTOR DE CÁLCULO PROFESIONAL - BLOQUE BLINDADO ============
+  // BLOQUE PROTEGIDO: Lógica de cálculo dual (Dividir vs Persona) - NO MODIFICAR SIN AUTORIZACIÓN.
   // NO ALTERAR NOMBRES DE VARIABLES DENTRO DE ESTE BLOQUE
   const finalizarCalculo = (servicio, paxPago = 31, paxTotal = 35) => {
+    const s = servicio || {};
     const pP = parseFloat(paxPago) || 1;
     const pT = parseFloat(paxTotal) || 1;
-    const uni = parseFloat(servicio.coste_unitario) || 0;
-    const n = parseInt(servicio.noches) || 1;
-    const d = parseInt(servicio.dias_guia) || 1;
-    const manual = parseFloat(servicio.total_servicio_manual) || 0;
+    const uni = parseFloat(s.coste_unitario) || 0;
+    const n = parseInt(s.noches) || 1;
+    const d = parseInt(s.dias_guia) || 1;
+    const manual = parseFloat(s.total_servicio_manual) || 0;
     let totalFinal = 0; let costePorPersona = 0;
 
-    if (servicio.tipo_calculo === 'Total a dividir') {
+    if (s.tipo_calculo === 'Total a dividir') {
       // Caso BUS o TOTALES: El total es lo que se escribe. Se divide entre los que pagan.
-      totalFinal = manual > 0 ? manual : (servicio.tipo_servicio === 'Guía' ? uni * d : uni);
+      totalFinal = manual > 0 ? manual : (s.tipo_servicio === 'Guía' ? uni * d : uni);
       costePorPersona = totalFinal / pP;
     } else {
       // Caso POR PERSONA: Se multiplica por factor tiempo (noches/días) y luego por total de pax.
-      const factor = (servicio.tipo_servicio === 'Hotel') ? n : (servicio.tipo_servicio === 'Guía' ? d : 1);
+      const factor = (s.tipo_servicio === 'Hotel') ? n : (s.tipo_servicio === 'Guía' ? d : 1);
       costePorPersona = uni * factor;
       totalFinal = costePorPersona * pT;
     }
 
-    return { ...servicio, coste_pax: Number(costePorPersona.toFixed(2)), total_servicio: Number(totalFinal.toFixed(2)) };
+    return { ...s, coste_pax: Number(costePorPersona.toFixed(2)), total_servicio: Number(totalFinal.toFixed(2)) };
   };
 
   // Helper de UI: adaptar servicio al formato esperado por finalizarCalculo
