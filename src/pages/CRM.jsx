@@ -857,7 +857,20 @@ const MetricCard = ({ icon, label, value, color }) => (
 const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert, onAddPrograma }) => {
   // Obtener datos para acciones rápidas
   const telefonoParaLlamar = p.telefono || ''
-  const direccionParaMapa = p.ubicacion || p.direccion || ''
+  
+  // Construir texto de búsqueda para el mapa combinando nombre + localidad
+  const partesDireccion = [
+    p.grupo || '',
+    p.poblacion || '',
+    p.provincia || '',
+  ]
+    .map(x => (x || '').trim())
+    .filter(Boolean)
+  
+  const textoLocalidad = partesDireccion.join(', ')
+  const direccionLibre = p.ubicacion || p.direccion || ''
+  
+  const direccionParaMapa = direccionLibre || textoLocalidad
   
   // Detectar si es un link de Google Maps o una dirección normal
   const esLinkGoogleMaps = direccionParaMapa && (
@@ -868,7 +881,7 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert, onAddPro
     direccionParaMapa.includes('maps.app.goo.gl')
   )
   
-  // Construir URL del mapa: si es link directo, usarlo; si no, buscar por query
+  // Construir URL del mapa: si es link directo, usarlo; si no, buscar por query (ej: "Rocafort, Valencia")
   const urlMapa = direccionParaMapa 
     ? (esLinkGoogleMaps 
         ? direccionParaMapa 
