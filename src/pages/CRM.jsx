@@ -122,7 +122,7 @@ const CRM = () => {
     const visitasMes = prospectos.filter(p => {
       const d = new Date(p.fecha); return d.getMonth() === mesActual && d.getFullYear() === añoActual
     }).length
-    const interesAlto = prospectos.filter(p => p.interes === 'Alto').length
+    const interesAlto = prospectos.filter(p => (p.status || p.interes) === 'Alto').length
     const ratio = totalClientes > 0 ? ((totalClientes / (prospectos.length + totalClientes)) * 100).toFixed(0) : 0
     return { visitasMes, interesAlto, ratio }
   }, [prospectos, totalClientes, currentDate])
@@ -293,29 +293,35 @@ const CRM = () => {
                 esClienteOficial={esClienteOficial}
                 onEdit={async () => {
                   setEditandoId(p.id)
-                  // Extraer objeciones y próximo contacto de las notas si existen
+
+                  // Extraer objeciones y próximo contacto desde columnas dedicadas (fallback a notas antiguas)
                   const notas = p.notas || ''
-                  let objeciones = ''
-                  let proximoContacto = ''
+                  let objeciones = p.objeciones_competencia || ''
+                  let proximoContacto = p.proximo_contacto || ''
                   
-                  // Buscar "OBJECIONES Y COMPETENCIA:" en las notas
-                  const matchObjeciones = notas.match(/OBJECIONES Y COMPETENCIA:\s*(.+?)(?=\n(?:Próximo Contacto|GPS|$))/is)
-                  if (matchObjeciones) {
-                    objeciones = matchObjeciones[1].trim()
+                  if (!objeciones && notas) {
+                    const matchObjeciones = notas.match(/OBJECIONES Y COMPETENCIA:\s*(.+?)(?=\n(?:Próximo Contacto|GPS|$))/is)
+                    if (matchObjeciones) {
+                      objeciones = matchObjeciones[1].trim()
+                    }
                   }
                   
-                  // Buscar "Próximo Contacto:" en las notas
-                  const matchProximo = notas.match(/Próximo Contacto:\s*(\d{4}-\d{2}-\d{2})/)
-                  if (matchProximo) {
-                    proximoContacto = matchProximo[1]
+                  if (!proximoContacto && notas) {
+                    const matchProximo = notas.match(/Próximo Contacto:\s*(\d{4}-\d{2}-\d{2})/)
+                    if (matchProximo) {
+                      proximoContacto = matchProximo[1]
+                    }
                   }
+
+                  const estado = p.status || p.interes || 'Medio'
                   
                   setNuevo({
                     ...p,
+                    interes: estado,
                     objeciones_competencia: objeciones,
                     proximo_contacto: proximoContacto,
-                    latitude: null,
-                    longitude: null
+                    latitude: p.latitud || null,
+                    longitude: p.longitud || null
                   })
                   // Reset selección de cliente en edición (se puede vincular después)
                   setClienteSeleccionado(null)
@@ -386,53 +392,20 @@ const CRM = () => {
                  }
 
                  // ========= MAPEO REAL A LA TABLA `prospectos` =========
-                 // La tabla acepta: grupo, contacto, telefono, interes, notas, ubicacion, fecha
-                 // Nuevos campos: latitude, longitude, checkin_timestamp (ya creados en Supabase)
+                 // Claves requeridas: id, status, objeciones_competencia, proximo_contacto,
+                 // latitud, longitud, check_in_at
 
-                 // Asegurar que el nombre de grupo viene del buscador unificado
-                 const nombreGrupo = busquedaCliente.trim()
-
-                 // Construir notas extendidas sin enviar columnas inexistentes
-                 let notasExtendidas = nuevo.notas || ''
-
-                 if (nuevo.cif) {
-                   notasExtendidas += (notasExtendidas ? '\n' : '') + `CIF: ${nuevo.cif}`
-                 }
-
-                 if (nuevo.poblacion || nuevo.provincia) {
-                   const zona = `${nuevo.poblacion || ''}${nuevo.provincia ? ` (${nuevo.provincia})` : ''}`.trim()
-                   if (zona) {
-                     notasExtendidas += (notasExtendidas ? '\n' : '') + `Zona: ${zona}`
-                   }
-                 }
-
-                 if (nuevo.direccion) {
-                   notasExtendidas += (notasExtendidas ? '\n' : '') + `Dirección: ${nuevo.direccion}`
-                 }
-
-                 if (nuevo.objeciones_competencia) {
-                   notasExtendidas += (notasExtendidas ? '\n\n' : '') + `OBJECIONES Y COMPETENCIA:\n${nuevo.objeciones_competencia}`
-                 }
-
-                 if (nuevo.proximo_contacto) {
-                   notasExtendidas += (notasExtendidas ? '\n' : '') + `Próximo Contacto: ${nuevo.proximo_contacto}`
-                 }
-
-                 if (geoData.latitude && geoData.longitude) {
-                   notasExtendidas += (notasExtendidas ? '\n' : '') + `GPS: ${geoData.latitude}, ${geoData.longitude}`
-                 }
+                 const status = nuevo.interes || 'Medio'
 
                  const datosCompletos = {
-                   fecha: nuevo.fecha,
-                   grupo: nombreGrupo,
-                   contacto: nuevo.contacto || '',
-                   telefono: nuevo.telefono || '',
-                   interes: nuevo.interes || 'Medio',
-                   notas: notasExtendidas.trim(),
-                   ubicacion: nuevo.ubicacion || '',
-                   latitude: geoData.latitude,
-                   longitude: geoData.longitude,
-                   checkin_timestamp: geoData.timestamp ? new Date(geoData.timestamp).toISOString() : null,
+                   status, // extraído del semáforo
+                   objeciones_competencia: nuevo.objeciones_competencia || '',
+                   proximo_contacto: nuevo.proximo_contacto || null,
+                   latitud: geoData.latitude,
+                   longitud: geoData.longitude,
+                   check_in_at: geoData.timestamp
+                     ? new Date(geoData.timestamp).toISOString()
+                     : new Date().toISOString(),
                  }
 
                  // ========= USAR .upsert() BASADO EN ID =========
