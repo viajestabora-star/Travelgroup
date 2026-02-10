@@ -1669,50 +1669,47 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
   
-  // ============ MOTOR ÚNICO DE CÁLCULO POR SERVICIO (REGLA FINANCIERA) ============
-  // Copia directa de la lógica impuesta:
-  //
-  // const paxP = parseFloat(expediente.pax_pago) || 31;
-  // const paxT = parseFloat(expediente.pax_total) || 35;
-  // if (servicio.tipo_calculo === 'Total a dividir') {
-  //    servicio.total_servicio = parseFloat(servicio.precio_manual) || 0;
-  //    servicio.coste_pax = servicio.total_servicio / paxP;
-  // } else {
-  //    servicio.coste_pax = parseFloat(servicio.precio_manual) || 0;
-  //    servicio.total_servicio = servicio.coste_pax * paxT;
-  // }
-  const calcularServicioFinanzas = (servicio) => {
-    const paxP = parseFloat(expediente?.pax_pago) || 31
-    const paxT = parseFloat(expediente?.pax_total) || 35
+  // ============ MOTOR DE CÁLCULO PROFESIONAL - BLOQUE BLINDADO ============
+  // NO ALTERAR NOMBRES DE VARIABLES DENTRO DE ESTE BLOQUE
+  const finalizarCalculo = (servicio, paxPago = 31, paxTotal = 35) => {
+    const pP = parseFloat(paxPago) || 1;
+    const pT = parseFloat(paxTotal) || 1;
+    const uni = parseFloat(servicio.coste_unitario) || 0;
+    const n = parseInt(servicio.noches) || 1;
+    const d = parseInt(servicio.dias_guia) || 1;
+    const manual = parseFloat(servicio.total_servicio_manual) || 0;
+    let totalFinal = 0; let costePorPersona = 0;
 
-    const tipoCalculo = servicio.tipo_calculo || servicio.tipoCalculo || ''
-    const precioManualRaw =
-      servicio.precio_manual !== undefined && servicio.precio_manual !== null
-        ? servicio.precio_manual
-        : servicio.costeUnitario
-    const precioManual = parseFloat(precioManualRaw) || 0
-
-    let total_servicio = 0
-    let coste_pax = 0
-
-    if (tipoCalculo === 'Total a dividir' || tipoCalculo === 'porGrupo') {
-      // El Total es lo que el usuario escribe (ej. 2000€)
-      total_servicio = precioManual
-      // El coste por pax es el resultado de la división
-      coste_pax = paxP > 0 ? total_servicio / paxP : 0
+    if (servicio.tipo_calculo === 'Total a dividir') {
+      // Caso BUS o TOTALES: El total es lo que se escribe. Se divide entre los que pagan.
+      totalFinal = manual > 0 ? manual : (servicio.tipo_servicio === 'Guía' ? uni * d : uni);
+      costePorPersona = totalFinal / pP;
     } else {
-      // Modo por persona: El precio es el coste por pax
-      coste_pax = precioManual
-      // El total es la multiplicación
-      total_servicio = coste_pax * paxT
+      // Caso POR PERSONA: Se multiplica por factor tiempo (noches/días) y luego por total de pax.
+      const factor = (servicio.tipo_servicio === 'Hotel') ? n : (servicio.tipo_servicio === 'Guía' ? d : 1);
+      costePorPersona = uni * factor;
+      totalFinal = costePorPersona * pT;
     }
 
-    return { total_servicio, coste_pax }
-  }
+    return { ...servicio, coste_pax: Number(costePorPersona.toFixed(2)), total_servicio: Number(totalFinal.toFixed(2)) };
+  };
 
-  // Helper de UI: total de fila basado en la regla financiera
+  // Helper de UI: adaptar servicio al formato esperado por finalizarCalculo
   const calcularTotalFilaUI = (servicio) => {
-    const { total_servicio } = calcularServicioFinanzas(servicio)
+    const fila = {
+      ...servicio,
+      tipo_calculo:
+        servicio.tipo_calculo ||
+        (servicio.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio.tipoCalculo) ||
+        '',
+      tipo_servicio: servicio.tipo_servicio || servicio.tipo || '',
+      coste_unitario: servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0,
+      noches: servicio.noches ?? 1,
+      dias_guia: servicio.dias_guia ?? servicio.noches ?? 1,
+      total_servicio_manual: servicio.total_servicio_manual ?? servicio.totalServicio ?? servicio.total_servicio ?? 0,
+    }
+
+    const { total_servicio } = finalizarCalculo(fila, paxPago, totalPax)
     return total_servicio || 0
   }
 
@@ -1752,10 +1749,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     try {
       const tipoCalculo = servicio.tipoCalculo || servicio.tipo_calculo || 'porPersona'
 
-      // Cálculo centralizado según la REGLA FINANCIERA ÚNICA
-      const { total_servicio, coste_pax } = calcularServicioFinanzas(servicio)
-      const totalServicio = total_servicio || 0
-      const costePax = coste_pax || 0
+      // Cálculo centralizado usando el MOTOR DE CÁLCULO PROFESIONAL
+      const fila = {
+        ...servicio,
+        tipo_calculo:
+          servicio.tipo_calculo ||
+          (servicio.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio.tipoCalculo) ||
+          '',
+        tipo_servicio: servicio.tipo_servicio || servicio.tipo || '',
+        coste_unitario: servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0,
+        noches: servicio.noches ?? 1,
+        dias_guia: servicio.dias_guia ?? servicio.noches ?? 1,
+        total_servicio_manual: servicio.total_servicio_manual ?? servicio.totalServicio ?? servicio.total_servicio ?? 0,
+      }
+      const calculado = finalizarCalculo(fila, paxPago, totalPax)
+      const totalServicio = calculado.total_servicio || 0
+      const costePax = calculado.coste_pax || 0
       const datosParaSupabase = {
         id_expediente: String(expediente.id).trim(),
         tipo_servicio: servicio.tipo || 'Hotel',
@@ -1933,9 +1942,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       let costeRestaurantePorPax = 0
       let costeOtrosPorPax = 0
       
-      // Calcular cada servicio usando la función financiera única (coste_pax y total_servicio)
+      // Calcular cada servicio usando el MOTOR DE CÁLCULO PROFESIONAL
       servicios.forEach(servicio => {
-        const { coste_pax } = calcularServicioFinanzas(servicio)
+        const fila = {
+          ...servicio,
+          tipo_calculo:
+            servicio.tipo_calculo ||
+            (servicio.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio.tipoCalculo) ||
+            '',
+          tipo_servicio: servicio.tipo_servicio || servicio.tipo || '',
+          coste_unitario: servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0,
+          noches: servicio.noches ?? 1,
+          dias_guia: servicio.dias_guia ?? servicio.noches ?? 1,
+          total_servicio_manual: servicio.total_servicio_manual ?? servicio.totalServicio ?? servicio.total_servicio ?? 0,
+        }
+        const { coste_pax } = finalizarCalculo(fila, paxPago, totalPax)
         const costePax = coste_pax || 0
         
         if (servicio.tipo === 'Autobús') {
