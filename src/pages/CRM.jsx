@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { Plus, Phone, Trash2, X, Search, Navigation, ChevronLeft, ChevronRight, Edit3, UserPlus, Calendar as CalendarIcon, History, Target, TrendingUp, Users, BarChart3, AlertCircle, MessageCircle } from 'lucide-react'
+import { Plus, Phone, Trash2, X, Search, Navigation, ChevronLeft, ChevronRight, Edit3, UserPlus, Calendar as CalendarIcon, History, Target, TrendingUp, Users, BarChart3, AlertCircle, MessageCircle, MapPin } from 'lucide-react'
 
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
@@ -16,9 +16,23 @@ const CRM = () => {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [fechaSeleccionada, setFechaSeleccionada] = useState(new Date().toISOString().split('T')[0])
   const [nuevo, setNuevo] = useState({
-    grupo: '', contacto: '', telefono: '', interes: 'Medio', notas: '', ubicacion: '', fecha: new Date().toISOString().split('T')[0],
-    cliente_id: null, cif: '', direccion: '', poblacion: '', provincia: '',
-    objeciones_competencia: '', proximo_contacto: '', latitude: null, longitude: null
+    grupo: '',
+    contacto: '',
+    telefono: '',
+    interes: 'Medio',
+    notas: '',
+    ubicacion: '',
+    fecha: new Date().toISOString().split('T')[0],
+    cliente_id: null,
+    cif: '',
+    direccion: '',
+    poblacion: '',
+    provincia: '',
+    objeciones_competencia: '',
+    proximo_contacto: '',
+    latitude: null,
+    longitude: null,
+    check_in_at: null,
   })
   
   // Estados para autocomplete de clientes
@@ -27,6 +41,7 @@ const CRM = () => {
   const [mostrarSugerencias, setMostrarSugerencias] = useState(false)
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
   const [guardando, setGuardando] = useState(false)
+  const [checkinEstado, setCheckinEstado] = useState('idle') // 'idle' | 'locating' | 'captured' | 'error'
 
   const cargarDatos = async () => {
     const { data: pros } = await supabase.from('prospectos').select('*').order('fecha', { ascending: false })
@@ -34,7 +49,7 @@ const CRM = () => {
     if (pros) setProspectos(pros)
     if (countCli !== null) setTotalClientes(countCli)
   }
-  
+
   const cargarClientes = async () => {
     const { data, error } = await supabase
       .from('clientes')
@@ -134,8 +149,8 @@ const CRM = () => {
   // Filtrar y ordenar datos para mostrar (orden alfabético en historial)
   const datosMostrar = useMemo(() => {
     let datos = busqueda 
-      ? prospectos.filter(p => p.grupo.toLowerCase().includes(busqueda.toLowerCase()))
-      : (activeTab === 'agenda' ? visitasAgenda : visitasHistorial)
+    ? prospectos.filter(p => p.grupo.toLowerCase().includes(busqueda.toLowerCase()))
+    : (activeTab === 'agenda' ? visitasAgenda : visitasHistorial)
     
     // Orden alfabético en historial
     if (activeTab === 'historial' && !busqueda) {
@@ -167,14 +182,31 @@ const CRM = () => {
   }
 
   const cerrarModal = () => {
-    setNuevo({ grupo: '', contacto: '', telefono: '', interes: 'Medio', notas: '', ubicacion: '', fecha: new Date().toISOString().split('T')[0],
-      cliente_id: null, cif: '', direccion: '', poblacion: '', provincia: '',
-      objeciones_competencia: '', proximo_contacto: '', latitude: null, longitude: null })
+    setNuevo({
+      grupo: '',
+      contacto: '',
+      telefono: '',
+      interes: 'Medio',
+      notas: '',
+      ubicacion: '',
+      fecha: new Date().toISOString().split('T')[0],
+      cliente_id: null,
+      cif: '',
+      direccion: '',
+      poblacion: '',
+      provincia: '',
+      objeciones_competencia: '',
+      proximo_contacto: '',
+      latitude: null,
+      longitude: null,
+      check_in_at: null,
+    })
     setEditandoId(null)
     setShowModal(false)
     setBusquedaCliente('')
     setClienteSeleccionado(null)
     setMostrarSugerencias(false)
+    setCheckinEstado('idle')
   }
   
   // Función para obtener geolocalización
@@ -209,8 +241,8 @@ const CRM = () => {
     setMostrarSugerencias(false)
     
     // Auto-rellenar datos del cliente
-    setNuevo({
-      ...nuevo,
+    setNuevo((prev) => ({
+      ...prev,
       grupo: cliente.nombre || '',
       cliente_id: cliente.id,
       cif: cliente.cif_nif || '',
@@ -218,8 +250,10 @@ const CRM = () => {
       direccion: cliente.direccion || '',
       poblacion: cliente.poblacion || '',
       provincia: cliente.provincia || '',
-      ubicacion: `${cliente.direccion || ''}, ${cliente.poblacion || ''}, ${cliente.provincia || ''}`.replace(/^,\s*|,\s*$/g, '').replace(/,\s*,/g, ',')
-    })
+      ubicacion: `${cliente.direccion || ''}, ${cliente.poblacion || ''}, ${cliente.provincia || ''}`
+        .replace(/^,\s*|,\s*$/g, '')
+        .replace(/,\s*,/g, ','),
+    }))
   }
   
   // Filtrar clientes para autocomplete
@@ -347,7 +381,7 @@ const CRM = () => {
           <div className="bg-white w-full max-w-md rounded-[3.5rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh]">
              <form
                onSubmit={async (e) => {
-                 e.preventDefault();
+               e.preventDefault();
 
                  if (guardando) return
 
@@ -357,43 +391,15 @@ const CRM = () => {
                    return
                  }
 
-                 // Confirmación explícita antes de usar la ubicación actual
+                 // Confirmación explícita antes de guardar
                  const confirmado = window.confirm('¿Estás seguro de que quieres guardar la visita con tu ubicación actual?')
                  if (!confirmado) return
 
                  setGuardando(true)
 
-                 // ========= CHECK-IN GEOGRÁFICO =========
-                 let geoData = { latitude: null, longitude: null, timestamp: null }
-                 try {
-                   geoData = await new Promise((resolve) => {
-                     if (!navigator.geolocation) {
-                       resolve({ latitude: null, longitude: null, timestamp: null })
-                       return
-                     }
-                     navigator.geolocation.getCurrentPosition(
-                       (position) => {
-                         resolve({
-                           latitude: position.coords.latitude,
-                           longitude: position.coords.longitude,
-                           timestamp: position.timestamp || Date.now(),
-                         })
-                       },
-                       (error) => {
-                         console.warn('Error obteniendo geolocalización:', error)
-                         resolve({ latitude: null, longitude: null, timestamp: null })
-                       },
-                       { timeout: 5000, enableHighAccuracy: false }
-                     )
-                   })
-                   console.log('📍 Geolocalización capturada:', geoData)
-                 } catch (err) {
-                   console.warn('⚠️ No se pudo obtener geolocalización:', err)
-                 }
-
                  // ========= MAPEO REAL A LA TABLA `prospectos` =========
                  // Claves requeridas: id, status, objeciones_competencia, proximo_contacto,
-                 // latitud, longitud, check_in_at
+                 // latitud, longitud, check_in_at (capturados solo si el usuario pulsó "Fijar Ubicación Actual")
 
                  const status = nuevo.interes || 'Medio'
 
@@ -401,11 +407,9 @@ const CRM = () => {
                    status, // extraído del semáforo
                    objeciones_competencia: nuevo.objeciones_competencia || '',
                    proximo_contacto: nuevo.proximo_contacto || null,
-                   latitud: geoData.latitude,
-                   longitud: geoData.longitude,
-                   check_in_at: geoData.timestamp
-                     ? new Date(geoData.timestamp).toISOString()
-                     : new Date().toISOString(),
+                   latitud: nuevo.latitude,
+                   longitud: nuevo.longitude,
+                   check_in_at: nuevo.check_in_at || new Date().toISOString(),
                  }
 
                  // ========= USAR .upsert() BASADO EN ID =========
@@ -581,6 +585,79 @@ const CRM = () => {
                   <p className="text-[10px] text-slate-400 mt-1 italic">
                     💡 Puedes pegar el link que te envía el cliente por WhatsApp (ej: https://maps.google.com/...)
                   </p>
+
+                  {/* BOTÓN DE CHECK-IN: FIJAR UBICACIÓN ACTUAL */}
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      disabled={checkinEstado === 'locating'}
+                      onClick={async () => {
+                        if (checkinEstado === 'locating') return
+                        setCheckinEstado('locating')
+                        try {
+                          const geo = await new Promise((resolve) => {
+                            if (!navigator.geolocation) {
+                              resolve({ latitude: null, longitude: null, timestamp: null })
+                              return
+                            }
+                            navigator.geolocation.getCurrentPosition(
+                              (position) => {
+                                resolve({
+                                  latitude: position.coords.latitude,
+                                  longitude: position.coords.longitude,
+                                  timestamp: position.timestamp || Date.now(),
+                                })
+                              },
+                              (error) => {
+                                console.warn('Error obteniendo geolocalización (check-in manual):', error)
+                                resolve({ latitude: null, longitude: null, timestamp: null })
+                              },
+                              { timeout: 5000, enableHighAccuracy: false }
+                            )
+                          })
+
+                          setNuevo((prev) => ({
+                            ...prev,
+                            latitude: geo.latitude,
+                            longitude: geo.longitude,
+                            check_in_at: geo.timestamp ? new Date(geo.timestamp).toISOString() : prev.check_in_at,
+                          }))
+
+                          if (geo.latitude && geo.longitude) {
+                            setCheckinEstado('captured')
+                          } else {
+                            setCheckinEstado('error')
+                          }
+                        } catch (err) {
+                          console.warn('Error inesperado en check-in manual:', err)
+                          setCheckinEstado('error')
+                        }
+                      }}
+                      className={`w-full min-h-[60px] rounded-[1.5rem] font-black uppercase italic text-[10px] tracking-[0.18em] flex items-center justify-center gap-2 transition-all ${
+                        checkinEstado === 'captured'
+                          ? 'bg-emerald-600 text-white shadow-lg'
+                          : checkinEstado === 'locating'
+                          ? 'bg-slate-400 text-slate-100 cursor-wait'
+                          : checkinEstado === 'error'
+                          ? 'bg-red-600 text-white'
+                          : 'bg-slate-900 text-white hover:bg-blue-600'
+                      }`}
+                    >
+                      <MapPin size={16} />
+                      {checkinEstado === 'captured'
+                        ? 'Ubicación Capturada ✓'
+                        : checkinEstado === 'locating'
+                        ? 'Localizando...'
+                        : checkinEstado === 'error'
+                        ? 'Error al Capturar. Reintentar'
+                        : 'Fijar Ubicación Actual'}
+                    </button>
+                    {nuevo.latitude && nuevo.longitude && (
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        Lat: {nuevo.latitude.toFixed(5)} · Lng: {nuevo.longitude.toFixed(5)}
+                      </p>
+                    )}
+                  </div>
                 </div>
                 
                 {/* SEMÁFORO DE INTERÉS - 3 BOTONES GRANDES */}
@@ -736,21 +813,21 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
     : '#'
   
   return (
-    <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-slate-50 relative group">
-      <div className="flex justify-between mb-4">
-        <span className="text-[9px] font-black px-4 py-1.5 rounded-full uppercase bg-blue-50 text-blue-500 tracking-tighter">{p.fecha}</span>
-        <div className="flex gap-4">
-          <button onClick={onEdit} className="text-slate-300"><Edit3 size={18}/></button>
-          <button onClick={onDelete} className="text-slate-100 hover:text-red-500"><Trash2 size={18}/></button>
-        </div>
+  <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-slate-50 relative group">
+    <div className="flex justify-between mb-4">
+      <span className="text-[9px] font-black px-4 py-1.5 rounded-full uppercase bg-blue-50 text-blue-500 tracking-tighter">{p.fecha}</span>
+      <div className="flex gap-4">
+        <button onClick={onEdit} className="text-slate-300"><Edit3 size={18}/></button>
+        <button onClick={onDelete} className="text-slate-100 hover:text-red-500"><Trash2 size={18}/></button>
       </div>
-      <h3 className="font-bold text-xl text-slate-800 mb-1 leading-tight">{p.grupo}</h3>
+    </div>
+    <h3 className="font-bold text-xl text-slate-800 mb-1 leading-tight">{p.grupo}</h3>
       {esClienteOficial && (
         <span className="inline-block text-[9px] font-black px-3 py-1 rounded-full uppercase bg-green-50 text-green-600 tracking-tighter mb-2">
           Cliente Existente
         </span>
       )}
-      <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">{p.notas || 'Sin anotaciones'}</p>
+    <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">{p.notas || 'Sin anotaciones'}</p>
       <div className="grid grid-cols-3 gap-3">
         {/* BOTÓN LLAMAR - Móvil Nativo */}
         {telefonoParaLlamar ? (
@@ -807,8 +884,8 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
           <UserPlus size={14}/> Convertir a Cliente
         </button>
       )}
-    </div>
-  )
+  </div>
+)
 }
 
 export default CRM
