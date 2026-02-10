@@ -130,6 +130,66 @@ const CRM = () => {
     }
   }
 
+  // Crear un programa asociado a un prospecto (tabla programas_prospectos, IDs bigint)
+  const crearProgramaParaProspecto = async (prospectoId, programa) => {
+    try {
+      const prospectoIdNum =
+        typeof prospectoId === 'string' ? parseInt(prospectoId, 10) : prospectoId
+
+      if (!prospectoIdNum || Number.isNaN(prospectoIdNum)) {
+        alert('ID de prospecto inválido. No se puede guardar el programa.')
+        return
+      }
+
+      const payload = {
+        prospecto_id: prospectoIdNum,
+        destino: programa.destino || '',
+        fechas: programa.fechas || '',
+        estado: programa.estado || 'Pendiente',
+        explicacion: programa.explicacion || '',
+        captura_url: programa.imagen || programa.captura_url || '',
+      }
+
+      const { data, error } = await supabase
+        .from('programas_prospectos')
+        .insert([payload])
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error guardando programa del prospecto:', error)
+        alert('Error al guardar el programa del prospecto.')
+        return
+      }
+
+      // Actualizar estado local: adjuntar el nuevo programa a programas_presentados
+      setProspectos(prev =>
+        prev.map(p => {
+          const mismoId =
+            (typeof p.id === 'string' ? parseInt(p.id, 10) : p.id) === prospectoIdNum
+          if (!mismoId) return p
+
+          const actuales = Array.isArray(p.programas_presentados) ? p.programas_presentados : []
+          const nuevoPrograma = {
+            destino: data.destino,
+            fechas: data.fechas,
+            estado: data.estado,
+            explicacion: data.explicacion,
+            imagen: data.captura_url,
+          }
+
+          return {
+            ...p,
+            programas_presentados: [...actuales, nuevoPrograma],
+          }
+        })
+      )
+    } catch (err) {
+      console.error('Error inesperado guardando programa del prospecto:', err)
+      alert('Error inesperado al guardar el programa.')
+    }
+  }
+
   // KPIs Estratégicos (Calculados para la pestaña Métricas)
   const stats = useMemo(() => {
     const mesActual = currentDate.getMonth()
@@ -323,7 +383,9 @@ const CRM = () => {
               )
 
               return (
-              <VisitaCard key={p.id} p={p} 
+              <VisitaCard
+                key={p.id}
+                p={p} 
                 esClienteOficial={esClienteOficial}
                 onEdit={async () => {
                   setEditandoId(p.id)
@@ -368,6 +430,7 @@ const CRM = () => {
                     await convertirProspectoACliente(p)
                   }
                 }}
+                onAddPrograma={(programa) => crearProgramaParaProspecto(p.id, programa)}
               />
             )})}
             {datosMostrar.length === 0 && <div className="text-center py-20 text-slate-300 italic">Sin registros</div>}
@@ -791,7 +854,7 @@ const MetricCard = ({ icon, label, value, color }) => (
   </div>
 )
 
-const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
+const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert, onAddPrograma }) => {
   // Obtener datos para acciones rápidas
   const telefonoParaLlamar = p.telefono || ''
   const direccionParaMapa = p.ubicacion || p.direccion || ''
@@ -814,6 +877,37 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
   
   // Programas presentados (CRM avanzado)
   const programas = Array.isArray(p.programas_presentados) ? p.programas_presentados : []
+  const [nuevoPrograma, setNuevoPrograma] = useState({
+    destino: '',
+    fechas: '',
+    estado: 'Pendiente',
+    explicacion: '',
+    imagen: '',
+  })
+  const [guardandoPrograma, setGuardandoPrograma] = useState(false)
+
+  const handleGuardarPrograma = async (e) => {
+    e.preventDefault()
+    if (!onAddPrograma) return
+    if (!nuevoPrograma.destino && !nuevoPrograma.explicacion) {
+      alert('Añade al menos un destino o una explicación para guardar el programa.')
+      return
+    }
+    setGuardandoPrograma(true)
+    try {
+      await onAddPrograma(nuevoPrograma)
+      // Reset del formulario tras guardar
+      setNuevoPrograma({
+        destino: '',
+        fechas: '',
+        estado: 'Pendiente',
+        explicacion: '',
+        imagen: '',
+      })
+    } finally {
+      setGuardandoPrograma(false)
+    }
+  }
   
   return (
   <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-slate-50 relative group">
@@ -891,6 +985,89 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
               )}
             </div>
           ))}
+          
+          {/* Formulario rápido para añadir un nuevo programa */}
+          <form
+            onSubmit={handleGuardarPrograma}
+            className="border border-slate-200 rounded-2xl p-4 bg-white space-y-3"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+                  Destino
+                </label>
+                <input
+                  type="text"
+                  value={nuevoPrograma.destino}
+                  onChange={(e) => setNuevoPrograma(prev => ({ ...prev, destino: e.target.value }))}
+                  placeholder="Ej: Galicia"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+                  Fechas
+                </label>
+                <input
+                  type="text"
+                  value={nuevoPrograma.fechas}
+                  onChange={(e) => setNuevoPrograma(prev => ({ ...prev, fechas: e.target.value }))}
+                  placeholder="Ej: 25-30 Octubre"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+                  Estado
+                </label>
+                <select
+                  value={nuevoPrograma.estado}
+                  onChange={(e) => setNuevoPrograma(prev => ({ ...prev, estado: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="Pendiente">Pendiente</option>
+                  <option value="Revision">Revisión</option>
+                  <option value="Confirmado">Confirmado</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+                Explicación del Viaje
+              </label>
+              <textarea
+                value={nuevoPrograma.explicacion}
+                onChange={(e) => setNuevoPrograma(prev => ({ ...prev, explicacion: e.target.value }))}
+                placeholder="Describe brevemente el programa presentado al cliente..."
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs h-20 resize-vertical focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">
+                URL de Captura / Imagen
+              </label>
+              <input
+                type="text"
+                value={nuevoPrograma.imagen}
+                onChange={(e) => setNuevoPrograma(prev => ({ ...prev, imagen: e.target.value }))}
+                placeholder="Pega aquí la URL de la captura o imagen del programa"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={guardandoPrograma}
+                className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-[0.18em] ${
+                  guardandoPrograma
+                    ? 'bg-slate-300 text-slate-500 cursor-wait'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                {guardandoPrograma ? 'Guardando...' : 'Añadir Programa'}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
 
