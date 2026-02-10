@@ -812,6 +812,9 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
         : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccionParaMapa)}`)
     : '#'
   
+  // Programas presentados (CRM avanzado)
+  const programas = Array.isArray(p.programas_presentados) ? p.programas_presentados : []
+  
   return (
   <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-slate-50 relative group">
     <div className="flex justify-between mb-4">
@@ -828,7 +831,70 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
         </span>
       )}
     <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">{p.notas || 'Sin anotaciones'}</p>
-      <div className="grid grid-cols-3 gap-3">
+    
+      {/* PROGRAMAS PRESENTADOS */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+            Programas Presentados
+          </h4>
+          <span className="text-[10px] text-slate-400 font-medium">
+            {programas.length === 0 ? 'Sin programas' : `${programas.length} programa(s)`}
+          </span>
+        </div>
+        <div className="space-y-3">
+          {programas.length === 0 && (
+            <div className="border border-dashed border-slate-200 rounded-2xl p-4 text-[11px] text-slate-400 italic bg-slate-50">
+              Aún no hay programas registrados para este prospecto. Añádelos desde el panel de edición.
+            </div>
+          )}
+          {programas.map((prog, idx) => (
+            <div
+              key={idx}
+              className="border border-slate-100 rounded-2xl p-4 bg-slate-50 flex flex-col gap-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-bold text-slate-800">
+                    {prog.destino || 'Destino sin definir'}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {prog.fechas || 'Fechas pendientes'}
+                  </p>
+                </div>
+                <span
+                  className={
+                    'inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ' +
+                    (prog.estado === 'Confirmado'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      : prog.estado === 'Revision'
+                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                      : 'bg-slate-50 text-slate-500 border border-slate-200')
+                  }
+                >
+                  {prog.estado || 'Pendiente'}
+                </span>
+              </div>
+              {prog.explicacion && (
+                <p className="text-[11px] text-slate-600 leading-snug">
+                  {prog.explicacion}
+                </p>
+              )}
+              {prog.imagen && (
+                <div className="mt-1">
+                  <img
+                    src={prog.imagen}
+                    alt="Captura programa"
+                    className="w-full rounded-xl border border-slate-200 object-cover max-h-40"
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
         {/* BOTÓN LLAMAR - Móvil Nativo */}
         {telefonoParaLlamar ? (
           <button 
@@ -842,23 +908,6 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
         ) : (
           <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase min-h-[60px]">
             <Phone size={16}/> LLAMAR
-          </button>
-        )}
-        
-        {/* BOTÓN WHATSAPP - Móvil Nativo */}
-        {telefonoParaLlamar ? (
-          <button 
-            onClick={() => {
-              const numeroLimpio = telefonoParaLlamar.replace(/\s+/g, '').replace(/[^0-9+]/g, '')
-              window.open(`https://wa.me/${numeroLimpio}`, '_blank')
-            }}
-            className="bg-green-600 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase tracking-widest hover:bg-green-700 transition-all min-h-[60px]"
-          >
-            <MessageCircle size={16}/> WHATSAPP
-          </button>
-        ) : (
-          <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase min-h-[60px]">
-            <MessageCircle size={16}/> WHATSAPP
           </button>
         )}
         
