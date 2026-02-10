@@ -1956,8 +1956,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         const noches = Math.max(0, parseInt(servicio.noches) || 0)
         
         if (servicio.tipo === 'Autobús') {
-          // SIEMPRE: Autobús / Pasajeros de Pago
-          costeBusPorPax += paxPago > 0 ? coste / paxPago : 0
+          // ESCENARIO A: "Total a dividir" (ej. BUS)
+          // - Si es porGrupo: coste = total_servicio / paxPago  => costeBusPorPax suma directamente ese coste_pax
+          // - Si es porPersona: coste = coste_unitario (ya es coste por pax)
+          // En NINGÚN caso se vuelve a dividir por paxPago aquí.
+          costeBusPorPax += coste
           
         } else if (servicio.tipo === 'Guía') {
           // Total de la fila del guía = precio_unitario × cantidad (días)
@@ -1969,10 +1972,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         } else if (servicio.tipo === 'Guía Local') {
           // NUEVO: Guía Local con dos opciones
           if (tipoCalculo === 'porGrupo') {
-            // Opción A: Importe fijo dividido entre pasajeros de pago
-            costeGuiaLocalPorPax += paxPago > 0 ? coste / paxPago : 0
+            // ESCENARIO A: Total a dividir -> coste ya es coste_pax (total_servicio / paxPago)
+            costeGuiaLocalPorPax += coste
           } else {
-            // Opción B: Por persona (se suma directo)
+            // ESCENARIO B: Por persona -> se suma directo el coste por pax
             costeGuiaLocalPorPax += coste
           }
           
@@ -1991,20 +1994,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         } else if (servicio.tipo === 'Restaurante') {
           // NUEVO: Restaurantes con tipo de cálculo flexible
           if (tipoCalculo === 'porGrupo') {
-            // Por grupo: dividir entre pasajeros de pago
-            costeRestaurantePorPax += paxPago > 0 ? coste / paxPago : 0
+            // ESCENARIO A: Total a dividir -> coste ya es coste_pax (total_servicio / paxPago)
+            costeRestaurantePorPax += coste
           } else {
-            // Por persona: sumar directo
+            // ESCENARIO B: Por persona -> sumar directo el coste por pax
             costeRestaurantePorPax += coste
           }
           
         } else if (servicio.tipo === 'Otros') {
           // NUEVO: Otros gastos con tipo de cálculo flexible
           if (tipoCalculo === 'porGrupo') {
-            // Por grupo: dividir entre pasajeros de pago
-            costeOtrosPorPax += paxPago > 0 ? coste / paxPago : 0
+            // ESCENARIO A: Total a dividir -> coste ya es coste_pax (total_servicio / paxPago)
+            costeOtrosPorPax += coste
           } else {
-            // Por persona: sumar directo
+            // ESCENARIO B: Por persona -> sumar directo el coste por pax
             costeOtrosPorPax += coste
           }
         }
