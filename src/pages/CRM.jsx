@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { Plus, Phone, Trash2, X, Search, Navigation, ChevronLeft, ChevronRight, Edit3, UserPlus, Calendar as CalendarIcon, History, Target, TrendingUp, Users, BarChart3 } from 'lucide-react'
+import { Plus, Phone, Trash2, X, Search, Navigation, ChevronLeft, ChevronRight, Edit3, UserPlus, Calendar as CalendarIcon, History, Target, TrendingUp, Users, BarChart3, AlertCircle, MessageCircle } from 'lucide-react'
 
 const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
@@ -17,7 +17,8 @@ const CRM = () => {
   const [fechaSeleccionada, setFechaSeleccionada] = useState(new Date().toISOString().split('T')[0])
   const [nuevo, setNuevo] = useState({
     grupo: '', contacto: '', telefono: '', interes: 'Medio', notas: '', ubicacion: '', fecha: new Date().toISOString().split('T')[0],
-    cliente_id: null, cif: '', direccion: '', poblacion: '', provincia: ''
+    cliente_id: null, cif: '', direccion: '', poblacion: '', provincia: '',
+    objeciones_competencia: '', proximo_contacto: '', latitude: null, longitude: null
   })
   
   // Estados para autocomplete de clientes
@@ -166,12 +167,37 @@ const CRM = () => {
 
   const cerrarModal = () => {
     setNuevo({ grupo: '', contacto: '', telefono: '', interes: 'Medio', notas: '', ubicacion: '', fecha: new Date().toISOString().split('T')[0],
-      cliente_id: null, cif: '', direccion: '', poblacion: '', provincia: '' })
+      cliente_id: null, cif: '', direccion: '', poblacion: '', provincia: '',
+      objeciones_competencia: '', proximo_contacto: '', latitude: null, longitude: null })
     setEditandoId(null)
     setShowModal(false)
     setBusquedaCliente('')
     setClienteSeleccionado(null)
     setMostrarSugerencias(false)
+  }
+  
+  // Función para obtener geolocalización
+  const obtenerGeolocalizacion = () => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocalización no soportada'))
+        return
+      }
+      
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude
+          })
+        },
+        (error) => {
+          console.warn('Error obteniendo geolocalización:', error)
+          resolve({ latitude: null, longitude: null })
+        },
+        { timeout: 5000, enableHighAccuracy: false }
+      )
+    })
   }
   
   // Función para seleccionar cliente y auto-rellenar
@@ -266,10 +292,33 @@ const CRM = () => {
                 esClienteOficial={esClienteOficial}
                 onEdit={async () => {
                   setEditandoId(p.id)
-                  setNuevo(p)
+                  // Extraer objeciones y próximo contacto de las notas si existen
+                  const notas = p.notas || ''
+                  let objeciones = ''
+                  let proximoContacto = ''
+                  
+                  // Buscar "OBJECIONES Y COMPETENCIA:" en las notas
+                  const matchObjeciones = notas.match(/OBJECIONES Y COMPETENCIA:\s*(.+?)(?=\n(?:Próximo Contacto|GPS|$))/is)
+                  if (matchObjeciones) {
+                    objeciones = matchObjeciones[1].trim()
+                  }
+                  
+                  // Buscar "Próximo Contacto:" en las notas
+                  const matchProximo = notas.match(/Próximo Contacto:\s*(\d{4}-\d{2}-\d{2})/)
+                  if (matchProximo) {
+                    proximoContacto = matchProximo[1]
+                  }
+                  
+                  setNuevo({
+                    ...p,
+                    objeciones_competencia: objeciones,
+                    proximo_contacto: proximoContacto,
+                    latitude: null,
+                    longitude: null
+                  })
                   // Reset selección de cliente en edición (se puede vincular después)
                   setClienteSeleccionado(null)
-                  setBusquedaCliente('')
+                  setBusquedaCliente(p.grupo || '')
                   setShowModal(true)
                 }} 
                 onDelete={async () => { if(window.confirm(`¿Borrar visita?`)) { await supabase.from('prospectos').delete().eq('id', p.id); cargarDatos() } }}
@@ -298,9 +347,18 @@ const CRM = () => {
                  return
                }
 
+               // ========= CHECK-IN GEOGRÁFICO =========
+               let geoData = { latitude: null, longitude: null }
+               try {
+                 geoData = await obtenerGeolocalizacion()
+                 console.log('📍 Geolocalización capturada:', geoData)
+               } catch (err) {
+                 console.warn('⚠️ No se pudo obtener geolocalización:', err)
+               }
+
                // ========= MAPEO REAL A LA TABLA `prospectos` =========
                // La tabla solo acepta: grupo, contacto, telefono, interes, notas, ubicacion, fecha
-               // CIF / Población / Provincia se inyectan temporalmente dentro de "notas"
+               // CIF / Población / Provincia / Objeciones / Próximo Contacto / GPS se inyectan en "notas"
 
                // Asegurar que el nombre de grupo viene del buscador unificado
                const nombreGrupo = busquedaCliente.trim()
@@ -323,6 +381,18 @@ const CRM = () => {
                  notasExtendidas += (notasExtendidas ? '\n' : '') + `Dirección: ${nuevo.direccion}`
                }
 
+               if (nuevo.objeciones_competencia) {
+                 notasExtendidas += (notasExtendidas ? '\n\n' : '') + `OBJECIONES Y COMPETENCIA:\n${nuevo.objeciones_competencia}`
+               }
+
+               if (nuevo.proximo_contacto) {
+                 notasExtendidas += (notasExtendidas ? '\n' : '') + `Próximo Contacto: ${nuevo.proximo_contacto}`
+               }
+
+               if (geoData.latitude && geoData.longitude) {
+                 notasExtendidas += (notasExtendidas ? '\n' : '') + `GPS: ${geoData.latitude}, ${geoData.longitude}`
+               }
+
                const datosCompletos = {
                  fecha: nuevo.fecha,
                  grupo: nombreGrupo,
@@ -333,10 +403,15 @@ const CRM = () => {
                  ubicacion: nuevo.ubicacion || '',
                }
 
-               // INSERT / UPDATE usando los campos reales de la tabla
-               const res = editandoId 
-                 ? await supabase.from('prospectos').update(datosCompletos).eq('id', editandoId)
-                 : await supabase.from('prospectos').insert([datosCompletos])
+               // ========= USAR .upsert() BASADO EN ID =========
+               // Si hay editandoId, incluir el id para actualizar; si no, insertar nuevo
+               const datosParaUpsert = editandoId 
+                 ? { ...datosCompletos, id: editandoId }
+                 : datosCompletos
+
+               const res = await supabase
+                 .from('prospectos')
+                 .upsert(datosParaUpsert, { onConflict: 'id' })
 
                if (!res.error) { 
                  cerrarModal()
@@ -499,18 +574,85 @@ const CRM = () => {
                   </p>
                 </div>
                 
-                {/* INTERÉS */}
+                {/* SEMÁFORO DE INTERÉS - 3 BOTONES GRANDES */}
                 <div>
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Nivel de Interés</label>
-                  <select 
-                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={nuevo.interes} 
-                    onChange={e => setNuevo({...nuevo, interes: e.target.value})}
-                  >
-                    <option value="Alto">Alto</option>
-                    <option value="Medio">Medio</option>
-                    <option value="Bajo">Bajo</option>
-                  </select>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 block">Nivel de Interés</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setNuevo({...nuevo, interes: 'Alto'})}
+                      className={`min-h-[60px] rounded-2xl font-black text-sm uppercase tracking-wider transition-all ${
+                        nuevo.interes === 'Alto' 
+                          ? 'bg-green-600 text-white shadow-lg scale-105' 
+                          : 'bg-green-50 text-green-700 border-2 border-green-200 hover:bg-green-100'
+                      }`}
+                    >
+                      🔥 Caliente
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNuevo({...nuevo, interes: 'Medio'})}
+                      className={`min-h-[60px] rounded-2xl font-black text-sm uppercase tracking-wider transition-all ${
+                        nuevo.interes === 'Medio' 
+                          ? 'bg-yellow-500 text-white shadow-lg scale-105' 
+                          : 'bg-yellow-50 text-yellow-700 border-2 border-yellow-200 hover:bg-yellow-100'
+                      }`}
+                    >
+                      ⚡ Tibio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNuevo({...nuevo, interes: 'Bajo'})}
+                      className={`min-h-[60px] rounded-2xl font-black text-sm uppercase tracking-wider transition-all ${
+                        nuevo.interes === 'Bajo' 
+                          ? 'bg-red-600 text-white shadow-lg scale-105' 
+                          : 'bg-red-50 text-red-700 border-2 border-red-200 hover:bg-red-100'
+                      }`}
+                    >
+                      ❄️ Frío
+                    </button>
+                  </div>
+                </div>
+                
+                {/* OBJECIONES Y COMPETENCIA */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Objeciones y Competencia</label>
+                  <textarea 
+                    placeholder="Anota objeciones del cliente, competencia mencionada, puntos clave de la conversación..." 
+                    className="w-full p-5 bg-slate-50 rounded-[1.5rem] h-32 font-medium" 
+                    value={nuevo.objeciones_competencia} 
+                    onChange={e => setNuevo({...nuevo, objeciones_competencia: e.target.value})} 
+                  />
+                </div>
+                
+                {/* PRÓXIMO CONTACTO */}
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-2">
+                    Próximo Contacto
+                    {nuevo.proximo_contacto && new Date(nuevo.proximo_contacto) < new Date() && (
+                      <span className="flex items-center gap-1 text-red-600 text-[10px]">
+                        <AlertCircle size={12}/> Fecha pasada
+                      </span>
+                    )}
+                  </label>
+                  <input 
+                    type="date" 
+                    className={`w-full p-5 rounded-[1.5rem] font-bold ${
+                      nuevo.proximo_contacto && new Date(nuevo.proximo_contacto) < new Date()
+                        ? 'bg-red-50 border-2 border-red-300 text-red-700'
+                        : 'bg-slate-50'
+                    }`}
+                    value={nuevo.proximo_contacto} 
+                    onChange={e => setNuevo({...nuevo, proximo_contacto: e.target.value})} 
+                  />
+                  {nuevo.proximo_contacto && new Date(nuevo.proximo_contacto) < new Date() && (
+                    <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
+                      <AlertCircle size={16} className="text-red-600 flex-shrink-0 mt-0.5"/>
+                      <p className="text-xs text-red-700 font-medium">
+                        ⚠️ La fecha de próximo contacto es anterior a hoy. Revisa si es correcta.
+                      </p>
+                    </div>
+                  )}
                 </div>
                 
                 {/* NOTAS COMERCIALES */}
@@ -592,26 +734,52 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert }) => {
         </span>
       )}
       <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">{p.notas || 'Sin anotaciones'}</p>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-3">
+        {/* BOTÓN LLAMAR - Móvil Nativo */}
         {telefonoParaLlamar ? (
           <button 
-            onClick={() => window.open(`tel:${telefonoParaLlamar}`, '_blank')}
-            className="bg-slate-900 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase tracking-widest hover:bg-slate-800 transition-all"
+            onClick={() => {
+              window.location.href = `tel:${telefonoParaLlamar}`
+            }}
+            className="bg-slate-900 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase tracking-widest hover:bg-slate-800 transition-all min-h-[60px]"
           >
-            <Phone size={14}/> LLAMAR
+            <Phone size={16}/> LLAMAR
           </button>
         ) : (
-          <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase"><Phone size={14}/> LLAMAR</button>
+          <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase min-h-[60px]">
+            <Phone size={16}/> LLAMAR
+          </button>
         )}
+        
+        {/* BOTÓN WHATSAPP - Móvil Nativo */}
+        {telefonoParaLlamar ? (
+          <button 
+            onClick={() => {
+              const numeroLimpio = telefonoParaLlamar.replace(/\s+/g, '').replace(/[^0-9+]/g, '')
+              window.open(`https://wa.me/${numeroLimpio}`, '_blank')
+            }}
+            className="bg-green-600 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase tracking-widest hover:bg-green-700 transition-all min-h-[60px]"
+          >
+            <MessageCircle size={16}/> WHATSAPP
+          </button>
+        ) : (
+          <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase min-h-[60px]">
+            <MessageCircle size={16}/> WHATSAPP
+          </button>
+        )}
+        
+        {/* BOTÓN MAPA */}
         {direccionParaMapa ? (
           <button 
             onClick={() => window.open(urlMapa, '_blank')}
-            className="bg-blue-600 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all"
+            className="bg-blue-600 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all min-h-[60px]"
           >
-            <Navigation size={14}/> MAPA
+            <Navigation size={16}/> MAPA
           </button>
         ) : (
-          <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex justify-center gap-2 font-black text-[10px] items-center italic uppercase"><Navigation size={14}/> MAPA</button>
+          <button disabled className="bg-slate-300 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase min-h-[60px]">
+            <Navigation size={16}/> MAPA
+          </button>
         )}
       </div>
       {!esClienteOficial && (
