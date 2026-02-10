@@ -237,10 +237,20 @@ const Cierres = () => {
   const [concepto, setConcepto] = useState('')
   const [aplicandoFacturaDirecta, setAplicandoFacturaDirecta] = useState(false)
 
+  // ===================== ESTADO INFORME HACIENDA =====================
+  const [expedientesCierre, setExpedientesCierre] = useState([])
+  const [cargandoExpedientesCierre, setCargandoExpedientesCierre] = useState(false)
+  const [expedienteSeleccionado, setExpedienteSeleccionado] = useState(null)
+  const [lineasInforme, setLineasInforme] = useState([])
+  const [guardandoInforme, setGuardandoInforme] = useState(false)
+
   useEffect(() => {
     if (tabActiva === 'facturas') {
       cargarFacturas()
       cargarClientes()
+    }
+    if (tabActiva === 'informe_hacienda') {
+      cargarExpedientesCierre()
     }
   }, [tabActiva])
 
@@ -394,6 +404,274 @@ const Cierres = () => {
   const seleccionarCliente = (cliente) => {
     setClienteSeleccionado(cliente)
     setClienteSearch(cliente.nombre || '')
+  }
+
+  // ===================== CARGA EXPEDIENTES PARA INFORME HACIENDA =====================
+  const cargarExpedientesCierre = async () => {
+    if (expedientesCierre.length > 0) return
+    setCargandoExpedientesCierre(true)
+    try {
+      const { data, error } = await supabase
+        .from('expedientes')
+        .select(
+          'id, numero_expediente, nombre_grupo, cliente_nombre, destino, precio_venta_cliente, pax_pago, total_pax, informe_gastos_hacienda, total_gastos_reales, liquidacion_final_beneficio'
+        )
+        .order('id', { ascending: false })
+
+      if (error) {
+        console.error('Error cargando expedientes para Informe Hacienda:', error)
+        setExpedientesCierre([])
+        return
+      }
+
+      setExpedientesCierre(data || [])
+    } catch (err) {
+      console.error('Error inesperado cargando expedientes para Informe Hacienda:', err)
+      setExpedientesCierre([])
+    } finally {
+      setCargandoExpedientesCierre(false)
+    }
+  }
+
+  const calcularTotalesInforme = useMemo(() => {
+    const totalGastosReales = lineasInforme.reduce((acc, l) => acc + (parseFloat(l.importe_real) || 0), 0)
+
+    const precioVentaPax = parseFloat(expedienteSeleccionado?.precio_venta_cliente || 0) || 0
+    const paxPago =
+      parseInt(expedienteSeleccionado?.pax_pago || expedienteSeleccionado?.total_pax || 0, 10) || 0
+    const totalFacturadoClientes = precioVentaPax * paxPago
+
+    const beneficio = totalFacturadoClientes - totalGastosReales
+
+    return {
+      totalGastosReales,
+      totalFacturadoClientes,
+      beneficio,
+    }
+  }, [lineasInforme, expedienteSeleccionado])
+
+  const cargarInformeParaExpediente = async (exp) => {
+    setExpedienteSeleccionado(exp)
+
+    // Si ya hay informe guardado, restaurar directamente
+    if (exp.informe_gastos_hacienda && Array.isArray(exp.informe_gastos_hacienda.lineas)) {
+      setLineasInforme(exp.informe_gastos_hacienda.lineas)
+      return
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('servicios_cotizacion')
+        .select(
+          'id, tipo_servicio, tipo, nombre_especifico, nombre_servicio, nombre_proveedor_texto, nombre_proveedor_manual, proveedor_id_int, coste_unitario, noches, tipo_calculo, total_servicio'
+        )
+        .eq('id_expediente', exp.id)
+        .order('id', { ascending: true })
+
+      if (error) {
+        console.error('Error cargando servicios_cotizacion para Informe Hacienda:', error)
+        setLineasInforme([])
+        return
+      }
+
+      const servicios = Array.isArray(data) ? data : []
+
+      const lineas = servicios.map((s) => {
+        const concepto =
+          s.nombre_especifico ||
+          s.nombre_servicio ||
+          s.tipo_servicio ||
+          s.tipo ||
+          'Servicio sin nombre'
+
+        const proveedor =
+          s.nombre_proveedor_texto ||
+          s.nombre_proveedor_manual ||
+          '' // se podría enriquecer con join a proveedores usando proveedor_id_int
+
+        let importeCotizado = 0
+        if (s.total_servicio !== null && s.total_servicio !== undefined) {
+          importeCotizado = Number(s.total_servicio) || 0
+        } else {
+          const coste = Number(s.coste_unitario) || 0
+          const noches = Number(s.noches) || 1
+          const tipoCalculo = s.tipo_calculo || 'porPersona'
+
+          if (tipoCalculo === 'porGrupo') {
+            importeCotizado = coste
+          } else {
+            importeCotizado = coste * noches
+          }
+        }
+
+        const importeReal = importeCotizado
+
+        return {
+          id_servicio: s.id,
+          concepto,
+          proveedor,
+          importe_cotizado: +importeCotizado.toFixed(2),
+          importe_real: +importeReal.toFixed(2),
+        }
+      })
+
+      setLineasInforme(lineas)
+    } catch (err) {
+      console.error('Error inesperado cargando servicios para Informe Hacienda:', err)
+      setLineasInforme([])
+    }
+  }
+
+  const actualizarLineaInforme = (index, campo, valor) => {
+    setLineasInforme((prev) =>
+      prev.map((l, i) => (i === index ? { ...l, [campo]: campo === 'importe_real' ? Number(valor) || 0 : valor } : l))
+    )
+  }
+
+  const guardarInformeHacienda = async () => {
+    if (!expedienteSeleccionado) return
+    if (!window.confirm('¿Confirmas que los importes reales coinciden con las facturas de proveedores?')) return
+
+    setGuardandoInforme(true)
+    try {
+      const { totalGastosReales, totalFacturadoClientes, beneficio } = calcularTotalesInforme
+
+      const payloadInforme = {
+        lineas: lineasInforme,
+        resumen: {
+          total_gastos_reales: totalGastosReales,
+          total_facturado_clientes: totalFacturadoClientes,
+          liquidacion_final_beneficio: beneficio,
+          updated_at: new Date().toISOString(),
+        },
+      }
+
+      const { error } = await supabase
+        .from('expedientes')
+        .upsert(
+          {
+            id: expedienteSeleccionado.id,
+            informe_gastos_hacienda: payloadInforme,
+            total_gastos_reales: totalGastosReales,
+            liquidacion_final_beneficio: beneficio,
+          },
+          { onConflict: 'id' }
+        )
+
+      if (error) {
+        console.error('Error guardando Informe Hacienda:', error)
+        alert('Error guardando Informe Hacienda: ' + error.message)
+        return
+      }
+
+      alert('Informe para Hacienda guardado correctamente.')
+      // Actualizar en memoria el expediente seleccionado
+      setExpedientesCierre((prev) =>
+        prev.map((e) =>
+          e.id === expedienteSeleccionado.id
+            ? {
+                ...e,
+                informe_gastos_hacienda: payloadInforme,
+                total_gastos_reales: totalGastosReales,
+                liquidacion_final_beneficio: beneficio,
+              }
+            : e
+        )
+      )
+    } catch (err) {
+      console.error('Error inesperado guardando Informe Hacienda:', err)
+      alert('Error inesperado guardando Informe Hacienda.')
+    } finally {
+      setGuardandoInforme(false)
+    }
+  }
+
+  const exportarInformeHaciendaPDF = () => {
+    if (!expedienteSeleccionado || lineasInforme.length === 0) {
+      alert('Selecciona un expediente y asegúrate de que el informe tenga líneas.')
+      return
+    }
+
+    const { totalGastosReales, totalFacturadoClientes, beneficio } = calcularTotalesInforme
+
+    const doc = new jsPDF()
+    const pageWidth = doc.internal.pageSize.getWidth()
+
+    const nombreGrupo =
+      expedienteSeleccionado.nombre_grupo ||
+      expedienteSeleccionado.cliente_nombre ||
+      expedienteSeleccionado.destino ||
+      'Sin nombre'
+
+    doc.setFontSize(16)
+    doc.setFont(undefined, 'bold')
+    doc.text('Informe de Gastos para Hacienda', pageWidth / 2, 20, { align: 'center' })
+
+    doc.setFontSize(11)
+    doc.setFont(undefined, 'normal')
+    doc.text(`Expediente: ${expedienteSeleccionado.numero_expediente || '-'}`, 20, 32)
+    doc.text(`Grupo / Cliente: ${nombreGrupo}`, 20, 38)
+    if (expedienteSeleccionado.destino) {
+      doc.text(`Destino: ${expedienteSeleccionado.destino}`, 20, 44)
+    }
+
+    let y = 56
+    doc.setFontSize(10)
+    doc.setFont(undefined, 'bold')
+    doc.text('Concepto', 20, y)
+    doc.text('Proveedor', 80, y)
+    doc.text('Importe Real (€)', pageWidth - 20, y, { align: 'right' })
+    y += 4
+    doc.setLineWidth(0.3)
+    doc.line(20, y, pageWidth - 20, y)
+    y += 6
+
+    doc.setFont(undefined, 'normal')
+    lineasInforme.forEach((l) => {
+      if (y > 260) {
+        doc.addPage()
+        y = 20
+      }
+      const concepto = String(l.concepto || '')
+      const proveedor = String(l.proveedor || '')
+      const importeReal = Number(l.importe_real || 0).toFixed(2)
+
+      const conceptoLines = doc.splitTextToSize(concepto, 50)
+      const proveedorLines = doc.splitTextToSize(proveedor, 50)
+      const maxLines = Math.max(conceptoLines.length, proveedorLines.length)
+
+      for (let i = 0; i < maxLines; i++) {
+        const c = conceptoLines[i] || ''
+        const p = proveedorLines[i] || ''
+        doc.text(c, 20, y)
+        doc.text(p, 80, y)
+        if (i === 0) {
+          doc.text(importeReal, pageWidth - 20, y, { align: 'right' })
+        }
+        y += 5
+      }
+      y += 2
+    })
+
+    y += 4
+    doc.setLineWidth(0.3)
+    doc.line(20, y, pageWidth - 20, y)
+    y += 6
+
+    doc.setFont(undefined, 'bold')
+    doc.text('Total Gastos Reales:', 20, y)
+    doc.text(`${totalGastosReales.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
+    y += 6
+
+    doc.text('Total Facturado a Clientes:', 20, y)
+    doc.text(`${totalFacturadoClientes.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
+    y += 6
+
+    doc.text('Beneficio Neto Final del Grupo:', 20, y)
+    doc.text(`${beneficio.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
+
+    const nombreArchivo = `Informe_Hacienda_${expedienteSeleccionado.numero_expediente || nombreGrupo}.pdf`
+    doc.save(nombreArchivo.replace(/[^a-zA-Z0-9_.-]/g, '_'))
   }
 
   // ===================== GENERACIÓN NÚMERO DE FACTURA (ÚNICO Y GLOBAL) =====================
@@ -667,7 +945,7 @@ const Cierres = () => {
         </div>
       </div>
 
-      {/* PESTAÑAS: FACTURAS / CIERRES (LIQUIDACIÓN) */}
+      {/* PESTAÑAS: FACTURAS / CIERRES (LIQUIDACIÓN) / INFORME HACIENDA */}
       <div className="mb-6 border-b border-slate-200">
         <div className="flex gap-1">
           <button
@@ -691,6 +969,17 @@ const Cierres = () => {
           >
             <TrendingUp size={18} />
             Cierres (Liquidación)
+          </button>
+          <button
+            onClick={() => setTabActiva('informe_hacienda')}
+            className={`px-6 py-3 font-semibold transition-colors flex items-center gap-2 ${
+              tabActiva === 'informe_hacienda'
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <FileText size={18} />
+            Informe Hacienda
           </button>
         </div>
       </div>
@@ -1034,6 +1323,211 @@ const Cierres = () => {
               </tr>
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ===================== TAB: INFORME HACIENDA ===================== */}
+      {tabActiva === 'informe_hacienda' && (
+        <div className="bg-white rounded-2xl shadow-md border border-slate-200 p-6">
+          <div className="flex flex-col lg:flex-row gap-8">
+            {/* Columna izquierda: Selector de expediente */}
+            <div className="w-full lg:w-1/3 border-r border-slate-100 pr-0 lg:pr-6">
+              <h3 className="text-sm font-black text-slate-500 uppercase tracking-[0.18em] mb-3">
+                Expediente / Grupo
+              </h3>
+              {cargandoExpedientesCierre ? (
+                <p className="text-sm text-slate-500">Cargando expedientes...</p>
+              ) : expedientesCierre.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No se han encontrado expedientes en la base de datos.
+                </p>
+              ) : (
+                <div className="h-[420px] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80">
+                  {expedientesCierre.map((exp) => {
+                    const nombreGrupo =
+                      exp.nombre_grupo || exp.cliente_nombre || exp.destino || 'Sin nombre'
+                    const seleccionado = expedienteSeleccionado?.id === exp.id
+                    return (
+                      <button
+                        key={exp.id}
+                        type="button"
+                        onClick={() => cargarInformeParaExpediente(exp)}
+                        className={`w-full text-left px-4 py-3 border-b border-slate-200 text-xs lg:text-sm flex flex-col gap-1 transition-colors ${
+                          seleccionado ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'bg-transparent'
+                        }`}
+                      >
+                        <span className="font-bold text-slate-900">
+                          {exp.numero_expediente || 'SIN Nº'} · {nombreGrupo}
+                        </span>
+                        {exp.destino && (
+                          <span className="text-[11px] text-slate-500">{exp.destino}</span>
+                        )}
+                        {typeof exp.liquidacion_final_beneficio === 'number' && (
+                          <span
+                            className={`text-[11px] font-semibold ${
+                              exp.liquidacion_final_beneficio >= 0
+                                ? 'text-emerald-600'
+                                : 'text-red-600'
+                            }`}
+                          >
+                            Beneficio: {exp.liquidacion_final_beneficio.toFixed(2)} €
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              {expedienteSeleccionado && (
+                <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+                  <p className="font-semibold text-slate-700">
+                    Resumen del expediente seleccionado:
+                  </p>
+                  <p className="text-slate-600">
+                    <span className="font-semibold">Total Facturado Clientes:</span>{' '}
+                    {calcularTotalesInforme.totalFacturadoClientes.toFixed(2)} €
+                  </p>
+                  <p className="text-slate-600">
+                    <span className="font-semibold">Total Gastos Reales:</span>{' '}
+                    {calcularTotalesInforme.totalGastosReales.toFixed(2)} €
+                  </p>
+                  <p
+                    className={`text-slate-700 font-bold ${
+                      calcularTotalesInforme.beneficio >= 0 ? 'text-emerald-700' : 'text-red-700'
+                    }`}
+                  >
+                    Beneficio Neto Grupo:{' '}
+                    {calcularTotalesInforme.beneficio.toFixed(2)} €
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Columna derecha: Tabla editable Informe Hacienda */}
+            <div className="w-full lg:w-2/3">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-sm font-black text-slate-500 uppercase tracking-[0.18em] mb-1">
+                    Informe para Hacienda
+                  </h3>
+                  {expedienteSeleccionado ? (
+                    <p className="text-xs text-slate-500">
+                      Expediente:{' '}
+                      <span className="font-semibold">
+                        {expedienteSeleccionado.numero_expediente || '-'}
+                      </span>{' '}
+                      · Grupo:{' '}
+                      <span className="font-semibold">
+                        {expedienteSeleccionado.nombre_grupo ||
+                          expedienteSeleccionado.cliente_nombre ||
+                          expedienteSeleccionado.destino ||
+                          'Sin nombre'}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-400">
+                      Selecciona un expediente a la izquierda para comenzar.
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={exportarInformeHaciendaPDF}
+                    disabled={!expedienteSeleccionado || lineasInforme.length === 0}
+                    className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <FileText size={14} />
+                    Exportar PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={guardarInformeHacienda}
+                    disabled={!expedienteSeleccionado || lineasInforme.length === 0 || guardandoInforme}
+                    className="px-6 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase tracking-[0.18em] hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {guardandoInforme ? 'Guardando...' : 'Guardar Informe'}
+                  </button>
+                </div>
+              </div>
+
+              {!expedienteSeleccionado ? (
+                <div className="mt-6 p-10 text-center text-slate-400 text-sm bg-slate-50 rounded-2xl border border-slate-100">
+                  Selecciona un expediente en la columna izquierda para cargar el Informe de Hacienda.
+                </div>
+              ) : lineasInforme.length === 0 ? (
+                <div className="mt-6 p-10 text-center text-slate-400 text-sm bg-slate-50 rounded-2xl border border-slate-100">
+                  No se han encontrado servicios para este expediente en{' '}
+                  <code className="font-mono text-xs bg-slate-800 text-slate-100 px-2 py-1 rounded">
+                    servicios_cotizacion
+                  </code>
+                  .
+                </div>
+              ) : (
+                <div className="mt-2 overflow-x-auto rounded-2xl border border-slate-200">
+                  <table className="min-w-full text-xs lg:text-sm">
+                    <thead className="bg-slate-900 text-white">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-black uppercase tracking-[0.16em]">
+                          Concepto
+                        </th>
+                        <th className="px-4 py-3 text-left font-black uppercase tracking-[0.16em]">
+                          Proveedor
+                        </th>
+                        <th className="px-4 py-3 text-right font-black uppercase tracking-[0.16em]">
+                          Importe Cotizado (€)
+                        </th>
+                        <th className="px-4 py-3 text-right font-black uppercase tracking-[0.16em]">
+                          Importe Real (Factura) (€)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {lineasInforme.map((l, index) => (
+                        <tr key={index} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 align-top">
+                            <div className="font-semibold text-slate-900">{l.concepto}</div>
+                          </td>
+                          <td className="px-4 py-3 align-top">
+                            <input
+                              type="text"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs lg:text-sm"
+                              value={l.proveedor || ''}
+                              onChange={(e) =>
+                                actualizarLineaInforme(index, 'proveedor', e.target.value)
+                              }
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-right align-top text-slate-500">
+                            {Number(l.importe_cotizado || 0).toFixed(2)} €
+                          </td>
+                          <td className="px-4 py-3 text-right align-top">
+                            <input
+                              type="number"
+                              step="0.01"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-right text-xs lg:text-sm"
+                              value={l.importe_real}
+                              onChange={(e) =>
+                                actualizarLineaInforme(index, 'importe_real', e.target.value)
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50 border-t border-slate-200">
+                        <td className="px-4 py-3 text-left font-bold text-slate-800" colSpan={3}>
+                          Total Gastos Reales
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-900">
+                          {calcularTotalesInforme.totalGastosReales.toFixed(2)} €
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
