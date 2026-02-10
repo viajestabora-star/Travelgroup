@@ -454,10 +454,8 @@ const CRM = () => {
                    return
                  }
 
-                 // Confirmación explícita antes de guardar
-                 const confirmado = window.confirm('¿Estás seguro de que quieres guardar la visita con tu ubicación actual?')
-                 if (!confirmado) return
-
+                 // Guardado directo sin pop-ups adicionales: la ubicación solo se guarda
+                 // si el usuario pulsó explícitamente el botón de "Fijar Ubicación".
                  setGuardando(true)
 
                  // ========= MAPEO REAL A LA TABLA `prospectos` =========
