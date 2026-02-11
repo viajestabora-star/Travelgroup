@@ -163,23 +163,24 @@ const generarFacturaPDFUnificado = async (factura) => {
     doc.line(20, yPos, pageWidth - 20, yPos)
     yPos += 8
     
-    doc.setFontSize(10)
+    doc.setFontSize(12)
     doc.setTextColor(0, 0, 0)
     doc.setFont(undefined, 'bold')
-    doc.text('Base Imponible:', pageWidth - 60, yPos, { align: 'right' })
-    doc.text(`${baseImponible.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
-    yPos += 6
-    
-    doc.setFont(undefined, 'normal')
-    doc.text('IVA (21%):', pageWidth - 60, yPos, { align: 'right' })
-    doc.text(`${iva.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
-    yPos += 6
-    
-    doc.setFontSize(12)
-    doc.setFont(undefined, 'bold')
+    doc.text('TOTAL FACTURA (IVA INCLUIDO):', pageWidth - 60, yPos, { align: 'right' })
     doc.setTextColor(34, 197, 94) // Verde
-    doc.text('TOTAL (IVA incluido):', pageWidth - 60, yPos, { align: 'right' })
     doc.text(`${total.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+    yPos += 10
+
+    // Cláusula legal obligatoria (art 142 Ley 37/1992)
+    doc.setFontSize(7)
+    doc.setTextColor(80, 80, 80)
+    doc.setFont(undefined, 'normal')
+    const clausulaLegal = 'Régimen especial de las agencias de viaje. El IVA ya está incluido en todos los conceptos especificados en esta factura, de acuerdo con lo señalado en el art 142 de la Ley 37/1992, de 28 de diciembre, del Impuesto sobre el Valor Añadido.'
+    const lineasClausula = doc.splitTextToSize(clausulaLegal, pageWidth - 40)
+    lineasClausula.forEach((linea) => {
+      doc.text(linea, 20, yPos)
+      yPos += 4
+    })
     
     // Pie de página
     const footerY = pageHeight - 40
@@ -1089,35 +1090,14 @@ const Cierres = () => {
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
-                <div className="bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-600 space-y-1">
+                <div className="bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-600">
                   {(() => {
                     const totalInput = parseFloat(String(importeTotalInput).replace(',', '.')) || 0
-                    const ivaPct = parseFloat(String(ivaPorcentaje)) || 0
-                    const base =
-                      totalInput > 0 ? +(totalInput / (1 + ivaPct / 100)).toFixed(2) : 0
-                    const iva = totalInput > 0 ? +(totalInput - base).toFixed(2) : 0
-
                     return (
-                      <>
-                        <div className="flex justify-between">
-                          <span>Base imponible estimada</span>
-                          <span className="font-semibold text-slate-900">
-                            {base.toFixed(2)} €
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>IVA ({Number.isNaN(ivaPct) ? 0 : ivaPct}% )</span>
-                          <span className="font-semibold text-slate-900">
-                            {iva.toFixed(2)} €
-                          </span>
-                        </div>
-                        <div className="flex justify-between border-t border-slate-200 pt-1 mt-1">
-                          <span>Total</span>
-                          <span className="font-semibold text-slate-900">
-                            {totalInput.toFixed(2)} €
-                          </span>
-                        </div>
-                      </>
+                      <div className="flex justify-between font-semibold text-slate-900">
+                        <span>TOTAL FACTURA (IVA INCLUIDO):</span>
+                        <span>{totalInput.toFixed(2)} €</span>
+                      </div>
                     )
                   })()}
                 </div>

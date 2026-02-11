@@ -1040,23 +1040,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       doc.line(20, yPos, pageWidth - 20, yPos)
       yPos += 8
       
-      doc.setFontSize(10)
+      doc.setFontSize(12)
       doc.setTextColor(0, 0, 0)
       doc.setFont(undefined, 'bold')
-      doc.text('Base Imponible:', pageWidth - 60, yPos, { align: 'right' })
-      doc.text(`${baseImponible.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
-      yPos += 6
-      
-      doc.setFont(undefined, 'normal')
-      doc.text('IVA (21%):', pageWidth - 60, yPos, { align: 'right' })
-      doc.text(`${iva.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
-      yPos += 6
-      
-      doc.setFontSize(12)
-      doc.setFont(undefined, 'bold')
-      doc.setTextColor(34, 197, 94)
-      doc.text('TOTAL (IVA incluido):', pageWidth - 60, yPos, { align: 'right' })
+      doc.text('TOTAL FACTURA (IVA INCLUIDO):', pageWidth - 60, yPos, { align: 'right' })
+      doc.setTextColor(34, 197, 94) // Verde
       doc.text(`${total.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+      yPos += 10
+
+      // Cláusula legal obligatoria (art 142 Ley 37/1992)
+      doc.setFontSize(7)
+      doc.setTextColor(80, 80, 80)
+      doc.setFont(undefined, 'normal')
+      const clausulaLegal = 'Régimen especial de las agencias de viaje. El IVA ya está incluido en todos los conceptos especificados en esta factura, de acuerdo con lo señalado en el art 142 de la Ley 37/1992, de 28 de diciembre, del Impuesto sobre el Valor Añadido.'
+      const lineasClausula = doc.splitTextToSize(clausulaLegal, pageWidth - 40)
+      lineasClausula.forEach((linea) => {
+        doc.text(linea, 20, yPos)
+        yPos += 4
+      })
       
       // Pie de página
       const footerY = pageHeight - 40
@@ -2402,12 +2403,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         yPos += 6
       }
 
-      // Concepto y desglose
+      // Tabla de conceptos: Descripción | Unidades | Precio Unitario | Precio Total (IVA Inc.)
       yPos += 10
-      doc.setFontSize(12)
+      doc.setFontSize(10)
       doc.setFont(undefined, 'bold')
-      doc.text('CONCEPTO:', 20, yPos)
-      yPos += 8
+      doc.text('Descripción', 20, yPos)
+      doc.text('Unid.', 90, yPos)
+      doc.text('P. Unit.', 115, yPos)
+      doc.text('Precio Total (IVA Inc.)', pageWidth - 20, yPos, { align: 'right' })
+      yPos += 6
+      doc.setDrawColor(200, 200, 200)
+      doc.setLineWidth(0.2)
+      doc.line(20, yPos, pageWidth - 20, yPos)
+      yPos += 6
 
       const nombreGrupo = expediente?.nombre_grupo || grupo?.nombre || 'Sin nombre'
       const destino = expediente?.destino || 'Sin destino'
@@ -2417,19 +2425,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         (datosFactura && datosFactura.concepto) ||
         `Viaje a ${destino} (${nombreGrupo})`
 
-      doc.setFontSize(10)
+      doc.setFontSize(9)
       doc.setFont(undefined, 'normal')
 
-      // Línea de plazas con mismo estilo que los suplementos
+      // Línea de plazas
       const totalPaxFactura = parseFloat(expediente?.total_pax || calcularBaseFactura.paxPago || 0) || 0
       const precioPaxNum = parseFloat(calcularBaseFactura.precioNetoPax || 0) || 0
       const totalPlazasNum = totalPaxFactura * precioPaxNum
 
-      const etiquetaPlazas = `${totalPaxFactura} Plazas x ${precioPaxNum.toFixed(2)}€:`
-      doc.text(etiquetaPlazas, 20, yPos)
-      doc.text(`${totalPlazasNum.toFixed(2)}€ (IVA incluido)`, pageWidth - 20, yPos, { align: 'right' })
-      yPos += 6
-      doc.text(`Concepto: ${conceptoFactura}`, 20, yPos)
+      doc.text(conceptoFactura.substring(0, 45), 20, yPos)
+      doc.text(String(totalPaxFactura), 90, yPos)
+      doc.text(`${precioPaxNum.toFixed(2)}€`, 115, yPos)
+      doc.text(`${totalPlazasNum.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
       yPos += 6
 
       // Suplementos (si hay)
@@ -2451,12 +2458,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           const precioUnitHabitacion = Math.max(0, precioIndividualDiaNum)
           const totalConceptoHabitacion = cantidadHabitacion * precioUnitHabitacion
 
-          // Asegurar coherencia: si por redondeos difiere, usar el producto cantidad × precio
-          const totalHabitacionTexto = totalConceptoHabitacion.toFixed(2)
-
-          const etiquetaHabitacion = `Habitaciones individuales (${cantidadHabitacion} x ${precioUnitHabitacion.toFixed(2)}€):`
-          doc.text(etiquetaHabitacion, 25, yPos)
-          doc.text(`${totalHabitacionTexto}€`, pageWidth - 20, yPos, { align: 'right' })
+          doc.text('Habitaciones individuales', 20, yPos)
+          doc.text(String(cantidadHabitacion), 90, yPos)
+          doc.text(`${precioUnitHabitacion.toFixed(2)}€`, 115, yPos)
+          doc.text(`${totalConceptoHabitacion.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
           yPos += 6
         }
 
@@ -2470,11 +2475,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           const precioUnitSeguro = Math.max(0, precioSeguroTotalNum)
           const totalConceptoSeguro = cantidadSeguro * precioUnitSeguro
 
-          const totalSeguroTexto = totalConceptoSeguro.toFixed(2)
-
-          const etiquetaSeguro = `Seguro de cancelación (${cantidadSeguro} x ${precioUnitSeguro.toFixed(2)}€):`
-          doc.text(etiquetaSeguro, 25, yPos)
-          doc.text(`${totalSeguroTexto}€`, pageWidth - 20, yPos, { align: 'right' })
+          doc.text('Seguro de cancelación', 20, yPos)
+          doc.text(String(cantidadSeguro), 90, yPos)
+          doc.text(`${precioUnitSeguro.toFixed(2)}€`, 115, yPos)
+          doc.text(`${totalConceptoSeguro.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
           yPos += 6
         }
       }
@@ -2487,29 +2491,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       doc.text('Régimen Especial de Agencias de Viajes - IVA incluido', 20, yPos)
       yPos += 8
 
-      // Totales
+      // Totales (solo TOTAL FACTURA, sin Base Imponible ni IVA)
       doc.setDrawColor(200, 200, 200)
       doc.setLineWidth(0.3)
       doc.line(20, yPos, pageWidth - 20, yPos)
       yPos += 8
 
-      doc.setFontSize(10)
+      doc.setFontSize(12)
       doc.setTextColor(0, 0, 0)
       doc.setFont(undefined, 'bold')
-      doc.text('Base Imponible:', pageWidth - 60, yPos, { align: 'right' })
-      doc.text(`${calcularBaseFactura.baseImponible}€`, pageWidth - 20, yPos, { align: 'right' })
-      yPos += 6
-
-      doc.setFont(undefined, 'normal')
-      doc.text('IVA (21%):', pageWidth - 60, yPos, { align: 'right' })
-      doc.text(`${calcularBaseFactura.iva}€`, pageWidth - 20, yPos, { align: 'right' })
-      yPos += 6
-
-      doc.setFontSize(12)
-      doc.setFont(undefined, 'bold')
+      doc.text('TOTAL FACTURA (IVA INCLUIDO):', pageWidth - 60, yPos, { align: 'right' })
       doc.setTextColor(34, 197, 94) // Verde
-      doc.text('TOTAL (IVA incluido):', pageWidth - 60, yPos, { align: 'right' })
       doc.text(`${calcularBaseFactura.totalFactura}€`, pageWidth - 20, yPos, { align: 'right' })
+      yPos += 10
+
+      // Cláusula legal obligatoria (art 142 Ley 37/1992)
+      doc.setFontSize(7)
+      doc.setTextColor(80, 80, 80)
+      doc.setFont(undefined, 'normal')
+      const clausulaLegal = 'Régimen especial de las agencias de viaje. El IVA ya está incluido en todos los conceptos especificados en esta factura, de acuerdo con lo señalado en el art 142 de la Ley 37/1992, de 28 de diciembre, del Impuesto sobre el Valor Añadido.'
+      const lineasClausula = doc.splitTextToSize(clausulaLegal, pageWidth - 40)
+      lineasClausula.forEach((linea) => {
+        doc.text(linea, 20, yPos)
+        yPos += 4
+      })
 
       // Pie de página
       const footerY = pageHeight - 40
@@ -5437,22 +5442,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           )}
                         </>
                       )}
-                      <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                        <p className="text-xs text-amber-800 italic mb-2">
-                          Régimen Especial de Agencias de Viajes - IVA incluido
-                        </p>
-                      </div>
-                      <div className="flex justify-between py-3 bg-blue-100 rounded-lg px-4 mt-3 border-2 border-blue-300">
-                        <span className="text-base font-bold text-navy-900">Base Imponible:</span>
-                        <span className="text-xl font-bold text-navy-900">{calcularBaseFactura.baseImponible}€</span>
-                      </div>
-                      <div className="flex justify-between py-2">
-                        <span className="text-gray-700">IVA (21%):</span>
-                        <span className="font-semibold text-navy-900">{calcularBaseFactura.iva}€</span>
-                      </div>
                       <div className="flex justify-between py-3 bg-green-100 rounded-lg px-4 mt-3 border-2 border-green-400">
-                        <span className="text-lg font-bold text-green-900">TOTAL FACTURA (IVA incluido):</span>
+                        <span className="text-lg font-bold text-green-900">TOTAL FACTURA (IVA INCLUIDO):</span>
                         <span className="text-2xl font-bold text-green-900">{calcularBaseFactura.totalFactura}€</span>
+                      </div>
+                      <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                        <p className="text-[10px] text-slate-600 leading-relaxed">
+                          Régimen especial de las agencias de viaje. El IVA ya está incluido en todos los conceptos especificados en esta factura, de acuerdo con lo señalado en el art 142 de la Ley 37/1992, de 28 de diciembre, del Impuesto sobre el Valor Añadido.
+                        </p>
                       </div>
                     </div>
                   </div>
