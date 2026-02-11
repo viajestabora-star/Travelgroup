@@ -11,7 +11,7 @@ const CRM = () => {
   const [loading, setLoading] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date())
   const [fechaSeleccionada, setFechaSeleccionada] = useState(null)
-  const [currentView, setCurrentView] = useState('proximas') // proximas | ultimas | estadisticas
+  const [vistaActiva, setVistaActiva] = useState('calendario') // calendario | historial | estadisticas
 
   // Fuente de verdad única para la ficha
   const [prospectoSelected, setProspectoSelected] = useState(null) // estado inicial seguro: null
@@ -193,6 +193,10 @@ const CRM = () => {
   const [agendaFecha, setAgendaFecha] = useState('')
   const [agendaProspectoId, setAgendaProspectoId] = useState('')
   const [agendaComentario, setAgendaComentario] = useState('')
+  const [agendaNuevoProspecto, setAgendaNuevoProspecto] = useState({
+    nombre: '',
+    telefono: '',
+  })
 
   const abrirAgendaParaFecha = (dateStr) => {
     setAgendaFecha(dateStr)
@@ -202,32 +206,60 @@ const CRM = () => {
   }
 
   const guardarVisitaDesdeCalendario = async () => {
-    if (!agendaProspectoId) {
-      alert('Selecciona un prospecto para agendar la visita.')
-      return
-    }
     const fecha = agendaFecha || new Date().toISOString().split('T')[0]
     const comentario = agendaComentario || ''
 
-    const { error } = await supabase.from('visitas').insert({
-      prospecto_id: Number(agendaProspectoId),
-      fecha,
-      comentario,
-    })
+    let prospectoIdFinal = agendaProspectoId ? Number(agendaProspectoId) : null
 
-    if (error) {
-      alert('Error al agendar la visita: ' + error.message)
-      return
+    try {
+      // Si no hay prospecto seleccionado pero hay datos de nuevo prospecto, crearlo
+      if (!prospectoIdFinal && agendaNuevoProspecto.nombre) {
+        const { data: nuevoPros, error: errorPros } = await supabase
+          .from('prospectos')
+          .insert({
+            grupo: agendaNuevoProspecto.nombre,
+            telefono: agendaNuevoProspecto.telefono || '',
+            fecha,
+          })
+          .select()
+          .single()
+
+        if (errorPros) {
+          alert('Error al crear el nuevo prospecto: ' + errorPros.message)
+          return
+        }
+        prospectoIdFinal = nuevoPros.id
+      }
+
+      if (!prospectoIdFinal) {
+        alert('Selecciona un prospecto o rellena "Nuevo Cliente" para agendar la visita.')
+        return
+      }
+
+      const { error } = await supabase.from('visitas').insert({
+        prospecto_id: Number(prospectoIdFinal),
+        fecha,
+        comentario,
+      })
+
+      if (error) {
+        alert('Error al agendar la visita: ' + error.message)
+        return
+      }
+
+      // Actualizar proxima_visita en el prospecto
+      await supabase
+        .from('prospectos')
+        .update({ proxima_visita: fecha })
+        .eq('id', Number(prospectoIdFinal))
+
+      await fetchProspectos()
+      setShowAgendaModal(false)
+      setAgendaNuevoProspecto({ nombre: '', telefono: '' })
+    } catch (e) {
+      console.error('Error en guardarVisitaDesdeCalendario:', e)
+      alert('Error inesperado al agendar la visita.')
     }
-
-    // Actualizar proxima_visita en el prospecto
-    await supabase
-      .from('prospectos')
-      .update({ proxima_visita: fecha })
-      .eq('id', Number(agendaProspectoId))
-
-    await fetchProspectos()
-    setShowAgendaModal(false)
   }
 
   const removePrograma = (index) => {
@@ -335,7 +367,7 @@ const CRM = () => {
     : prospectos
 
   const prospectosFiltrados =
-    currentView === 'ultimas'
+    vistaActiva === 'historial'
       ? baseFiltradosFecha.filter((p) => {
           const f = p.fecha || p.ultima_visita_realizada
           return f && f < hoyStr
@@ -349,14 +381,14 @@ const CRM = () => {
     <div className="flex h-screen bg-slate-100">
       {/* LISTA PRINCIPAL DE PROSPECTOS */}
       <div className="flex-1 overflow-y-auto p-6">
-        {/* Pestañas superiores: Próximas / Últimas / Estadísticas */}
+        {/* Pestañas superiores: Próximas / Historial / Estadísticas */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex gap-2 flex-1">
             <button
               type="button"
-              onClick={() => setCurrentView('proximas')}
+              onClick={() => setVistaActiva('calendario')}
               className={`flex-1 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest ${
-                currentView === 'proximas'
+                vistaActiva === 'calendario'
                   ? 'bg-slate-900 text-white shadow-sm'
                   : 'bg-slate-200 text-slate-600'
               }`}
@@ -365,20 +397,20 @@ const CRM = () => {
             </button>
             <button
               type="button"
-              onClick={() => setCurrentView('ultimas')}
+              onClick={() => setVistaActiva('historial')}
               className={`flex-1 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest ${
-                currentView === 'ultimas'
+                vistaActiva === 'historial'
                   ? 'bg-slate-900 text-white shadow-sm'
                   : 'bg-slate-200 text-slate-600'
               }`}
             >
-              Últimas Visitas
+              Historial
             </button>
             <button
               type="button"
-              onClick={() => setCurrentView('estadisticas')}
+              onClick={() => setVistaActiva('estadisticas')}
               className={`flex-1 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest ${
-                currentView === 'estadisticas'
+                vistaActiva === 'estadisticas'
                   ? 'bg-slate-900 text-white shadow-sm'
                   : 'bg-slate-200 text-slate-600'
               }`}
@@ -400,7 +432,7 @@ const CRM = () => {
 
         {/* Calendario / Estadísticas */}
         <div className="mb-6 bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
-          {currentView === 'proximas' || currentView === 'ultimas' ? (
+          {vistaActiva === 'calendario' || vistaActiva === 'historial' ? (
             <>
               <div className="flex items-center justify-between mb-2">
                 <div>
@@ -1103,6 +1135,37 @@ const CRM = () => {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="border-t border-slate-200 pt-2 mt-1">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-bold text-slate-500">
+                    Nuevo Cliente (Opcional)
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    placeholder="Nombre"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                    value={agendaNuevoProspecto.nombre}
+                    onChange={(e) =>
+                      setAgendaNuevoProspecto((prev) => ({
+                        ...prev,
+                        nombre: e.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    placeholder="Teléfono"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                    value={agendaNuevoProspecto.telefono}
+                    onChange={(e) =>
+                      setAgendaNuevoProspecto((prev) => ({
+                        ...prev,
+                        telefono: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
               </div>
               <div>
                 <label className="block text-[11px] font-bold text-slate-500 mb-1">
