@@ -56,6 +56,11 @@ const CRM = () => {
     if (countCli !== null) setTotalClientes(countCli)
   }
 
+  // Alias semántico para refrescar la lista de prospectos tras un guardado
+  const fetchProspectos = async () => {
+    await cargarDatos()
+  }
+
   const cargarClientes = async () => {
     const { data, error } = await supabase
       .from('clientes')
@@ -349,13 +354,14 @@ const CRM = () => {
   ).slice(0, 10) // Limitar a 10 resultados
 
   // Guardado directo sobre la tabla `prospectos` usando el ID numérico
-  const handleSave = async (datos) => {
-    if (!datos?.id) return alert('Error: ID no detectado')
-    const { error } = await supabase.from('prospectos').upsert({
-      ...datos,
-      id: Number(datos.id),
-    })
-    if (!error) alert('¡Rocafort guardado con éxito!')
+  const handleSave = async (prospecto) => {
+    if (!prospecto?.id) return alert('Error: ID no detectado')
+    const { error } = await supabase
+      .from('prospectos')
+      .upsert({ ...prospecto, id: Number(prospecto.id) })
+    if (error) throw error
+    alert('Datos de ' + prospecto.grupo + ' guardados correctamente')
+    await fetchProspectos()
   }
 
   return (
