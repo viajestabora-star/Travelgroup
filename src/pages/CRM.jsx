@@ -444,7 +444,7 @@ const CRM = () => {
           <div className="bg-white w-full max-w-md rounded-[3.5rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh]">
              <form
                onSubmit={async (e) => {
-               e.preventDefault();
+                 e.preventDefault()
 
                  if (guardando) return
 
@@ -454,66 +454,68 @@ const CRM = () => {
                    return
                  }
 
-                 // Guardado directo sin pop-ups adicionales: la ubicación solo se guarda
-                 // si el usuario pulsó explícitamente el botón de "Fijar Ubicación".
                  setGuardando(true)
 
-                // ========= MAPEO REAL A LA TABLA `prospectos` =========
-                // Nos aseguramos de que:
-                // - El texto de la visita se guarde en la columna `notas`
-                // - El ID de la visita sea siempre numérico al actualizar
-                
-                const status = nuevo.interes || 'Medio'
+                 try {
+                   // ========= MAPEO COMPLETO A LA TABLA `prospectos` =========
+                   // Integridad profesional: todos los campos del estado "nuevo" se reflejan en Supabase.
+                   const status = nuevo.interes || 'Medio'
 
-                const basePayload = {
-                  grupo: nuevo.grupo || busquedaCliente || '',
-                  contacto: nuevo.contacto || '',
-                  telefono: nuevo.telefono || '',
-                  interes: status,
-                  notas: nuevo.notas || '',
-                  ubicacion: nuevo.ubicacion || '',
-                  fecha: nuevo.fecha,
-                  cliente_id: nuevo.cliente_id,
-                  cif: nuevo.cif || '',
-                  direccion: nuevo.direccion || '',
-                  poblacion: nuevo.poblacion || '',
-                  provincia: nuevo.provincia || '',
-                }
-                
-                const datosCompletos = {
-                  ...basePayload,
-                  status, // extraído del semáforo
-                  objeciones_competencia: nuevo.objeciones_competencia || '',
-                  proximo_contacto: nuevo.proximo_contacto || null,
-                  latitud: nuevo.latitude,
-                  longitud: nuevo.longitude,
-                  check_in_at: nuevo.check_in_at || new Date().toISOString(),
-                }
-                
-                // ========= USAR .upsert() BASADO EN ID (NUMÉRICO) =========
-                const idNumerico = editandoId != null ? Number(editandoId) : null
-                
-                if (editandoId != null && (idNumerico === null || Number.isNaN(idNumerico))) {
-                  setGuardando(false)
-                  alert('El ID de la visita es inválido y no se puede guardar.')
-                  return
-                }
+                   const basePayload = {
+                     grupo: nuevo.grupo || busquedaCliente || '',
+                     contacto: nuevo.contacto || '',
+                     telefono: nuevo.telefono || '',
+                     interes: status,
+                     notas: nuevo.notas || '',
+                     ubicacion: nuevo.ubicacion || '',
+                     fecha: nuevo.fecha,
+                     cliente_id: nuevo.cliente_id,
+                     cif: nuevo.cif || '',
+                     direccion: nuevo.direccion || '',
+                     poblacion: nuevo.poblacion || '',
+                     provincia: nuevo.provincia || '',
+                   }
 
-                const datosParaUpsert = editandoId != null
-                  ? { ...datosCompletos, id: idNumerico }
-                  : datosCompletos
+                   const datosCompletos = {
+                     ...basePayload,
+                     status, // semáforo comercial
+                     objeciones_competencia: nuevo.objeciones_competencia || '',
+                     proximo_contacto: nuevo.proximo_contacto || null,
+                     latitud: nuevo.latitude,
+                     longitud: nuevo.longitude,
+                     check_in_at: nuevo.check_in_at || new Date().toISOString(),
+                   }
 
-                 const res = await supabase
-                   .from('prospectos')
-                   .upsert(datosParaUpsert, { onConflict: 'id' })
+                   // ========= USAR .upsert() BASADO EN ID (NUMÉRICO) =========
+                   const idNumerico = editandoId != null ? Number(editandoId) : null
 
-                 setGuardando(false)
+                   if (editandoId != null && (idNumerico === null || Number.isNaN(idNumerico))) {
+                     alert('El ID de la visita es inválido y no se puede guardar.')
+                     return
+                   }
 
-                 if (!res.error) {
+                   const datosParaUpsert =
+                     editandoId != null
+                       ? { ...datosCompletos, id: idNumerico }
+                       : datosCompletos
+
+                   const { error } = await supabase
+                     .from('prospectos')
+                     .upsert(datosParaUpsert, { onConflict: 'id' })
+
+                   if (error) {
+                     console.error('Error al guardar visita en prospectos:', error)
+                     alert('Error al guardar: ' + (error.message || 'desconocido'))
+                     return
+                   }
+
                    cerrarModal()
                    cargarDatos()
-                 } else {
-                   alert('Error al guardar: ' + res.error.message)
+                 } catch (err) {
+                   console.error('Error inesperado al guardar visita:', err)
+                   alert('Error inesperado al guardar la visita.')
+                 } finally {
+                   setGuardando(false)
                  }
                }}
                className="space-y-4"
