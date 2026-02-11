@@ -17,6 +17,11 @@ const CRM = () => {
   const [prospectoSelected, setProspectoSelected] = useState(null) // estado inicial seguro: null
   const [showPanel, setShowPanel] = useState(false)
   const [fichaTab, setFichaTab] = useState('datos') // datos | historial | programas
+  const [visitas, setVisitas] = useState([])
+  const [nuevaVisita, setNuevaVisita] = useState({
+    fecha: new Date().toISOString().split('T')[0],
+    comentario: '',
+  })
 
   const fetchProspectos = async () => {
     setLoading(true)
@@ -28,6 +33,23 @@ const CRM = () => {
       setProspectos(data)
     }
     setLoading(false)
+  }
+
+  const fetchVisitasForProspecto = async (prospectoId) => {
+    if (!prospectoId) {
+      setVisitas([])
+      return
+    }
+    const { data, error } = await supabase
+      .from('visitas')
+      .select('*')
+      .eq('prospecto_id', Number(prospectoId))
+      .order('fecha', { ascending: false })
+    if (!error && Array.isArray(data)) {
+      setVisitas(data)
+    } else {
+      setVisitas([])
+    }
   }
 
   useEffect(() => { 
@@ -42,18 +64,27 @@ const CRM = () => {
         return
       }
 
-    setProspectoSelected({
+    const normalizado = {
       ...prospecto,
       programas_presentados: Array.isArray(prospecto.programas_presentados)
         ? prospecto.programas_presentados
         : [],
+    }
+
+    setProspectoSelected(normalizado)
+    setFichaTab('datos')
+    setNuevaVisita({
+      fecha: new Date().toISOString().split('T')[0],
+      comentario: '',
     })
+    fetchVisitasForProspecto(prospecto.id)
     setShowPanel(true)
   }
 
   const cerrarFicha = () => {
     setShowPanel(false)
     setProspectoSelected(null)
+    setVisitas([])
   }
 
   // Guardado atómico sobre la tabla `prospectos` usando el estado único `prospectoSelected`
@@ -113,6 +144,47 @@ const CRM = () => {
         imagen: '',
       })
       return { ...prev, programas_presentados: actuales }
+    })
+  }
+
+  const registrarVisita = async () => {
+    if (!prospectoSelected?.id) {
+      alert('No se puede registrar la visita: falta ID de prospecto.')
+      return
+    }
+    const fecha = nuevaVisita.fecha || new Date().toISOString().split('T')[0]
+    const comentario = nuevaVisita.comentario || ''
+
+    const { data, error } = await supabase
+      .from('visitas')
+      .insert({
+        prospecto_id: Number(prospectoSelected.id),
+        fecha,
+        comentario,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      alert('Error al registrar la visita: ' + error.message)
+      return
+    }
+
+    // Actualizar lista local de visitas e información de última visita
+    setVisitas((prev) => [data, ...prev])
+    setProspectoSelected((prev) =>
+      prev ? { ...prev, ultima_visita_realizada: fecha } : prev
+    )
+
+    // Reflejar última visita en la tabla de prospectos sin duplicar registros
+    await supabase
+      .from('prospectos')
+      .update({ ultima_visita_realizada: fecha })
+      .eq('id', Number(prospectoSelected.id))
+
+    setNuevaVisita({
+      fecha: new Date().toISOString().split('T')[0],
+      comentario: '',
     })
   }
 
@@ -213,10 +285,10 @@ const CRM = () => {
             {prospectos.length === 0 && (
               <div className="text-[11px] text-slate-400 italic">
                 Aún no hay visitas registradas.
-                </div>
-            )}
-              </div>
             </div>
+          )}
+          </div>
+          </div>
 
         {/* Calendario / Estadísticas */}
         <div className="mb-6 bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
@@ -245,15 +317,15 @@ const CRM = () => {
                 Estadísticas
               </button>
             </div>
-          </div>
-
+                </div>
+                
           {homeTab === 'calendario' ? (
             <>
               <div className="flex items-center justify-between mb-2">
                 <div>
                   <div className="text-[11px] font-bold uppercase text-slate-400">
                     Calendario de Visitas
-                  </div>
+                </div>
                   <div className="text-xs text-slate-600">
                     {currentDate.toLocaleString('es-ES', {
                       month: 'long',
@@ -273,8 +345,8 @@ const CRM = () => {
                   >
                     ‹
                   </button>
-                  <button
-                    type="button"
+                        <button
+                          type="button"
                     className="px-2 py-1 text-xs rounded-lg border border-slate-200"
                     onClick={() =>
                       setCurrentDate(
@@ -283,7 +355,7 @@ const CRM = () => {
                     }
                   >
                     ›
-                  </button>
+                        </button>
           </div>
               </div>
               <div className="grid grid-cols-7 gap-1 mb-1 text-[10px] text-slate-400 font-bold">
@@ -298,8 +370,8 @@ const CRM = () => {
                 <div className="mt-2 text-[11px] text-slate-500">
                   Filtrando por fecha:{' '}
                   <span className="font-mono">{fechaSeleccionada}</span>
-                </div>
-              )}
+                    </div>
+                  )}
             </>
           ) : (
             <div className="space-y-3">
@@ -325,10 +397,10 @@ const CRM = () => {
                   {ratioConversion}%
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-
+                    </div>
+                  )}
+                </div>
+                
         {prospectosFiltrados.length === 0 && !loading && (
           <div className="text-slate-400 italic">No hay prospectos para mostrar.</div>
         )}
@@ -351,7 +423,7 @@ const CRM = () => {
               onClick={() => abrirFicha(p)}
               className={`w-full text-left rounded-2xl px-4 py-3 shadow-sm border hover:border-slate-400 transition flex items-center justify-between ${colorClasses}`}
             >
-              <div>
+                <div>
                 <div className="text-sm font-bold text-slate-900">
                   {p.grupo || '(Sin nombre)'}
                 </div>
@@ -363,7 +435,7 @@ const CRM = () => {
                     {estado}
                   </span>
                 </div>
-              </div>
+                </div>
               <div className="text-xs text-slate-400">
                 ID: {p.id ?? '—'}
               </div>
@@ -385,13 +457,13 @@ const CRM = () => {
               </h2>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={async () => {
+                    <button
+                      type="button"
+                      onClick={async () => {
                   if (!prospectoSelected?.id) {
                     alert('No se puede borrar: falta ID de prospecto.')
-                    return
-                  }
+                              return
+                            }
                   if (
                     !window.confirm(
                       '¿Estás seguro de que quieres borrar este registro?'
@@ -405,7 +477,7 @@ const CRM = () => {
                     .eq('id', prospectoSelected.id)
                   if (error) {
                     alert('Error al borrar: ' + error.message)
-                  } else {
+                          } else {
                     cerrarFicha()
                     fetchProspectos()
                   }
@@ -413,21 +485,21 @@ const CRM = () => {
                 className="p-2 rounded-full hover:bg-red-50 text-red-500 border border-red-100"
               >
                 🗑
-              </button>
+                    </button>
               <button
                 onClick={cerrarFicha}
                 className="p-2 rounded-full hover:bg-slate-100 text-slate-500"
               >
                 <X size={18} />
               </button>
-            </div>
-          </div>
+                  </div>
+                </div>
                 
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
             {/* PESTAÑAS DENTRO DE LA FICHA */}
             <div className="flex gap-2 mb-2">
-                        <button
-                          type="button"
+                    <button
+                      type="button"
                 onClick={() => setFichaTab('datos')}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold ${
                   fichaTab === 'datos'
@@ -436,9 +508,9 @@ const CRM = () => {
                 }`}
               >
                 Datos
-                        </button>
-              <button
-                type="button"
+                    </button>
+                    <button
+                      type="button"
                 onClick={() => setFichaTab('historial')}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold ${
                   fichaTab === 'historial'
@@ -447,9 +519,9 @@ const CRM = () => {
                 }`}
               >
                 Historial
-              </button>
-              <button
-                type="button"
+                    </button>
+                    <button
+                      type="button"
                 onClick={() => setFichaTab('programas')}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold ${
                   fichaTab === 'programas'
@@ -458,7 +530,7 @@ const CRM = () => {
                 }`}
               >
                 Programas
-              </button>
+                    </button>
                 </div>
                 
             {/* DATOS DE VISITA */}
@@ -484,13 +556,13 @@ const CRM = () => {
                 <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       CIF / NIF
-                    </label>
+                  </label>
                   <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.cif || ''}
                       onChange={(e) => updateField('cif', e.target.value)}
                   />
-                </div>
+                    </div>
                 <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       Teléfono
@@ -522,7 +594,7 @@ const CRM = () => {
                     value={prospectoSelected.direccion || ''}
                     onChange={(e) => updateField('direccion', e.target.value)}
                   />
-                </div>
+                  </div>
                 
                 <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -534,7 +606,7 @@ const CRM = () => {
                       value={prospectoSelected.poblacion || ''}
                       onChange={(e) => updateField('poblacion', e.target.value)}
                   />
-                </div>
+          </div>
                 <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       Provincia
@@ -544,10 +616,10 @@ const CRM = () => {
                       value={prospectoSelected.provincia || ''}
                       onChange={(e) => updateField('provincia', e.target.value)}
                     />
-                  </div>
-                </div>
-                
-                <div>
+        </div>
+    </div>
+
+      <div>
                   <label className="block text-[11px] font-bold text-slate-500 mb-1">
                     Ubicación / Google Maps
                   </label>
@@ -556,7 +628,7 @@ const CRM = () => {
                     value={prospectoSelected.ubicacion || ''}
                     onChange={(e) => updateField('ubicacion', e.target.value)}
                   />
-                </div>
+      </div>
                 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 mb-1">
@@ -570,7 +642,7 @@ const CRM = () => {
                       updateField('notas', e.target.value)
                     }}
                   />
-                </div>
+    </div>
                 
                 {/* Acciones rápidas */}
                 <div className="flex gap-2 pt-2">
@@ -596,20 +668,93 @@ const CRM = () => {
                       <Navigation size={14} /> Mapa
                 </button>
       )}
-          </div>
-        </div>
+      </div>
+    </div>
             </section>
             )}
     
             {/* HISTORIAL */}
             {fichaTab === 'historial' && (
-              <section id="tab-historial">
-                <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-3">
-                  Historial de Notas
-                </h3>
-                <div className="text-xs text-slate-600 whitespace-pre-line border border-slate-200 rounded-xl p-3 bg-slate-50 min-h-[80px]">
-                  {prospectoSelected.notas || 'Sin notas históricas registradas.'}
-      </div>
+              <section id="tab-historial" className="space-y-3">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">
+                    Historial de Visitas
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={registrarVisita}
+                    className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-slate-900 text-white"
+                  >
+                    + Registrar Visita
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                      Fecha de Visita
+                    </label>
+                    <input
+                      type="date"
+                      className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
+                      value={nuevaVisita.fecha}
+                      onChange={(e) =>
+                        setNuevaVisita((prev) => ({ ...prev, fecha: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                      Próxima Visita
+                    </label>
+                    <input
+                      type="date"
+                      className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
+                      value={prospectoSelected.proxima_visita || ''}
+                      onChange={(e) => updateField('proxima_visita', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    Comentario de la Visita
+                  </label>
+                  <textarea
+                    className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs min-h-[60px]"
+                    value={nuevaVisita.comentario}
+                    onChange={(e) =>
+                      setNuevaVisita((prev) => ({ ...prev, comentario: e.target.value }))
+                    }
+                  />
+                </div>
+
+                <div className="border-t border-slate-200 pt-2">
+                  <h4 className="text-[11px] font-bold uppercase text-slate-400 mb-1">
+                    Visitas registradas
+                  </h4>
+                  {visitas.length === 0 ? (
+                    <div className="text-xs text-slate-400 italic">
+                      Aún no hay visitas registradas para este cliente.
+                    </div>
+                  ) : (
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {visitas.map((v) => (
+                        <div
+                          key={v.id}
+                          className="flex items-start justify-between text-[11px] border border-slate-200 rounded-lg px-2 py-1 bg-slate-50"
+                        >
+                          <div className="font-mono text-slate-500 mr-2">
+                            {v.fecha}
+                          </div>
+                          <div className="flex-1 text-slate-700 whitespace-pre-line">
+                            {v.comentario || 'Sin comentario'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </section>
             )}
     
