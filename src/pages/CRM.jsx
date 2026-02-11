@@ -15,32 +15,6 @@ const CRM = () => {
   const [busqueda, setBusqueda] = useState('')
   const [currentDate, setCurrentDate] = useState(new Date())
   const [fechaSeleccionada, setFechaSeleccionada] = useState(new Date().toISOString().split('T')[0])
-  const [nuevo, setNuevo] = useState({
-    id: null,
-    grupo: '',
-    contacto: '',
-    telefono: '',
-    cif: '',
-    contacto_persona: '',
-    direccion: '',
-    poblacion: '',
-    provincia: '',
-    ubicacion: '',
-    ubicacion_gps: '',
-    interes: 'Medio',
-    nivel_interes: 'Medio',
-    objeciones_competencia: '',
-    proximo_contacto: '',
-    notas: '',
-    notas_comerciales: '',
-    fecha: new Date().toISOString().split('T')[0],
-    cliente_id: null,
-    latitude: null,
-    longitude: null,
-    check_in_at: null,
-  })
-
-  // Estado profesional de selección de prospecto (normalizado para evitar valores undefined)
   const [prospectoSelected, setProspectoSelected] = useState({
     id: null,
     grupo: '',
@@ -273,7 +247,7 @@ const CRM = () => {
   }
 
   const cerrarModal = () => {
-    setNuevo({
+    setProspectoSelected({
       id: null,
       grupo: '',
       contacto: '',
@@ -337,7 +311,7 @@ const CRM = () => {
     setMostrarSugerencias(false)
     
     // Auto-rellenar datos del cliente (todos los campos profesionales controlados)
-    setNuevo((prev) => ({
+    setProspectoSelected((prev) => ({
       ...prev,
       grupo: cliente.nombre || '',
       cif: cliente.cif_nif || '',
@@ -557,7 +531,6 @@ const CRM = () => {
                     check_in_at: p.check_in_at || null,
                   }
 
-                  setNuevo(normalizado)
                   setProspectoSelected(normalizado)
                   // Reset selección de cliente en edición (se puede vincular después)
                   setClienteSeleccionado(null)
@@ -595,8 +568,8 @@ const CRM = () => {
                    return
                  }
 
-                 // El estado "nuevo" ya contiene todos los campos profesionales normalizados
-                 await handleSave(nuevo)
+                 // El estado "prospectoSelected" contiene todos los campos profesionales normalizados
+                 await handleSave(prospectoSelected)
                }}
                className="space-y-4"
              >
@@ -613,8 +586,8 @@ const CRM = () => {
                   <input 
                     type="date" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={nuevo.fecha} 
-                    onChange={e => setNuevo({...nuevo, fecha: e.target.value})} 
+                    value={prospectoSelected.fecha} 
+                    onChange={e => setProspectoSelected({...prospectoSelected, fecha: e.target.value})} 
                   />
                 </div>
                 
@@ -629,12 +602,12 @@ const CRM = () => {
                       const valor = e.target.value
                       setBusquedaCliente(valor)
                       // El buscador es el ÚNICO origen de grupo
-                      setNuevo({...nuevo, grupo: valor})
+                      setProspectoSelected({...prospectoSelected, grupo: valor})
                       setMostrarSugerencias(true)
                       if (!valor) {
                         setClienteSeleccionado(null)
-                        setNuevo({
-                          ...nuevo,
+                        setProspectoSelected({
+                          ...prospectoSelected,
                           cliente_id: null,
                           cif: '',
                           direccion: '',
@@ -678,8 +651,8 @@ const CRM = () => {
                   <input 
                     placeholder="CIF/NIF" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={nuevo.cif} 
-                    onChange={e => setNuevo({...nuevo, cif: e.target.value})} 
+                    value={prospectoSelected.cif} 
+                    onChange={e => setProspectoSelected({...prospectoSelected, cif: e.target.value})} 
                   />
                 </div>
                 
@@ -689,8 +662,8 @@ const CRM = () => {
                   <input 
                     placeholder="Teléfono" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={nuevo.telefono} 
-                    onChange={e => setNuevo({...nuevo, telefono: e.target.value})} 
+                    value={prospectoSelected.telefono} 
+                    onChange={e => setProspectoSelected({...prospectoSelected, telefono: e.target.value})} 
                   />
                 </div>
                 
@@ -700,8 +673,8 @@ const CRM = () => {
                   <input 
                     placeholder="Persona de Contacto" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={nuevo.contacto} 
-                    onChange={e => setNuevo({...nuevo, contacto: e.target.value})} 
+                    value={prospectoSelected.contacto} 
+                    onChange={e => setProspectoSelected({...prospectoSelected, contacto: e.target.value})} 
                   />
                 </div>
                 
@@ -711,8 +684,8 @@ const CRM = () => {
                   <input 
                     placeholder="Dirección" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={nuevo.direccion} 
-                    onChange={e => setNuevo({...nuevo, direccion: e.target.value})} 
+                    value={prospectoSelected.direccion} 
+                    onChange={e => setProspectoSelected({...prospectoSelected, direccion: e.target.value})} 
                   />
                 </div>
                 
@@ -722,8 +695,8 @@ const CRM = () => {
                   <input 
                     placeholder="Población" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={nuevo.poblacion} 
-                    onChange={e => setNuevo({...nuevo, poblacion: e.target.value})} 
+                    value={prospectoSelected.poblacion} 
+                    onChange={e => setProspectoSelected({...prospectoSelected, poblacion: e.target.value})} 
                   />
                 </div>
                 
@@ -733,8 +706,8 @@ const CRM = () => {
                   <input 
                     placeholder="Provincia" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={nuevo.provincia} 
-                    onChange={e => setNuevo({...nuevo, provincia: e.target.value})} 
+                    value={prospectoSelected.provincia} 
+                    onChange={e => setProspectoSelected({...prospectoSelected, provincia: e.target.value})} 
                   />
                 </div>
                 
@@ -746,8 +719,8 @@ const CRM = () => {
                   <input 
                     placeholder="Pega el link de Google Maps o escribe la dirección..." 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={nuevo.ubicacion} 
-                    onChange={e => setNuevo({...nuevo, ubicacion: e.target.value})} 
+                    value={prospectoSelected.ubicacion} 
+                    onChange={e => setProspectoSelected({...prospectoSelected, ubicacion: e.target.value})} 
                   />
                   <p className="text-[10px] text-slate-400 mt-1 italic">
                     💡 Puedes pegar el link que te envía el cliente por WhatsApp (ej: https://maps.google.com/...)
@@ -783,7 +756,7 @@ const CRM = () => {
                             )
                           })
 
-                          setNuevo((prev) => ({
+                          setProspectoSelected((prev) => ({
                             ...prev,
                             latitude: geo.latitude,
                             longitude: geo.longitude,
@@ -819,9 +792,9 @@ const CRM = () => {
                         ? 'Error al Capturar. Reintentar'
                         : 'Fijar Ubicación Actual'}
                     </button>
-                    {nuevo.latitude && nuevo.longitude && (
+                    {prospectoSelected.latitude && prospectoSelected.longitude && (
                       <p className="mt-1 text-[10px] text-slate-500">
-                        Lat: {nuevo.latitude.toFixed(5)} · Lng: {nuevo.longitude.toFixed(5)}
+                        Lat: {prospectoSelected.latitude.toFixed(5)} · Lng: {prospectoSelected.longitude.toFixed(5)}
                       </p>
                     )}
                   </div>
@@ -833,9 +806,9 @@ const CRM = () => {
                   <div className="grid grid-cols-3 gap-3">
                     <button
                       type="button"
-                      onClick={() => setNuevo({...nuevo, interes: 'Alto'})}
+                      onClick={() => setProspectoSelected({...prospectoSelected, interes: 'Alto'})}
                       className={`min-h-[60px] rounded-2xl font-black text-sm uppercase tracking-wider transition-all ${
-                        nuevo.interes === 'Alto' 
+                        prospectoSelected.interes === 'Alto' 
                           ? 'bg-green-600 text-white shadow-lg scale-105' 
                           : 'bg-green-50 text-green-700 border-2 border-green-200 hover:bg-green-100'
                       }`}
@@ -844,9 +817,9 @@ const CRM = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setNuevo({...nuevo, interes: 'Medio'})}
+                      onClick={() => setProspectoSelected({...prospectoSelected, interes: 'Medio'})}
                       className={`min-h-[60px] rounded-2xl font-black text-sm uppercase tracking-wider transition-all ${
-                        nuevo.interes === 'Medio' 
+                        prospectoSelected.interes === 'Medio' 
                           ? 'bg-yellow-500 text-white shadow-lg scale-105' 
                           : 'bg-yellow-50 text-yellow-700 border-2 border-yellow-200 hover:bg-yellow-100'
                       }`}
@@ -855,9 +828,9 @@ const CRM = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setNuevo({...nuevo, interes: 'Bajo'})}
+                      onClick={() => setProspectoSelected({...prospectoSelected, interes: 'Bajo'})}
                       className={`min-h-[60px] rounded-2xl font-black text-sm uppercase tracking-wider transition-all ${
-                        nuevo.interes === 'Bajo' 
+                        prospectoSelected.interes === 'Bajo' 
                           ? 'bg-red-600 text-white shadow-lg scale-105' 
                           : 'bg-red-50 text-red-700 border-2 border-red-200 hover:bg-red-100'
                       }`}
@@ -873,8 +846,8 @@ const CRM = () => {
                   <textarea 
                     placeholder="Anota objeciones del cliente, competencia mencionada, puntos clave de la conversación..." 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] h-32 font-medium" 
-                    value={nuevo.objeciones_competencia} 
-                    onChange={e => setNuevo({...nuevo, objeciones_competencia: e.target.value})} 
+                    value={prospectoSelected.objeciones_competencia} 
+                    onChange={e => setProspectoSelected({...prospectoSelected, objeciones_competencia: e.target.value})} 
                   />
                 </div>
                 
@@ -882,7 +855,7 @@ const CRM = () => {
                 <div>
                   <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-2">
                     Próximo Contacto
-                    {nuevo.proximo_contacto && new Date(nuevo.proximo_contacto) < new Date() && (
+                    {prospectoSelected.proximo_contacto && new Date(prospectoSelected.proximo_contacto) < new Date() && (
                       <span className="flex items-center gap-1 text-red-600 text-[10px]">
                         <AlertCircle size={12}/> Fecha pasada
                       </span>
@@ -891,14 +864,14 @@ const CRM = () => {
                   <input 
                     type="date" 
                     className={`w-full p-5 rounded-[1.5rem] font-bold ${
-                      nuevo.proximo_contacto && new Date(nuevo.proximo_contacto) < new Date()
+                      prospectoSelected.proximo_contacto && new Date(prospectoSelected.proximo_contacto) < new Date()
                         ? 'bg-red-50 border-2 border-red-300 text-red-700'
                         : 'bg-slate-50'
                     }`}
-                    value={nuevo.proximo_contacto} 
-                    onChange={e => setNuevo({...nuevo, proximo_contacto: e.target.value})} 
+                    value={prospectoSelected.proximo_contacto} 
+                    onChange={e => setProspectoSelected({...prospectoSelected, proximo_contacto: e.target.value})} 
                   />
-                  {nuevo.proximo_contacto && new Date(nuevo.proximo_contacto) < new Date() && (
+                  {prospectoSelected.proximo_contacto && new Date(prospectoSelected.proximo_contacto) < new Date() && (
                     <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
                       <AlertCircle size={16} className="text-red-600 flex-shrink-0 mt-0.5"/>
                       <p className="text-xs text-red-700 font-medium">
@@ -914,9 +887,9 @@ const CRM = () => {
                   <textarea 
                     placeholder="Notas comerciales..." 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] h-28 font-medium" 
-                    value={nuevo.notas_comerciales} 
-                    onChange={e => setNuevo({
-                      ...nuevo,
+                    value={prospectoSelected.notas_comerciales} 
+                    onChange={e => setProspectoSelected({
+                      ...prospectoSelected,
                       notas: e.target.value,
                       notas_comerciales: e.target.value,
                     })} 
