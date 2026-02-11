@@ -458,26 +458,50 @@ const CRM = () => {
                  // si el usuario pulsó explícitamente el botón de "Fijar Ubicación".
                  setGuardando(true)
 
-                 // ========= MAPEO REAL A LA TABLA `prospectos` =========
-                 // Claves requeridas: id, status, objeciones_competencia, proximo_contacto,
-                 // latitud, longitud, check_in_at (capturados solo si el usuario pulsó "Fijar Ubicación Actual")
+                // ========= MAPEO REAL A LA TABLA `prospectos` =========
+                // Nos aseguramos de que:
+                // - El texto de la visita se guarde en la columna `notas`
+                // - El ID de la visita sea siempre numérico al actualizar
+                
+                const status = nuevo.interes || 'Medio'
 
-                 const status = nuevo.interes || 'Medio'
+                const basePayload = {
+                  grupo: nuevo.grupo || busquedaCliente || '',
+                  contacto: nuevo.contacto || '',
+                  telefono: nuevo.telefono || '',
+                  interes: status,
+                  notas: nuevo.notas || '',
+                  ubicacion: nuevo.ubicacion || '',
+                  fecha: nuevo.fecha,
+                  cliente_id: nuevo.cliente_id,
+                  cif: nuevo.cif || '',
+                  direccion: nuevo.direccion || '',
+                  poblacion: nuevo.poblacion || '',
+                  provincia: nuevo.provincia || '',
+                }
+                
+                const datosCompletos = {
+                  ...basePayload,
+                  status, // extraído del semáforo
+                  objeciones_competencia: nuevo.objeciones_competencia || '',
+                  proximo_contacto: nuevo.proximo_contacto || null,
+                  latitud: nuevo.latitude,
+                  longitud: nuevo.longitude,
+                  check_in_at: nuevo.check_in_at || new Date().toISOString(),
+                }
+                
+                // ========= USAR .upsert() BASADO EN ID (NUMÉRICO) =========
+                const idNumerico = editandoId != null ? Number(editandoId) : null
+                
+                if (editandoId != null && (idNumerico === null || Number.isNaN(idNumerico))) {
+                  setGuardando(false)
+                  alert('El ID de la visita es inválido y no se puede guardar.')
+                  return
+                }
 
-                 const datosCompletos = {
-                   status, // extraído del semáforo
-                   objeciones_competencia: nuevo.objeciones_competencia || '',
-                   proximo_contacto: nuevo.proximo_contacto || null,
-                   latitud: nuevo.latitude,
-                   longitud: nuevo.longitude,
-                   check_in_at: nuevo.check_in_at || new Date().toISOString(),
-                 }
-
-                 // ========= USAR .upsert() BASADO EN ID =========
-                 // Si hay editandoId, incluir el id para actualizar; si no, insertar nuevo
-                 const datosParaUpsert = editandoId
-                   ? { ...datosCompletos, id: editandoId }
-                   : datosCompletos
+                const datosParaUpsert = editandoId != null
+                  ? { ...datosCompletos, id: idNumerico }
+                  : datosCompletos
 
                  const res = await supabase
                    .from('prospectos')
@@ -1084,25 +1108,13 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert, onAddPro
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {/* BOTÓN LLAMAR - Móvil / Escritorio (tel:) */}
-        {telefonoParaLlamar ? (
-          <button 
-            onClick={() => {
-              window.location.href = `tel:${telefonoParaLlamar}`
-            }}
-            className="bg-slate-900 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase tracking-widest hover:bg-slate-800 transition-all min-h-[60px]"
-          >
-            <Phone size={16}/> LLAMAR
-          </button>
-        ) : (
-          <button
-            disabled
-            title="Añade un teléfono para llamar"
-            className="bg-slate-300 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase min-h-[60px]"
-          >
-            <Phone size={16}/> LLAMAR
-          </button>
-        )}
+        {/* BOTÓN LLAMAR - enlace directo tel: sin condiciones que lo bloqueen */}
+        <a 
+          href={`tel:${telefonoParaLlamar}`}
+          className="bg-slate-900 text-white py-4 rounded-2xl flex flex-col justify-center gap-1 font-black text-[9px] items-center italic uppercase tracking-widest hover:bg-slate-800 transition-all min-h-[60px]"
+        >
+          <Phone size={16}/> LLAMAR
+        </a>
         
         {/* BOTÓN MAPA */}
         {direccionParaMapa ? (
