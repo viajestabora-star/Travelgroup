@@ -150,25 +150,25 @@ const CRM = () => {
   const registrarVisita = async () => {
     if (!prospectoSelected?.id) {
       alert('No se puede registrar la visita: falta ID de prospecto.')
-      return
-    }
+        return
+      }
     const fecha = nuevaVisita.fecha || new Date().toISOString().split('T')[0]
     const comentario = nuevaVisita.comentario || ''
 
-    const { data, error } = await supabase
+      const { data, error } = await supabase
       .from('visitas')
       .insert({
         prospecto_id: Number(prospectoSelected.id),
         fecha,
         comentario,
       })
-      .select()
-      .single()
+        .select()
+        .single()
 
-    if (error) {
+      if (error) {
       alert('Error al registrar la visita: ' + error.message)
-      return
-    }
+        return
+      }
 
     // Actualizar lista local de visitas e información de última visita
     setVisitas((prev) => [data, ...prev])
@@ -186,6 +186,48 @@ const CRM = () => {
       fecha: new Date().toISOString().split('T')[0],
       comentario: '',
     })
+  }
+
+  // Modal para agendar visita desde el calendario
+  const [showAgendaModal, setShowAgendaModal] = useState(false)
+  const [agendaFecha, setAgendaFecha] = useState('')
+  const [agendaProspectoId, setAgendaProspectoId] = useState('')
+  const [agendaComentario, setAgendaComentario] = useState('')
+
+  const abrirAgendaParaFecha = (dateStr) => {
+    setAgendaFecha(dateStr)
+    setAgendaProspectoId('')
+    setAgendaComentario('')
+    setShowAgendaModal(true)
+  }
+
+  const guardarVisitaDesdeCalendario = async () => {
+    if (!agendaProspectoId) {
+      alert('Selecciona un prospecto para agendar la visita.')
+      return
+    }
+    const fecha = agendaFecha || new Date().toISOString().split('T')[0]
+    const comentario = agendaComentario || ''
+
+    const { error } = await supabase.from('visitas').insert({
+      prospecto_id: Number(agendaProspectoId),
+      fecha,
+      comentario,
+    })
+
+    if (error) {
+      alert('Error al agendar la visita: ' + error.message)
+      return
+    }
+
+    // Actualizar proxima_visita en el prospecto
+    await supabase
+      .from('prospectos')
+      .update({ proxima_visita: fecha })
+      .eq('id', Number(agendaProspectoId))
+
+    await fetchProspectos()
+    setShowAgendaModal(false)
   }
 
   const removePrograma = (index) => {
@@ -214,26 +256,71 @@ const CRM = () => {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(
         day
       ).padStart(2, '0')}`
-      const hasVisit = prospectos.some((p) => p.fecha === dateStr)
+
+      const eventosDia = prospectos.filter(
+        (p) => p.fecha === dateStr || p.proxima_visita === dateStr
+      )
+
       const isSelected = fechaSeleccionada === dateStr
+
       cells.push(
-        <button
+        <div
           key={day}
-          type="button"
-          onClick={() => setFechaSeleccionada(isSelected ? null : dateStr)}
-          className={`h-7 w-7 flex flex-col items-center justify-center rounded-full text-[11px] ${
-            isSelected ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-200'
+          className={`min-h-[72px] rounded-2xl p-1.5 text-[11px] flex flex-col gap-1 border ${
+            isSelected
+              ? 'bg-slate-900 text-white border-slate-900 shadow-md'
+              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-400 shadow-sm'
           }`}
         >
-          <span>{day}</span>
-          {hasVisit && (
-            <span
-              className={`w-1.5 h-1.5 rounded-full mt-0.5 ${
-                isSelected ? 'bg-emerald-300' : 'bg-emerald-500'
-              }`}
-            />
-          )}
+          <button
+            type="button"
+            className="flex items-center justify-between mb-0.5"
+            onClick={() => {
+              const nueva = isSelected ? null : dateStr
+              setFechaSeleccionada(nueva)
+              if (!isSelected) {
+                abrirAgendaParaFecha(dateStr)
+              }
+            }}
+          >
+            <span className="font-bold">{day}</span>
+            {eventosDia.length > 0 && (
+              <span className="text-[9px] font-mono opacity-70">
+                {eventosDia.length}
+              </span>
+            )}
+          </button>
+
+          <div className="space-y-0.5">
+            {eventosDia.slice(0, 3).map((ev) => {
+              const esClienteFlag = !!ev.es_cliente || ev.estado_comercial === 'CLIENTE'
+              const estado = ev.estado_comercial || (esClienteFlag ? 'CLIENTE' : 'POTENCIAL')
+              let bg = 'bg-amber-100 text-amber-800 border-amber-200'
+              if (esClienteFlag || estado === 'CLIENTE') {
+                bg = 'bg-blue-100 text-blue-800 border-blue-200'
+              } else if (estado === 'DESCARTAR') {
+                bg = 'bg-slate-100 text-slate-600 border-slate-200'
+              } else if (estado === 'POTENCIAL') {
+                bg = 'bg-emerald-100 text-emerald-800 border-emerald-200'
+              }
+              return (
+                <button
+                  key={ev.id}
+                  type="button"
+                  onClick={() => abrirFicha(ev)}
+                  className={`w-full text-left px-1.5 py-0.5 rounded-xl border text-[9px] truncate ${bg}`}
+                >
+                  {ev.grupo || '(Sin nombre)'}
         </button>
+              )
+            })}
+            {eventosDia.length > 3 && (
+              <div className="text-[9px] text-right opacity-60">
+                +{eventosDia.length - 3} más
+              </div>
+            )}
+          </div>
+        </div>
       )
     }
     return cells
@@ -288,7 +375,7 @@ const CRM = () => {
             </div>
           )}
           </div>
-          </div>
+      </div>
 
         {/* Calendario / Estadísticas */}
         <div className="mb-6 bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
@@ -316,8 +403,8 @@ const CRM = () => {
               >
                 Estadísticas
               </button>
-            </div>
-                </div>
+          </div>
+        </div>
                 
           {homeTab === 'calendario' ? (
             <>
@@ -331,7 +418,7 @@ const CRM = () => {
                       month: 'long',
                       year: 'numeric',
                     })}
-                  </div>
+              </div>
                 </div>
                 <div className="flex gap-1">
                   <button
@@ -370,8 +457,8 @@ const CRM = () => {
                 <div className="mt-2 text-[11px] text-slate-500">
                   Filtrando por fecha:{' '}
                   <span className="font-mono">{fechaSeleccionada}</span>
-                    </div>
-                  )}
+            </div>
+          )}
             </>
           ) : (
             <div className="space-y-3">
@@ -399,8 +486,8 @@ const CRM = () => {
               </div>
                     </div>
                   )}
-                </div>
-                
+          </div>
+
         {prospectosFiltrados.length === 0 && !loading && (
           <div className="text-slate-400 italic">No hay prospectos para mostrar.</div>
         )}
@@ -441,7 +528,7 @@ const CRM = () => {
               </div>
             </button>
           )})}
-        </div>
+          </div>
                 </div>
                 
       {/* PANEL LATERAL UNIFICADO */}
@@ -462,8 +549,8 @@ const CRM = () => {
                       onClick={async () => {
                   if (!prospectoSelected?.id) {
                     alert('No se puede borrar: falta ID de prospecto.')
-                              return
-                            }
+                   return
+                 }
                   if (
                     !window.confirm(
                       '¿Estás seguro de que quieres borrar este registro?'
@@ -472,12 +559,12 @@ const CRM = () => {
                     return
                   }
                   const { error } = await supabase
-                    .from('prospectos')
+                   .from('prospectos')
                     .delete()
                     .eq('id', prospectoSelected.id)
                   if (error) {
                     alert('Error al borrar: ' + error.message)
-                          } else {
+                 } else {
                     cerrarFicha()
                     fetchProspectos()
                   }
@@ -492,14 +579,14 @@ const CRM = () => {
               >
                 <X size={18} />
               </button>
-                  </div>
+                </div>
                 </div>
                 
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
             {/* PESTAÑAS DENTRO DE LA FICHA */}
             <div className="flex gap-2 mb-2">
-                    <button
-                      type="button"
+                        <button
+                          type="button"
                 onClick={() => setFichaTab('datos')}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold ${
                   fichaTab === 'datos'
@@ -508,7 +595,7 @@ const CRM = () => {
                 }`}
               >
                 Datos
-                    </button>
+                        </button>
                     <button
                       type="button"
                 onClick={() => setFichaTab('historial')}
@@ -562,7 +649,7 @@ const CRM = () => {
                       value={prospectoSelected.cif || ''}
                       onChange={(e) => updateField('cif', e.target.value)}
                   />
-                    </div>
+                </div>
                 <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       Teléfono
@@ -594,7 +681,7 @@ const CRM = () => {
                     value={prospectoSelected.direccion || ''}
                     onChange={(e) => updateField('direccion', e.target.value)}
                   />
-                  </div>
+                </div>
                 
                 <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -617,9 +704,9 @@ const CRM = () => {
                       onChange={(e) => updateField('provincia', e.target.value)}
                     />
         </div>
-    </div>
-
-      <div>
+                </div>
+                
+                <div>
                   <label className="block text-[11px] font-bold text-slate-500 mb-1">
                     Ubicación / Google Maps
                   </label>
@@ -655,7 +742,7 @@ const CRM = () => {
                     </a>
                   )}
                   {prospectoSelected.ubicacion && (
-                <button
+                    <button
                       type="button"
                       onClick={() => {
                         const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
@@ -666,10 +753,10 @@ const CRM = () => {
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold"
                     >
                       <Navigation size={14} /> Mapa
-                </button>
-      )}
-      </div>
-    </div>
+                    </button>
+                    )}
+                  </div>
+                </div>
             </section>
             )}
     
@@ -680,17 +767,17 @@ const CRM = () => {
                   <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">
                     Historial de Visitas
                   </h3>
-                  <button
-                    type="button"
+                    <button
+                      type="button"
                     onClick={registrarVisita}
                     className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-slate-900 text-white"
                   >
                     + Registrar Visita
-                  </button>
+                    </button>
                 </div>
-
+                
                 <div className="grid grid-cols-2 gap-2">
-                  <div>
+                <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       Fecha de Visita
                     </label>
@@ -701,26 +788,26 @@ const CRM = () => {
                       onChange={(e) =>
                         setNuevaVisita((prev) => ({ ...prev, fecha: e.target.value }))
                       }
-                    />
-                  </div>
-                  <div>
+                  />
+                </div>
+                <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       Próxima Visita
-                    </label>
-                    <input
-                      type="date"
+                  </label>
+                  <input 
+                    type="date" 
                       className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
                       value={prospectoSelected.proxima_visita || ''}
                       onChange={(e) => updateField('proxima_visita', e.target.value)}
                     />
-                  </div>
+                    </div>
                 </div>
-
+                
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 mb-1">
                     Comentario de la Visita
                   </label>
-                  <textarea
+                  <textarea 
                     className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs min-h-[60px]"
                     value={nuevaVisita.comentario}
                     onChange={(e) =>
@@ -728,7 +815,7 @@ const CRM = () => {
                     }
                   />
                 </div>
-
+                
                 <div className="border-t border-slate-200 pt-2">
                   <h4 className="text-[11px] font-bold uppercase text-slate-400 mb-1">
                     Visitas registradas
@@ -736,7 +823,7 @@ const CRM = () => {
                   {visitas.length === 0 ? (
                     <div className="text-xs text-slate-400 italic">
                       Aún no hay visitas registradas para este cliente.
-                    </div>
+                  </div>
                   ) : (
                     <div className="space-y-1 max-h-40 overflow-y-auto">
                       {visitas.map((v) => (
@@ -746,15 +833,15 @@ const CRM = () => {
                         >
                           <div className="font-mono text-slate-500 mr-2">
                             {v.fecha}
-                          </div>
+          </div>
                           <div className="flex-1 text-slate-700 whitespace-pre-line">
                             {v.comentario || 'Sin comentario'}
-                          </div>
-                        </div>
+        </div>
+    </div>
                       ))}
-                    </div>
+      </div>
                   )}
-                </div>
+    </div>
               </section>
             )}
     
@@ -950,6 +1037,82 @@ const CRM = () => {
               Guardar ficha completa
         </button>
       </div>
+        </div>
+      )}
+
+      {/* MODAL AGENDAR VISITA DESDE CALENDARIO */}
+      {showAgendaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-black text-slate-900">
+                Agendar visita para el {agendaFecha || '—'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAgendaModal(false)}
+                className="p-1 rounded-full hover:bg-slate-100 text-slate-500"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                  Fecha
+                </label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                  value={agendaFecha}
+                  onChange={(e) => setAgendaFecha(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                  Prospecto
+                </label>
+                <select
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                  value={agendaProspectoId}
+                  onChange={(e) => setAgendaProspectoId(e.target.value)}
+                >
+                  <option value="">Selecciona un prospecto…</option>
+                  {prospectos.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.grupo || '(Sin nombre)'} · {p.poblacion || p.provincia || ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                  Comentario
+                </label>
+                <textarea
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm min-h-[70px]"
+                  value={agendaComentario}
+                  onChange={(e) => setAgendaComentario(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAgendaModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={guardarVisitaDesdeCalendario}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white"
+              >
+                Guardar Visita
+              </button>
+            </div>
+          </div>
         </div>
       )}
   </div>
