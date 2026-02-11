@@ -21,7 +21,6 @@ const CRM = () => {
   
   // Estados del modal de agenda
   const [agendaProspectoId, setAgendaProspectoId] = useState('')
-  const [agendaNuevoProspecto, setAgendaNuevoProspecto] = useState({ grupo: '', telefono: '' })
   const [agendaComentario, setAgendaComentario] = useState('')
   
   // Estados para nueva visita en panel
@@ -117,32 +116,56 @@ const CRM = () => {
 
   // Guardar cambios del prospecto
   const handleSave = async () => {
-    if (!prospectoSelected?.id) {
-      alert('Error: No hay ID de prospecto')
+    if (!prospectoSelected) {
+      alert('Error: No hay prospecto seleccionado')
       return
     }
 
-    const { error } = await supabase
-      .from('prospectos')
-      .update(prospectoSelected)
-      .eq('id', prospectoSelected.id)
-
-    if (error) {
-      alert('Error al guardar: ' + error.message)
-    } else {
-      alert('¡Guardado con éxito!')
-      await fetchData()
-      // Actualizar el prospecto seleccionado con los datos frescos
-      const { data } = await supabase
+    // Si es un prospecto nuevo (sin ID), hacer INSERT
+    if (!prospectoSelected.id) {
+      const { data, error } = await supabase
         .from('prospectos')
-        .select('*')
-        .eq('id', prospectoSelected.id)
+        .insert(prospectoSelected)
+        .select()
         .single()
-      if (data) {
-        setProspectoSelected({
-          ...data,
-          programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : []
-        })
+
+      if (error) {
+        alert('Error al crear prospecto: ' + error.message)
+      } else {
+        alert('¡Prospecto creado con éxito!')
+        await fetchData()
+        // Actualizar el prospecto seleccionado con el ID recién creado
+        if (data) {
+          setProspectoSelected({
+            ...data,
+            programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : []
+          })
+        }
+      }
+    } else {
+      // Si tiene ID, hacer UPDATE
+      const { error } = await supabase
+        .from('prospectos')
+        .update(prospectoSelected)
+        .eq('id', prospectoSelected.id)
+
+      if (error) {
+        alert('Error al guardar: ' + error.message)
+      } else {
+        alert('¡Guardado con éxito!')
+        await fetchData()
+        // Actualizar el prospecto seleccionado con los datos frescos
+        const { data } = await supabase
+          .from('prospectos')
+          .select('*')
+          .eq('id', prospectoSelected.id)
+          .single()
+        if (data) {
+          setProspectoSelected({
+            ...data,
+            programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : []
+          })
+        }
       }
     }
   }
@@ -184,46 +207,56 @@ const CRM = () => {
   const abrirAgendaModal = (fecha) => {
     setFechaSeleccionada(fecha)
     setAgendaProspectoId('')
-    setAgendaNuevoProspecto({ grupo: '', telefono: '' })
     setAgendaComentario('')
     setShowAgendaModal(true)
   }
 
+  // Manejar cambio en selector de prospecto del modal
+  const handleProspectoChange = (value) => {
+    if (value === 'nuevo') {
+      // Cerrar modal y abrir ficha nueva
+      setShowAgendaModal(false)
+      const nuevoProspecto = {
+        grupo: '',
+        cif: '',
+        telefono: '',
+        responsable: '',
+        direccion: '',
+        poblacion: '',
+        provincia: '',
+        ubicacion: '',
+        notas: '',
+        notas_comerciales: '',
+        estado_comercial: 'POTENCIAL',
+        es_cliente: false,
+        proxima_visita: fechaSeleccionada,
+        fecha: fechaSeleccionada,
+        programas_presentados: []
+      }
+      setProspectoSelected(nuevoProspecto)
+      setFichaTab('datos')
+      setShowPanel(true)
+      setVisitasProspecto([])
+    } else {
+      setAgendaProspectoId(value)
+    }
+  }
+
   const guardarVisitaDesdeCalendario = async () => {
-    let prospectoIdFinal = agendaProspectoId ? Number(agendaProspectoId) : null
-
-    // Si hay nuevo prospecto, crearlo primero
-    if (!prospectoIdFinal && agendaNuevoProspecto.grupo) {
-        const { data: nuevoPros, error: errorPros } = await supabase
-          .from('prospectos')
-          .insert({
-          grupo: agendaNuevoProspecto.grupo,
-            telefono: agendaNuevoProspecto.telefono || '',
-          fecha: fechaSeleccionada,
-          proxima_visita: fechaSeleccionada
-          })
-          .select()
-          .single()
-
-        if (errorPros) {
-        alert('Error al crear prospecto: ' + errorPros.message)
-          return
-        }
-        prospectoIdFinal = nuevoPros.id
-      }
-
-      if (!prospectoIdFinal) {
+    if (!agendaProspectoId) {
       alert('Selecciona un prospecto o crea uno nuevo')
-        return
-      }
+      return
+    }
 
-      const { error } = await supabase.from('visitas').insert({
+    const prospectoIdFinal = Number(agendaProspectoId)
+
+    const { error } = await supabase.from('visitas').insert({
       prospecto_id: prospectoIdFinal,
       fecha: fechaSeleccionada,
       comentario: agendaComentario
-      })
+    })
 
-      if (error) {
+    if (error) {
       alert('Error al agendar visita: ' + error.message)
     } else {
       // Actualizar proxima_visita en prospecto
@@ -234,6 +267,8 @@ const CRM = () => {
 
       await fetchData()
       setShowAgendaModal(false)
+      setAgendaProspectoId('')
+      setAgendaComentario('')
       alert('Visita agendada con éxito')
     }
   }
@@ -491,16 +526,20 @@ const CRM = () => {
           {/* HEADER */}
           <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
             <div>
-              <div className="text-xs text-slate-400 font-mono">ID: {prospectoSelected.id}</div>
+              <div className="text-xs text-slate-400 font-mono">
+                {prospectoSelected.id ? `ID: ${prospectoSelected.id}` : 'NUEVO PROSPECTO'}
+              </div>
               <h2 className="text-lg font-black text-slate-900">{prospectoSelected.grupo || 'Ficha de Prospecto'}</h2>
               </div>
             <div className="flex gap-2">
-                    <button
-                onClick={borrarProspecto}
-                className="p-2 rounded-full hover:bg-red-50 text-red-500 border border-red-100"
-              >
-                🗑
-                    </button>
+              {prospectoSelected.id && (
+                <button
+                  onClick={borrarProspecto}
+                  className="p-2 rounded-full hover:bg-red-50 text-red-500 border border-red-100"
+                >
+                  🗑
+                </button>
+              )}
               <button onClick={cerrarFicha} className="p-2 rounded-full hover:bg-slate-100 text-slate-500">
                 <X size={18} />
               </button>
@@ -817,36 +856,20 @@ const CRM = () => {
                 />
               </div>
               <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">Prospecto Existente</label>
+              <label className="block text-xs font-bold text-slate-500 mb-1">Prospecto</label>
                 <select
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                   value={agendaProspectoId}
-                  onChange={(e) => setAgendaProspectoId(e.target.value)}
+                  onChange={(e) => handleProspectoChange(e.target.value)}
                 >
                 <option value="">Selecciona un prospecto...</option>
+                <option value="nuevo" className="font-bold">+ Crear Nuevo Prospecto</option>
                 {prospectos.map(p => (
                     <option key={p.id} value={p.id}>
                     {p.grupo || 'Sin nombre'} • {p.poblacion || p.provincia || ''}
                     </option>
                   ))}
                 </select>
-              </div>
-            <div className="border-t border-slate-200 pt-3">
-              <label className="block text-xs font-bold text-slate-500 mb-1">Nuevo Prospecto (Opcional)</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                  placeholder="Nombre del grupo"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                  value={agendaNuevoProspecto.grupo}
-                  onChange={(e) => setAgendaNuevoProspecto(prev => ({ ...prev, grupo: e.target.value }))}
-                  />
-                  <input
-                    placeholder="Teléfono"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                    value={agendaNuevoProspecto.telefono}
-                  onChange={(e) => setAgendaNuevoProspecto(prev => ({ ...prev, telefono: e.target.value }))}
-                  />
-                </div>
               </div>
               <div>
               <label className="block text-xs font-bold text-slate-500 mb-1">Comentario</label>
