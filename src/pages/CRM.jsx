@@ -33,6 +33,7 @@ const CRM = () => {
     proximo_contacto: '',
     notas: '',
     notas_comerciales: '',
+    programas_presentados: [],
     fecha: new Date().toISOString().split('T')[0],
     cliente_id: null,
     latitude: null,
@@ -146,18 +147,29 @@ const CRM = () => {
         return
       }
 
-      const payload = {
-        prospecto_id: prospectoIdNum,
+      const existente = prospectos.find((p) => {
+        const pid = typeof p.id === 'string' ? parseInt(p.id, 10) : p.id
+        return pid === prospectoIdNum
+      })
+
+      const actuales = Array.isArray(existente?.programas_presentados)
+        ? existente.programas_presentados
+        : []
+
+      const nuevoPrograma = {
         destino: programa.destino || '',
         fechas: programa.fechas || '',
         estado: programa.estado || 'Pendiente',
         explicacion: programa.explicacion || '',
-        captura_url: programa.imagen || programa.captura_url || '',
+        imagen: programa.imagen || programa.captura_url || '',
       }
 
+      const actualizados = [...actuales, nuevoPrograma]
+
       const { data, error } = await supabase
-        .from('programas_prospectos')
-        .insert([payload])
+        .from('prospectos')
+        .update({ programas_presentados: actualizados })
+        .eq('id', prospectoIdNum)
         .select()
         .single()
 
@@ -167,28 +179,29 @@ const CRM = () => {
         return
       }
 
-      // Actualizar estado local: adjuntar el nuevo programa a programas_presentados
-      setProspectos(prev =>
-        prev.map(p => {
-          const mismoId =
-            (typeof p.id === 'string' ? parseInt(p.id, 10) : p.id) === prospectoIdNum
-          if (!mismoId) return p
-
-          const actuales = Array.isArray(p.programas_presentados) ? p.programas_presentados : []
-          const nuevoPrograma = {
-            destino: data.destino,
-            fechas: data.fechas,
-            estado: data.estado,
-            explicacion: data.explicacion,
-            imagen: data.captura_url,
-          }
-
+      // Actualizar estado local: adjuntar el nuevo programa a programas_presentados en memoria
+      setProspectos((prev) =>
+        prev.map((p) => {
+          const pid = typeof p.id === 'string' ? parseInt(p.id, 10) : p.id
+          if (pid !== prospectoIdNum) return p
           return {
             ...p,
-            programas_presentados: [...actuales, nuevoPrograma],
+            programas_presentados: Array.isArray(data.programas_presentados)
+              ? data.programas_presentados
+              : actualizados,
           }
         })
       )
+
+      // Mantener sincronizado el prospecto seleccionado si coincide el ID
+      if (prospectoSelected?.id === prospectoIdNum) {
+        setProspectoSelected((prev) => ({
+          ...prev,
+          programas_presentados: Array.isArray(data.programas_presentados)
+            ? data.programas_presentados
+            : actualizados,
+        }))
+      }
     } catch (err) {
       console.error('Error inesperado guardando programa del prospecto:', err)
       alert('Error inesperado al guardar el programa.')
@@ -453,6 +466,9 @@ const CRM = () => {
                     proximo_contacto: proximoContacto,
                     notas: p.notas || '',
                     notas_comerciales: p.notas_comerciales || p.notas || '',
+                    programas_presentados: Array.isArray(p.programas_presentados)
+                      ? p.programas_presentados
+                      : [],
                     fecha: p.fecha || new Date().toISOString().split('T')[0],
                     cliente_id: p.cliente_id ?? null,
                     latitude: p.latitud || null,
