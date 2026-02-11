@@ -4,7 +4,7 @@ import { X, Phone, Navigation } from 'lucide-react'
 
 const CRM = () => {
   // Estados principales
-  const [activeTab, setActiveTab] = useState('proximas') // proximas | historial | calendario | estadisticas
+  const [activeTab, setActiveTab] = useState('calendario') // calendario | proximas | historial | estadisticas
   const [prospectos, setProspectos] = useState([])
   const [visitas, setVisitas] = useState([])
   const [loading, setLoading] = useState(true)
@@ -388,9 +388,9 @@ const CRM = () => {
         {/* PESTAÑAS PRINCIPALES */}
         <div className="flex gap-2 mb-6 bg-white p-2 rounded-2xl shadow-sm border">
           {[
+            { key: 'calendario', label: 'Calendario' },
             { key: 'proximas', label: 'Próximas' },
             { key: 'historial', label: 'Historial' },
-            { key: 'calendario', label: 'Calendario' },
             { key: 'estadisticas', label: 'Estadísticas' }
           ].map(tab => (
             <button
@@ -410,6 +410,42 @@ const CRM = () => {
         {loading && (
           <div className="text-center py-12 text-slate-400">Cargando...</div>
         )}
+
+        {/* VISTA: CALENDARIO */}
+        {activeTab === 'calendario' && !loading && (
+          <div className="bg-white rounded-2xl p-6 shadow-sm border">
+            <div className="flex items-center justify-between mb-4">
+                <div>
+                <div className="text-xs font-bold uppercase text-slate-400">Calendario de Visitas</div>
+                <div className="text-sm text-slate-700">
+                  {currentDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
+                  </div>
+                  </div>
+              <div className="flex gap-2">
+                  <button
+                  onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))}
+                  className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50"
+                  >
+                    ‹
+                  </button>
+                  <button
+                  onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))}
+                  className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50"
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
+            <div className="grid grid-cols-7 gap-2 mb-2">
+              {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => (
+                <div key={d} className="text-center text-xs font-bold text-slate-400 py-2">
+                    {d}
+                  </div>
+                ))}
+              </div>
+            <div className="grid grid-cols-7 gap-2">{renderCalendar()}</div>
+                </div>
+              )}
 
         {/* VISTA: PRÓXIMAS */}
         {activeTab === 'proximas' && !loading && (
@@ -464,42 +500,6 @@ const CRM = () => {
             )}
         </div>
         )}
-
-        {/* VISTA: CALENDARIO */}
-        {activeTab === 'calendario' && !loading && (
-          <div className="bg-white rounded-2xl p-6 shadow-sm border">
-            <div className="flex items-center justify-between mb-4">
-                <div>
-                <div className="text-xs font-bold uppercase text-slate-400">Calendario de Visitas</div>
-                <div className="text-sm text-slate-700">
-                  {currentDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
-                  </div>
-                  </div>
-              <div className="flex gap-2">
-                  <button
-                  onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))}
-                  className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50"
-                  >
-                    ‹
-                  </button>
-                  <button
-                  onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))}
-                  className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50"
-                  >
-                    ›
-                  </button>
-                </div>
-              </div>
-            <div className="grid grid-cols-7 gap-2 mb-2">
-              {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => (
-                <div key={d} className="text-center text-xs font-bold text-slate-400 py-2">
-                    {d}
-                  </div>
-                ))}
-              </div>
-            <div className="grid grid-cols-7 gap-2">{renderCalendar()}</div>
-                </div>
-              )}
 
         {/* VISTA: ESTADÍSTICAS */}
         {activeTab === 'estadisticas' && !loading && (
