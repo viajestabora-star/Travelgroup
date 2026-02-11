@@ -28,7 +28,7 @@ const CRM = () => {
     setLoading(false)
   }
 
-  useEffect(() => {
+  useEffect(() => { 
     fetchProspectos()
   }, [])
 
@@ -37,8 +37,8 @@ const CRM = () => {
     if (!prospecto || !prospecto.id) {
       console.error('Prospecto sin ID al abrir ficha:', prospecto)
       alert('ERROR: Este prospecto no tiene ID en la base de datos.')
-      return
-    }
+        return
+      }
 
     setProspectoSelected({
       ...prospecto,
@@ -218,23 +218,23 @@ const CRM = () => {
                 }
               >
                 ›
-              </button>
-            </div>
+          </button>
+      </div>
           </div>
           <div className="grid grid-cols-7 gap-1 mb-1 text-[10px] text-slate-400 font-bold">
             {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
               <div key={d} className="text-center">
                 {d}
-              </div>
+        </div>
             ))}
-          </div>
-          <div className="grid grid-cols-7 gap-1">{renderCalendar()}</div>
+                </div>
+              <div className="grid grid-cols-7 gap-1">{renderCalendar()}</div>
           {fechaSeleccionada && (
             <div className="mt-2 text-[11px] text-slate-500">
               Filtrando por fecha: <span className="font-mono">{fechaSeleccionada}</span>
             </div>
           )}
-        </div>
+          </div>
 
         {prospectosFiltrados.length === 0 && !loading && (
           <div className="text-slate-400 italic">No hay prospectos para mostrar.</div>
@@ -277,31 +277,53 @@ const CRM = () => {
             </button>
           )})}
         </div>
-      </div>
-
+                </div>
+                
       {/* PANEL LATERAL UNIFICADO */}
       {showPanel && prospectoSelected && (
         <div className="w-full max-w-md border-l border-slate-200 bg-white h-full flex flex-col shadow-xl">
           <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <div>
+                <div>
               <div className="text-xs text-slate-400 font-mono">
                 ID: {String(prospectoSelected.id)}
-              </div>
+                </div>
               <h2 className="text-lg font-black text-slate-900">
                 {prospectoSelected.grupo || 'Ficha de Visita'}
               </h2>
             </div>
-            <button
+                        <button
               onClick={cerrarFicha}
               className="p-2 rounded-full hover:bg-slate-100 text-slate-500"
             >
               <X size={18} />
-            </button>
-          </div>
-
+                        </button>
+                </div>
+                
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+            {/* PESTAÑAS DENTRO DE LA FICHA */}
+            <div className="flex gap-2 mb-2">
+                        <button
+                          type="button"
+                className="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white"
+                        >
+                Datos
+                        </button>
+              <button
+                type="button"
+                className="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-500"
+              >
+                Historial
+              </button>
+              <button
+                type="button"
+                className="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-500"
+              >
+                Programas
+              </button>
+                </div>
+                
             {/* DATOS DE VISITA */}
-            <section>
+            <section id="tab-datos">
               <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-3">
                 Datos de Visita
               </h3>
@@ -311,96 +333,96 @@ const CRM = () => {
                   <label className="block text-[11px] font-bold text-slate-500 mb-1">
                     Grupo / Cliente
                   </label>
-                  <input
+                  <input 
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                     value={prospectoSelected.grupo || ''}
                     onChange={(e) => updateField('grupo', e.target.value)}
                   />
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
+                
+                <div className="grid grid-cols-3 gap-3">
+                <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       CIF / NIF
                     </label>
-                    <input
+                  <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.cif || ''}
                       onChange={(e) => updateField('cif', e.target.value)}
-                    />
-                  </div>
-                  <div>
+                  />
+                </div>
+                <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       Teléfono
                     </label>
-                    <input
+                  <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.telefono || ''}
                       onChange={(e) => updateField('telefono', e.target.value)}
-                    />
-                  </div>
-                  <div>
+                  />
+                </div>
+                <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       Responsable
                     </label>
-                    <input
+                  <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.responsable || ''}
                       onChange={(e) => updateField('responsable', e.target.value)}
                     />
                   </div>
                 </div>
-
+                
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 mb-1">
                     Dirección
                   </label>
-                  <input
+                  <input 
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                     value={prospectoSelected.direccion || ''}
                     onChange={(e) => updateField('direccion', e.target.value)}
                   />
                 </div>
-
+                
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
+                <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       Población
                     </label>
-                    <input
+                  <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.poblacion || ''}
                       onChange={(e) => updateField('poblacion', e.target.value)}
-                    />
-                  </div>
-                  <div>
+                  />
+                </div>
+                <div>
                     <label className="block text-[11px] font-bold text-slate-500 mb-1">
                       Provincia
-                    </label>
-                    <input
+                  </label>
+                  <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.provincia || ''}
                       onChange={(e) => updateField('provincia', e.target.value)}
                     />
                   </div>
                 </div>
-
+                
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 mb-1">
                     Ubicación / Google Maps
                   </label>
-                  <input
+                  <input 
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                     value={prospectoSelected.ubicacion || ''}
                     onChange={(e) => updateField('ubicacion', e.target.value)}
                   />
                 </div>
-
+                
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 mb-1">
                     Notas Comerciales
                   </label>
-                  <textarea
+                  <textarea 
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm min-h-[80px]"
                     value={prospectoSelected.notas_comerciales || prospectoSelected.notas || ''}
                     onChange={(e) => {
@@ -409,7 +431,7 @@ const CRM = () => {
                     }}
                   />
                 </div>
-
+                
                 {/* Acciones rápidas */}
                 <div className="flex gap-2 pt-2">
                   {prospectoSelected.telefono && (
@@ -421,7 +443,7 @@ const CRM = () => {
                     </a>
                   )}
                   {prospectoSelected.ubicacion && (
-                    <button
+                <button
                       type="button"
                       onClick={() => {
                         const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
@@ -432,17 +454,17 @@ const CRM = () => {
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold"
                     >
                       <Navigation size={14} /> Mapa
-                    </button>
-                  )}
-                </div>
-              </div>
+                </button>
+      )}
+    </div>
+      </div>
             </section>
-
+    
             {/* PROGRAMAS PRESENTADOS */}
-            <section>
+            <section id="tab-programas">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">
-                  Programas Presentados
+            Programas Presentados
                 </h3>
                 <button
                   type="button"
@@ -451,26 +473,26 @@ const CRM = () => {
                 >
                   + Añadir programa
                 </button>
-              </div>
+        </div>
 
               {(!prospectoSelected.programas_presentados ||
                 prospectoSelected.programas_presentados.length === 0) && (
                 <div className="text-xs text-slate-400 italic mb-2">
                   No hay programas registrados para este prospecto.
-                </div>
-              )}
+            </div>
+          )}
 
               <div className="space-y-3">
                 {Array.isArray(prospectoSelected.programas_presentados) &&
                   prospectoSelected.programas_presentados.map((prog, idx) => (
-                    <div
-                      key={idx}
+            <div
+              key={idx}
                       className="border border-slate-200 rounded-xl p-3 space-y-2 bg-slate-50"
                     >
                       <div className="flex justify-between items-center">
                         <span className="text-[11px] font-bold text-slate-500">
                           Programa #{idx + 1}
-                        </span>
+                </span>
                         <button
                           type="button"
                           onClick={() => removePrograma(idx)}
@@ -480,52 +502,52 @@ const CRM = () => {
                         </button>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                        <div>
+              <div>
                           <label className="block text-[10px] text-slate-500 mb-1">
-                            Destino
-                          </label>
-                          <input
+                  Destino
+                </label>
+                <input
                             className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
                             value={prog.destino || ''}
                             onChange={(e) =>
                               updateProgramaField(idx, 'destino', e.target.value)
                             }
-                          />
-                        </div>
-                        <div>
+                />
+              </div>
+              <div>
                           <label className="block text-[10px] text-slate-500 mb-1">
-                            Fechas
-                          </label>
-                          <input
+                  Fechas
+                </label>
+                <input
                             className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
                             value={prog.fechas || ''}
                             onChange={(e) =>
                               updateProgramaField(idx, 'fechas', e.target.value)
                             }
-                          />
-                        </div>
+                />
+              </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                        <div>
+              <div>
                           <label className="block text-[10px] text-slate-500 mb-1">
-                            Estado
-                          </label>
-                          <select
+                  Estado
+                </label>
+                <select
                             className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
                             value={prog.estado || 'Pendiente'}
                             onChange={(e) =>
                               updateProgramaField(idx, 'estado', e.target.value)
                             }
-                          >
-                            <option value="Pendiente">Pendiente</option>
-                            <option value="Revision">Revisión</option>
-                            <option value="Confirmado">Confirmado</option>
-                          </select>
-                        </div>
-                        <div>
+                >
+                  <option value="Pendiente">Pendiente</option>
+                  <option value="Revision">Revisión</option>
+                  <option value="Confirmado">Confirmado</option>
+                </select>
+            </div>
+            <div>
                           <label className="block text-[10px] text-slate-500 mb-1">
                             URL imagen / captura
-                          </label>
+              </label>
                           <input
                             className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
                             value={prog.imagen || ''}
@@ -534,21 +556,70 @@ const CRM = () => {
                             }
                           />
                         </div>
-                      </div>
-                      <div>
+            </div>
+            <div>
                         <label className="block text-[10px] text-slate-500 mb-1">
                           Explicación
-                        </label>
+              </label>
                         <textarea
                           className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs min-h-[50px]"
                           value={prog.explicacion || ''}
                           onChange={(e) =>
                             updateProgramaField(idx, 'explicacion', e.target.value)
                           }
-                        />
-                      </div>
-                    </div>
+              />
+            </div>
+            </div>
                   ))}
+        </div>
+            </section>
+
+            {/* ESTADO COMERCIAL */}
+            <section>
+              <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-2">
+                Estado Comercial
+              </h3>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateField('es_cliente', true)
+                    updateField('estado_comercial', 'CLIENTE')
+                  }}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white"
+                >
+                  Hacer Cliente
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateField('es_cliente', false)
+                    updateField('estado_comercial', 'POTENCIAL')
+                  }}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600"
+                >
+                  Marcar como Prospección
+                </button>
+              </div>
+              <select
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                value={prospectoSelected.estado_comercial || 'POTENCIAL'}
+                onChange={(e) => updateField('estado_comercial', e.target.value)}
+              >
+                <option value="CLIENTE">CLIENTE</option>
+                <option value="POTENCIAL">POTENCIAL</option>
+                <option value="DESCARTAR">DESCARTAR</option>
+              </select>
+              <div className="mt-3">
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                  Próxima Visita
+                </label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                  value={prospectoSelected.proxima_visita || ''}
+                  onChange={(e) => updateField('proxima_visita', e.target.value)}
+                />
               </div>
             </section>
 
@@ -571,18 +642,18 @@ const CRM = () => {
 
           {/* BOTÓN ÚNICO DE GUARDADO */}
           <div className="p-4 border-t border-slate-200">
-            <button
+          <button 
               type="button"
               onClick={handleSave}
               className="w-full py-3 rounded-2xl bg-slate-900 text-white text-sm font-black tracking-wide"
-            >
+          >
               Guardar ficha completa
-            </button>
-          </div>
+          </button>
+      </div>
         </div>
       )}
-    </div>
-  )
+  </div>
+)
 }
 
 export default CRM
