@@ -12,6 +12,7 @@ const CRM = () => {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [fechaSeleccionada, setFechaSeleccionada] = useState(null)
   const [homeTab, setHomeTab] = useState('calendario') // calendario | estadisticas
+  const [listaTab, setListaTab] = useState('ultimas') // ultimas | proximas
 
   // Fuente de verdad única para la ficha
   const [prospectoSelected, setProspectoSelected] = useState(null) // estado inicial seguro: null
@@ -326,25 +327,62 @@ const CRM = () => {
     return cells
   }
 
-  const prospectosFiltrados = fechaSeleccionada
+  const hoyStr = new Date().toISOString().split('T')[0]
+
+  const baseFiltradosFecha = fechaSeleccionada
     ? prospectos.filter(
         (p) => p.fecha === fechaSeleccionada || p.proxima_visita === fechaSeleccionada
       )
     : prospectos
 
+  const prospectosFiltrados =
+    listaTab === 'ultimas'
+      ? baseFiltradosFecha.filter((p) => {
+          const f = p.fecha || p.ultima_visita_realizada
+          return f && f < hoyStr
+        })
+      : baseFiltradosFecha.filter((p) => {
+          const f = p.proxima_visita || p.fecha
+          return f && f >= hoyStr
+        })
+
   return (
     <div className="flex h-screen bg-slate-100">
       {/* LISTA PRINCIPAL DE PROSPECTOS */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-black tracking-tight">CRM Comercial</h1>
+        {/* Pestañas superiores: Últimas / Próximas */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex gap-2 flex-1">
+            <button
+              type="button"
+              onClick={() => setListaTab('ultimas')}
+              className={`flex-1 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest ${
+                listaTab === 'ultimas'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600'
+              }`}
+            >
+              Últimas Visitas
+            </button>
+            <button
+              type="button"
+              onClick={() => setListaTab('proximas')}
+              className={`flex-1 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest ${
+                listaTab === 'proximas'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600'
+              }`}
+            >
+              Próximas Visitas
+            </button>
+          </div>
           <button
             onClick={fetchProspectos}
-            className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold"
+            className="ml-3 px-3 py-2 rounded-xl bg-slate-900 text-white text-[11px] font-bold"
           >
             Recargar
           </button>
-      </div>
+        </div>
 
         {loading && prospectos.length === 0 && (
           <div className="text-sm text-slate-500 mb-4">Cargando prospectos...</div>
