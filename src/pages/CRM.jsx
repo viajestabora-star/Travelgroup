@@ -335,85 +335,14 @@ const CRM = () => {
     !busquedaCliente || c.nombre.toLowerCase().includes(busquedaCliente.toLowerCase())
   ).slice(0, 10) // Limitar a 10 resultados
 
-  // Guardado profesional de prospectos (alta / edición) contra Supabase
-  const handleSave = async (prospecto) => {
-    if (guardando) return
-
-    setGuardando(true)
-
-    try {
-      // ========= MAPEO COMPLETO A LA TABLA `prospectos` =========
-      const status = prospecto.interes || prospecto.nivel_interes || 'Medio'
-
-      const basePayload = {
-        // Identidad y datos básicos
-        id: prospecto.id ?? null,
-        grupo: prospecto.grupo || '',
-        contacto: prospecto.contacto || '',
-        telefono: prospecto.telefono || '',
-        cif: prospecto.cif || '',
-        contacto_persona: prospecto.contacto_persona || prospecto.contacto || '',
-        direccion: prospecto.direccion || '',
-        poblacion: prospecto.poblacion || '',
-        provincia: prospecto.provincia || '',
-
-        // Ubicación
-        ubicacion: prospecto.ubicacion || prospecto.ubicacion_gps || '',
-        ubicacion_gps: prospecto.ubicacion_gps || prospecto.ubicacion || '',
-
-        // Interés comercial
-        interes: status,
-        nivel_interes: prospecto.nivel_interes || status,
-
-        // Notas y seguimiento
-        notas: prospecto.notas || '',
-        notas_comerciales: prospecto.notas_comerciales || '',
-        fecha: prospecto.fecha || new Date().toISOString().split('T')[0],
-        cliente_id: prospecto.cliente_id ?? null,
-      }
-
-      const datosCompletos = {
-        ...basePayload,
-        status, // semáforo comercial redundante para compatibilidad
-        objeciones_competencia: prospecto.objeciones_competencia || '',
-        proximo_contacto: prospecto.proximo_contacto || null,
-        latitud: prospecto.latitude,
-        longitud: prospecto.longitude,
-        check_in_at: prospecto.check_in_at || new Date().toISOString(),
-      }
-
-      // ========= USAR .upsert() BASADO EN ID (NUMÉRICO) =========
-      const rawId = prospecto.id != null ? prospecto.id : editandoId
-      const idNumerico = rawId != null ? Number(rawId) : null
-
-      if (rawId != null && (idNumerico === null || Number.isNaN(idNumerico))) {
-        alert('El ID de la visita es inválido y no se puede guardar.')
-        return
-      }
-
-      const datosParaUpsert =
-        idNumerico != null
-          ? { ...datosCompletos, id: idNumerico }
-          : datosCompletos
-
-      const { error } = await supabase
-        .from('prospectos')
-        .upsert(datosParaUpsert, { onConflict: 'id' })
-
-      if (error) {
-        console.error('Error al guardar visita en prospectos:', error)
-        alert('Error al guardar: ' + (error.message || 'desconocido'))
-        return
-      }
-
-      cerrarModal()
-      cargarDatos()
-    } catch (err) {
-      console.error('Error inesperado al guardar visita:', err)
-      alert('Error inesperado al guardar la visita.')
-    } finally {
-      setGuardando(false)
-    }
+  // Guardado directo sobre la tabla `prospectos` usando el ID numérico
+  const handleSave = async (datos) => {
+    if (!datos?.id) return alert('Error: No hay ID de prospecto')
+    const { error } = await supabase.from('prospectos').upsert({
+      ...datos,
+      id: Number(datos.id),
+    })
+    if (!error) alert('Guardado con éxito')
   }
 
   return (
@@ -557,20 +486,6 @@ const CRM = () => {
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xl flex items-end z-50 p-4">
           <div className="bg-white w-full max-w-md rounded-[3.5rem] p-10 shadow-2xl overflow-y-auto max-h-[90vh]">
              <form
-               onSubmit={async (e) => {
-                 e.preventDefault()
-
-                 if (guardando) return
-
-                 // Validación: el buscador (campo unificado) no puede estar vacío
-                 if (!busquedaCliente || !busquedaCliente.trim()) {
-                   alert('Debes indicar el nombre del grupo/cliente en el buscador antes de sincronizar.')
-                   return
-                 }
-
-                 // El estado "prospectoSelected" contiene todos los campos profesionales normalizados
-                 await handleSave(prospectoSelected)
-               }}
                className="space-y-4"
              >
                 <div className="flex justify-between items-center mb-4">
@@ -651,7 +566,7 @@ const CRM = () => {
                   <input 
                     placeholder="CIF/NIF" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={prospectoSelected.cif} 
+                    value={prospectoSelected?.cif || ''} 
                     onChange={e => setProspectoSelected({...prospectoSelected, cif: e.target.value})} 
                   />
                 </div>
@@ -662,7 +577,7 @@ const CRM = () => {
                   <input 
                     placeholder="Teléfono" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={prospectoSelected.telefono} 
+                    value={prospectoSelected?.telefono || ''} 
                     onChange={e => setProspectoSelected({...prospectoSelected, telefono: e.target.value})} 
                   />
                 </div>
@@ -673,7 +588,7 @@ const CRM = () => {
                   <input 
                     placeholder="Persona de Contacto" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={prospectoSelected.contacto} 
+                    value={prospectoSelected?.contacto || ''} 
                     onChange={e => setProspectoSelected({...prospectoSelected, contacto: e.target.value})} 
                   />
                 </div>
@@ -684,7 +599,7 @@ const CRM = () => {
                   <input 
                     placeholder="Dirección" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={prospectoSelected.direccion} 
+                    value={prospectoSelected?.direccion || ''} 
                     onChange={e => setProspectoSelected({...prospectoSelected, direccion: e.target.value})} 
                   />
                 </div>
@@ -695,7 +610,7 @@ const CRM = () => {
                   <input 
                     placeholder="Población" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={prospectoSelected.poblacion} 
+                    value={prospectoSelected?.poblacion || ''} 
                     onChange={e => setProspectoSelected({...prospectoSelected, poblacion: e.target.value})} 
                   />
                 </div>
@@ -706,7 +621,7 @@ const CRM = () => {
                   <input 
                     placeholder="Provincia" 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={prospectoSelected.provincia} 
+                    value={prospectoSelected?.provincia || ''} 
                     onChange={e => setProspectoSelected({...prospectoSelected, provincia: e.target.value})} 
                   />
                 </div>
@@ -719,7 +634,7 @@ const CRM = () => {
                   <input 
                     placeholder="Pega el link de Google Maps o escribe la dirección..." 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] font-bold" 
-                    value={prospectoSelected.ubicacion} 
+                    value={prospectoSelected?.ubicacion || ''} 
                     onChange={e => setProspectoSelected({...prospectoSelected, ubicacion: e.target.value})} 
                   />
                   <p className="text-[10px] text-slate-400 mt-1 italic">
@@ -846,7 +761,7 @@ const CRM = () => {
                   <textarea 
                     placeholder="Anota objeciones del cliente, competencia mencionada, puntos clave de la conversación..." 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] h-32 font-medium" 
-                    value={prospectoSelected.objeciones_competencia} 
+                    value={prospectoSelected?.objeciones_competencia || ''} 
                     onChange={e => setProspectoSelected({...prospectoSelected, objeciones_competencia: e.target.value})} 
                   />
                 </div>
@@ -855,7 +770,7 @@ const CRM = () => {
                 <div>
                   <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-2">
                     Próximo Contacto
-                    {prospectoSelected.proximo_contacto && new Date(prospectoSelected.proximo_contacto) < new Date() && (
+                    {prospectoSelected?.proximo_contacto && new Date(prospectoSelected.proximo_contacto) < new Date() && (
                       <span className="flex items-center gap-1 text-red-600 text-[10px]">
                         <AlertCircle size={12}/> Fecha pasada
                       </span>
@@ -864,14 +779,14 @@ const CRM = () => {
                   <input 
                     type="date" 
                     className={`w-full p-5 rounded-[1.5rem] font-bold ${
-                      prospectoSelected.proximo_contacto && new Date(prospectoSelected.proximo_contacto) < new Date()
+                      prospectoSelected?.proximo_contacto && new Date(prospectoSelected.proximo_contacto) < new Date()
                         ? 'bg-red-50 border-2 border-red-300 text-red-700'
                         : 'bg-slate-50'
                     }`}
-                    value={prospectoSelected.proximo_contacto} 
+                    value={prospectoSelected?.proximo_contacto || ''} 
                     onChange={e => setProspectoSelected({...prospectoSelected, proximo_contacto: e.target.value})} 
                   />
-                  {prospectoSelected.proximo_contacto && new Date(prospectoSelected.proximo_contacto) < new Date() && (
+                  {prospectoSelected?.proximo_contacto && new Date(prospectoSelected.proximo_contacto) < new Date() && (
                     <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
                       <AlertCircle size={16} className="text-red-600 flex-shrink-0 mt-0.5"/>
                       <p className="text-xs text-red-700 font-medium">
@@ -887,7 +802,7 @@ const CRM = () => {
                   <textarea 
                     placeholder="Notas comerciales..." 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] h-28 font-medium" 
-                    value={prospectoSelected.notas_comerciales} 
+                    value={prospectoSelected?.notas_comerciales || ''} 
                     onChange={e => setProspectoSelected({
                       ...prospectoSelected,
                       notas: e.target.value,
@@ -904,17 +819,7 @@ const CRM = () => {
                   </div>
                 )}
                 
-                <button
-                  type="submit"
-                  disabled={guardando}
-                  className={`w-full py-6 rounded-[2rem] font-black uppercase italic shadow-xl transition-all min-h-[60px] ${
-                    guardando
-                      ? 'bg-slate-400 text-slate-100 cursor-wait'
-                      : 'bg-slate-900 text-white hover:bg-blue-600'
-                  }`}
-                >
-                  {guardando ? 'Obteniendo ubicación...' : 'Sincronizar'}
-                </button>
+                <button onClick={() => handleSave(prospectoSelected)}>Guardar</button>
              </form>
           </div>
         </div>
