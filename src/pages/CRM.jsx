@@ -11,10 +11,12 @@ const CRM = () => {
   const [loading, setLoading] = useState(false)
   const [currentDate, setCurrentDate] = useState(new Date())
   const [fechaSeleccionada, setFechaSeleccionada] = useState(null)
+  const [homeTab, setHomeTab] = useState('calendario') // calendario | estadisticas
 
   // Fuente de verdad única para la ficha
   const [prospectoSelected, setProspectoSelected] = useState(null) // estado inicial seguro: null
   const [showPanel, setShowPanel] = useState(false)
+  const [fichaTab, setFichaTab] = useState('datos') // datos | historial | programas
 
   const fetchProspectos = async () => {
     setLoading(true)
@@ -166,7 +168,9 @@ const CRM = () => {
   }
 
   const prospectosFiltrados = fechaSeleccionada
-    ? prospectos.filter((p) => p.fecha === fechaSeleccionada)
+    ? prospectos.filter(
+        (p) => p.fecha === fechaSeleccionada || p.proxima_visita === fechaSeleccionada
+      )
     : prospectos
 
   return (
@@ -185,56 +189,143 @@ const CRM = () => {
 
         {loading && <div className="text-sm text-slate-500 mb-4">Cargando prospectos...</div>}
 
-        {/* Calendario de visitas */}
+        {/* Historial general de últimas visitas */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-xs font-black uppercase text-slate-400 tracking-widest">
+              Últimas visitas realizadas
+            </h2>
+          </div>
+          <div className="space-y-1">
+            {prospectos.slice(0, 5).map((p) => (
+              <div
+                key={`last-${p.id}`}
+                className="flex items-center justify-between text-[11px] text-slate-600"
+              >
+                <span className="truncate max-w-[70%]">
+                  {p.grupo || '(Sin nombre)'}
+                </span>
+                <span className="font-mono text-slate-400">{p.fecha}</span>
+              </div>
+            ))}
+            {prospectos.length === 0 && (
+              <div className="text-[11px] text-slate-400 italic">
+                Aún no hay visitas registradas.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Calendario / Estadísticas */}
         <div className="mb-6 bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <div className="text-[11px] font-bold uppercase text-slate-400">
-                Calendario de Visitas
-              </div>
-              <div className="text-xs text-slate-600">
-                {currentDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
-              </div>
-            </div>
-            <div className="flex gap-1">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex gap-2">
               <button
                 type="button"
-                className="px-2 py-1 text-xs rounded-lg border border-slate-200"
-                onClick={() =>
-                  setCurrentDate(
-                    (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
-                  )
-                }
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-bold ${
+                  homeTab === 'calendario'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+                onClick={() => setHomeTab('calendario')}
               >
-                ‹
+                Calendario
               </button>
               <button
                 type="button"
-                className="px-2 py-1 text-xs rounded-lg border border-slate-200"
-                onClick={() =>
-                  setCurrentDate(
-                    (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
-                  )
-                }
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-bold ${
+                  homeTab === 'estadisticas'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+                onClick={() => setHomeTab('estadisticas')}
               >
-                ›
-          </button>
-      </div>
+                Estadísticas
+              </button>
+            </div>
           </div>
-          <div className="grid grid-cols-7 gap-1 mb-1 text-[10px] text-slate-400 font-bold">
-            {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
-              <div key={d} className="text-center">
-                {d}
-        </div>
-            ))}
+
+          {homeTab === 'calendario' ? (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <div className="text-[11px] font-bold uppercase text-slate-400">
+                    Calendario de Visitas
+                  </div>
+                  <div className="text-xs text-slate-600">
+                    {currentDate.toLocaleString('es-ES', {
+                      month: 'long',
+                      year: 'numeric',
+                    })}
+                  </div>
                 </div>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    className="px-2 py-1 text-xs rounded-lg border border-slate-200"
+                    onClick={() =>
+                      setCurrentDate(
+                        (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
+                      )
+                    }
+                  >
+                    ‹
+                  </button>
+                  <button
+                    type="button"
+                    className="px-2 py-1 text-xs rounded-lg border border-slate-200"
+                    onClick={() =>
+                      setCurrentDate(
+                        (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
+                      )
+                    }
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-7 gap-1 mb-1 text-[10px] text-slate-400 font-bold">
+                {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
+                  <div key={d} className="text-center">
+                    {d}
+                  </div>
+                ))}
+              </div>
               <div className="grid grid-cols-7 gap-1">{renderCalendar()}</div>
-          {fechaSeleccionada && (
-            <div className="mt-2 text-[11px] text-slate-500">
-              Filtrando por fecha: <span className="font-mono">{fechaSeleccionada}</span>
+              {fechaSeleccionada && (
+                <div className="mt-2 text-[11px] text-slate-500">
+                  Filtrando por fecha:{' '}
+                  <span className="font-mono">{fechaSeleccionada}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 rounded-xl bg-blue-50 border border-blue-100">
+                <div className="text-[11px] text-slate-500 font-bold uppercase">
+                  Total Clientes
+                </div>
+                <div className="text-lg font-black text-blue-700">{totalClientes}</div>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 border border-amber-100">
+                <div className="text-[11px] text-slate-500 font-bold uppercase">
+                  Total Prospecciones
+                </div>
+                <div className="text-lg font-black text-amber-700">
+                  {totalProspecciones}
+                </div>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                <div className="text-[11px] text-slate-500 font-bold uppercase">
+                  Ratio de Conversión
+                </div>
+                <div className="text-lg font-black text-emerald-700">
+                  {ratioConversion}%
+                </div>
+              </div>
             </div>
           )}
-          </div>
+        </div>
 
         {prospectosFiltrados.length === 0 && !loading && (
           <div className="text-slate-400 italic">No hay prospectos para mostrar.</div>
@@ -302,27 +393,43 @@ const CRM = () => {
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
             {/* PESTAÑAS DENTRO DE LA FICHA */}
             <div className="flex gap-2 mb-2">
-                        <button
-                          type="button"
-                className="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white"
-                        >
-                Datos
-                        </button>
               <button
                 type="button"
-                className="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-500"
+                onClick={() => setFichaTab('datos')}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold ${
+                  fichaTab === 'datos'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                Datos
+              </button>
+              <button
+                type="button"
+                onClick={() => setFichaTab('historial')}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold ${
+                  fichaTab === 'historial'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-500'
+                }`}
               >
                 Historial
               </button>
               <button
                 type="button"
-                className="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-500"
+                onClick={() => setFichaTab('programas')}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold ${
+                  fichaTab === 'programas'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-500'
+                }`}
               >
                 Programas
               </button>
-                </div>
-                
+            </div>
+
             {/* DATOS DE VISITA */}
+            {fichaTab === 'datos' && (
             <section id="tab-datos">
               <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-3">
                 Datos de Visita
@@ -459,8 +566,22 @@ const CRM = () => {
     </div>
       </div>
             </section>
+            )}
     
+            {/* HISTORIAL */}
+            {fichaTab === 'historial' && (
+              <section id="tab-historial">
+                <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-3">
+                  Historial de Notas
+                </h3>
+                <div className="text-xs text-slate-600 whitespace-pre-line border border-slate-200 rounded-xl p-3 bg-slate-50 min-h-[80px]">
+                  {prospectoSelected.notas || 'Sin notas históricas registradas.'}
+                </div>
+              </section>
+            )}
+
             {/* PROGRAMAS PRESENTADOS */}
+            {fichaTab === 'programas' && (
             <section id="tab-programas">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">
@@ -573,6 +694,7 @@ const CRM = () => {
                   ))}
         </div>
             </section>
+            )}
 
             {/* ESTADO COMERCIAL */}
             <section>
