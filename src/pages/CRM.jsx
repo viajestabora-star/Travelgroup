@@ -21,6 +21,7 @@ const CRM = () => {
     telefono: '',
     interes: 'Medio',
     notas: '',
+    notas_comerciales: '',
     ubicacion: '',
     fecha: new Date().toISOString().split('T')[0],
     cliente_id: null,
@@ -248,6 +249,7 @@ const CRM = () => {
       telefono: '',
       interes: 'Medio',
       notas: '',
+      notas_comerciales: '',
       ubicacion: '',
       fecha: new Date().toISOString().split('T')[0],
       cliente_id: null,
@@ -304,7 +306,7 @@ const CRM = () => {
     setNuevo((prev) => ({
       ...prev,
       grupo: cliente.nombre || '',
-      cliente_id: cliente.id,
+      cliente_id: cliente.id ?? null,
       cif: cliente.cif_nif || '',
       telefono: cliente.telefono || cliente.movil || '',
       direccion: cliente.direccion || '',
@@ -410,14 +412,26 @@ const CRM = () => {
                   }
 
                   const estado = p.status || p.interes || 'Medio'
-                  
+
                   setNuevo({
-                    ...p,
+                    grupo: p.grupo || '',
+                    contacto: p.contacto || '',
+                    telefono: p.telefono || '',
                     interes: estado,
+                    notas: p.notas || '',
+                    notas_comerciales: p.notas_comerciales || p.notas || '',
+                    ubicacion: p.ubicacion || '',
+                    fecha: p.fecha || new Date().toISOString().split('T')[0],
+                    cliente_id: p.cliente_id ?? null,
+                    cif: p.cif || '',
+                    direccion: p.direccion || '',
+                    poblacion: p.poblacion || '',
+                    provincia: p.provincia || '',
                     objeciones_competencia: objeciones,
                     proximo_contacto: proximoContacto,
                     latitude: p.latitud || null,
-                    longitude: p.longitud || null
+                    longitude: p.longitud || null,
+                    check_in_at: p.check_in_at || null,
                   })
                   // Reset selección de cliente en edición (se puede vincular después)
                   setClienteSeleccionado(null)
@@ -467,6 +481,7 @@ const CRM = () => {
                      telefono: nuevo.telefono || '',
                      interes: status,
                      notas: nuevo.notas || '',
+                     notas_comerciales: nuevo.notas_comerciales || '',
                      ubicacion: nuevo.ubicacion || '',
                      fecha: nuevo.fecha,
                      cliente_id: nuevo.cliente_id,
@@ -834,8 +849,12 @@ const CRM = () => {
                   <textarea 
                     placeholder="Notas comerciales..." 
                     className="w-full p-5 bg-slate-50 rounded-[1.5rem] h-28 font-medium" 
-                    value={nuevo.notas} 
-                    onChange={e => setNuevo({...nuevo, notas: e.target.value})} 
+                    value={nuevo.notas_comerciales} 
+                    onChange={e => setNuevo({
+                      ...nuevo,
+                      notas: e.target.value,
+                      notas_comerciales: e.target.value,
+                    })} 
                   />
                 </div>
                 
