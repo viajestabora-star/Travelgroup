@@ -1,66 +1,90 @@
-import React, { useState, useEffect } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import React, { useState, useEffect, useMemo } from 'react'
+import { supabase } from '../supabase'
 import { X, Phone, Navigation } from 'lucide-react'
 
-const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
-const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
-
 const CRM = () => {
+  // Estados principales
+  const [activeTab, setActiveTab] = useState('proximas') // proximas | historial | calendario | estadisticas
   const [prospectos, setProspectos] = useState([])
+  const [visitas, setVisitas] = useState([])
   const [loading, setLoading] = useState(true)
-  const [currentDate, setCurrentDate] = useState(new Date())
-  const [fechaSeleccionada, setFechaSeleccionada] = useState(null)
-  const [vistaActiva, setVistaActiva] = useState('calendario') // calendario | historial | estadisticas
 
-  // Fuente de verdad única para la ficha
-  const [prospectoSelected, setProspectoSelected] = useState(null) // estado inicial seguro: null
+  // Estados del panel lateral
+  const [prospectoSelected, setProspectoSelected] = useState(null)
   const [showPanel, setShowPanel] = useState(false)
   const [fichaTab, setFichaTab] = useState('datos') // datos | historial | programas
-  const [visitas, setVisitas] = useState([])
+  
+  // Estados del calendario
+  const [currentDate, setCurrentDate] = useState(new Date())
+  const [showAgendaModal, setShowAgendaModal] = useState(false)
+  const [fechaSeleccionada, setFechaSeleccionada] = useState('')
+  
+  // Estados del modal de agenda
+  const [agendaProspectoId, setAgendaProspectoId] = useState('')
+  const [agendaNuevoProspecto, setAgendaNuevoProspecto] = useState({ grupo: '', telefono: '' })
+  const [agendaComentario, setAgendaComentario] = useState('')
+  
+  // Estados para nueva visita en panel
   const [nuevaVisita, setNuevaVisita] = useState({
     fecha: new Date().toISOString().split('T')[0],
-    comentario: '',
+    comentario: ''
   })
+  
+  // Visitas del prospecto seleccionado
+  const [visitasProspecto, setVisitasProspecto] = useState([])
 
-  const fetchProspectos = async () => {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('prospectos')
-      .select('*')
-      .order('fecha', { ascending: false })
-    if (!error && data) {
-      setProspectos(data)
-    }
-    setLoading(false)
-  }
-
-  const fetchVisitasForProspecto = async (prospectoId) => {
-    if (!prospectoId) {
-      setVisitas([])
-      return
-    }
-    const { data, error } = await supabase
-      .from('visitas')
-      .select('*')
-      .eq('prospecto_id', Number(prospectoId))
-      .order('fecha', { ascending: false })
-    if (!error && Array.isArray(data)) {
-      setVisitas(data)
-    } else {
-      setVisitas([])
-    }
-  }
-
-  useEffect(() => { 
-    fetchProspectos()
+  // Cargar datos iniciales
+  useEffect(() => {
+    fetchData()
   }, [])
 
-  // Al hacer clic en un prospecto, cargamos el objeto COMPLETO (incluyendo id) en prospectoSelected
-  const abrirFicha = (prospecto) => {
-    if (!prospecto || !prospecto.id) {
-      console.error('Prospecto sin ID al abrir ficha:', prospecto)
-      alert('ERROR: Este prospecto no tiene ID en la base de datos.')
+  const fetchData = async () => {
+    setLoading(true)
+    try {
+      const [prospectosRes, visitasRes] = await Promise.all([
+        supabase.from('prospectos').select('*').order('grupo', { ascending: true }),
+        supabase.from('visitas').select('*').order('fecha', { ascending: false })
+      ])
+      
+      if (!prospectosRes.error) setProspectos(prospectosRes.data || [])
+      if (!visitasRes.error) setVisitas(visitasRes.data || [])
+    } catch (err) {
+      console.error('Error cargando datos:', err)
+    } finally {
+    setLoading(false)
+    }
+  }
+
+  // Filtrar prospectos según pestaña activa
+  const hoyStr = new Date().toISOString().split('T')[0]
+  
+  const prospectosFiltrados = useMemo(() => {
+    if (activeTab === 'proximas') {
+      return prospectos.filter(p => {
+        const fecha = p.proxima_visita || p.fecha
+        return fecha && fecha >= hoyStr
+      }).sort((a, b) => {
+        const fechaA = a.proxima_visita || a.fecha || ''
+        const fechaB = b.proxima_visita || b.fecha || ''
+        return fechaA.localeCompare(fechaB)
+      })
+    } else if (activeTab === 'historial') {
+      return prospectos.filter(p => {
+        const fecha = p.ultima_visita_realizada || p.fecha
+        return fecha && fecha < hoyStr
+      }).sort((a, b) => {
+        const fechaA = a.ultima_visita_realizada || a.fecha || ''
+        const fechaB = b.ultima_visita_realizada || b.fecha || ''
+        return fechaB.localeCompare(fechaA)
+      })
+    }
+    return []
+  }, [prospectos, activeTab, hoyStr])
+
+  // Abrir ficha del prospecto
+  const abrirFicha = async (prospecto) => {
+    if (!prospecto?.id) {
+      alert('Error: Prospecto sin ID')
         return
       }
 
@@ -68,211 +92,181 @@ const CRM = () => {
       ...prospecto,
       programas_presentados: Array.isArray(prospecto.programas_presentados)
         ? prospecto.programas_presentados
-        : [],
+        : []
     }
 
     setProspectoSelected(normalizado)
     setFichaTab('datos')
-    setNuevaVisita({
-      fecha: new Date().toISOString().split('T')[0],
-      comentario: '',
-    })
-    fetchVisitasForProspecto(prospecto.id)
     setShowPanel(true)
+    
+    // Cargar visitas del prospecto
+    const { data } = await supabase
+      .from('visitas')
+      .select('*')
+      .eq('prospecto_id', prospecto.id)
+      .order('fecha', { ascending: false })
+    
+    setVisitasProspecto(data || [])
   }
 
   const cerrarFicha = () => {
     setShowPanel(false)
     setProspectoSelected(null)
-    setVisitas([])
+    setVisitasProspecto([])
   }
 
-  // Guardado atómico sobre la tabla `prospectos` usando el estado único `prospectoSelected`
+  // Guardar cambios del prospecto
   const handleSave = async () => {
     if (!prospectoSelected?.id) {
-      console.error('Intento de guardar sin ID. Estado actual:', prospectoSelected)
-      return alert('ERROR: No hay ID detectado.')
+      alert('Error: No hay ID de prospecto')
+      return
     }
 
-    const payload = {
-      ...prospectoSelected,
-      id: Number(prospectoSelected.id),
-    }
+    const { error } = await supabase
+      .from('prospectos')
+      .update(prospectoSelected)
+      .eq('id', prospectoSelected.id)
 
-    const { error } = await supabase.from('prospectos').upsert(payload)
-
-    if (!error) {
-      alert('¡Rocafort actualizado con éxito!')
-      setShowPanel(false)
-      await fetchProspectos()
+    if (error) {
+      alert('Error al guardar: ' + error.message)
     } else {
-      console.error('Error Supabase al guardar:', error)
-      alert('Error Supabase: ' + error.message)
+      alert('¡Guardado con éxito!')
+      await fetchData()
+      // Actualizar el prospecto seleccionado con los datos frescos
+      const { data } = await supabase
+        .from('prospectos')
+        .select('*')
+        .eq('id', prospectoSelected.id)
+        .single()
+      if (data) {
+        setProspectoSelected({
+          ...data,
+          programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : []
+        })
+      }
     }
   }
 
-  // Helpers de binding seguro
+  // Actualizar campo del prospecto
   const updateField = (field, value) => {
-    setProspectoSelected((prev) =>
-      prev ? { ...prev, [field]: value } : prev
-    )
+    setProspectoSelected(prev => prev ? { ...prev, [field]: value } : prev)
   }
 
-  const updateProgramaField = (index, field, value) => {
-    setProspectoSelected((prev) => {
-      if (!prev) return prev
-      const actuales = Array.isArray(prev.programas_presentados)
-        ? [...prev.programas_presentados]
-        : []
-      const programa = actuales[index] || { destino: '', fechas: '', estado: 'Pendiente', explicacion: '', imagen: '' }
-      actuales[index] = { ...programa, [field]: value }
-      return { ...prev, programas_presentados: actuales }
-    })
-  }
-
-  const addPrograma = () => {
-    setProspectoSelected((prev) => {
-      if (!prev) return prev
-      const actuales = Array.isArray(prev.programas_presentados)
-        ? [...prev.programas_presentados]
-        : []
-      actuales.push({
-        destino: '',
-        fechas: '',
-        estado: 'Pendiente',
-        explicacion: '',
-        imagen: '',
-      })
-      return { ...prev, programas_presentados: actuales }
-    })
-  }
-
+  // Registrar nueva visita desde panel
   const registrarVisita = async () => {
     if (!prospectoSelected?.id) {
-      alert('No se puede registrar la visita: falta ID de prospecto.')
+      alert('Error: No hay ID de prospecto')
         return
       }
-    const fecha = nuevaVisita.fecha || new Date().toISOString().split('T')[0]
-    const comentario = nuevaVisita.comentario || ''
 
-      const { data, error } = await supabase
-      .from('visitas')
-      .insert({
-        prospecto_id: Number(prospectoSelected.id),
-        fecha,
-        comentario,
-      })
-        .select()
-        .single()
+    const { error } = await supabase.from('visitas').insert({
+      prospecto_id: prospectoSelected.id,
+      fecha: nuevaVisita.fecha,
+      comentario: nuevaVisita.comentario
+    })
 
       if (error) {
-      alert('Error al registrar la visita: ' + error.message)
-        return
-      }
-
-    // Actualizar lista local de visitas e información de última visita
-    setVisitas((prev) => [data, ...prev])
-    setProspectoSelected((prev) =>
-      prev ? { ...prev, ultima_visita_realizada: fecha } : prev
-    )
-
-    // Reflejar última visita en la tabla de prospectos sin duplicar registros
-    await supabase
-      .from('prospectos')
-      .update({ ultima_visita_realizada: fecha })
-      .eq('id', Number(prospectoSelected.id))
-
-    setNuevaVisita({
-      fecha: new Date().toISOString().split('T')[0],
-      comentario: '',
-    })
+      alert('Error al registrar visita: ' + error.message)
+    } else {
+      await fetchData()
+      const { data } = await supabase
+        .from('visitas')
+        .select('*')
+        .eq('prospecto_id', prospectoSelected.id)
+        .order('fecha', { ascending: false })
+      setVisitasProspecto(data || [])
+      setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '' })
+      alert('Visita registrada con éxito')
+    }
   }
 
-  // Modal para agendar visita desde el calendario
-  const [showAgendaModal, setShowAgendaModal] = useState(false)
-  const [agendaFecha, setAgendaFecha] = useState('')
-  const [agendaProspectoId, setAgendaProspectoId] = useState('')
-  const [agendaComentario, setAgendaComentario] = useState('')
-  const [agendaNuevoProspecto, setAgendaNuevoProspecto] = useState({
-    nombre: '',
-    telefono: '',
-  })
-
-  const abrirAgendaParaFecha = (dateStr) => {
-    setAgendaFecha(dateStr)
+  // Agendar visita desde calendario
+  const abrirAgendaModal = (fecha) => {
+    setFechaSeleccionada(fecha)
     setAgendaProspectoId('')
+    setAgendaNuevoProspecto({ grupo: '', telefono: '' })
     setAgendaComentario('')
     setShowAgendaModal(true)
   }
 
   const guardarVisitaDesdeCalendario = async () => {
-    const fecha = agendaFecha || new Date().toISOString().split('T')[0]
-    const comentario = agendaComentario || ''
-
     let prospectoIdFinal = agendaProspectoId ? Number(agendaProspectoId) : null
 
-    try {
-      // Si no hay prospecto seleccionado pero hay datos de nuevo prospecto, crearlo
-      if (!prospectoIdFinal && agendaNuevoProspecto.nombre) {
+    // Si hay nuevo prospecto, crearlo primero
+    if (!prospectoIdFinal && agendaNuevoProspecto.grupo) {
         const { data: nuevoPros, error: errorPros } = await supabase
           .from('prospectos')
           .insert({
-            grupo: agendaNuevoProspecto.nombre,
+          grupo: agendaNuevoProspecto.grupo,
             telefono: agendaNuevoProspecto.telefono || '',
-            fecha,
+          fecha: fechaSeleccionada,
+          proxima_visita: fechaSeleccionada
           })
           .select()
           .single()
 
         if (errorPros) {
-          alert('Error al crear el nuevo prospecto: ' + errorPros.message)
+        alert('Error al crear prospecto: ' + errorPros.message)
           return
         }
         prospectoIdFinal = nuevoPros.id
       }
 
       if (!prospectoIdFinal) {
-        alert('Selecciona un prospecto o rellena "Nuevo Cliente" para agendar la visita.')
+      alert('Selecciona un prospecto o crea uno nuevo')
         return
       }
 
       const { error } = await supabase.from('visitas').insert({
-        prospecto_id: Number(prospectoIdFinal),
-        fecha,
-        comentario,
+      prospecto_id: prospectoIdFinal,
+      fecha: fechaSeleccionada,
+      comentario: agendaComentario
       })
 
       if (error) {
-        alert('Error al agendar la visita: ' + error.message)
-        return
-      }
-
-      // Actualizar proxima_visita en el prospecto
+      alert('Error al agendar visita: ' + error.message)
+    } else {
+      // Actualizar proxima_visita en prospecto
       await supabase
         .from('prospectos')
-        .update({ proxima_visita: fecha })
-        .eq('id', Number(prospectoIdFinal))
+        .update({ proxima_visita: fechaSeleccionada })
+        .eq('id', prospectoIdFinal)
 
-      await fetchProspectos()
+      await fetchData()
       setShowAgendaModal(false)
-      setAgendaNuevoProspecto({ nombre: '', telefono: '' })
-    } catch (e) {
-      console.error('Error en guardarVisitaDesdeCalendario:', e)
-      alert('Error inesperado al agendar la visita.')
+      alert('Visita agendada con éxito')
     }
   }
 
-  const removePrograma = (index) => {
-    setProspectoSelected((prev) => {
+  // CRUD de programas
+  const addPrograma = () => {
+    setProspectoSelected(prev => {
       if (!prev) return prev
-      const actuales = Array.isArray(prev.programas_presentados)
-        ? [...prev.programas_presentados]
-        : []
-      actuales.splice(index, 1)
-      return { ...prev, programas_presentados: actuales }
+      const programas = Array.isArray(prev.programas_presentados) ? [...prev.programas_presentados] : []
+      programas.push({ destino: '', fechas: '', estado: 'Pendiente', imagen: '', explicacion: '' })
+      return { ...prev, programas_presentados: programas }
     })
   }
 
+  const updatePrograma = (index, field, value) => {
+    setProspectoSelected(prev => {
+      if (!prev) return prev
+      const programas = [...(prev.programas_presentados || [])]
+      programas[index] = { ...programas[index], [field]: value }
+      return { ...prev, programas_presentados: programas }
+    })
+  }
+
+  const removePrograma = (index) => {
+    setProspectoSelected(prev => {
+      if (!prev) return prev
+      const programas = [...(prev.programas_presentados || [])]
+      programas.splice(index, 1)
+      return { ...prev, programas_presentados: programas }
+    })
+  }
+
+  // Renderizar calendario
   const renderCalendar = () => {
     const year = currentDate.getFullYear()
     const month = currentDate.getMonth()
@@ -281,420 +275,271 @@ const CRM = () => {
     const daysInMonth = new Date(year, month + 1, 0).getDate()
 
     const cells = []
+    
+    // Días vacíos al inicio
     for (let i = 0; i < offset; i++) {
-      cells.push(<div key={`e-${i}`} className="h-7" />)
+      cells.push(<div key={`empty-${i}`} className="h-20" />)
     }
+
+    // Días del mes
     for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(
-        day
-      ).padStart(2, '0')}`
-
-      const eventosDia = prospectos.filter(
-        (p) => p.fecha === dateStr || p.proxima_visita === dateStr
-      )
-
-      const isSelected = fechaSeleccionada === dateStr
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      const visitasDia = visitas.filter(v => v.fecha === dateStr)
+      const prospectosDia = prospectos.filter(p => p.proxima_visita === dateStr || p.fecha === dateStr)
 
       cells.push(
         <div
           key={day}
-          className={`min-h-[72px] rounded-2xl p-1.5 text-[11px] flex flex-col gap-1 border ${
-            isSelected
-              ? 'bg-slate-900 text-white border-slate-900 shadow-md'
-              : 'bg-white text-slate-800 border-slate-200 hover:border-slate-400 shadow-sm'
-          }`}
+          className="min-h-[80px] p-2 rounded-xl border border-slate-200 bg-white hover:border-slate-400 cursor-pointer transition"
+          onClick={() => abrirAgendaModal(dateStr)}
         >
-          <button
-            type="button"
-            className="flex items-center justify-between mb-0.5"
-            onClick={() => {
-              const nueva = isSelected ? null : dateStr
-              setFechaSeleccionada(nueva)
-              if (!isSelected) {
-                abrirAgendaParaFecha(dateStr)
-              }
-            }}
-          >
-            <span className="font-bold">{day}</span>
-            {eventosDia.length > 0 && (
-              <span className="text-[9px] font-mono opacity-70">
-                {eventosDia.length}
-              </span>
-            )}
-          </button>
-
-          <div className="space-y-0.5">
-            {eventosDia.slice(0, 3).map((ev) => {
-              const esClienteFlag = !!ev.es_cliente || ev.estado_comercial === 'CLIENTE'
-              const estado = ev.estado_comercial || (esClienteFlag ? 'CLIENTE' : 'POTENCIAL')
-              let bg = 'bg-amber-100 text-amber-800 border-amber-200'
-              if (esClienteFlag || estado === 'CLIENTE') {
-                bg = 'bg-blue-100 text-blue-800 border-blue-200'
-              } else if (estado === 'DESCARTAR') {
-                bg = 'bg-slate-100 text-slate-600 border-slate-200'
-              } else if (estado === 'POTENCIAL') {
-                bg = 'bg-emerald-100 text-emerald-800 border-emerald-200'
-              }
-              return (
-                <button
-                  key={ev.id}
-                  type="button"
-                  onClick={() => abrirFicha(ev)}
-                  className={`w-full text-left px-1.5 py-0.5 rounded-xl border text-[9px] truncate ${bg}`}
-                >
-                  {ev.grupo || '(Sin nombre)'}
-        </button>
-              )
-            })}
-            {eventosDia.length > 3 && (
-              <div className="text-[9px] text-right opacity-60">
-                +{eventosDia.length - 3} más
+          <div className="text-xs font-bold text-slate-700 mb-1">{day}</div>
+          <div className="space-y-1">
+            {prospectosDia.slice(0, 2).map(p => (
+              <div
+                key={p.id}
+                className="text-[9px] px-1.5 py-0.5 rounded bg-[#fffbeb] border border-[#fef3c7] truncate"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  abrirFicha(p)
+                }}
+              >
+                {p.grupo || 'Sin nombre'}
               </div>
+            ))}
+            {prospectosDia.length > 2 && (
+              <div className="text-[9px] text-slate-400">+{prospectosDia.length - 2}</div>
             )}
           </div>
         </div>
       )
     }
+
     return cells
   }
 
-  const hoyStr = new Date().toISOString().split('T')[0]
+  // Estadísticas
+  const estadisticas = useMemo(() => {
+    const totalProspectos = prospectos.length
+    const visitasRealizadas = visitas.filter(v => v.fecha < hoyStr).length
+    const visitasPendientes = visitas.filter(v => v.fecha >= hoyStr).length
+    
+    return { totalProspectos, visitasRealizadas, visitasPendientes }
+  }, [prospectos, visitas, hoyStr])
 
-  const baseFiltradosFecha = fechaSeleccionada
-    ? prospectos.filter(
-        (p) => p.fecha === fechaSeleccionada || p.proxima_visita === fechaSeleccionada
-      )
-    : prospectos
+  // Borrar prospecto
+  const borrarProspecto = async () => {
+    if (!prospectoSelected?.id) return
+    if (!window.confirm('¿Estás seguro de borrar este prospecto? Esta acción no se puede deshacer.')) return
 
-  const prospectosFiltrados =
-    vistaActiva === 'historial'
-      ? baseFiltradosFecha.filter((p) => {
-          const f = p.fecha || p.ultima_visita_realizada
-          return f && f < hoyStr
-        })
-      : baseFiltradosFecha.filter((p) => {
-          const f = p.proxima_visita || p.fecha
-          return f && f >= hoyStr
-        })
+    const { error } = await supabase
+      .from('prospectos')
+      .delete()
+      .eq('id', prospectoSelected.id)
+
+    if (error) {
+      alert('Error al borrar: ' + error.message)
+    } else {
+      cerrarFicha()
+      await fetchData()
+      alert('Prospecto borrado con éxito')
+    }
+  }
 
   return (
-    <div className="flex h-screen bg-slate-100">
-      {/* LISTA PRINCIPAL DE PROSPECTOS */}
+    <div className="flex h-screen bg-slate-50">
+      {/* CONTENIDO PRINCIPAL */}
       <div className="flex-1 overflow-y-auto p-6">
-        {/* Pestañas superiores: Próximas / Historial / Estadísticas */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex gap-2 flex-1">
+        {/* PESTAÑAS PRINCIPALES */}
+        <div className="flex gap-2 mb-6 bg-white p-2 rounded-2xl shadow-sm border">
+          {[
+            { key: 'proximas', label: 'Próximas' },
+            { key: 'historial', label: 'Historial' },
+            { key: 'calendario', label: 'Calendario' },
+            { key: 'estadisticas', label: 'Estadísticas' }
+          ].map(tab => (
             <button
-              type="button"
-              onClick={() => setVistaActiva('calendario')}
-              className={`flex-1 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest ${
-                vistaActiva === 'calendario'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-slate-200 text-slate-600'
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${
+                activeTab === tab.key
+                  ? 'bg-[#0f172a] text-white shadow-lg'
+                  : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
               }`}
             >
-              Próximas Visitas
+              {tab.label}
             </button>
-            <button
-              type="button"
-              onClick={() => setVistaActiva('historial')}
-              className={`flex-1 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest ${
-                vistaActiva === 'historial'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-slate-200 text-slate-600'
-              }`}
-            >
-              Historial
-            </button>
-            <button
-              type="button"
-              onClick={() => setVistaActiva('estadisticas')}
-              className={`flex-1 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest ${
-                vistaActiva === 'estadisticas'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-slate-200 text-slate-600'
-              }`}
-            >
-              Estadísticas
-            </button>
-          </div>
-          <button
-            onClick={fetchProspectos}
-            className="ml-3 px-3 py-2 rounded-xl bg-slate-900 text-white text-[11px] font-bold"
-          >
-            Recargar
-          </button>
+          ))}
         </div>
 
-        {loading && prospectos.length === 0 && (
-          <div className="text-sm text-slate-500 mb-4">Cargando prospectos...</div>
+        {loading && (
+          <div className="text-center py-12 text-slate-400">Cargando...</div>
         )}
 
-        {/* Calendario / Estadísticas */}
-        <div className="mb-6 bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
-          {vistaActiva === 'calendario' || vistaActiva === 'historial' ? (
-            <>
-              <div className="flex items-center justify-between mb-2">
+        {/* VISTA: PRÓXIMAS */}
+        {activeTab === 'proximas' && !loading && (
+          <div className="space-y-3">
+            {prospectosFiltrados.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">No hay visitas próximas</div>
+            ) : (
+              prospectosFiltrados.map(p => (
+            <button
+                  key={p.id}
+                  onClick={() => abrirFicha(p)}
+                  className="w-full text-left p-4 bg-[#fffbeb] border border-[#fef3c7] rounded-2xl hover:shadow-md transition flex items-center justify-between"
+                >
+                  <div>
+                    <div className="font-bold text-slate-900">{p.grupo || 'Sin nombre'}</div>
+                    <div className="text-xs text-slate-600 mt-1">
+                      {p.proxima_visita || p.fecha} • {p.poblacion || p.provincia || 'Localidad no definida'}
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-white text-slate-600 border border-slate-200">
+                    {p.estado_comercial || 'POTENCIAL'}
+                  </span>
+            </button>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* VISTA: HISTORIAL */}
+        {activeTab === 'historial' && !loading && (
+          <div className="space-y-3">
+            {prospectosFiltrados.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">No hay visitas en el historial</div>
+            ) : (
+              prospectosFiltrados.map(p => (
+          <button
+                  key={p.id}
+                  onClick={() => abrirFicha(p)}
+                  className="w-full text-left p-4 bg-[#fffbeb] border border-[#fef3c7] rounded-2xl hover:shadow-md transition flex items-center justify-between"
+                >
+                  <div>
+                    <div className="font-bold text-slate-900">{p.grupo || 'Sin nombre'}</div>
+                    <div className="text-xs text-slate-600 mt-1">
+                      {p.ultima_visita_realizada || p.fecha} • {p.poblacion || p.provincia || 'Localidad no definida'}
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-white text-slate-600 border border-slate-200">
+                    {p.estado_comercial || 'POTENCIAL'}
+                  </span>
+          </button>
+              ))
+            )}
+        </div>
+        )}
+
+        {/* VISTA: CALENDARIO */}
+        {activeTab === 'calendario' && !loading && (
+          <div className="bg-white rounded-2xl p-6 shadow-sm border">
+            <div className="flex items-center justify-between mb-4">
                 <div>
-                  <div className="text-[11px] font-bold uppercase text-slate-400">
-                    Calendario de Visitas
+                <div className="text-xs font-bold uppercase text-slate-400">Calendario de Visitas</div>
+                <div className="text-sm text-slate-700">
+                  {currentDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
                   </div>
-                  <div className="text-xs text-slate-600">
-                    {currentDate.toLocaleString('es-ES', {
-                      month: 'long',
-                      year: 'numeric',
-                    })}
                   </div>
-                </div>
-                <div className="flex gap-1">
+              <div className="flex gap-2">
                   <button
-                    type="button"
-                    className="px-2 py-1 text-xs rounded-lg border border-slate-200"
-                    onClick={() =>
-                      setCurrentDate(
-                        (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
-                      )
-                    }
+                  onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))}
+                  className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50"
                   >
                     ‹
                   </button>
                   <button
-                    type="button"
-                    className="px-2 py-1 text-xs rounded-lg border border-slate-200"
-                    onClick={() =>
-                      setCurrentDate(
-                        (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
-                      )
-                    }
+                  onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))}
+                  className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50"
                   >
                     ›
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-7 gap-1 mb-1 text-[10px] text-slate-400 font-bold">
-                {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
-                  <div key={d} className="text-center">
+            <div className="grid grid-cols-7 gap-2 mb-2">
+              {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => (
+                <div key={d} className="text-center text-xs font-bold text-slate-400 py-2">
                     {d}
                   </div>
                 ))}
               </div>
-              <div className="grid grid-cols-7 gap-1">{renderCalendar()}</div>
-              {fechaSeleccionada && (
-                <div className="mt-2 text-[11px] text-slate-500">
-                  Filtrando por fecha:{' '}
-                  <span className="font-mono">{fechaSeleccionada}</span>
+            <div className="grid grid-cols-7 gap-2">{renderCalendar()}</div>
                 </div>
               )}
-            </>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-blue-50 border border-blue-100">
-                <div className="text-[11px] text-slate-500 font-bold uppercase">
-                  Total Clientes
+
+        {/* VISTA: ESTADÍSTICAS */}
+        {activeTab === 'estadisticas' && !loading && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border">
+              <div className="text-xs font-bold uppercase text-slate-400 mb-2">Total Prospectos</div>
+              <div className="text-3xl font-black text-slate-900">{estadisticas.totalProspectos}</div>
                 </div>
-                <div className="text-lg font-black text-blue-700">{totalClientes}</div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border">
+              <div className="text-xs font-bold uppercase text-slate-400 mb-2">Visitas Realizadas</div>
+              <div className="text-3xl font-black text-slate-900">{estadisticas.visitasRealizadas}</div>
               </div>
-            <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-100">
-              <div className="text-[11px] text-slate-500 font-bold uppercase">
-                Visitas este mes
-              </div>
-              <div className="text-lg font-black text-emerald-700">
-                {
-                  prospectos.filter((p) => {
-                    if (!p.fecha) return false
-                    const d = new Date(p.fecha)
-                    return (
-                      d.getFullYear() === currentDate.getFullYear() &&
-                      d.getMonth() === currentDate.getMonth()
-                    )
-                  }).length
-                }
-              </div>
-            </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 border border-amber-100">
-                <div className="text-[11px] text-slate-500 font-bold uppercase">
-                  Nuevas Captaciones
-                </div>
-                <div className="text-lg font-black text-amber-700">
-                  {
-                    prospectos.filter(
-                      (p) =>
-                        p.es_cliente &&
-                        p.fecha &&
-                        new Date(p.fecha) >= new Date(new Date().getFullYear(), 0, 1)
-                    ).length
-                  }
-                </div>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="text-[11px] text-slate-500 font-bold uppercase">
-                  Ratio de Conversión
-                </div>
-                <div className="text-lg font-black text-slate-800">
-                  {ratioConversion}%
-                </div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border">
+              <div className="text-xs font-bold uppercase text-slate-400 mb-2">Visitas Pendientes</div>
+              <div className="text-3xl font-black text-slate-900">{estadisticas.visitasPendientes}</div>
               </div>
             </div>
           )}
         </div>
 
-        {prospectosFiltrados.length === 0 && !loading && (
-          <div className="text-slate-400 italic">No hay prospectos para mostrar.</div>
-        )}
-
-        <div className="space-y-3">
-          {prospectosFiltrados.map((p) => {
-            const estado = p.estado_comercial || 'POTENCIAL'
-            let colorClasses = 'bg-white border-slate-200'
-            if (estado === 'CLIENTE') {
-              colorClasses = 'bg-emerald-50 border-emerald-200'
-            } else if (estado === 'POTENCIAL') {
-              colorClasses = 'bg-amber-50 border-amber-200'
-            } else if (estado === 'DESCARTAR') {
-              colorClasses = 'bg-slate-50 border-slate-200 opacity-70'
-            }
-
-            return (
-              <button
-                key={p.id}
-                onClick={() => abrirFicha(p)}
-                className={`w-full text-left rounded-2xl px-4 py-3 shadow-sm border hover:border-slate-400 transition flex items-center justify-between ${colorClasses}`}
-              >
-                <div>
-                  <div className="text-sm font-bold text-slate-900">
-                    {p.grupo || '(Sin nombre)'}
-                  </div>
-                  <div className="text-xs text-slate-500 flex items-center gap-2">
-                    <span>
-                      {p.fecha} · {p.poblacion || p.provincia || 'Localidad no definida'}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border border-slate-300 bg-white/70">
-                      {estado}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-xs text-slate-400">
-                  ID: {p.id ?? '—'}
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* PANEL LATERAL UNIFICADO */}
+      {/* PANEL LATERAL */}
       {showPanel && prospectoSelected && (
         <div className="w-full max-w-md border-l border-slate-200 bg-white h-full flex flex-col shadow-xl">
-          <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
-            <div className="flex-1">
-              <div className="text-xs text-slate-400 font-mono">
-                ID: {String(prospectoSelected.id)}
+          {/* HEADER */}
+          <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-slate-400 font-mono">ID: {prospectoSelected.id}</div>
+              <h2 className="text-lg font-black text-slate-900">{prospectoSelected.grupo || 'Ficha de Prospecto'}</h2>
               </div>
-              <h2 className="text-lg font-black text-slate-900">
-                {prospectoSelected.grupo || 'Ficha de Visita'}
-              </h2>
-            </div>
-            <div className="flex items-center gap-2">
+            <div className="flex gap-2">
                     <button
-                      type="button"
-                      onClick={async () => {
-                  if (!prospectoSelected?.id) {
-                    alert('No se puede borrar: falta ID de prospecto.')
-                   return
-                 }
-                  if (
-                    !window.confirm(
-                      '¿Estás seguro de que quieres borrar este registro?'
-                    )
-                  ) {
-                    return
-                  }
-                  const { error } = await supabase
-                   .from('prospectos')
-                    .delete()
-                    .eq('id', prospectoSelected.id)
-                  if (error) {
-                    alert('Error al borrar: ' + error.message)
-                 } else {
-                    cerrarFicha()
-                    fetchProspectos()
-                  }
-                }}
+                onClick={borrarProspecto}
                 className="p-2 rounded-full hover:bg-red-50 text-red-500 border border-red-100"
               >
                 🗑
                     </button>
-              <button
-                onClick={cerrarFicha}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-500"
-              >
+              <button onClick={cerrarFicha} className="p-2 rounded-full hover:bg-slate-100 text-slate-500">
                 <X size={18} />
               </button>
                 </div>
                 </div>
                 
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-            {/* PESTAÑAS DENTRO DE LA FICHA */}
-            <div className="flex gap-2 mb-2">
+          {/* SUB-PESTAÑAS */}
+          <div className="flex gap-2 px-5 pt-4 border-b border-slate-200">
+            {['datos', 'historial', 'programas'].map(tab => (
                         <button
-                          type="button"
-                onClick={() => setFichaTab('datos')}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold ${
-                  fichaTab === 'datos'
-                    ? 'bg-slate-900 text-white'
+                key={tab}
+                onClick={() => setFichaTab(tab)}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${
+                  fichaTab === tab
+                    ? 'bg-[#0f172a] text-white'
                     : 'bg-slate-100 text-slate-500'
                 }`}
               >
-                Datos
+                {tab === 'datos' ? 'Datos' : tab === 'historial' ? 'Historial' : 'Programas'}
                         </button>
-                    <button
-                      type="button"
-                onClick={() => setFichaTab('historial')}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold ${
-                  fichaTab === 'historial'
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-500'
-                }`}
-              >
-                Historial
-                    </button>
-                    <button
-                      type="button"
-                onClick={() => setFichaTab('programas')}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold ${
-                  fichaTab === 'programas'
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-500'
-                }`}
-              >
-                Programas
-                    </button>
+            ))}
                 </div>
                 
-            {/* DATOS DE VISITA */}
+          {/* CONTENIDO DEL PANEL */}
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+            {/* PESTAÑA: DATOS */}
             {fichaTab === 'datos' && (
-            <section id="tab-datos">
-              <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-3">
-                Datos de Visita
-              </h3>
-
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                    Grupo / Cliente
-                  </label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Grupo / Cliente</label>
                   <input 
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                     value={prospectoSelected.grupo || ''}
                     onChange={(e) => updateField('grupo', e.target.value)}
                   />
                 </div>
-                
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                 <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                      CIF / NIF
-                  </label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">CIF / NIF</label>
                   <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.cif || ''}
@@ -702,43 +547,33 @@ const CRM = () => {
                   />
                 </div>
                 <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                      Teléfono
-                    </label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Teléfono</label>
                   <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.telefono || ''}
                       onChange={(e) => updateField('telefono', e.target.value)}
                   />
+                  </div>
                 </div>
                 <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                      Responsable
-                    </label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Responsable</label>
                   <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.responsable || ''}
                       onChange={(e) => updateField('responsable', e.target.value)}
                     />
                   </div>
-                </div>
-                
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                    Dirección
-                  </label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Dirección</label>
                   <input 
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                     value={prospectoSelected.direccion || ''}
                     onChange={(e) => updateField('direccion', e.target.value)}
                   />
                 </div>
-                
                 <div className="grid grid-cols-2 gap-3">
                 <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                      Población
-                    </label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Población</label>
                   <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.poblacion || ''}
@@ -746,9 +581,7 @@ const CRM = () => {
                   />
           </div>
                 <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                      Provincia
-                  </label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Provincia</label>
                   <input 
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={prospectoSelected.provincia || ''}
@@ -756,49 +589,60 @@ const CRM = () => {
                     />
         </div>
                 </div>
-                
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                    Ubicación / Google Maps
-                  </label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Ubicación / Google Maps</label>
                   <input 
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                     value={prospectoSelected.ubicacion || ''}
                     onChange={(e) => updateField('ubicacion', e.target.value)}
                   />
       </div>
-                
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                    Notas Comerciales
-                  </label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Notas Comerciales</label>
                   <textarea 
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm min-h-[80px]"
-                    value={prospectoSelected.notas_comerciales || prospectoSelected.notas || ''}
+                    value={prospectoSelected.notas || prospectoSelected.notas_comerciales || ''}
                     onChange={(e) => {
-                      updateField('notas_comerciales', e.target.value)
                       updateField('notas', e.target.value)
+                      updateField('notas_comerciales', e.target.value)
                     }}
                   />
     </div>
-                
-                {/* Acciones rápidas */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Estado Comercial</label>
+                  <select
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                    value={prospectoSelected.estado_comercial || 'POTENCIAL'}
+                    onChange={(e) => updateField('estado_comercial', e.target.value)}
+                  >
+                    <option value="CLIENTE">CLIENTE</option>
+                    <option value="POTENCIAL">POTENCIAL</option>
+                    <option value="DESCARTAR">DESCARTAR</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Próxima Visita</label>
+                  <input
+                    type="date"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                    value={prospectoSelected.proxima_visita || ''}
+                    onChange={(e) => updateField('proxima_visita', e.target.value)}
+                  />
+                </div>
+                {/* BOTONES DE ACCIÓN */}
                 <div className="flex gap-2 pt-2">
                   {prospectoSelected.telefono && (
                     <a
                       href={`tel:${prospectoSelected.telefono}`}
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold"
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-[#0f172a] text-white text-xs font-bold"
                     >
                       <Phone size={14} /> Llamar
                     </a>
                   )}
                   {prospectoSelected.ubicacion && (
                     <button
-                      type="button"
                       onClick={() => {
-                        const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                          prospectoSelected.ubicacion
-                        )}`
+                        const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(prospectoSelected.ubicacion)}`
                         window.open(url, '_blank')
                       }}
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold"
@@ -808,388 +652,220 @@ const CRM = () => {
                     )}
                   </div>
                 </div>
-            </section>
             )}
     
-            {/* HISTORIAL */}
+            {/* PESTAÑA: HISTORIAL */}
             {fichaTab === 'historial' && (
-              <section id="tab-historial" className="space-y-3">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">
-                    Historial de Visitas
-                  </h3>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">Registrar Nueva Visita</h3>
                     <button
-                      type="button"
                     onClick={registrarVisita}
-                    className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-slate-900 text-white"
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#0f172a] text-white"
                   >
-                    + Registrar Visita
+                    + Registrar
                     </button>
                 </div>
-                
-                <div className="grid grid-cols-2 gap-2">
                 <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                      Fecha de Visita
-                    </label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Fecha de Visita</label>
                     <input
                       type="date"
-                      className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                       value={nuevaVisita.fecha}
-                      onChange={(e) =>
-                        setNuevaVisita((prev) => ({ ...prev, fecha: e.target.value }))
-                      }
+                    onChange={(e) => setNuevaVisita(prev => ({ ...prev, fecha: e.target.value }))}
                   />
                 </div>
                 <div>
-                    <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                      Próxima Visita
-                  </label>
-                  <input 
-                    type="date" 
-                      className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
-                      value={prospectoSelected.proxima_visita || ''}
-                      onChange={(e) => updateField('proxima_visita', e.target.value)}
-                    />
-                    </div>
-                </div>
-                
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                    Comentario de la Visita
-                  </label>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Comentario</label>
                   <textarea 
-                    className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs min-h-[60px]"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm min-h-[80px]"
                     value={nuevaVisita.comentario}
-                    onChange={(e) =>
-                      setNuevaVisita((prev) => ({ ...prev, comentario: e.target.value }))
-                    }
+                    onChange={(e) => setNuevaVisita(prev => ({ ...prev, comentario: e.target.value }))}
                   />
                 </div>
-                
-                <div className="border-t border-slate-200 pt-2">
-                  <h4 className="text-[11px] font-bold uppercase text-slate-400 mb-1">
-                    Visitas registradas
-                  </h4>
-                  {visitas.length === 0 ? (
-                    <div className="text-xs text-slate-400 italic">
-                      Aún no hay visitas registradas para este cliente.
-                  </div>
+                <div className="border-t border-slate-200 pt-4">
+                  <h4 className="text-xs font-bold uppercase text-slate-400 mb-3">Visitas Registradas</h4>
+                  {visitasProspecto.length === 0 ? (
+                    <div className="text-xs text-slate-400 italic">No hay visitas registradas</div>
                   ) : (
-                    <div className="space-y-1 max-h-40 overflow-y-auto">
-                      {visitas.map((v) => (
-                        <div
-                          key={v.id}
-                          className="flex items-start justify-between text-[11px] border border-slate-200 rounded-lg px-2 py-1 bg-slate-50"
-                        >
-                          <div className="font-mono text-slate-500 mr-2">
-                            {v.fecha}
-          </div>
-                          <div className="flex-1 text-slate-700 whitespace-pre-line">
-                            {v.comentario || 'Sin comentario'}
-        </div>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {visitasProspecto.map(v => (
+                        <div key={v.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                          <div className="text-xs font-mono text-slate-500 mb-1">{v.fecha}</div>
+                          <div className="text-xs text-slate-700 whitespace-pre-line">{v.comentario || 'Sin comentario'}</div>
     </div>
                       ))}
       </div>
                   )}
     </div>
-              </section>
+              </div>
             )}
     
-      {/* PROGRAMAS PRESENTADOS */}
+            {/* PESTAÑA: PROGRAMAS */}
             {fichaTab === 'programas' && (
-            <section id="tab-programas">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">
-            Programas Presentados
-                </h3>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">Programas Presentados</h3>
                 <button
-                  type="button"
                   onClick={addPrograma}
-                  className="text-xs font-bold text-blue-600"
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white"
                 >
-                  + Añadir programa
+                    + Añadir
                 </button>
         </div>
-
-              {(!prospectoSelected.programas_presentados ||
-                prospectoSelected.programas_presentados.length === 0) && (
-                <div className="text-xs text-slate-400 italic mb-2">
-                  No hay programas registrados para este prospecto.
-            </div>
-          )}
-
+                {(!prospectoSelected.programas_presentados || prospectoSelected.programas_presentados.length === 0) && (
+                  <div className="text-xs text-slate-400 italic">No hay programas registrados</div>
+                )}
               <div className="space-y-3">
                 {Array.isArray(prospectoSelected.programas_presentados) &&
                   prospectoSelected.programas_presentados.map((prog, idx) => (
-            <div
-              key={idx}
-                      className="border border-slate-200 rounded-xl p-3 space-y-2 bg-slate-50"
-                    >
+                      <div key={idx} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-[11px] font-bold text-slate-500">
-                          Programa #{idx + 1}
-                </span>
+                          <span className="text-xs font-bold text-slate-500">Programa #{idx + 1}</span>
                         <button
-                          type="button"
                           onClick={() => removePrograma(idx)}
-                          className="text-[11px] text-red-500"
+                            className="text-xs text-red-500 hover:text-red-700"
                         >
                           Quitar
                         </button>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
               <div>
-                          <label className="block text-[10px] text-slate-500 mb-1">
-                  Destino
-                </label>
+                            <label className="block text-[10px] text-slate-500 mb-1">Destino</label>
                 <input
                             className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
                             value={prog.destino || ''}
-                            onChange={(e) =>
-                              updateProgramaField(idx, 'destino', e.target.value)
-                            }
+                              onChange={(e) => updatePrograma(idx, 'destino', e.target.value)}
                 />
               </div>
               <div>
-                          <label className="block text-[10px] text-slate-500 mb-1">
-                  Fechas
-                </label>
+                            <label className="block text-[10px] text-slate-500 mb-1">Fechas</label>
                 <input
                             className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
                             value={prog.fechas || ''}
-                            onChange={(e) =>
-                              updateProgramaField(idx, 'fechas', e.target.value)
-                            }
+                              onChange={(e) => updatePrograma(idx, 'fechas', e.target.value)}
                 />
               </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
               <div>
-                          <label className="block text-[10px] text-slate-500 mb-1">
-                  Estado
-                </label>
+                          <label className="block text-[10px] text-slate-500 mb-1">Estado</label>
                 <select
                             className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
                             value={prog.estado || 'Pendiente'}
-                            onChange={(e) =>
-                              updateProgramaField(idx, 'estado', e.target.value)
-                            }
+                            onChange={(e) => updatePrograma(idx, 'estado', e.target.value)}
                 >
                   <option value="Pendiente">Pendiente</option>
-                  <option value="Revision">Revisión</option>
+                            <option value="Revisión">Revisión</option>
                   <option value="Confirmado">Confirmado</option>
                 </select>
             </div>
             <div>
-                          <label className="block text-[10px] text-slate-500 mb-1">
-                            URL imagen / captura
-              </label>
+                          <label className="block text-[10px] text-slate-500 mb-1">URL Imagen</label>
                           <input
                             className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs"
                             value={prog.imagen || ''}
-                            onChange={(e) =>
-                              updateProgramaField(idx, 'imagen', e.target.value)
-                            }
+                            onChange={(e) => updatePrograma(idx, 'imagen', e.target.value)}
                           />
-                        </div>
             </div>
             <div>
-                        <label className="block text-[10px] text-slate-500 mb-1">
-                          Explicación
-              </label>
+                          <label className="block text-[10px] text-slate-500 mb-1">Explicación</label>
                         <textarea
-                          className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs min-h-[50px]"
+                            className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs min-h-[60px]"
                           value={prog.explicacion || ''}
-                          onChange={(e) =>
-                            updateProgramaField(idx, 'explicacion', e.target.value)
-                          }
+                            onChange={(e) => updatePrograma(idx, 'explicacion', e.target.value)}
               />
             </div>
             </div>
                   ))}
         </div>
-            </section>
+              </div>
             )}
-
-            {/* ESTADO COMERCIAL */}
-            <section>
-              <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-2">
-                Estado Comercial
-              </h3>
-              <div className="grid grid-cols-2 gap-2 mb-2">
-          <button 
-                  type="button"
-            onClick={() => {
-                    updateField('es_cliente', true)
-                    updateField('estado_comercial', 'CLIENTE')
-            }}
-                  className="px-3 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white"
-          >
-                  Hacer Cliente
-          </button>
-          <button
-                  type="button"
-                  onClick={() => {
-                    updateField('es_cliente', false)
-                    updateField('estado_comercial', 'POTENCIAL')
-                  }}
-                  className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600"
-                >
-                  Marcar como Prospección
-          </button>
               </div>
-              <select
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                value={prospectoSelected.estado_comercial || 'POTENCIAL'}
-                onChange={(e) => updateField('estado_comercial', e.target.value)}
-              >
-                <option value="CLIENTE">CLIENTE</option>
-                <option value="POTENCIAL">POTENCIAL</option>
-                <option value="DESCARTAR">DESCARTAR</option>
-              </select>
-              <div className="mt-3">
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  Próxima Visita
-                </label>
-                <input
-                  type="date"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                  value={prospectoSelected.proxima_visita || ''}
-                  onChange={(e) => updateField('proxima_visita', e.target.value)}
-                />
-              </div>
-            </section>
 
-            {/* ESTADO COMERCIAL */}
-            <section>
-              <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-2">
-                Estado Comercial
-              </h3>
-              <select
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                value={prospectoSelected.estado_comercial || 'POTENCIAL'}
-                onChange={(e) => updateField('estado_comercial', e.target.value)}
-              >
-                <option value="CLIENTE">CLIENTE</option>
-                <option value="POTENCIAL">POTENCIAL</option>
-                <option value="DESCARTAR">DESCARTAR</option>
-              </select>
-            </section>
-      </div>
-
-          {/* BOTÓN ÚNICO DE GUARDADO */}
+          {/* BOTÓN GUARDAR */}
           <div className="p-4 border-t border-slate-200">
         <button
-              type="button"
               onClick={handleSave}
-              className="w-full py-3 rounded-2xl bg-slate-900 text-white text-sm font-black tracking-wide"
+              className="w-full py-3 rounded-2xl bg-[#0f172a] text-white text-sm font-black tracking-wide"
         >
-              Guardar ficha completa
+              Guardar Ficha Completa
         </button>
       </div>
         </div>
       )}
 
-      {/* MODAL AGENDAR VISITA DESDE CALENDARIO */}
+      {/* MODAL AGENDAR VISITA */}
       {showAgendaModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-black text-slate-900">
-                Agendar visita para el {agendaFecha || '—'}
-              </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900">Agendar Visita</h3>
               <button
-                type="button"
                 onClick={() => setShowAgendaModal(false)}
                 className="p-1 rounded-full hover:bg-slate-100 text-slate-500"
               >
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
-            <div className="space-y-3">
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  Fecha
-                </label>
+              <label className="block text-xs font-bold text-slate-500 mb-1">Fecha</label>
                 <input
                   type="date"
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                  value={agendaFecha}
-                  onChange={(e) => setAgendaFecha(e.target.value)}
+                value={fechaSeleccionada}
+                onChange={(e) => setFechaSeleccionada(e.target.value)}
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  Prospecto
-                </label>
+              <label className="block text-xs font-bold text-slate-500 mb-1">Prospecto Existente</label>
                 <select
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                   value={agendaProspectoId}
                   onChange={(e) => setAgendaProspectoId(e.target.value)}
                 >
-                  <option value="">Selecciona un prospecto…</option>
-                  {prospectos.map((p) => (
+                <option value="">Selecciona un prospecto...</option>
+                {prospectos.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.grupo || '(Sin nombre)'} · {p.poblacion || p.provincia || ''}
+                    {p.grupo || 'Sin nombre'} • {p.poblacion || p.provincia || ''}
                     </option>
                   ))}
                 </select>
               </div>
-              <div className="border-t border-slate-200 pt-2 mt-1">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-bold text-slate-500">
-                    Nuevo Cliente (Opcional)
-                  </span>
-                </div>
+            <div className="border-t border-slate-200 pt-3">
+              <label className="block text-xs font-bold text-slate-500 mb-1">Nuevo Prospecto (Opcional)</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input
-                    placeholder="Nombre"
+                  placeholder="Nombre del grupo"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                    value={agendaNuevoProspecto.nombre}
-                    onChange={(e) =>
-                      setAgendaNuevoProspecto((prev) => ({
-                        ...prev,
-                        nombre: e.target.value,
-                      }))
-                    }
+                  value={agendaNuevoProspecto.grupo}
+                  onChange={(e) => setAgendaNuevoProspecto(prev => ({ ...prev, grupo: e.target.value }))}
                   />
                   <input
                     placeholder="Teléfono"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                     value={agendaNuevoProspecto.telefono}
-                    onChange={(e) =>
-                      setAgendaNuevoProspecto((prev) => ({
-                        ...prev,
-                        telefono: e.target.value,
-                      }))
-                    }
+                  onChange={(e) => setAgendaNuevoProspecto(prev => ({ ...prev, telefono: e.target.value }))}
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  Comentario
-                </label>
+              <label className="block text-xs font-bold text-slate-500 mb-1">Comentario</label>
                 <textarea
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm min-h-[70px]"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm min-h-[80px]"
                   value={agendaComentario}
                   onChange={(e) => setAgendaComentario(e.target.value)}
                 />
-              </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
-                type="button"
                 onClick={() => setShowAgendaModal(false)}
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600"
               >
                 Cancelar
               </button>
               <button
-                type="button"
                 onClick={guardarVisitaDesdeCalendario}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[#0f172a] text-white"
               >
                 Guardar Visita
               </button>
