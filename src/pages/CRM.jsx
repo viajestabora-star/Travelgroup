@@ -16,21 +16,51 @@ const CRM = () => {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [fechaSeleccionada, setFechaSeleccionada] = useState(new Date().toISOString().split('T')[0])
   const [nuevo, setNuevo] = useState({
+    id: null,
     grupo: '',
     contacto: '',
     telefono: '',
-    interes: 'Medio',
-    notas: '',
-    notas_comerciales: '',
-    ubicacion: '',
-    fecha: new Date().toISOString().split('T')[0],
-    cliente_id: null,
     cif: '',
+    contacto_persona: '',
     direccion: '',
     poblacion: '',
     provincia: '',
+    ubicacion: '',
+    ubicacion_gps: '',
+    interes: 'Medio',
+    nivel_interes: 'Medio',
     objeciones_competencia: '',
     proximo_contacto: '',
+    notas: '',
+    notas_comerciales: '',
+    fecha: new Date().toISOString().split('T')[0],
+    cliente_id: null,
+    latitude: null,
+    longitude: null,
+    check_in_at: null,
+  })
+
+  // Estado profesional de selección de prospecto (normalizado para evitar valores undefined)
+  const [prospectoSelected, setProspectoSelected] = useState({
+    id: null,
+    grupo: '',
+    contacto: '',
+    telefono: '',
+    cif: '',
+    contacto_persona: '',
+    direccion: '',
+    poblacion: '',
+    provincia: '',
+    ubicacion: '',
+    ubicacion_gps: '',
+    interes: 'Medio',
+    nivel_interes: 'Medio',
+    objeciones_competencia: '',
+    proximo_contacto: '',
+    notas: '',
+    notas_comerciales: '',
+    fecha: new Date().toISOString().split('T')[0],
+    cliente_id: null,
     latitude: null,
     longitude: null,
     check_in_at: null,
@@ -244,19 +274,23 @@ const CRM = () => {
 
   const cerrarModal = () => {
     setNuevo({
+      id: null,
       grupo: '',
       contacto: '',
       telefono: '',
-      interes: 'Medio',
-      notas: '',
-      notas_comerciales: '',
-      ubicacion: '',
-      fecha: new Date().toISOString().split('T')[0],
-      cliente_id: null,
       cif: '',
+      contacto_persona: '',
       direccion: '',
       poblacion: '',
       provincia: '',
+      interes: 'Medio',
+      nivel_interes: 'Medio',
+      notas: '',
+      notas_comerciales: '',
+      ubicacion: '',
+      ubicacion_gps: '',
+      fecha: new Date().toISOString().split('T')[0],
+      cliente_id: null,
       objeciones_competencia: '',
       proximo_contacto: '',
       latitude: null,
@@ -302,17 +336,21 @@ const CRM = () => {
     setBusquedaCliente(cliente.nombre || '')
     setMostrarSugerencias(false)
     
-    // Auto-rellenar datos del cliente
+    // Auto-rellenar datos del cliente (todos los campos profesionales controlados)
     setNuevo((prev) => ({
       ...prev,
       grupo: cliente.nombre || '',
-      cliente_id: cliente.id ?? null,
       cif: cliente.cif_nif || '',
       telefono: cliente.telefono || cliente.movil || '',
       direccion: cliente.direccion || '',
       poblacion: cliente.poblacion || '',
       provincia: cliente.provincia || '',
+      cliente_id: cliente.id ?? null,
+      contacto_persona: prev.contacto_persona || '',
       ubicacion: `${cliente.direccion || ''}, ${cliente.poblacion || ''}, ${cliente.provincia || ''}`
+        .replace(/^,\s*|,\s*$/g, '')
+        .replace(/,\s*,/g, ','),
+      ubicacion_gps: `${cliente.direccion || ''}, ${cliente.poblacion || ''}, ${cliente.provincia || ''}`
         .replace(/^,\s*|,\s*$/g, '')
         .replace(/,\s*,/g, ','),
     }))
@@ -414,21 +452,25 @@ const CRM = () => {
                   const estado = p.status || p.interes || 'Medio'
 
                   setNuevo({
+                    id: p.id ?? null,
                     grupo: p.grupo || '',
                     contacto: p.contacto || '',
                     telefono: p.telefono || '',
-                    interes: estado,
-                    notas: p.notas || '',
-                    notas_comerciales: p.notas_comerciales || p.notas || '',
-                    ubicacion: p.ubicacion || '',
-                    fecha: p.fecha || new Date().toISOString().split('T')[0],
-                    cliente_id: p.cliente_id ?? null,
                     cif: p.cif || '',
+                    contacto_persona: p.contacto_persona || p.contacto || '',
                     direccion: p.direccion || '',
                     poblacion: p.poblacion || '',
                     provincia: p.provincia || '',
+                    ubicacion: p.ubicacion || '',
+                    ubicacion_gps: p.ubicacion_gps || p.ubicacion || '',
+                    interes: estado,
+                    nivel_interes: p.nivel_interes || estado,
                     objeciones_competencia: objeciones,
                     proximo_contacto: proximoContacto,
+                    notas: p.notas || '',
+                    notas_comerciales: p.notas_comerciales || p.notas || '',
+                    fecha: p.fecha || new Date().toISOString().split('T')[0],
+                    cliente_id: p.cliente_id ?? null,
                     latitude: p.latitud || null,
                     longitude: p.longitud || null,
                     check_in_at: p.check_in_at || null,
@@ -476,24 +518,34 @@ const CRM = () => {
                    const status = nuevo.interes || 'Medio'
 
                    const basePayload = {
+                     // Identidad y datos básicos
                      grupo: nuevo.grupo || busquedaCliente || '',
                      contacto: nuevo.contacto || '',
                      telefono: nuevo.telefono || '',
-                     interes: status,
-                     notas: nuevo.notas || '',
-                     notas_comerciales: nuevo.notas_comerciales || '',
-                     ubicacion: nuevo.ubicacion || '',
-                     fecha: nuevo.fecha,
-                     cliente_id: nuevo.cliente_id,
                      cif: nuevo.cif || '',
+                     contacto_persona: nuevo.contacto_persona || nuevo.contacto || '',
                      direccion: nuevo.direccion || '',
                      poblacion: nuevo.poblacion || '',
                      provincia: nuevo.provincia || '',
+
+                     // Ubicación
+                     ubicacion: nuevo.ubicacion || nuevo.ubicacion_gps || '',
+                     ubicacion_gps: nuevo.ubicacion_gps || nuevo.ubicacion || '',
+
+                     // Interés comercial
+                     interes: status,
+                     nivel_interes: nuevo.nivel_interes || status,
+
+                     // Notas y seguimiento
+                     notas: nuevo.notas || '',
+                     notas_comerciales: nuevo.notas_comerciales || '',
+                     fecha: nuevo.fecha,
+                     cliente_id: nuevo.cliente_id,
                    }
 
                    const datosCompletos = {
                      ...basePayload,
-                     status, // semáforo comercial
+                     status, // semáforo comercial redundante para compatibilidad
                      objeciones_competencia: nuevo.objeciones_competencia || '',
                      proximo_contacto: nuevo.proximo_contacto || null,
                      latitud: nuevo.latitude,
