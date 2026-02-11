@@ -350,12 +350,12 @@ const CRM = () => {
 
   // Guardado directo sobre la tabla `prospectos` usando el ID numérico
   const handleSave = async (datos) => {
-    if (!datos?.id) return alert('Error: No hay ID de prospecto')
+    if (!datos?.id) return alert('Error: ID no detectado')
     const { error } = await supabase.from('prospectos').upsert({
       ...datos,
       id: Number(datos.id),
     })
-    if (!error) alert('Guardado con éxito')
+    if (!error) alert('¡Rocafort guardado con éxito!')
   }
 
   return (
