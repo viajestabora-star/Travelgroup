@@ -361,6 +361,87 @@ const CRM = () => {
     !busquedaCliente || c.nombre.toLowerCase().includes(busquedaCliente.toLowerCase())
   ).slice(0, 10) // Limitar a 10 resultados
 
+  // Guardado profesional de prospectos (alta / edición) contra Supabase
+  const handleSave = async (prospecto) => {
+    if (guardando) return
+
+    setGuardando(true)
+
+    try {
+      // ========= MAPEO COMPLETO A LA TABLA `prospectos` =========
+      const status = prospecto.interes || prospecto.nivel_interes || 'Medio'
+
+      const basePayload = {
+        // Identidad y datos básicos
+        id: prospecto.id ?? null,
+        grupo: prospecto.grupo || '',
+        contacto: prospecto.contacto || '',
+        telefono: prospecto.telefono || '',
+        cif: prospecto.cif || '',
+        contacto_persona: prospecto.contacto_persona || prospecto.contacto || '',
+        direccion: prospecto.direccion || '',
+        poblacion: prospecto.poblacion || '',
+        provincia: prospecto.provincia || '',
+
+        // Ubicación
+        ubicacion: prospecto.ubicacion || prospecto.ubicacion_gps || '',
+        ubicacion_gps: prospecto.ubicacion_gps || prospecto.ubicacion || '',
+
+        // Interés comercial
+        interes: status,
+        nivel_interes: prospecto.nivel_interes || status,
+
+        // Notas y seguimiento
+        notas: prospecto.notas || '',
+        notas_comerciales: prospecto.notas_comerciales || '',
+        fecha: prospecto.fecha || new Date().toISOString().split('T')[0],
+        cliente_id: prospecto.cliente_id ?? null,
+      }
+
+      const datosCompletos = {
+        ...basePayload,
+        status, // semáforo comercial redundante para compatibilidad
+        objeciones_competencia: prospecto.objeciones_competencia || '',
+        proximo_contacto: prospecto.proximo_contacto || null,
+        latitud: prospecto.latitude,
+        longitud: prospecto.longitude,
+        check_in_at: prospecto.check_in_at || new Date().toISOString(),
+      }
+
+      // ========= USAR .upsert() BASADO EN ID (NUMÉRICO) =========
+      const rawId = prospecto.id != null ? prospecto.id : editandoId
+      const idNumerico = rawId != null ? Number(rawId) : null
+
+      if (rawId != null && (idNumerico === null || Number.isNaN(idNumerico))) {
+        alert('El ID de la visita es inválido y no se puede guardar.')
+        return
+      }
+
+      const datosParaUpsert =
+        idNumerico != null
+          ? { ...datosCompletos, id: idNumerico }
+          : datosCompletos
+
+      const { error } = await supabase
+        .from('prospectos')
+        .upsert(datosParaUpsert, { onConflict: 'id' })
+
+      if (error) {
+        console.error('Error al guardar visita en prospectos:', error)
+        alert('Error al guardar: ' + (error.message || 'desconocido'))
+        return
+      }
+
+      cerrarModal()
+      cargarDatos()
+    } catch (err) {
+      console.error('Error inesperado al guardar visita:', err)
+      alert('Error inesperado al guardar la visita.')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
   return (
     <div className="p-4 bg-[#F8FAFC] min-h-screen pb-32 font-sans text-slate-900">
       <div className="flex justify-between items-center mb-6 px-2">
@@ -451,7 +532,7 @@ const CRM = () => {
 
                   const estado = p.status || p.interes || 'Medio'
 
-                  setNuevo({
+                  const normalizado = {
                     id: p.id ?? null,
                     grupo: p.grupo || '',
                     contacto: p.contacto || '',
@@ -474,7 +555,10 @@ const CRM = () => {
                     latitude: p.latitud || null,
                     longitude: p.longitud || null,
                     check_in_at: p.check_in_at || null,
-                  })
+                  }
+
+                  setNuevo(normalizado)
+                  setProspectoSelected(normalizado)
                   // Reset selección de cliente en edición (se puede vincular después)
                   setClienteSeleccionado(null)
                   setBusquedaCliente(p.grupo || '')
@@ -487,6 +571,7 @@ const CRM = () => {
                   }
                 }}
                 onAddPrograma={(programa) => crearProgramaParaProspecto(p.id, programa)}
+                onSave={async () => { await handleSave(prospectoSelected) }}
               />
             )})}
             {datosMostrar.length === 0 && <div className="text-center py-20 text-slate-300 italic">Sin registros</div>}
@@ -510,80 +595,8 @@ const CRM = () => {
                    return
                  }
 
-                 setGuardando(true)
-
-                 try {
-                   // ========= MAPEO COMPLETO A LA TABLA `prospectos` =========
-                   // Integridad profesional: todos los campos del estado "nuevo" se reflejan en Supabase.
-                   const status = nuevo.interes || 'Medio'
-
-                   const basePayload = {
-                     // Identidad y datos básicos
-                     grupo: nuevo.grupo || busquedaCliente || '',
-                     contacto: nuevo.contacto || '',
-                     telefono: nuevo.telefono || '',
-                     cif: nuevo.cif || '',
-                     contacto_persona: nuevo.contacto_persona || nuevo.contacto || '',
-                     direccion: nuevo.direccion || '',
-                     poblacion: nuevo.poblacion || '',
-                     provincia: nuevo.provincia || '',
-
-                     // Ubicación
-                     ubicacion: nuevo.ubicacion || nuevo.ubicacion_gps || '',
-                     ubicacion_gps: nuevo.ubicacion_gps || nuevo.ubicacion || '',
-
-                     // Interés comercial
-                     interes: status,
-                     nivel_interes: nuevo.nivel_interes || status,
-
-                     // Notas y seguimiento
-                     notas: nuevo.notas || '',
-                     notas_comerciales: nuevo.notas_comerciales || '',
-                     fecha: nuevo.fecha,
-                     cliente_id: nuevo.cliente_id,
-                   }
-
-                   const datosCompletos = {
-                     ...basePayload,
-                     status, // semáforo comercial redundante para compatibilidad
-                     objeciones_competencia: nuevo.objeciones_competencia || '',
-                     proximo_contacto: nuevo.proximo_contacto || null,
-                     latitud: nuevo.latitude,
-                     longitud: nuevo.longitude,
-                     check_in_at: nuevo.check_in_at || new Date().toISOString(),
-                   }
-
-                   // ========= USAR .upsert() BASADO EN ID (NUMÉRICO) =========
-                   const idNumerico = editandoId != null ? Number(editandoId) : null
-
-                   if (editandoId != null && (idNumerico === null || Number.isNaN(idNumerico))) {
-                     alert('El ID de la visita es inválido y no se puede guardar.')
-                     return
-                   }
-
-                   const datosParaUpsert =
-                     editandoId != null
-                       ? { ...datosCompletos, id: idNumerico }
-                       : datosCompletos
-
-                   const { error } = await supabase
-                     .from('prospectos')
-                     .upsert(datosParaUpsert, { onConflict: 'id' })
-
-                   if (error) {
-                     console.error('Error al guardar visita en prospectos:', error)
-                     alert('Error al guardar: ' + (error.message || 'desconocido'))
-                     return
-                   }
-
-                   cerrarModal()
-                   cargarDatos()
-                 } catch (err) {
-                   console.error('Error inesperado al guardar visita:', err)
-                   alert('Error inesperado al guardar la visita.')
-                 } finally {
-                   setGuardando(false)
-                 }
+                 // El estado "nuevo" ya contiene todos los campos profesionales normalizados
+                 await handleSave(nuevo)
                }}
                className="space-y-4"
              >
@@ -949,7 +962,7 @@ const MetricCard = ({ icon, label, value, color }) => (
   </div>
 )
 
-const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert, onAddPrograma }) => {
+const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert, onAddPrograma, onSave }) => {
   // Obtener datos para acciones rápidas
   const rawTelefono = p.telefono || p.movil || p.telefono_contacto || ''
   const telefonoParaLlamar = String(rawTelefono).trim()
@@ -1026,7 +1039,17 @@ const VisitaCard = ({ p, esClienteOficial, onEdit, onDelete, onConvert, onAddPro
         <button onClick={onEdit} className="text-slate-300"><Edit3 size={18}/></button>
         <button onClick={onDelete} className="text-slate-100 hover:text-red-500"><Trash2 size={18}/></button>
       </div>
-    </div>
+      </div>
+
+      {onSave && (
+        <button
+          type="button"
+          onClick={onSave}
+          className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold mt-4"
+        >
+          GUARDAR CAMBIOS
+        </button>
+      )}
     <h3 className="font-bold text-xl text-slate-800 mb-1 leading-tight">{p.grupo}</h3>
       {esClienteOficial && (
         <span className="inline-block text-[9px] font-black px-3 py-1 rounded-full uppercase bg-green-50 text-green-600 tracking-tighter mb-2">
