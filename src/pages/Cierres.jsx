@@ -234,7 +234,6 @@ const Cierres = () => {
   const [clienteSearch, setClienteSearch] = useState('')
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
   const [importeTotalInput, setImporteTotalInput] = useState('')
-  const [ivaPorcentaje, setIvaPorcentaje] = useState(21)
   const [concepto, setConcepto] = useState('')
   const [aplicandoFacturaDirecta, setAplicandoFacturaDirecta] = useState(false)
 
@@ -751,12 +750,6 @@ const Cierres = () => {
       return
     }
 
-    const ivaPct = parseFloat(String(ivaPorcentaje))
-    if (Number.isNaN(ivaPct) || ivaPct < 0) {
-      alert('Porcentaje de IVA no válido.')
-      return
-    }
-    
     if (!concepto || concepto.trim().length < 3) {
       alert('Indica un concepto de factura más descriptivo.')
       return
@@ -766,10 +759,8 @@ const Cierres = () => {
     try {
       const numeroFactura = await obtenerSiguienteNumeroFactura()
 
-      // El usuario introduce el TOTAL, calculamos base e IVA a partir de ese total
+      // El usuario introduce el TOTAL (IVA incluido). Sin desglose: estructura unificada como expedientes.
       const totalFactura = +totalInput.toFixed(2)
-      const baseImponible = +(totalFactura / (1 + ivaPct / 100)).toFixed(2)
-      const iva = +(totalFactura - baseImponible).toFixed(2)
 
       const fechaEmisionISO = new Date().toISOString()
 
@@ -789,10 +780,7 @@ const Cierres = () => {
         },
         concepto: concepto.trim(),
         calcularBaseFactura: {
-          baseImponible: baseImponible.toFixed(2),
-          iva: iva.toFixed(2),
-          totalFactura: totalFactura.toFixed(2),
-          tipoIVA: ivaPct
+          totalFactura: totalFactura.toFixed(2)
         }
       }
 
@@ -871,17 +859,22 @@ const Cierres = () => {
         doc.setFont(undefined, 'normal')
         doc.text(concepto.trim(), 20, yPos)
         yPos += 12
-        
+
+        doc.setFontSize(12)
         doc.setFont(undefined, 'bold')
-        doc.text('Base imponible:', 20, yPos)
-        doc.text(`${baseImponible.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
-        yPos += 8
-        doc.text(`IVA (${ivaPct}%):`, 20, yPos)
-        doc.text(`${iva.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
-        yPos += 10
-        doc.setFontSize(14)
-        doc.text('TOTAL:', 20, yPos)
+        doc.text('TOTAL FACTURA (IVA INCLUIDO):', 20, yPos)
         doc.text(`${totalFactura.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+        yPos += 10
+
+        doc.setFontSize(7)
+        doc.setFont(undefined, 'normal')
+        doc.setTextColor(80, 80, 80)
+        const clausulaLegal = 'Régimen especial de las agencias de viaje. El IVA ya está incluido en todos los conceptos especificados en esta factura, de acuerdo con lo señalado en el art 142 de la Ley 37/1992, de 28 de diciembre, del Impuesto sobre el Valor Añadido.'
+        const lineasClausula = doc.splitTextToSize(clausulaLegal, pageWidth - 40)
+        lineasClausula.forEach((linea) => {
+          doc.text(linea, 20, yPos)
+          yPos += 4
+        })
         
         doc.save(`Factura_${numeroFactura}_Directa.pdf`)
       } catch (pdfError) {
@@ -1076,19 +1069,6 @@ const Cierres = () => {
                       className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-[0.18em] mb-2">
-                    IVA (%)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={ivaPorcentaje}
-                    onChange={(e) => setIvaPorcentaje(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
                 </div>
                 <div className="bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-600">
                   {(() => {
