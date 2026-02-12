@@ -1750,6 +1750,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
     
     try {
+      // 1. Definir noches desde el estado del servicio (evitar ReferenceError)
+      const nochesFinal = (servicio.noches != null && !isNaN(Number(servicio.noches))) ? Number(servicio.noches) : 1
+
       const tipoCalculo = servicio.tipoCalculo || servicio.tipo_calculo || 'porPersona'
 
       // Cálculo centralizado usando el MOTOR DE CÁLCULO PROFESIONAL
@@ -1761,27 +1764,44 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           '',
         tipo_servicio: servicio.tipo_servicio || servicio.tipo || '',
         coste_unitario: servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0,
-        noches: servicio.noches ?? 1,
-        dias_guia: servicio.dias_guia ?? servicio.noches ?? 1,
+        noches: nochesFinal,
+        dias_guia: servicio.dias_guia ?? servicio.noches ?? nochesFinal,
         total_servicio_manual: servicio.total_servicio_manual ?? servicio.totalServicio ?? servicio.total_servicio ?? 0,
       }
       const calculado = finalizarCalculo(fila, paxPago, totalPax)
       const totalServicio = calculado.total_servicio || 0
       const costePax = calculado.coste_pax || 0
+
+      // 2. Limpiar proveedor_id: solo ID numérico, nunca el objeto completo (proveedor_id_int es int8)
+      let proveedorIdLimpio = null
+      if (servicio.proveedorId != null) {
+        const idRaw = typeof servicio.proveedorId === 'object' ? servicio.proveedorId?.id : servicio.proveedorId
+        const num = idRaw != null ? Number(idRaw) : NaN
+        proveedorIdLimpio = !isNaN(num) ? num : null
+      }
+
+      // 3. Sincronizar campos interfaz → tabla: Precio→precio_unitario, Cantidad→cantidad, Total→importe_total
+      const precioUnitario = servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? costePax ?? 0
+      const cantidad = (servicio.tipo === 'Hotel' || servicio.tipo === 'Guía') ? nochesFinal : 1
+      const importeTotal = totalServicio
+
       const datosParaSupabase = {
         id_expediente: String(expediente.id).trim(),
         tipo_servicio: servicio.tipo || 'Hotel',
         nombre_especifico: servicio.nombreEspecifico || '',
         localizacion: servicio.localizacion || '',
-        coste_unitario: costePax, // siempre coste por pax (motor universal)
+        coste_unitario: costePax,
         coste_pax: costePax,
         total_servicio: totalServicio,
+        precio_unitario: Number(precioUnitario) || 0,
+        cantidad: Number(cantidad) || 1,
+        importe_total: Number(importeTotal) || 0,
         precio_venta: servicio.precioVenta ? Number(servicio.precioVenta) : 0,
         margen_pax: servicio.margen ? Number(servicio.margen) : 0,
-        noches: noches,
+        noches: nochesFinal,
         fecha_release: servicio.fechaRelease || null,
         tipo_calculo: tipoCalculo,
-        proveedor_id_int: servicio.proveedorId ? Number(servicio.proveedorId) : null,
+        proveedor_id_int: proveedorIdLimpio,
         nombre_proveedor_manual: servicio.proveedorNombreTemporal || null
       }
       
