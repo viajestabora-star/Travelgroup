@@ -2002,33 +2002,57 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         costeRestaurantePorPax +            // Restaurantes (flexible)
         costeOtrosPorPax                    // Otros gastos (flexible)
       
+      // COSTE TOTAL PROVEEDOR: Suma de total_servicio (el hotel cobra TODAS las plazas, incl. gratuidades)
+      let costeTotalProveedor = 0
+      servicios.forEach(servicio => {
+        const fila = {
+          ...servicio,
+          tipo_calculo: servicio.tipo_calculo || (servicio.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio.tipoCalculo) || '',
+          tipo_servicio: servicio.tipo_servicio || servicio.tipo || '',
+          coste_unitario: servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0,
+          noches: servicio.noches ?? 1,
+          dias_guia: servicio.dias_guia ?? servicio.noches ?? 1,
+          total_servicio_manual: servicio.total_servicio_manual ?? servicio.totalServicio ?? servicio.total_servicio ?? 0,
+        }
+        const { total_servicio } = finalizarCalculo(fila, paxPago, totalPax)
+        costeTotalProveedor += parseFloat(total_servicio) || 0
+      })
+      
       // CÁLCULO CORRECTO DE GRATUIDADES (Base Real Completa)
-      // El coste de una gratuidad = TODO el coste base individual
-      const costeBaseGratuidad = costeBasePorPersona // 327.76€ por ejemplo
+      const costeBaseGratuidad = costeBasePorPersona
       const costePlazasGratuitas = costeBaseGratuidad * (parseInt(formData?.gratuidades) || 0)
       const costeGratuidadesPorPax = paxPago > 0 ? costePlazasGratuitas / paxPago : 0
       
       // COSTE REAL POR PERSONA (PAGADOR) = Base + Gratuidades + Bonificación
-      const costeRealPorPersona = 
-        costeBasePorPersona +               // Coste base de servicios
-        costeGratuidadesPorPax +            // Prorrateo de gratuidades
-        bonif                                // Bonificación
+      const costeRealPorPersona = costeBasePorPersona + costeGratuidadesPorPax + bonif
       
-      // NUEVO MODELO DE NEGOCIO: PRECIO MANUAL + MARGEN INFORMATIVO
-      const precioVentaPorPersona = Math.max(0, parseFloat(formData?.precio_venta_cliente) || 0)
+      // PAX DE PAGO: TotalPax - Gratuidades (ya definido como paxPago)
+      const paxDePago = paxPago
+      const precioBase = Math.max(0, parseFloat(formData?.precio_venta_cliente) || 0)
+      const bonificacionTotal = bonif * paxDePago
+      
+      // TOTAL VENTA: (paxDePago * PrecioBase) - BonificacionTotal + Suplementos
+      const nochesSup = calcularNochesExpediente()
+      const totalSupHabitacion = (parseFloat(formData?.sup_individual_pax || 0) || 0) * (parseFloat(formData?.sup_individual_precio_dia || 0) || 0) * nochesSup
+      const totalSupSeguro = (parseFloat(formData?.sup_seguro_pax || 0) || 0) * (parseFloat(formData?.sup_seguro_precio_total || 0) || 0)
+      const suplementosTotal = totalSupHabitacion + totalSupSeguro
+      const totalVenta = (paxDePago * precioBase) - bonificacionTotal + suplementosTotal
+      
+      // BENEFICIO REAL: Ingresos (Total Venta) - Costes (el proveedor cobra todas las plazas)
+      const ingresos = totalVenta
+      const costes = costeTotalProveedor
+      const beneficioReal = ingresos - costes
+      
+      const precioVentaPorPersona = precioBase
       const costeTotalViaje = costeRealPorPersona * paxPago
       const precioVentaTotal = precioVentaPorPersona * paxPago
-      
-      // MARGEN INFORMATIVO: Diferencia entre precio venta y coste real
       const margenPorPersona = precioVentaPorPersona - costeRealPorPersona
-      const beneficioTotal = margenPorPersona * paxPago
+      const beneficioTotal = beneficioReal
       const margenPorcentaje = costeRealPorPersona > 0 ? ((margenPorPersona / costeRealPorPersona) * 100) : 0
       
       // CÁLCULO DE IVA: 21% sobre el Beneficio Neto (Base)
-      // Beneficio Neto (Base) = Venta - Coste = beneficioTotal
       const beneficioNetoBase = beneficioTotal
       const iva = beneficioNetoBase * 0.21
-      // Total Neto tras Impuestos = Beneficio Neto - IVA
       const beneficioNeto = beneficioNetoBase - iva
       
       return {
@@ -2066,8 +2090,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         iva: iva.toFixed(2),
         beneficioNeto: beneficioNeto.toFixed(2), // Total Neto tras Impuestos
         
+        // Total Venta (con gratuidades descontadas y bonificación)
+        totalVenta: totalVenta.toFixed(2),
+        ingresos: totalVenta.toFixed(2),
+        costes: costes.toFixed(2),
+        
         // Info
         paxPagadores: paxPago,
+        paxDePago: paxPago,
         totalPasajeros: totalPax,
         gratuidades: parseInt(formData?.gratuidades) || 0,
       }
@@ -2097,8 +2127,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         iva: '0.00',
         beneficioNeto: '0.00',
         paxPagadores: 1,
+        paxDePago: 1,
         totalPasajeros: 1,
         gratuidades: 0,
+        totalVenta: '0.00',
+        ingresos: '0.00',
+        costes: '0.00',
       }
     }
   }
@@ -4646,6 +4680,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   <div className="bg-white p-6 rounded-xl border-2 border-gray-200 shadow-md mt-6">
                     <h4 className="text-lg font-bold text-navy-900 mb-4">💼 Resumen Comercial</h4>
                     
+                    {/* Pasajeros de pago - Origen del dinero */}
+                    <div className="mb-4 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
+                      <p className="text-base font-bold text-navy-900">
+                        👥 Pasajeros de pago: <span className="text-2xl text-blue-700">{resultados.paxDePago ?? resultados.paxPagadores}</span>
+                        {resultados.totalPasajeros > 0 && (
+                          <span className="text-sm font-normal text-slate-600 ml-2">
+                            (de {resultados.totalPasajeros} total − {resultados.gratuidades} gratuidades)
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-slate-600 mt-1">
+                        Solo las plazas de pago generan ingreso. Las gratuidades no facturan al cliente.
+                      </p>
+                    </div>
+                    
                     {/* Mensaje informativo si no hay servicios */}
                     {servicios.length === 0 && (
                       <div className="mb-4 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
@@ -4684,16 +4733,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       </div>
                     </div>
                     
-                    {/* Beneficio Total del Viaje */}
+                    {/* Beneficio Total del Viaje: Ingresos (Total Venta) - Costes (proveedor) */}
                     <div className={`mt-4 p-4 rounded-lg ${parseFloat(resultados.beneficioTotal) >= 0 ? 'bg-gradient-to-r from-green-100 to-emerald-100' : 'bg-gradient-to-r from-red-100 to-orange-100'}`}>
                       <div className="flex justify-between items-center">
                         <span className={`text-base font-bold ${parseFloat(resultados.beneficioTotal) >= 0 ? 'text-green-900' : 'text-red-900'}`}>
-                          💼 Beneficio Total del Viaje ({resultados.paxPagadores} pax de pago):
+                          💼 Beneficio Real (Ingresos − Costes):
                         </span>
                         <span className={`text-2xl font-black ${parseFloat(resultados.beneficioTotal) >= 0 ? 'text-green-900' : 'text-red-900'}`}>
                           {parseFloat(resultados.beneficioTotal) >= 0 ? '+' : ''}{resultados.beneficioTotal}€
                         </span>
                       </div>
+                      <p className="text-xs text-slate-600 mt-1">
+                        Ingresos {resultados.ingresos}€ − Costes {resultados.costes}€
+                      </p>
                     </div>
 
                     {/* Desglose de IVA y Beneficio Líquido */}
@@ -4726,20 +4778,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       </div>
                     </div>
 
-                    {/* Total Cotización incluyendo suplementos */}
+                    {/* Resumen: Pasajeros de pago (origen del dinero) */}
+                    <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                      <p className="text-sm font-semibold text-slate-800">
+                        👥 Pasajeros de pago: <span className="font-bold text-navy-900">{resultados.paxDePago ?? resultados.paxPagadores}</span>
+                        {resultados.totalPasajeros > 0 && (
+                          <span className="text-slate-600 font-normal ml-1">
+                            ({resultados.totalPasajeros} total − {resultados.gratuidades} gratuidades)
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-slate-600 mt-1">
+                        El cliente solo paga las plazas de pago; las gratuidades no generan ingreso.
+                      </p>
+                    </div>
+
+                    {/* Total Cotización: Total Venta = (paxDePago × PrecioBase) − Bonificación + Suplementos */}
                     <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                       <div className="flex justify-between items-center text-sm">
                         <span className="font-semibold text-amber-900">
-                          💼 Total Cotización (precio venta + suplementos):
+                          💼 Total Cotización (Total Venta):
                         </span>
                         <span className="font-bold text-amber-900">
-                          {(
-                            (parseFloat(resultados.precioVentaTotal) || 0) +
-                            (parseFloat(suplementos.totalSuplementos) || 0)
-                          ).toFixed(2)}
-                          €
+                          {(resultados.totalVenta || '0.00')}€
                         </span>
                       </div>
+                      <p className="text-xs text-amber-800 mt-1">
+                        (pax de pago × precio) − bonificación + suplementos
+                      </p>
                     </div>
                   </div>
                   
