@@ -475,9 +475,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
               costeUnitario: row.coste_unitario !== null && row.coste_unitario !== undefined ? Number(row.coste_unitario) : 0,
               precioVenta: row.precio_venta !== null && row.precio_venta !== undefined ? Number(row.precio_venta) : 0,
               margen: row.margen_pax !== null && row.margen_pax !== undefined ? Number(row.margen_pax) : 0,
-              noches: row.noches !== null && row.noches !== undefined ? Number(row.noches) : 0,
+              noches: row.noches !== null && row.noches !== undefined ? Number(row.noches) : 1,
               fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
-              tipoCalculo: row.tipo_calculo || 'porPersona',
+              tipoCalculo: (row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo') ? 'porGrupo' : 'porPersona',
             }
           })
 
@@ -1519,29 +1519,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   const paxPago = Math.max(0, (parseInt(formData?.total_pax) || 0) - (parseInt(formData?.gratuidades) || 0))
   const totalPax = Math.max(0, parseInt(formData?.total_pax) || 0)
 
-  // Recalcular automáticamente el coste por pax de todos los servicios "Total a dividir"
-  // cuando cambian los pasajeros de pago (pax_pago).
-  useEffect(() => {
-    setServicios((prevServicios) => {
-      const nuevos = prevServicios.map((s) => {
-        const tipoCalculo = s.tipoCalculo || 'porPersona'
-        if (tipoCalculo !== 'porGrupo') return s
-
-        const totalServicio =
-          s.totalServicio !== undefined && s.totalServicio !== null
-            ? Number(s.totalServicio)
-            : NaN
-
-        if (!isNaN(totalServicio) && paxPago > 0) {
-          const costePorPax = totalServicio / paxPago
-          return { ...s, costeUnitario: costePorPax }
-        }
-
-        return s
-      })
-      return nuevos
-    })
-  }, [paxPago])
+  // NOTA: Para "Total a dividir" (Autobús), costeUnitario almacena el TOTAL que escribe el usuario.
+  // NO sobrescribir costeUnitario al cambiar pax_pago (evita que las cifras se muevan al guardar).
 
   // Estados para Facturación
   const [formFactura, setFormFactura] = useState({
@@ -1670,27 +1649,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
   
-  // ============ MOTOR DE CÁLCULO PROFESIONAL - BLOQUE BLINDADO ============
-  // BLOQUE PROTEGIDO: Lógica de cálculo dual (Dividir vs Persona) - NO MODIFICAR SIN AUTORIZACIÓN.
-  // NO ALTERAR NOMBRES DE VARIABLES DENTRO DE ESTE BLOQUE
+  // ============ MOTOR DE CÁLCULO - REGLAS ESTRICTAS ============
+  // Hotel (Precio por Persona/Noche): Total = Pax * Precio * Noches
+  // Autobús (Total a dividir): Total = Precio introducido (sin multiplicar por pasajeros)
   const finalizarCalculo = (servicio, paxPago = 31, paxTotal = 35) => {
     const s = servicio || {};
     const pP = parseFloat(paxPago) || 1;
     const pT = parseFloat(paxTotal) || 1;
-    const uni = parseFloat(s.coste_unitario) || 0;
+    const precio = parseFloat(s.coste_unitario) || 0; // Precio unitario que escribe el usuario
     const n = parseInt(s.noches) || 1;
     const d = parseInt(s.dias_guia) || 1;
     const manual = parseFloat(s.total_servicio_manual) || 0;
-    let totalFinal = 0; let costePorPersona = 0;
+    let totalFinal = 0;
+    let costePorPersona = 0;
 
     if (s.tipo_calculo === 'Total a dividir') {
-      // Caso BUS o TOTALES: El total es lo que se escribe. Se divide entre los que pagan.
-      totalFinal = manual > 0 ? manual : (s.tipo_servicio === 'Guía' ? uni * d : uni);
-      costePorPersona = totalFinal / pP;
+      // Autobús: Total = Precio introducido, sin multiplicar por pasajeros
+      totalFinal = manual > 0 ? manual : (s.tipo_servicio === 'Guía' ? precio * d : precio);
+      costePorPersona = pP > 0 ? totalFinal / pP : 0;
     } else {
-      // Caso POR PERSONA: Se multiplica por factor tiempo (noches/días) y luego por total de pax.
+      // Hotel (Precio por Persona/Noche): Total = Cantidad(Pax) * Precio * Noches
       const factor = (s.tipo_servicio === 'Hotel') ? n : (s.tipo_servicio === 'Guía' ? d : 1);
-      costePorPersona = uni * factor;
+      costePorPersona = precio * factor;
       totalFinal = costePorPersona * pT;
     }
 
@@ -1770,7 +1750,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }
       const calculado = finalizarCalculo(fila, paxPago, totalPax)
       const totalServicio = calculado.total_servicio || 0
-      const costePax = calculado.coste_pax || 0
+      // precioUnitario = lo que escribe el usuario en "Precio" (para Hotel: €/pax/noche; para Autobús: total)
+      const precioUnitario = servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0
 
       // 2. Limpiar proveedor_id: solo ID numérico, nunca el objeto completo (proveedor_id_int es int8)
       let proveedorIdLimpio = null
@@ -1780,24 +1761,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         proveedorIdLimpio = !isNaN(num) ? num : null
       }
 
-      // 3. Sincronizar campos interfaz → tabla (nombres exactos de Supabase)
-      // La columna se llama "total", no importe_total (PGRST204)
-      const total = totalServicio
-
+      // 3. Mapeo Supabase: precio_venta = precio unitario que escribe el usuario; total_servicio = resultado calculado
       const datosParaSupabase = {
         id_expediente: String(expediente.id).trim(),
         tipo_servicio: servicio.tipo || 'Hotel',
         nombre_especifico: servicio.nombreEspecifico || '',
         localizacion: servicio.localizacion || '',
-        coste_unitario: costePax,
-        coste_pax: costePax,
+        coste_unitario: Number(precioUnitario) || 0,
         total_servicio: totalServicio,
-        total: Number(total) || 0,
-        precio_venta: servicio.precioVenta ? Number(servicio.precioVenta) : 0,
+        precio_venta: Number(precioUnitario) || 0,
         margen_pax: servicio.margen ? Number(servicio.margen) : 0,
         noches: nochesFinal,
         fecha_release: servicio.fechaRelease || null,
-        tipo_calculo: tipoCalculo,
+        tipo_calculo: tipoCalculo === 'porGrupo' ? 'Total a dividir' : (tipoCalculo || 'porPersona'),
         proveedor_id_int: proveedorIdLimpio,
         nombre_proveedor_manual: servicio.proveedorNombreTemporal || null
       }
@@ -1850,6 +1826,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         
         if (error) {
           console.error('❌ Error actualizando servicio:', error)
+          alert(`❌ Error al guardar servicio: ${error.message || String(error)}`)
         } else {
           console.log('✅ Servicio actualizado en Supabase:', servicio.id)
         }
@@ -1871,6 +1848,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             hint: error.hint,
             code: error.code
           })
+          alert(`❌ Error al guardar servicio: ${error.message || String(error)}`)
         } else if (data) {
           console.log('✅ Servicio insertado en Supabase:', data.id)
           console.log('📦 Datos devueltos por Supabase:', data)
@@ -4420,7 +4398,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 <input
                                   type="number"
                                   step="0.01"
-                                  value={servicio.precio_manual ?? servicio.costeUnitario ?? ''}
+                                  value={servicio.costeUnitario ?? servicio.precio_manual ?? ''}
                                   onChange={(e) => {
                                     // Preservar decimales: usar parseFloat directamente para inputs numéricos
                                     const valorInput = e.target.value;
@@ -4454,11 +4432,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                                   }}
                                   onBlur={(e) => {
-                                    // Al perder el foco, asegurar que el valor sea un número válido
+                                    // Al perder el foco, sincronizar costeUnitario (precio que escribe el usuario)
                                     const valor = e.target.value;
                                     if (valor !== '' && valor !== '-') {
                                       const valorLimpio = valor.replace(/,/g, '.');
                                       const valorNumerico = parseFloat(valorLimpio);
+                                      if (!isNaN(valorNumerico)) {
+                                        actualizarServicio(servicio.id, 'costeUnitario', valorNumerico);
+                                        actualizarServicio(servicio.id, 'precio_manual', valorNumerico);
+                                      }
                                     } else {
                                       actualizarServicio(servicio.id, 'precio_manual', '');
                                       actualizarServicio(servicio.id, 'costeUnitario', 0);
