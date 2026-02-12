@@ -543,9 +543,11 @@ const Expedientes = () => {
       
       // ARQUITECTURA UUID: Usar id generado por Supabase (UUID), NO enviar campo id
       // CORRECCIÓN: Asegurar que todos los campos obligatorios tengan valores válidos
+      const paxPagoNum = totalPaxSanitizado ? parseInt(totalPaxSanitizado, 10) : 0;
       const datosInsertar = {
         cliente_id: clienteIdFinal, // UUID (string), NUNCA integer, NUNCA objeto
-        cliente_nombre: String(finalNombre || '').trim() || null, // No puede ser string vacío
+        cliente_nombre: String(finalNombre || '').trim() || 'Sin nombre', // Obligatorio: nunca null
+        nombre_grupo: String(finalNombre || '').trim() || 'Sin nombre',
         fecha_inicio: convertirFechaAISO(expedienteForm.fechaInicio || '') || null,
         fecha_final: convertirFechaAISO(expedienteForm.fechaFin || '') || null,
         destino: String(expedienteForm.destino || '').trim() || null,
@@ -555,7 +557,9 @@ const Expedientes = () => {
         estado: String(expedienteForm.estado || 'peticion').trim(), // Siempre tiene valor por defecto
         observaciones: String(expedienteForm.observaciones || '').trim() || null,
         itinerario: String(expedienteForm.itinerario || '').trim() || null,
-        total_pax: totalPaxSanitizado || null, // NUNCA string vacío, solo número válido o null
+        total_pax: totalPaxSanitizado || null,
+        pax_pago: paxPagoNum,
+        precio_venta_cliente: 0, // Valor por defecto para evitar NOT NULL
       };
 
       // VERIFICACIÓN EXPLÍCITA: Asegurar que id NO esté en el objeto
@@ -571,9 +575,15 @@ const Expedientes = () => {
         throw new Error('cliente_id en datosInsertar no es válido');
       }
 
+      // Obtener número de expediente correlativo (obligatorio en la tabla)
+      const añoExpediente = expedienteForm.fechaInicio
+        ? (parsearFecha(expedienteForm.fechaInicio)?.getFullYear?.() || new Date().getFullYear())
+        : new Date().getFullYear();
+      datosInsertar.numero_expediente = await obtenerSiguienteNumeroExpediente(añoExpediente);
+
       // DEPURACIÓN: Console.log antes del insert
       console.log('✅ Enviando expediente con cliente_id (UUID):', datosInsertar.cliente_id, '(tipo:', typeof datosInsertar.cliente_id, ')');
-      console.log('🔍 Objeto completo datosInsertar (sin campo id - Supabase lo genera):', JSON.stringify(datosInsertar, null, 2));
+      console.log('🔍 Objeto completo datosInsertar:', JSON.stringify(datosInsertar, null, 2));
 
       // Insertar sin id - Supabase generará automáticamente el UUID
       const { data, error } = await supabase
@@ -583,12 +593,12 @@ const Expedientes = () => {
         .single();
 
       if (error) {
+        console.error('❌ Error Supabase al insertar expediente:', error);
+        console.error('❌ Código:', error.code, 'Detalles:', error.details, 'Hint:', error.hint);
         const errorInfo = manejarErrorSupabase(error, 'crear expediente');
-        if (errorInfo) {
-          alert(errorInfo.mensaje);
-          throw new Error(errorInfo.mensaje);
-        }
-        throw error;
+        const mensaje = errorInfo ? errorInfo.mensaje : `Error al guardar: ${error.message || String(error)}`;
+        alert(mensaje);
+        throw new Error(mensaje);
       }
 
       // 3. Refrescar la lista completa desde Supabase para mostrar el ID generado
@@ -600,23 +610,17 @@ const Expedientes = () => {
       setShowSuggestions(false);
       alert(`✅ Expediente creado con éxito. ID: ${data.id}`);
       } catch (err) {
+        console.error('❌ Error al crear expediente:', err);
+        console.error('❌ Detalles:', err?.message, err?.code, err?.details);
         const errorInfo = manejarErrorSupabase(err, 'crear expediente');
-        if (errorInfo) {
-          alert(errorInfo.mensaje);
-        } else {
-          console.error('ERROR TÉCNICO:', err);
-          alert('⚠️ No se pudo guardar. Revisa la consola.');
-        }
+        const mensaje = errorInfo ? errorInfo.mensaje : `No se pudo guardar: ${err?.message || String(err)}`;
+        alert(mensaje);
       }
     } catch (error) {
-      // CORRECCIÓN: Catch principal para manejar errores generales
       const errorInfo = manejarErrorSupabase(error, 'procesar expediente');
-      if (errorInfo) {
-        alert(errorInfo.mensaje);
-      } else {
-        console.error('ERROR GENERAL:', error);
-        alert('⚠️ Error inesperado al procesar el expediente. Revisa la consola.');
-      }
+      console.error('❌ Error general procesando expediente:', error);
+      const mensaje = errorInfo ? errorInfo.mensaje : `Error inesperado: ${error?.message || String(error)}`;
+      alert(mensaje);
     } finally {
       // CORRECCIÓN CRÍTICA: Asegurar que el loading se apague SIEMPRE
       setIsSubmittingExpediente(false);
