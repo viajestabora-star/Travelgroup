@@ -2,10 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabase'
 import { X, Phone, Navigation } from 'lucide-react'
 
+// Nombres de prueba a eliminar (ajustar según datos a conservar)
+const NOMBRES_PRUEBA_ELIMINAR = ['Rocafort', 'Alzira', 'Llombai']
+
 const CRM = () => {
   // Estados principales
   const [activeTab, setActiveTab] = useState('calendario') // calendario | proximas | historial | estadisticas
   const [prospectos, setProspectos] = useState([])
+  const [clientes, setClientes] = useState([])
   const [visitas, setVisitas] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -40,17 +44,79 @@ const CRM = () => {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [prospectosRes, visitasRes] = await Promise.all([
+      const [prospectosRes, clientesRes, visitasRes] = await Promise.all([
         supabase.from('prospectos').select('*').order('grupo', { ascending: true }),
+        supabase.from('clientes').select('*').order('nombre', { ascending: true }),
         supabase.from('visitas').select('*').order('fecha', { ascending: false })
       ])
       
       if (!prospectosRes.error) setProspectos(prospectosRes.data || [])
+      if (!clientesRes.error) setClientes(clientesRes.data || [])
       if (!visitasRes.error) setVisitas(visitasRes.data || [])
     } catch (err) {
       console.error('Error cargando datos:', err)
     } finally {
-    setLoading(false)
+      setLoading(false)
+    }
+  }
+
+  // Comprobar si un prospecto existe ya como cliente (por nombre/grupo)
+  const esCliente = useMemo(() => {
+    const nombresClientes = new Set(
+      (clientes || []).map(c => String(c.nombre || '').trim().toLowerCase()).filter(Boolean)
+    )
+    return (prospecto) => {
+      const grupo = String(prospecto?.grupo || '').trim().toLowerCase()
+      return grupo && nombresClientes.has(grupo)
+    }
+  }, [clientes])
+
+  // Lista unificada para el desplegable: clientes + prospectos
+  const listadoUnificado = useMemo(() => {
+    const items = []
+    ;(clientes || []).forEach(c => {
+      items.push({
+        tipo: 'cliente',
+        id: c.id,
+        value: `cliente-${c.id}`,
+        nombre: c.nombre || 'Sin nombre',
+        poblacion: c.poblacion || c.provincia || ''
+      })
+    })
+    ;(prospectos || []).forEach(p => {
+      items.push({
+        tipo: 'prospecto',
+        id: p.id,
+        value: `prospecto-${p.id}`,
+        nombre: p.grupo || 'Sin nombre',
+        poblacion: p.poblacion || p.provincia || ''
+      })
+    })
+    return items.sort((a, b) => a.nombre.localeCompare(b.nombre))
+  }, [clientes, prospectos])
+
+  const limpiarDatosPrueba = async () => {
+    if (!window.confirm(`¿Borrar prospectos de prueba (${NOMBRES_PRUEBA_ELIMINAR.join(', ')})?`)) return
+    try {
+      const { data } = await supabase.from('prospectos').select('id, grupo')
+      const aBorrar = (data || []).filter(p =>
+        NOMBRES_PRUEBA_ELIMINAR.some(
+          n => String(p.grupo || '').trim().toLowerCase() === n.trim().toLowerCase()
+        )
+      )
+      if (aBorrar.length === 0) {
+        alert('No hay prospectos de prueba que borrar.')
+        return
+      }
+      for (const p of aBorrar) {
+        await supabase.from('visitas').delete().eq('prospecto_id', p.id)
+        await supabase.from('prospectos').delete().eq('id', p.id)
+      }
+      await fetchData()
+      alert(`✅ ${aBorrar.length} prospecto(s) de prueba eliminados.`)
+    } catch (err) {
+      console.error('Error limpiando datos de prueba:', err)
+      alert('Error al limpiar datos de prueba.')
     }
   }
 
@@ -211,12 +277,10 @@ const CRM = () => {
     setShowAgendaModal(true)
   }
 
-  // Manejar cambio en selector de prospecto del modal
   const handleProspectoChange = (value) => {
     if (value === 'nuevo') {
-      // Cerrar modal y abrir ficha nueva
       setShowAgendaModal(false)
-      const nuevoProspecto = {
+      setProspectoSelected({
         grupo: '',
         cif: '',
         telefono: '',
@@ -232,8 +296,7 @@ const CRM = () => {
         proxima_visita: fechaSeleccionada,
         fecha: fechaSeleccionada,
         programas_presentados: []
-      }
-      setProspectoSelected(nuevoProspecto)
+      })
       setFichaTab('datos')
       setShowPanel(true)
       setVisitasProspecto([])
@@ -244,11 +307,48 @@ const CRM = () => {
 
   const guardarVisitaDesdeCalendario = async () => {
     if (!agendaProspectoId) {
-      alert('Selecciona un prospecto o crea uno nuevo')
+      alert('Selecciona un prospecto, cliente o crea uno nuevo')
       return
     }
 
-    const prospectoIdFinal = Number(agendaProspectoId)
+    let prospectoIdFinal = null
+
+    if (agendaProspectoId.startsWith('cliente-')) {
+      const clienteId = Number(agendaProspectoId.replace('cliente-', ''))
+      const cliente = clientes.find(c => c.id === clienteId)
+      if (!cliente) {
+        alert('Cliente no encontrado')
+        return
+      }
+      const nombreNorm = String(cliente.nombre || '').trim()
+      const existente = prospectos.find(
+        p => String(p.grupo || '').trim().toLowerCase() === nombreNorm.toLowerCase()
+      )
+      if (existente) {
+        prospectoIdFinal = existente.id
+      } else {
+        const { data: nuevoPros, error: errPros } = await supabase
+          .from('prospectos')
+          .insert({
+            grupo: nombreNorm,
+            telefono: cliente.movil || cliente.telefono || '',
+            poblacion: cliente.poblacion || '',
+            provincia: cliente.provincia || '',
+            estado_comercial: 'CLIENTE'
+          })
+          .select()
+          .single()
+        if (errPros || !nuevoPros) {
+          alert('Error al crear prospecto desde cliente: ' + (errPros?.message || 'Error'))
+          return
+        }
+        prospectoIdFinal = nuevoPros.id
+      }
+    } else if (agendaProspectoId.startsWith('prospecto-')) {
+      prospectoIdFinal = Number(agendaProspectoId.replace('prospecto-', ''))
+    } else {
+      prospectoIdFinal = Number(agendaProspectoId)
+    }
 
     const { error } = await supabase.from('visitas').insert({
       prospecto_id: prospectoIdFinal,
@@ -259,7 +359,6 @@ const CRM = () => {
     if (error) {
       alert('Error al agendar visita: ' + error.message)
     } else {
-      // Actualizar proxima_visita en prospecto
       await supabase
         .from('prospectos')
         .update({ proxima_visita: fechaSeleccionada })
@@ -330,18 +429,23 @@ const CRM = () => {
         >
           <div className="text-xs font-bold text-slate-700 mb-1">{day}</div>
           <div className="space-y-1">
-            {prospectosDia.slice(0, 2).map(p => (
-              <div
-                key={p.id}
-                className="text-[9px] px-1.5 py-0.5 rounded bg-[#fffbeb] border border-[#fef3c7] truncate"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  abrirFicha(p)
-                }}
-              >
-                {p.grupo || 'Sin nombre'}
-              </div>
-            ))}
+            {prospectosDia.slice(0, 2).map(p => {
+              const esClie = esCliente(p)
+              return (
+                <div
+                  key={p.id}
+                  className={`text-[9px] px-1.5 py-0.5 rounded truncate ${
+                    esClie ? 'bg-blue-50 border border-blue-200' : 'bg-[#fffbeb] border border-[#fef3c7]'
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    abrirFicha(p)
+                  }}
+                >
+                  {esClie ? '⭐ ' : '💼 '}{p.grupo || 'Sin nombre'}
+                </div>
+              )
+            })}
             {prospectosDia.length > 2 && (
               <div className="text-[9px] text-slate-400">+{prospectosDia.length - 2}</div>
             )}
@@ -386,25 +490,33 @@ const CRM = () => {
       {/* CONTENIDO PRINCIPAL */}
       <div className="flex-1 overflow-y-auto p-6">
         {/* PESTAÑAS PRINCIPALES */}
-        <div className="flex gap-2 mb-6 bg-white p-2 rounded-2xl shadow-sm border">
-          {[
-            { key: 'calendario', label: 'Calendario' },
-            { key: 'proximas', label: 'Próximas' },
-            { key: 'historial', label: 'Historial' },
-            { key: 'estadisticas', label: 'Estadísticas' }
-          ].map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${
-                activeTab === tab.key
-                  ? 'bg-[#0f172a] text-white shadow-lg'
-                  : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="flex gap-2 mb-6 items-center">
+          <div className="flex gap-2 flex-1 bg-white p-2 rounded-2xl shadow-sm border">
+            {[
+              { key: 'calendario', label: 'Calendario' },
+              { key: 'proximas', label: 'Próximas' },
+              { key: 'historial', label: 'Historial' },
+              { key: 'estadisticas', label: 'Estadísticas' }
+            ].map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all ${
+                  activeTab === tab.key
+                    ? 'bg-[#0f172a] text-white shadow-lg'
+                    : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={limpiarDatosPrueba}
+            className="px-3 py-2 rounded-xl text-[10px] font-bold bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600 border border-slate-200"
+          >
+            Limpiar pruebas
+          </button>
         </div>
 
         {loading && (
@@ -453,23 +565,32 @@ const CRM = () => {
             {prospectosFiltrados.length === 0 ? (
               <div className="text-center py-12 text-slate-400">No hay visitas próximas</div>
             ) : (
-              prospectosFiltrados.map(p => (
-            <button
-                  key={p.id}
-                  onClick={() => abrirFicha(p)}
-                  className="w-full text-left p-4 bg-[#fffbeb] border border-[#fef3c7] rounded-2xl hover:shadow-md transition flex items-center justify-between"
-                >
-                  <div>
-                    <div className="font-bold text-slate-900">{p.grupo || 'Sin nombre'}</div>
-                    <div className="text-xs text-slate-600 mt-1">
-                      {p.proxima_visita || p.fecha} • {p.poblacion || p.provincia || 'Localidad no definida'}
+              prospectosFiltrados.map(p => {
+                const esClie = esCliente(p)
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => abrirFicha(p)}
+                    className={`w-full text-left p-4 rounded-2xl hover:shadow-md transition flex items-center justify-between ${
+                      esClie ? 'bg-blue-50 border border-blue-200' : 'bg-[#fffbeb] border border-[#fef3c7]'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-bold text-slate-900">
+                        {esClie ? '⭐ ' : '💼 '}{p.grupo || 'Sin nombre'}
+                      </div>
+                      <div className="text-xs text-slate-600 mt-1">
+                        {p.proxima_visita || p.fecha} • {p.poblacion || p.provincia || 'Localidad no definida'}
+                      </div>
                     </div>
-                  </div>
-                  <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-white text-slate-600 border border-slate-200">
-                    {p.estado_comercial || 'POTENCIAL'}
-                  </span>
-            </button>
-              ))
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold border ${
+                      esClie ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'
+                    }`}>
+                      {esClie ? 'CLIENTE' : (p.estado_comercial || 'POTENCIAL')}
+                    </span>
+                  </button>
+                )
+              })
             )}
           </div>
         )}
@@ -480,23 +601,34 @@ const CRM = () => {
             {prospectosFiltrados.length === 0 ? (
               <div className="text-center py-12 text-slate-400">No hay visitas en el historial</div>
             ) : (
-              prospectosFiltrados.map(p => (
-          <button
-                  key={p.id}
-                  onClick={() => abrirFicha(p)}
-                  className="w-full text-left p-4 bg-[#fffbeb] border border-[#fef3c7] rounded-2xl hover:shadow-md transition flex items-center justify-between"
-                >
-                  <div>
-                    <div className="font-bold text-slate-900">{p.grupo || 'Sin nombre'}</div>
-                    <div className="text-xs text-slate-600 mt-1">
-                      {p.ultima_visita_realizada || p.fecha} • {p.poblacion || p.provincia || 'Localidad no definida'}
-                    </div>
-                  </div>
-                  <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-white text-slate-600 border border-slate-200">
-                    {p.estado_comercial || 'POTENCIAL'}
-                  </span>
-          </button>
-              ))
+              <>
+                {prospectosFiltrados.map(p => {
+                  const esClie = esCliente(p)
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => abrirFicha(p)}
+                      className={`w-full text-left p-4 rounded-2xl hover:shadow-md transition flex items-center justify-between ${
+                        esClie ? 'bg-blue-50 border border-blue-200' : 'bg-[#fffbeb] border border-[#fef3c7]'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-slate-900">
+                          {esClie ? '⭐ ' : '💼 '}{p.grupo || 'Sin nombre'}
+                        </div>
+                        <div className="text-xs text-slate-600 mt-1">
+                          {p.ultima_visita_realizada || p.fecha} • {p.poblacion || p.provincia || 'Localidad no definida'}
+                        </div>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-bold border ${
+                        esClie ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'
+                      }`}>
+                        {esClie ? 'CLIENTE' : (p.estado_comercial || 'POTENCIAL')}
+                      </span>
+                    </button>
+                  )
+                })}
+              </>
             )}
         </div>
         )}
@@ -856,19 +988,21 @@ const CRM = () => {
                 />
               </div>
               <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">Prospecto</label>
+              <label className="block text-xs font-bold text-slate-500 mb-1">Prospecto / Cliente</label>
                 <select
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                   value={agendaProspectoId}
                   onChange={(e) => handleProspectoChange(e.target.value)}
                 >
-                <option value="">Selecciona un prospecto...</option>
+                <option value="">Selecciona prospecto o cliente...</option>
                 <option value="nuevo" className="font-bold">+ Crear Nuevo Prospecto</option>
-                {prospectos.map(p => (
-                    <option key={p.id} value={p.id}>
-                    {p.grupo || 'Sin nombre'} • {p.poblacion || p.provincia || ''}
-                    </option>
-                  ))}
+                {listadoUnificado.map(item => (
+                  <option key={item.value} value={item.value}>
+                    {item.tipo === 'cliente' ? '⭐ ' : '💼 '}
+                    {item.nombre}
+                    {item.poblacion ? ` • ${item.poblacion}` : ''}
+                  </option>
+                ))}
                 </select>
               </div>
               <div>
