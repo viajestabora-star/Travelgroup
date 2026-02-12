@@ -1780,10 +1780,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         proveedorIdLimpio = !isNaN(num) ? num : null
       }
 
-      // 3. Sincronizar campos interfaz → tabla: Precio→precio_unitario, Cantidad→cantidad, Total→importe_total
-      const precioUnitario = servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? costePax ?? 0
-      const cantidad = (servicio.tipo === 'Hotel' || servicio.tipo === 'Guía') ? nochesFinal : 1
-      const importeTotal = totalServicio
+      // 3. Sincronizar campos interfaz → tabla (nombres exactos de Supabase)
+      // La columna se llama "total", no importe_total (PGRST204)
+      const total = totalServicio
 
       const datosParaSupabase = {
         id_expediente: String(expediente.id).trim(),
@@ -1793,9 +1792,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         coste_unitario: costePax,
         coste_pax: costePax,
         total_servicio: totalServicio,
-        precio_unitario: Number(precioUnitario) || 0,
-        cantidad: Number(cantidad) || 1,
-        importe_total: Number(importeTotal) || 0,
+        total: Number(total) || 0,
         precio_venta: servicio.precioVenta ? Number(servicio.precioVenta) : 0,
         margen_pax: servicio.margen ? Number(servicio.margen) : 0,
         noches: nochesFinal,
@@ -2842,13 +2839,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     const expedienteId = expediente?.id
     if (!expedienteId) {
       console.error('❌ No se puede guardar: expediente sin ID')
-      return false
+      return { ok: false, error: 'Expediente sin ID' }
     }
 
     // BLOQUEO CRÍTICO: No guardar si los datos aún no se han cargado
     if (!datosCargados) {
       console.warn('⚠️ Guardado bloqueado: datos aún cargando')
-      return false
+      return { ok: false, error: 'Datos aún cargando' }
     }
 
     try {
@@ -2879,15 +2876,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       if (error) {
         console.error('❌ Error guardando:', error)
-        return false
+        return { ok: false, error: error?.message || String(error) }
       }
 
       // Actualizar estado local
       onUpdate({ ...expediente, ...datosParaGuardar })
-      return true
+      return { ok: true }
     } catch (error) {
       console.error('❌ Error inesperado:', error)
-      return false
+      return { ok: false, error: error?.message || String(error) }
     }
   }
 
@@ -4766,10 +4763,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   
                   <div className="mt-6">
                     <button onClick={async () => {
-                      if (await persistirCambios()) {
+                      const resultado = await persistirCambios()
+                      if (resultado?.ok) {
                         alert('✅ Cotización guardada correctamente!')
                       } else {
-                        alert('❌ Error al guardar. Verifica la consola (F12).')
+                        alert(`❌ Error al guardar: ${resultado?.error || 'Error desconocido'}`)
                       }
                     }} className="btn-primary w-full flex items-center justify-center gap-2">
                       <Save size={20} />
