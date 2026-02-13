@@ -1598,13 +1598,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     let totalFinal = 0;
     let costePorPersona = 0;
 
-    if (s.tipo_calculo === 'Total a dividir') {
-      // Autobús: Total = Precio introducido, sin multiplicar por pasajeros
-      totalFinal = manual > 0 ? manual : (s.tipo_servicio === 'Guía' ? precio * d : precio);
+    if (s?.tipo_calculo === 'Total a dividir') {
+      totalFinal = manual > 0 ? manual : (s?.tipo_servicio === 'Guía' ? precio * d : precio);
       costePorPersona = pP > 0 ? totalFinal / pP : 0;
     } else {
-      // Hotel (Precio por Persona/Noche): Total = Cantidad(Pax) * Precio * Noches
-      const factor = (s.tipo_servicio === 'Hotel') ? n : (s.tipo_servicio === 'Guía' ? d : 1);
+      const factor = (s?.tipo_servicio === 'Hotel') ? n : (s?.tipo_servicio === 'Guía' ? d : 1);
       costePorPersona = precio * factor;
       totalFinal = costePorPersona * pT;
     }
@@ -1665,52 +1663,46 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
     
     try {
-      // 1. Definir noches desde el estado del servicio (evitar ReferenceError)
-      const nochesFinal = (servicio.noches != null && !isNaN(Number(servicio.noches))) ? Number(servicio.noches) : 1
+      const nochesFinal = Math.max(1, toNum(servicio?.noches))
+      const tipoCalculo = servicio?.tipoCalculo || servicio?.tipo_calculo || 'porPersona'
 
-      const tipoCalculo = servicio.tipoCalculo || servicio.tipo_calculo || 'porPersona'
-
-      // Cálculo centralizado usando el MOTOR DE CÁLCULO PROFESIONAL
       const fila = {
         ...servicio,
         tipo_calculo:
-          servicio.tipo_calculo ||
-          (servicio.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio.tipoCalculo) ||
+          servicio?.tipo_calculo ||
+          (servicio?.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio?.tipoCalculo) ||
           '',
-        tipo_servicio: servicio.tipo_servicio || servicio.tipo || '',
-        coste_unitario: servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0,
+        tipo_servicio: servicio?.tipo_servicio || servicio?.tipo || '',
+        coste_unitario: servicio?.coste_unitario ?? servicio?.costeUnitario ?? servicio?.precio_manual ?? 0,
         noches: nochesFinal,
-        dias_guia: servicio.dias_guia ?? servicio.noches ?? nochesFinal,
-        total_servicio_manual: servicio.total_servicio_manual ?? servicio.totalServicio ?? servicio.total_servicio ?? 0,
+        dias_guia: toNum(servicio?.dias_guia) || nochesFinal,
+        total_servicio_manual: toNum(servicio?.total_servicio_manual ?? servicio?.totalServicio ?? servicio?.total_servicio) || 0,
       }
       const calculado = finalizarCalculo(fila, paxPago, totalPax)
-      const totalServicio = calculado.total_servicio || 0
-      // precioUnitario = lo que escribe el usuario en "Precio" (para Hotel: €/pax/noche; para Autobús: total)
-      const precioUnitario = servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0
+      const totalServicio = toNum(calculado?.total_servicio)
+      const precioUnitario = servicio?.coste_unitario ?? servicio?.costeUnitario ?? servicio?.precio_manual ?? 0
 
-      // 2. Limpiar proveedor_id: solo ID numérico, nunca el objeto completo (proveedor_id_int es int8)
       let proveedorIdLimpio = null
-      if (servicio.proveedorId != null) {
+      if (servicio?.proveedorId != null) {
         const idRaw = typeof servicio.proveedorId === 'object' ? servicio.proveedorId?.id : servicio.proveedorId
         const num = idRaw != null ? Number(idRaw) : NaN
         proveedorIdLimpio = !isNaN(num) ? num : null
       }
 
-      // 3. Mapeo Supabase: precio_venta = precio unitario que escribe el usuario; total_servicio = resultado calculado
       const datosParaSupabase = {
-        id_expediente: String(expediente.id).trim(),
-        tipo_servicio: servicio.tipo || 'Hotel',
-        nombre_especifico: servicio.nombreEspecifico || '',
-        localizacion: servicio.localizacion || '',
-        coste_unitario: Number(precioUnitario) || 0,
-        total_servicio: totalServicio,
-        precio_venta: Number(precioUnitario) || 0,
-        margen_pax: servicio.margen ? Number(servicio.margen) : 0,
+        id_expediente: String(expediente?.id ?? '').trim(),
+        tipo_servicio: servicio?.tipo || 'Hotel',
+        nombre_especifico: servicio?.nombreEspecifico || '',
+        localizacion: servicio?.localizacion || '',
+        coste_unitario: toNum(precioUnitario),
+        total_servicio: toNum(totalServicio),
+        precio_venta: toNum(precioUnitario),
+        margen_pax: toNum(servicio?.margen),
         noches: nochesFinal,
-        fecha_release: servicio.fechaRelease || null,
+        fecha_release: servicio?.fechaRelease || null,
         tipo_calculo: tipoCalculo === 'porGrupo' ? 'Total a dividir' : (tipoCalculo || 'porPersona'),
         proveedor_id_int: proveedorIdLimpio,
-        nombre_proveedor_manual: servicio.proveedorNombreTemporal || null
+        nombre_proveedor_manual: servicio?.proveedorNombreTemporal || null
       }
       
       // ============ CONSOLE.LOG DE DEBUG ============
@@ -1761,7 +1753,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         
         if (error) {
           console.error('❌ Error actualizando servicio:', error)
-          alert(`❌ Error al guardar servicio: ${error.message || String(error)}`)
+          alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
         } else {
           console.log('✅ Servicio actualizado en Supabase:', servicio.id)
         }
@@ -1777,13 +1769,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         
         if (error) {
           console.error('❌ Error insertando servicio:', error)
-          console.error('❌ Detalles del error:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code
-          })
-          alert(`❌ Error al guardar servicio: ${error.message || String(error)}`)
+          alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
         } else if (data) {
           console.log('✅ Servicio insertado en Supabase:', data.id)
           console.log('📦 Datos devueltos por Supabase:', data)
@@ -1795,6 +1781,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       }
     } catch (err) {
       console.error('❌ Error inesperado guardando servicio:', err)
+      alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
     }
   }
 
@@ -1830,17 +1817,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
   // Helper: noches del expediente (prioriza campo en BD, si no, calcula por fechas)
   const calcularNochesExpediente = () => {
-    // Si el expediente ya trae un campo noches, respetarlo
-    if (expediente && expediente.noches !== undefined && expediente.noches !== null) {
-      const n = Number(expediente.noches)
-      if (!isNaN(n) && n > 0) return n
-    }
+    const n = toNum(expediente?.noches)
+    if (n > 0) return n
 
     // Si no, calcular por fechas (como en el resumen de fechas)
-    if (expediente && expediente.fechaInicio && expediente.fechaFin) {
+    if (expediente?.fechaInicio && expediente?.fechaFin) {
       try {
-        const inicio = new Date(expediente.fechaInicio)
-        const fin = new Date(expediente.fechaFin)
+        const inicio = new Date(expediente?.fechaInicio)
+        const fin = new Date(expediente?.fechaFin)
         const dias = Math.ceil((fin - inicio) / (1000 * 60 * 60 * 24))
         if (!isNaN(dias) && dias > 0) return dias
       } catch (e) {
@@ -1879,47 +1863,41 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         const fila = {
           ...servicio,
           tipo_calculo:
-            servicio.tipo_calculo ||
-            (servicio.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio.tipoCalculo) ||
+            servicio?.tipo_calculo ||
+            (servicio?.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio?.tipoCalculo) ||
             '',
-          tipo_servicio: servicio.tipo_servicio || servicio.tipo || '',
-          coste_unitario: servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0,
-          noches: servicio.noches ?? 1,
-          dias_guia: servicio.dias_guia ?? servicio.noches ?? 1,
-          total_servicio_manual: servicio.total_servicio_manual ?? servicio.totalServicio ?? servicio.total_servicio ?? 0,
+          tipo_servicio: servicio?.tipo_servicio || servicio?.tipo || '',
+          coste_unitario: toNum(servicio?.coste_unitario ?? servicio?.costeUnitario ?? servicio?.precio_manual),
+          noches: Math.max(1, toNum(servicio?.noches)),
+          dias_guia: toNum(servicio?.dias_guia) || Math.max(1, toNum(servicio?.noches)),
+          total_servicio_manual: toNum(servicio?.total_servicio_manual ?? servicio?.totalServicio ?? servicio?.total_servicio),
         }
         const { coste_pax } = finalizarCalculo(fila, paxPago, totalPax)
-        const costePax = coste_pax || 0
+        const costePax = toNum(coste_pax)
         
-        if (servicio.tipo === 'Autobús') {
+        if (servicio?.tipo === 'Autobús') {
           // Siempre: coste por pax del bus (Total a dividir o Por persona)
           costeBusPorPax += costePax
           
-        } else if (servicio.tipo === 'Guía') {
-          // Guía: coste por pax ya incorpora noches según el tipo_calculo
+        } else if (servicio?.tipo === 'Guía') {
           costeGuiaPorPax += costePax
           
-        } else if (servicio.tipo === 'Guía Local') {
-          // Guía Local: flexible, pero el motor ya entrega costePax correcto
+        } else if (servicio?.tipo === 'Guía Local') {
           costeGuiaLocalPorPax += costePax
           
-        } else if (servicio.tipo === 'Hotel') {
-          // Hotel: coste por pax ya incluye noches en el motor (porPersona)
+        } else if (servicio?.tipo === 'Hotel') {
           costeHotelPorPax += costePax
           
-        } else if (servicio.tipo === 'Seguro') {
-          // Seguro: por persona
+        } else if (servicio?.tipo === 'Seguro') {
           costeSeguroPorPax += costePax
           
-        } else if (servicio.tipo === 'Entradas/Tickets') {
-          // Entradas: por persona
+        } else if (servicio?.tipo === 'Entradas/Tickets') {
           costeEntradasPorPax += costePax
           
-        } else if (servicio.tipo === 'Restaurante') {
-          // Restaurantes: Total a dividir / Por persona / Fijo por grupo
+        } else if (servicio?.tipo === 'Restaurante') {
           costeRestaurantePorPax += costePax
           
-        } else if (servicio.tipo === 'Otros') {
+        } else if (servicio?.tipo === 'Otros') {
           // Otros: Total a dividir / Por persona / Fijo por grupo
           costeOtrosPorPax += costePax
         }
@@ -1941,12 +1919,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       servicios.forEach(servicio => {
         const fila = {
           ...servicio,
-          tipo_calculo: servicio.tipo_calculo || (servicio.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio.tipoCalculo) || '',
-          tipo_servicio: servicio.tipo_servicio || servicio.tipo || '',
-          coste_unitario: servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0,
-          noches: servicio.noches ?? 1,
-          dias_guia: servicio.dias_guia ?? servicio.noches ?? 1,
-          total_servicio_manual: servicio.total_servicio_manual ?? servicio.totalServicio ?? servicio.total_servicio ?? 0,
+          tipo_calculo: servicio?.tipo_calculo || (servicio?.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio?.tipoCalculo) || '',
+          tipo_servicio: servicio?.tipo_servicio || servicio?.tipo || '',
+          coste_unitario: toNum(servicio?.coste_unitario ?? servicio?.costeUnitario ?? servicio?.precio_manual),
+          noches: Math.max(1, toNum(servicio?.noches)),
+          dias_guia: toNum(servicio?.dias_guia) || Math.max(1, toNum(servicio?.noches)),
+          total_servicio_manual: toNum(servicio?.total_servicio_manual ?? servicio?.totalServicio ?? servicio?.total_servicio),
         }
         const { total_servicio } = finalizarCalculo(fila, paxPago, totalPax)
         costeTotalProveedor += toNum(total_servicio)
@@ -2033,7 +2011,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         paxPagadores: paxPago,
         paxDePago: paxPago,
         totalPasajeros: totalPax,
-        gratuidades: parseInt(formData?.gratuidades) || 0,
+        gratuidades: toNum(formData?.gratuidades),
       }
     } catch (error) {
       return {
@@ -2088,10 +2066,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
     const noches = calcularNochesExpediente()
 
-    const paxIndividual = parseFloat(formData?.sup_individual_pax || 0) || 0
-    const precioIndividualDia = parseFloat(formData?.sup_individual_precio_dia || 0) || 0
-    const paxSeguro = parseFloat(formData?.sup_seguro_pax || 0) || 0
-    const precioSeguroTotal = parseFloat(formData?.sup_seguro_precio_total || 0) || 0
+    const paxIndividual = toNum(formData?.sup_individual_pax)
+    const precioIndividualDia = toNum(formData?.sup_individual_precio_dia)
+    const paxSeguro = toNum(formData?.sup_seguro_pax)
+    const precioSeguroTotal = toNum(formData?.sup_seguro_precio_total)
 
     const totalSupHabitacion = paxIndividual * precioIndividualDia * noches
     const totalSupSeguro = paxSeguro * precioSeguroTotal
@@ -2803,24 +2781,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
 
     try {
-      // Convertir formData a números para Supabase
-      const convertirANumero = (val) => {
-        if (typeof val === 'number' && !isNaN(val)) return val
-        const num = parseFloat(String(val).replace(/,/g, '.').replace(/[^0-9.-]+/g, ''))
-        return isNaN(num) ? 0 : num
-      }
-
-      // Usar nombres reales de la DB
       const datosParaGuardar = {
-        total_pax: convertirANumero(formData?.total_pax),
-        gratuidades: convertirANumero(formData?.gratuidades),
-        pax_pago: Math.max(1, convertirANumero(formData?.total_pax) - convertirANumero(formData?.gratuidades)),
-        precio_venta_cliente: convertirANumero(formData?.precio_venta_cliente),
-        bonificacion_pax: convertirANumero(formData?.bonificacion_pax),
-        sup_individual_pax: convertirANumero(formData?.sup_individual_pax),
-        sup_individual_precio_dia: convertirANumero(formData?.sup_individual_precio_dia),
-        sup_seguro_pax: convertirANumero(formData?.sup_seguro_pax),
-        sup_seguro_precio_total: convertirANumero(formData?.sup_seguro_precio_total),
+        total_pax: toNum(formData?.total_pax),
+        gratuidades: toNum(formData?.gratuidades),
+        pax_pago: Math.max(1, toNum(formData?.total_pax) - toNum(formData?.gratuidades)),
+        precio_venta_cliente: toNum(formData?.precio_venta_cliente),
+        bonificacion_pax: toNum(formData?.bonificacion_pax),
+        sup_individual_pax: toNum(formData?.sup_individual_pax),
+        sup_individual_precio_dia: toNum(formData?.sup_individual_precio_dia),
+        sup_seguro_pax: toNum(formData?.sup_seguro_pax),
+        sup_seguro_precio_total: toNum(formData?.sup_seguro_precio_total),
       }
 
       const { error } = await supabase
@@ -4754,24 +4724,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                     <button
                       onClick={async () => {
                         if (isSaving) return
-                        const tieneProveedor = (s) => s.proveedorId != null || (s.proveedorNombreTemporal && String(s.proveedorNombreTemporal).trim())
-                        const sinProveedor = servicios.filter(s => !tieneProveedor(s))
-                        if (servicios.length > 0 && sinProveedor.length > 0) {
-                          alert('⚠️ Faltan datos en un servicio. Asegúrate de que todos los servicios tengan un proveedor asignado.')
-                          return
-                        }
                         setIsSaving(true)
                         try {
                           const resultado = await persistirCambios()
                           if (resultado?.ok) {
                             alert('✅ Cotización guardada correctamente!')
                           } else {
-                            const msg = resultado?.error || 'Error desconocido'
-                            alert(`❌ Error al guardar: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`)
+                            alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
                           }
-                        } catch (err) {
-                          const msg = err?.message || err?.toString?.() || 'Error inesperado'
-                          alert(`❌ Error al guardar: ${msg}`)
+                        } catch {
+                          alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
                         } finally {
                           setIsSaving(false)
                         }
