@@ -1682,9 +1682,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
   
-  // Deshabilitar cambio con rueda del ratón
+  // Deshabilitar cambio con rueda del ratón en inputs numéricos (infalible: blur + preventDefault)
   const handleWheel = (e) => {
-    e.target.blur() // Quita el focus para evitar cambio accidental
+    e.preventDefault()
+    e.target.blur()
   }
   
   // Estados para Rooming List
@@ -4011,6 +4012,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             min="0"
                             value={formData?.sup_individual_pax}
                             onChange={(e) => setFormData({ ...formData, sup_individual_pax: e.target.value })}
+                            onWheel={handleWheel}
                             className="w-full p-3 text-sm transition-all"
                             style={{
                               backgroundColor: '#f8fafc',
@@ -4055,6 +4057,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             min="0"
                             value={formData?.sup_individual_precio_dia || ''}
                             onChange={(e) => setFormData({ ...formData, sup_individual_precio_dia: e.target.value })}
+                            onWheel={handleWheel}
                             className="w-full p-3 text-sm transition-all"
                             style={{
                               backgroundColor: '#f8fafc',
@@ -4115,6 +4118,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             min="0"
                             value={formData?.sup_seguro_pax || ''}
                             onChange={(e) => setFormData({ ...formData, sup_seguro_pax: e.target.value })}
+                            onWheel={handleWheel}
                             className="w-full p-3 text-sm transition-all"
                             style={{
                               backgroundColor: '#f8fafc',
@@ -4159,6 +4163,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                             min="0"
                             value={formData?.sup_seguro_precio_total || ''}
                             onChange={(e) => setFormData({ ...formData, sup_seguro_precio_total: e.target.value })}
+                            onWheel={handleWheel}
                             className="w-full p-3 text-sm transition-all"
                             style={{
                               backgroundColor: '#f8fafc',
@@ -4461,6 +4466,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                       const valorNumerico = valor === '' ? 1 : Number(valor) || 1
                                       actualizarServicio(servicio.id, 'noches', Math.max(1, valorNumerico))
                                     }}
+                                    onWheel={handleWheel}
                                     onFocus={(e) => {
                                       handleFocus(e)
                                       e.target.style.borderColor = '#3b82f6'
@@ -4485,6 +4491,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                       const valorNumerico = valor === '' ? 1 : Number(valor) || 1
                                       actualizarServicio(servicio.id, 'cantidad', Math.max(1, valorNumerico))
                                     }}
+                                    onWheel={handleWheel}
                                     onBlur={(e) => {
                                       e.target.style.borderColor = '#e2e8f0'
                                       e.target.style.boxShadow = 'none'
@@ -4514,6 +4521,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   type="number"
                                   step="0.01"
                                   value={servicio.costeUnitario ?? servicio.precio_manual ?? ''}
+                                  onWheel={handleWheel}
                                   onChange={(e) => {
                                     // Preservar decimales: usar parseFloat directamente para inputs numéricos
                                     const valorInput = e.target.value;
@@ -4932,6 +4940,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         type="number"
                         value={habitaciones.dobles}
                         onChange={(e) => setHabitaciones({ ...habitaciones, dobles: parseInt(e.target.value) || 0 })}
+                        onWheel={handleWheel}
                         className="input-field"
                         min="0"
                       />
@@ -4942,6 +4951,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         type="number"
                         value={habitaciones.doblesTwin}
                         onChange={(e) => setHabitaciones({ ...habitaciones, doblesTwin: parseInt(e.target.value) || 0 })}
+                        onWheel={handleWheel}
                         className="input-field"
                         min="0"
                       />
@@ -4952,6 +4962,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         type="number"
                         value={habitaciones.individuales}
                         onChange={(e) => setHabitaciones({ ...habitaciones, individuales: parseInt(e.target.value) || 0 })}
+                        onWheel={handleWheel}
                         className="input-field"
                         min="0"
                       />
@@ -5221,6 +5232,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         }
                         setFormCobro({ ...formCobro, importe: valor })
                       }}
+                      onWheel={handleWheel}
                       onBlur={(e) => {
                         const valorLimpio = limpiarNumero(e.target.value)
                         setFormCobro({ ...formCobro, importe: valorLimpio > 0 ? valorLimpio.toFixed(2) : '' })
