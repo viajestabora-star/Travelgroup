@@ -1097,12 +1097,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
 
-  // Cargar cobros cuando se abre la pestaña o cambia el expediente
+  // Cargar cobros cuando se abre Cobros y Pagos o Cotización (para comparativa de cobros)
   useEffect(() => {
-    if (tab === 'cobros' && expediente?.id) {
+    if ((tab === 'cobros' || tab === 'cotizacion') && expediente?.id) {
       cargarCobros()
-    } else if (tab !== 'cobros') {
-      // Limpiar cobros cuando se cambia de pestaña para optimizar memoria
+    } else if (tab !== 'cobros' && tab !== 'cotizacion') {
       setCobros([])
     }
   }, [tab, expediente?.id])
@@ -4896,6 +4895,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         (pax de pago × precio) − bonificación + suplementos
                       </p>
                     </div>
+
+                    {/* Comparativa de cobros: Total Cobrado y Saldo Pendiente */}
+                    {(() => {
+                      const totalCotizacion = parseFloat(String(resultados?.totalVenta ?? 0).replace(',', '.')) || 0
+                      const totalCobrado = Array.isArray(cobros) ? cobros.reduce((sum, c) => sum + (parseFloat(String(c.importe ?? 0).replace(',', '.')) || 0), 0) : 0
+                      const saldoPendiente = totalCotizacion - totalCobrado
+                      const isPagado = saldoPendiente <= 0
+                      return (
+                        <>
+                          <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="font-semibold text-slate-700">Total Cobrado:</span>
+                              <span className="font-bold text-slate-900">{totalCobrado.toFixed(2)}€</span>
+                            </div>
+                          </div>
+                          <div className={`mt-2 p-3 border rounded-lg ${isPagado ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                            <div className="flex justify-between items-center text-sm">
+                              <span className={`font-semibold ${isPagado ? 'text-green-800' : 'text-red-800'}`}>
+                                Saldo Pendiente:
+                              </span>
+                              <span className={`font-bold ${isPagado ? 'text-green-900' : 'text-red-900'}`}>
+                                {isPagado ? 'Pagado' : `${saldoPendiente.toFixed(2)}€`}
+                              </span>
+                            </div>
+                          </div>
+                        </>
+                      )
+                    })()}
                   </div>
                   
                   <div className="mt-6">
