@@ -2543,7 +2543,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           const precioUnitHabitacion = Math.max(0, precioIndividualDiaNum)
           const totalConceptoHabitacion = cantidadHabitacion * precioUnitHabitacion
 
-          doc.text('Habitaciones individuales', 20, yPos)
+          doc.text('Total estancia (habitación individual)', 20, yPos)
           doc.text(String(cantidadHabitacion), 90, yPos)
           doc.text(`${precioUnitHabitacion.toFixed(2)}€`, 115, yPos)
           doc.text(`${totalConceptoHabitacion.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
@@ -4044,7 +4044,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                               marginBottom: '4px',
                             }}
                           >
-                            Precio/Noche (€)
+                            Total Estancia (€)
                             {(!formData?.sup_individual_precio_dia || Number(formData?.sup_individual_precio_dia) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
@@ -4080,7 +4080,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                     </div>
                       </div>
                       <p className="mt-2 text-xs text-slate-500">
-                        Importe total habitación: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
+                        Total estancia: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
                         <span className="text-slate-400">
                           ({formData?.sup_individual_pax || 0} pax × {formData?.sup_individual_precio_dia || 0}€ × {suplementos.noches} noches)
                         </span>
@@ -5589,7 +5589,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           </div>
                           {parseFloat(suplementos.totalSupHabitacion) > 0 && (
                             <div className="flex justify-between py-2 pl-4 text-sm text-gray-600">
-                              <span>• Habitaciones individuales:</span>
+                              <span>• Total estancia (habitación individual):</span>
                               <span>{suplementos.totalSupHabitacion}€</span>
                             </div>
                           )}
