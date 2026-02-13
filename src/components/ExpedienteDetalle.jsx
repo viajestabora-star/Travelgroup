@@ -4041,6 +4041,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   : '1px solid #e2e8f0',
                             }}
                             onFocus={(e) => {
+                              e.target.select()
                               e.target.style.borderColor = '#3b82f6'
                               e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                             }}
@@ -4412,21 +4413,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   value={servicio.tipo}
                                   onChange={(e) => {
                                     const nuevoTipo = e.target.value
-                                    actualizarServicio(servicio.id, 'tipo', nuevoTipo)
-                                    // Limpiar proveedor si cambia el tipo (porque el tipo debe coincidir)
+                                    const updates = { tipo: nuevoTipo }
+                                    // Autobús: blindaje fijo — siempre Total ÷ pasajeros_pago
+                                    if (nuevoTipo === 'Autobús') {
+                                      updates.tipo_calculo = 'porGrupo'
+                                      if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
+                                    }
+                                    // Limpiar proveedor si cambia el tipo y no coincide
                                     if (servicio.proveedorId) {
                                       const proveedorActual = obtenerProveedorPorId(servicio.proveedorId)
                                       const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || '')
                                       const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo)
-                                      
-                                      // Si el tipo del proveedor no coincide con el nuevo tipo, limpiar
                                       if (tipoProveedorActual !== nuevoTipoProveedor) {
-                                        actualizarServicio(servicio.id, 'proveedorId', null)
-                                        setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                        updates.proveedorId = null
+                                        setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
                                       }
                                     }
-                                    // Mostrar sugerencias para el nuevo tipo
-                                    setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
+                                    actualizarServicio(servicio.id, updates)
+                                    setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true }))
                                   }}
                                   className="input-field text-xs w-full transition-all"
                                   style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
@@ -4562,34 +4566,40 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 />
                               </td>
 
-                              {/* COLUMNA 5: MODO (Precio por Persona / Total a dividir) */}
+                              {/* COLUMNA 5: MODO (Autobús fijo: Total ÷ pax; resto: selector) */}
                               <td className="px-2 py-2 text-center">
-                                <select
-                                  value={servicio.tipo_calculo || 'porPersona'}
-                                  onChange={(e) => {
-                                    const nuevoModo = e.target.value;
-                                    const updates = { tipo_calculo: nuevoModo };
-                                    if (nuevoModo === 'porGrupo' && servicio.coste_unitario) {
-                                      updates.total_servicio_manual = toNum(servicio.coste_unitario);
-                                    } else if (nuevoModo === 'porPersona') {
-                                      updates.total_servicio_manual = 0;
-                                    }
-                                    actualizarServicio(servicio.id, updates);
-                                  }}
-                                  className="input-field text-[10px] w-full transition-all"
-                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                                  onFocus={(e) => {
-                                    e.target.style.borderColor = '#3b82f6'
-                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                  }}
-                                  onBlur={(e) => {
-                                    e.target.style.borderColor = '#e2e8f0'
-                                    e.target.style.boxShadow = 'none'
-                                  }}
-                                >
-                                  <option value="porPersona">Precio por Persona</option>
-                                  <option value="porGrupo">Total a dividir entre el grupo</option>
-                                </select>
+                                {servicio.tipo === 'Autobús' ? (
+                                  <span className="text-xs font-medium text-slate-600" title="Autobús siempre divide el total entre pasajeros de pago">
+                                    Total ÷ pax
+                                  </span>
+                                ) : (
+                                  <select
+                                    value={servicio.tipo_calculo || 'porPersona'}
+                                    onChange={(e) => {
+                                      const nuevoModo = e.target.value;
+                                      const updates = { tipo_calculo: nuevoModo };
+                                      if (nuevoModo === 'porGrupo' && servicio.coste_unitario) {
+                                        updates.total_servicio_manual = toNum(servicio.coste_unitario);
+                                      } else if (nuevoModo === 'porPersona') {
+                                        updates.total_servicio_manual = 0;
+                                      }
+                                      actualizarServicio(servicio.id, updates);
+                                    }}
+                                    className="input-field text-[10px] w-full transition-all"
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                    onFocus={(e) => {
+                                      e.target.style.borderColor = '#3b82f6'
+                                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                    }}
+                                    onBlur={(e) => {
+                                      e.target.style.borderColor = '#e2e8f0'
+                                      e.target.style.boxShadow = 'none'
+                                    }}
+                                  >
+                                    <option value="porPersona">Precio por Persona</option>
+                                    <option value="porGrupo">Total a dividir entre el grupo</option>
+                                  </select>
+                                )}
                               </td>
                               
                               {/* COLUMNA 6: TOTAL (Calculado con función clara) */}
