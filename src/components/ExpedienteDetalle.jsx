@@ -148,6 +148,7 @@ const DEFAULT_SERVICE_VALUES = {
   margen: 0,
   noches: 1,
   dias_guia: 1,
+  cantidad: 1,
   total_servicio_manual: 0,
   totalServicio: 0,
   total_servicio: 0,
@@ -195,6 +196,8 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
     return (Math.trunc(n * 100) / 100).toFixed(2);
   };
 
+  const pP = Math.max(1, toNum(paxPago));
+
   try {
     const bonif = Math.max(0, toNum(formData?.bonificacion_pax));
     let costeBusPorPax = 0, costeGuiaPorPax = 0, costeGuiaLocalPorPax = 0, costeHotelPorPax = 0;
@@ -211,14 +214,25 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
         dias_guia: toNum(s.dias_guia) || Math.max(1, toNum(s.noches)),
         total_servicio_manual: toNum(s.total_servicio_manual ?? s.totalServicio ?? s.total_servicio),
       };
-      const { coste_pax } = finalizarCalculoModulo(fila, paxPago, totalPax);
-      const costePax = toNum(coste_pax);
       const tipo = String(s.tipo || s.tipo_servicio || 'Hotel').trim();
       const tipoNorm = normalizarTipo(tipo) || 'hotel';
+      const precioCoste = toNum(s.coste_unitario ?? s.costeUnitario ?? s.precio_manual);
+
+      // Guía: coste total = precio_coste * cantidad. Prorrateo por PAX = total / pax_pago. Usa cantidad manual.
+      let costePax = 0;
+      if (tipoNorm === 'guia' || tipoNorm === 'g') {
+        const cantidad = Math.max(1, toNum(s.cantidad ?? s.dias_guia ?? 1));
+        const costeTotalGuia = precioCoste * cantidad;
+        costePax = pP > 0 ? costeTotalGuia / pP : 0;
+      } else {
+        const { coste_pax } = finalizarCalculoModulo(fila, paxPago, totalPax);
+        costePax = toNum(coste_pax);
+      }
+
       // Comparación robusta: acepta "Autobús"/"autobus", "Entradas/Tickets"/"entradas", etc.
       if (tipoNorm === 'autobus') costeBusPorPax += costePax;
       else if (tipoNorm === 'guialocal' || tipoNorm === 'guia local') costeGuiaLocalPorPax += costePax;
-      else if (tipoNorm === 'guia') costeGuiaPorPax += costePax;
+      else if (tipoNorm === 'guia' || tipoNorm === 'g') costeGuiaPorPax += costePax;
       else if (tipoNorm === 'hotel') costeHotelPorPax += costePax;
       else if (tipoNorm === 'seguro') costeSeguroPorPax += costePax;
       else if (tipoNorm === 'entradas' || tipoNorm.includes('entradas')) costeEntradasPorPax += costePax;
@@ -232,17 +246,27 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
     let costeTotalProveedor = 0;
     servicios.forEach((servicio) => {
       const s = { ...DEFAULT_SERVICE_VALUES, ...servicio };
-      const fila = {
-        ...s,
-        tipo_calculo: s.tipo_calculo || (s.tipoCalculo === 'porGrupo' ? 'Total a dividir' : s.tipoCalculo) || '',
-        tipo_servicio: s.tipo_servicio || s.tipo || '',
-        coste_unitario: toNum(s.coste_unitario ?? s.costeUnitario ?? s.precio_manual),
-        noches: Math.max(1, toNum(s.noches)),
-        dias_guia: toNum(s.dias_guia) || Math.max(1, toNum(s.noches)),
-        total_servicio_manual: toNum(s.total_servicio_manual ?? s.totalServicio ?? s.total_servicio),
-      };
-      const { total_servicio } = finalizarCalculoModulo(fila, paxPago, totalPax);
-      costeTotalProveedor += toNum(total_servicio);
+      const tipo = String(s.tipo || s.tipo_servicio || 'Hotel').trim();
+      const tipoNorm = normalizarTipo(tipo) || 'hotel';
+      const precioCoste = toNum(s.coste_unitario ?? s.costeUnitario ?? s.precio_manual);
+
+      // Guía: total = precio_coste * cantidad (manual). NO aplicar a Autobús ni Seguro.
+      if (tipoNorm === 'guia' || tipoNorm === 'g') {
+        const cantidad = Math.max(1, toNum(s.cantidad ?? s.dias_guia ?? 1));
+        costeTotalProveedor += precioCoste * cantidad;
+      } else {
+        const fila = {
+          ...s,
+          tipo_calculo: s.tipo_calculo || (s.tipoCalculo === 'porGrupo' ? 'Total a dividir' : s.tipoCalculo) || '',
+          tipo_servicio: s.tipo_servicio || s.tipo || '',
+          coste_unitario: precioCoste,
+          noches: Math.max(1, toNum(s.noches)),
+          dias_guia: toNum(s.dias_guia) || Math.max(1, toNum(s.noches)),
+          total_servicio_manual: toNum(s.total_servicio_manual ?? s.totalServicio ?? s.total_servicio),
+        };
+        const { total_servicio } = finalizarCalculoModulo(fila, paxPago, totalPax);
+        costeTotalProveedor += toNum(total_servicio);
+      }
     });
 
     const costeBaseGratuidad = costeBasePorPersona;
@@ -697,6 +721,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
               margen: toNum(row.margen_pax),
               noches: Math.max(1, toNum(row.noches)),
               dias_guia: toNum(row.dias_guia) || Math.max(1, toNum(row.noches)),
+              cantidad: Math.max(1, toNum(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)),
               total_servicio_manual: esTotalDividir ? coste : 0,
               totalServicio: esTotalDividir ? coste : 0,
               tipo_calculo: esTotalDividir ? 'Total a dividir' : 'porPersona',
@@ -744,12 +769,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
       const nombre = s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo
       const noches = Math.max(1, toNum(s?.noches))
-      const dias = Math.max(1, toNum(s?.dias_guia))
+      const cantidad = Math.max(1, toNum(s?.cantidad ?? s?.dias_guia ?? 1))
       const esTotalDividir = s?.tipo_calculo === 'Total a dividir' || s?.tipoCalculo === 'porGrupo'
-      const detalle = esTotalDividir ? '1 grupo' : (tipo === 'Hotel' ? `${totalPax} pax × ${noches} noches` : tipo === 'Guía' ? `${dias} días` : `${totalPax} pax`)
+      const tipoNorm = normalizarTipo(tipo) || ''
+      const detalle = esTotalDividir ? '1 grupo' : (tipo === 'Hotel' ? `${totalPax} pax × ${noches} noches` : tipo === 'Guía' ? `${cantidad} días` : `${totalPax} pax`)
       const fila = { ...DEFAULT_SERVICE_VALUES, ...s }
-      const { total_servicio } = finalizarCalculo(fila, paxPago, totalPax)
-      return { id: s?.id || generarUUID(), empresa: `${empresa} — ${nombre}`, detalle, totalPagado: Number(total_servicio || 0) }
+      const precioCoste = toNum(s?.coste_unitario ?? s?.costeUnitario ?? s?.precio_manual ?? 0)
+      const totalPagado = (tipoNorm === 'guia' || tipoNorm === 'g')
+        ? precioCoste * cantidad
+        : Number(finalizarCalculo(fila, paxPago, totalPax)?.total_servicio || 0)
+      return { id: s?.id || generarUUID(), empresa: `${empresa} — ${nombre}`, detalle, totalPagado }
     })
     setInformeLiquidacion({ ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal }, gastos: gastosIniciales })
     informeLiquidacionInicializadoRef.current = true
@@ -1928,6 +1957,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
   // Helper de UI: adaptar servicio al formato esperado por finalizarCalculo
   const calcularTotalFilaUI = (servicio) => {
+    const tipoNorm = normalizarTipo(servicio?.tipo || servicio?.tipo_servicio || '')
+    const precioCoste = toNum(servicio?.coste_unitario ?? servicio?.costeUnitario ?? servicio?.precio_manual ?? 0)
+
+    // Guía: total = precio_coste * cantidad (manual)
+    if (tipoNorm === 'guia' || tipoNorm === 'g') {
+      const cantidad = Math.max(1, toNum(servicio?.cantidad ?? servicio?.dias_guia ?? 1))
+      return precioCoste * cantidad
+    }
+
     const fila = {
       ...servicio,
       tipo_calculo:
@@ -1935,7 +1973,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         (servicio.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio.tipoCalculo) ||
         '',
       tipo_servicio: servicio.tipo_servicio || servicio.tipo || '',
-      coste_unitario: servicio.coste_unitario ?? servicio.costeUnitario ?? servicio.precio_manual ?? 0,
+      coste_unitario: precioCoste,
       noches: servicio.noches ?? 1,
       dias_guia: servicio.dias_guia ?? servicio.noches ?? 1,
       total_servicio_manual: servicio.total_servicio_manual ?? servicio.totalServicio ?? servicio.total_servicio ?? 0,
@@ -2005,16 +2043,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         proveedorIdLimpio = !isNaN(num) ? num : null
       }
 
+      const tipoNorm = normalizarTipo(servicio?.tipo || '')
+      const cantidadGuia = Math.max(1, toNum(servicio?.cantidad ?? servicio?.dias_guia ?? nochesFinal))
+      const totalServicioFinal = (tipoNorm === 'guia' || tipoNorm === 'g')
+        ? toNum(precioUnitario) * cantidadGuia
+        : toNum(totalServicio)
+
       const datosParaSupabase = {
         id_expediente: String(expediente?.id ?? '').trim(),
         tipo_servicio: servicio?.tipo || 'Hotel',
         nombre_especifico: servicio?.nombreEspecifico || '',
         localizacion: servicio?.localizacion || '',
         coste_unitario: toNum(precioUnitario),
-        total_servicio: toNum(totalServicio),
+        total_servicio: totalServicioFinal,
         precio_venta: toNum(precioUnitario),
         margen_pax: toNum(servicio?.margen),
         noches: nochesFinal,
+        dias_guia: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : nochesFinal,
         fecha_release: servicio?.fechaRelease || null,
         tipo_calculo: tipoCalculo === 'porGrupo' ? 'Total a dividir' : (tipoCalculo || 'porPersona'),
         proveedor_id_int: proveedorIdLimpio,
@@ -4403,17 +4448,40 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 </select>
                               </td>
                               
-                              {/* COLUMNA 3: CANTIDAD (Noches para Hotel, Días para Guía, 1 para otros) */}
+                              {/* COLUMNA 3: CANTIDAD (Noches para Hotel, cantidad manual para Guía, 1 para otros) */}
                               <td className="px-2 py-2 text-center">
-                                {servicio.tipo === 'Hotel' || servicio.tipo === 'Guía' ? (
+                                {servicio.tipo === 'Hotel' ? (
                                 <input
                                     type="number"
                                     value={servicio.noches || 1}
                                     onChange={(e) => {
                                       const valor = e.target.value
-                                      // Convertir a número para asegurar consistencia
                                       const valorNumerico = valor === '' ? 1 : Number(valor) || 1
                                       actualizarServicio(servicio.id, 'noches', Math.max(1, valorNumerico))
+                                    }}
+                                    onFocus={(e) => {
+                                      handleFocus(e)
+                                      e.target.style.borderColor = '#3b82f6'
+                                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                    }}
+                                    onBlur={(e) => {
+                                      e.target.style.borderColor = '#e2e8f0'
+                                      e.target.style.boxShadow = 'none'
+                                    }}
+                                    onWheel={handleWheel}
+                                    className="input-field text-xs text-center w-20 transition-all"
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                    min="1"
+                                    placeholder="1"
+                                  />
+                                ) : servicio.tipo === 'Guía' ? (
+                                <input
+                                    type="number"
+                                    value={servicio.cantidad ?? servicio.dias_guia ?? 1}
+                                    onChange={(e) => {
+                                      const valor = e.target.value
+                                      const valorNumerico = valor === '' ? 1 : Number(valor) || 1
+                                      actualizarServicio(servicio.id, 'cantidad', Math.max(1, valorNumerico))
                                     }}
                                     onFocus={(e) => {
                                       handleFocus(e)
