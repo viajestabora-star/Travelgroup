@@ -157,6 +157,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // Estado de carga: bloquea guardados hasta que los datos estén cargados
   const [datosCargados, setDatosCargados] = useState(false)
 
+  // Estado de guardado: evita duplicados y muestra feedback
+  const [isSaving, setIsSaving] = useState(false)
+
   // Estados para servicios (separados porque se guardan en tabla diferente)
   const [servicios, setServicios] = useState([])
   
@@ -1440,8 +1443,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
   // ⚠️ BLINDAJE NIVEL 2: Cálculo seguro de pasajeros de pago
   // Si no hay pax, los cálculos deben devolver 0 (nunca dividir por 0).
-  const paxPago = Math.max(0, (parseInt(formData?.total_pax) || 0) - (parseInt(formData?.gratuidades) || 0))
-  const totalPax = Math.max(0, parseInt(formData?.total_pax) || 0)
+  const paxPago = Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades))
+  const totalPax = Math.max(0, toNum(formData?.total_pax))
 
   // NOTA: Para "Total a dividir" (Autobús), costeUnitario almacena el TOTAL que escribe el usuario.
   // NO sobrescribir costeUnitario al cambiar pax_pago (evita que las cifras se muevan al guardar).
@@ -1573,17 +1576,25 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
   
+  // Sanitización de números: cualquier valor no numérico → 0
+  const toNum = (v) => {
+    if (v === null || v === undefined) return 0
+    if (typeof v === 'number' && !isNaN(v)) return v
+    const n = Number(v)
+    return isNaN(n) ? 0 : n
+  }
+
   // ============ MOTOR DE CÁLCULO - REGLAS ESTRICTAS ============
   // Hotel (Precio por Persona/Noche): Total = Pax * Precio * Noches
   // Autobús (Total a dividir): Total = Precio introducido (sin multiplicar por pasajeros)
   const finalizarCalculo = (servicio, paxPago = 31, paxTotal = 35) => {
-    const s = servicio || {};
-    const pP = parseFloat(paxPago) || 1;
-    const pT = parseFloat(paxTotal) || 1;
-    const precio = parseFloat(s.coste_unitario) || 0; // Precio unitario que escribe el usuario
-    const n = parseInt(s.noches) || 1;
-    const d = parseInt(s.dias_guia) || 1;
-    const manual = parseFloat(s.total_servicio_manual) || 0;
+    const s = servicio || {}
+    const pP = Math.max(1, toNum(paxPago))
+    const pT = Math.max(1, toNum(paxTotal))
+    const precio = toNum(s.coste_unitario ?? s.costeUnitario ?? s.precio_manual)
+    const n = Math.max(1, toNum(s.noches))
+    const d = Math.max(1, toNum(s.dias_guia))
+    const manual = toNum(s.total_servicio_manual ?? s.totalServicio ?? s.total_servicio)
     let totalFinal = 0;
     let costePorPersona = 0;
 
@@ -1851,8 +1862,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
   const calcularCotizacion = () => {
     try {
-      // Valores seguros
-      const bonif = Math.max(0, parseFloat(formData?.bonificacion_pax) || 0)
+      const bonif = Math.max(0, toNum(formData?.bonificacion_pax))
       
       // Variables de costes POR CATEGORÍA
       let costeBusPorPax = 0
@@ -1939,12 +1949,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           total_servicio_manual: servicio.total_servicio_manual ?? servicio.totalServicio ?? servicio.total_servicio ?? 0,
         }
         const { total_servicio } = finalizarCalculo(fila, paxPago, totalPax)
-        costeTotalProveedor += parseFloat(total_servicio) || 0
+        costeTotalProveedor += toNum(total_servicio)
       })
       
       // CÁLCULO CORRECTO DE GRATUIDADES (Base Real Completa)
       const costeBaseGratuidad = costeBasePorPersona
-      const costePlazasGratuitas = costeBaseGratuidad * (parseInt(formData?.gratuidades) || 0)
+      const costePlazasGratuitas = costeBaseGratuidad * Math.max(0, toNum(formData?.gratuidades))
       const costeGratuidadesPorPax = paxPago > 0 ? costePlazasGratuitas / paxPago : 0
       
       // COSTE REAL POR PERSONA (PAGADOR) = Base + Gratuidades + Bonificación
@@ -1952,13 +1962,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       
       // PAX DE PAGO: TotalPax - Gratuidades (ya definido como paxPago)
       const paxDePago = paxPago
-      const precioBase = Math.max(0, parseFloat(formData?.precio_venta_cliente) || 0)
+      const precioBase = Math.max(0, toNum(formData?.precio_venta_cliente))
       const bonificacionTotal = bonif * paxDePago
       
       // TOTAL VENTA: (paxDePago * PrecioBase) - BonificacionTotal + Suplementos
       const nochesSup = calcularNochesExpediente()
-      const totalSupHabitacion = (parseFloat(formData?.sup_individual_pax || 0) || 0) * (parseFloat(formData?.sup_individual_precio_dia || 0) || 0) * nochesSup
-      const totalSupSeguro = (parseFloat(formData?.sup_seguro_pax || 0) || 0) * (parseFloat(formData?.sup_seguro_precio_total || 0) || 0)
+      const totalSupHabitacion = toNum(formData?.sup_individual_pax) * toNum(formData?.sup_individual_precio_dia) * nochesSup
+      const totalSupSeguro = toNum(formData?.sup_seguro_pax) * toNum(formData?.sup_seguro_precio_total)
       const suplementosTotal = totalSupHabitacion + totalSupSeguro
       const totalVenta = (paxDePago * precioBase) - bonificacionTotal + suplementosTotal
       
@@ -2772,6 +2782,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // persistirCambios: Guarda formData en Supabase usando nombres reales de la DB
   // BLOQUEADO si la carga inicial no ha terminado
   const persistirCambios = async () => {
+    const extraerMensajeError = (err) => {
+      if (!err) return 'Error desconocido'
+      if (typeof err === 'string') return err
+      if (err?.message) return err.message
+      if (err?.error_description) return err.error_description
+      if (err?.details) return String(err.details)
+      return String(err)
+    }
     const expedienteId = expediente?.id
     if (!expedienteId) {
       console.error('❌ No se puede guardar: expediente sin ID')
@@ -2812,15 +2830,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
       if (error) {
         console.error('❌ Error guardando:', error)
-        return { ok: false, error: error?.message || String(error) }
+        return { ok: false, error: extraerMensajeError(error) }
       }
 
-      // Actualizar estado local
       onUpdate({ ...expediente, ...datosParaGuardar })
       return { ok: true }
     } catch (error) {
       console.error('❌ Error inesperado:', error)
-      return { ok: false, error: error?.message || String(error) }
+      return { ok: false, error: extraerMensajeError(error) }
     }
   }
 
@@ -4734,16 +4751,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   </div>
                   
                   <div className="mt-6">
-                    <button onClick={async () => {
-                      const resultado = await persistirCambios()
-                      if (resultado?.ok) {
-                        alert('✅ Cotización guardada correctamente!')
-                      } else {
-                        alert(`❌ Error al guardar: ${resultado?.error || 'Error desconocido'}`)
-                      }
-                    }} className="btn-primary w-full flex items-center justify-center gap-2">
+                    <button
+                      onClick={async () => {
+                        if (isSaving) return
+                        const tieneProveedor = (s) => s.proveedorId != null || (s.proveedorNombreTemporal && String(s.proveedorNombreTemporal).trim())
+                        const sinProveedor = servicios.filter(s => !tieneProveedor(s))
+                        if (servicios.length > 0 && sinProveedor.length > 0) {
+                          alert('⚠️ Faltan datos en un servicio. Asegúrate de que todos los servicios tengan un proveedor asignado.')
+                          return
+                        }
+                        setIsSaving(true)
+                        try {
+                          const resultado = await persistirCambios()
+                          if (resultado?.ok) {
+                            alert('✅ Cotización guardada correctamente!')
+                          } else {
+                            const msg = resultado?.error || 'Error desconocido'
+                            alert(`❌ Error al guardar: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`)
+                          }
+                        } catch (err) {
+                          const msg = err?.message || err?.toString?.() || 'Error inesperado'
+                          alert(`❌ Error al guardar: ${msg}`)
+                        } finally {
+                          setIsSaving(false)
+                        }
+                      }}
+                      disabled={isSaving}
+                      className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
                       <Save size={20} />
-                      Guardar Cotización
+                      {isSaving ? 'Guardando...' : 'Guardar Cotización'}
                     </button>
                   </div>
                 </div>
