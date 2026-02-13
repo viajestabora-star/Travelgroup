@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin } from 'lucide-react'
+import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 import { createClient } from '@supabase/supabase-js'
@@ -335,6 +335,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   // Ref para rastrear si ya se inicializaron los servicios automáticamente
   const serviciosInicializados = useRef(false)
+  const informeLiquidacionInicializadoRef = useRef(false)
+
+  // Estado local del Informe de Liquidación (editable, no afecta cotización)
+  const [informeLiquidacion, setInformeLiquidacion] = useState({
+    ingresos: { precioViaje: 0, suplementos: 0, descuentos: 0 },
+    gastos: [],
+  })
   
   // ============ ESTADO GLOBAL UNIFICADO DEL FORMULARIO ============
   // Fuente Única de Verdad: Estado persistente único con valores por defecto seguros
@@ -711,6 +718,171 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     cargarServicios()
   }, [expediente?.id, proveedores])
 
+  // Inicializar informe de liquidación desde cotización al abrir pestaña Cierre (solo al entrar)
+  useEffect(() => {
+    if (tab !== 'cierre') {
+      informeLiquidacionInicializadoRef.current = false
+      return
+    }
+    if (informeLiquidacionInicializadoRef.current) return
+    if (!resultados || !servicios) return
+    const precioViaje = paxPago * toNum(formData?.precio_venta_cliente)
+    const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
+    const descuentosVal = toNum(formData?.bonificacion_pax) * paxPago
+    const gastosIniciales = servicios.map((s) => {
+      const prov = obtenerProveedorPorId(s?.proveedorId)
+      const empresa = prov?.nombreComercial || s?.proveedorNombreTemporal || '—'
+      const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
+      const nombre = s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo
+      const noches = Math.max(1, toNum(s?.noches))
+      const dias = Math.max(1, toNum(s?.dias_guia))
+      const esTotalDividir = s?.tipo_calculo === 'Total a dividir' || s?.tipoCalculo === 'porGrupo'
+      const detalle = esTotalDividir ? '1 grupo' : (tipo === 'Hotel' ? `${totalPax} pax × ${noches} noches` : tipo === 'Guía' ? `${dias} días` : `${totalPax} pax`)
+      const fila = { ...DEFAULT_SERVICE_VALUES, ...s }
+      const { total_servicio } = finalizarCalculo(fila, paxPago, totalPax)
+      return {
+        id: s?.id || generarUUID(),
+        empresa: `${empresa} — ${nombre}`,
+        detalle,
+        totalPagado: Number(total_servicio || 0),
+      }
+    })
+    setInformeLiquidacion({
+      ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal },
+      gastos: gastosIniciales,
+    })
+    informeLiquidacionInicializadoRef.current = true
+  }, [tab, resultados, servicios, formData, paxPago, totalPax, suplementos])
+
+  const recargarInformeDesdeCotizacion = () => {
+    if (!resultados || !servicios) return
+    informeLiquidacionInicializadoRef.current = false
+    const precioViaje = paxPago * toNum(formData?.precio_venta_cliente)
+    const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
+    const descuentosVal = toNum(formData?.bonificacion_pax) * paxPago
+    const gastosIniciales = servicios.map((s) => {
+      const prov = obtenerProveedorPorId(s?.proveedorId)
+      const empresa = prov?.nombreComercial || s?.proveedorNombreTemporal || '—'
+      const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
+      const nombre = s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo
+      const noches = Math.max(1, toNum(s?.noches))
+      const dias = Math.max(1, toNum(s?.dias_guia))
+      const esTotalDividir = s?.tipo_calculo === 'Total a dividir' || s?.tipoCalculo === 'porGrupo'
+      const detalle = esTotalDividir ? '1 grupo' : (tipo === 'Hotel' ? `${totalPax} pax × ${noches} noches` : tipo === 'Guía' ? `${dias} días` : `${totalPax} pax`)
+      const fila = { ...DEFAULT_SERVICE_VALUES, ...s }
+      const { total_servicio } = finalizarCalculo(fila, paxPago, totalPax)
+      return { id: s?.id || generarUUID(), empresa: `${empresa} — ${nombre}`, detalle, totalPagado: Number(total_servicio || 0) }
+    })
+    setInformeLiquidacion({ ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal }, gastos: gastosIniciales })
+    informeLiquidacionInicializadoRef.current = true
+  }
+
+  const actualizarInformeIngreso = (campo, valor) => {
+    setInformeLiquidacion(prev => ({
+      ...prev,
+      ingresos: { ...prev.ingresos, [campo]: toNum(valor) }
+    }))
+  }
+  const actualizarInformeGasto = (id, campo, valor) => {
+    setInformeLiquidacion(prev => ({
+      ...prev,
+      gastos: prev.gastos.map(g => g.id === id ? { ...g, [campo]: campo === 'totalPagado' ? toNum(valor) : valor } : g)
+    }))
+  }
+  const agregarGastoInforme = () => {
+    setInformeLiquidacion(prev => ({
+      ...prev,
+      gastos: [...prev.gastos, { id: generarUUID(), empresa: '', detalle: '', totalPagado: 0 }]
+    }))
+  }
+  const eliminarGastoInforme = (id) => {
+    setInformeLiquidacion(prev => ({ ...prev, gastos: prev.gastos.filter(g => g.id !== id) }))
+  }
+
+  const generarInformeLiquidacionPDF = () => {
+    const ing = informeLiquidacion.ingresos
+    const cobroTotal = ing.precioViaje + ing.suplementos - ing.descuentos
+    const sumaGastos = informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0)
+    const beneficioLiquido = cobroTotal - sumaGastos
+    const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
+    const viaje = expediente?.destino || 'Sin destino'
+    const doc = new jsPDF()
+    let y = 20
+    doc.setFontSize(16)
+    doc.setFont('helvetica', 'bold')
+    doc.text('INFORME DE LIQUIDACIÓN DE BENEFICIOS', 20, y)
+    y += 10
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`GRUPO: ${grupo}`, 20, y)
+    y += 6
+    doc.text(`VIAJE: ${viaje}`, 20, y)
+    y += 12
+    doc.setFont('helvetica', 'bold')
+    doc.text('Ingresos', 20, y)
+    y += 6
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Precio Viaje: ${Number(ing.precioViaje).toFixed(2)} €`, 25, y)
+    y += 6
+    doc.text(`Suplementos: ${Number(ing.suplementos).toFixed(2)} €`, 25, y)
+    y += 6
+    doc.text(`Descuentos: -${Number(ing.descuentos).toFixed(2)} €`, 25, y)
+    y += 6
+    doc.setFont('helvetica', 'bold')
+    doc.text(`COBRO TOTAL: ${cobroTotal.toFixed(2)} €`, 25, y)
+    y += 12
+    doc.setFont('helvetica', 'bold')
+    doc.text('Gastos (Facturas Recibidas)', 20, y)
+    y += 6
+    informeLiquidacion.gastos.forEach(g => {
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.text(`${g.empresa || '—'} | ${g.detalle || '—'} | ${Number(g.totalPagado || 0).toFixed(2)} €`, 25, y)
+      y += 5
+    })
+    y += 4
+    doc.setFont('helvetica', 'bold')
+    doc.text(`TOTAL GASTOS: ${sumaGastos.toFixed(2)} €`, 25, y)
+    y += 10
+    doc.setFontSize(12)
+    doc.text(`BENEFICIO LÍQUIDO: ${beneficioLiquido.toFixed(2)} €`, 20, y)
+    doc.save(`Informe_Liquidacion_${grupo.replace(/\s+/g, '_')}_${viaje.replace(/\s+/g, '_')}.pdf`)
+  }
+
+  const exportarInformeGestoria = () => {
+    const ing = informeLiquidacion.ingresos
+    const cobroTotal = ing.precioViaje + ing.suplementos - ing.descuentos
+    const sumaGastos = informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0)
+    const beneficioLiquido = cobroTotal - sumaGastos
+    const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
+    const viaje = expediente?.destino || 'Sin destino'
+    const lineas = [
+      'INFORME DE LIQUIDACIÓN DE BENEFICIOS',
+      `GRUPO,${grupo}`,
+      `VIAJE,${viaje}`,
+      '',
+      'Ingresos',
+      `Precio Viaje,${Number(ing.precioViaje).toFixed(2)}`,
+      `Suplementos,${Number(ing.suplementos).toFixed(2)}`,
+      `Descuentos,-${Number(ing.descuentos).toFixed(2)}`,
+      `COBRO TOTAL,${cobroTotal.toFixed(2)}`,
+      '',
+      'Gastos',
+      'Empresa/Servicio,Detalle,Total Pagado',
+      ...informeLiquidacion.gastos.map(g => `"${(g.empresa || '').replace(/"/g, '""')}","${(g.detalle || '').replace(/"/g, '""')}",${Number(g.totalPagado || 0).toFixed(2)}`),
+      `TOTAL GASTOS,${sumaGastos.toFixed(2)}`,
+      '',
+      `BENEFICIO LÍQUIDO,${beneficioLiquido.toFixed(2)}`
+    ]
+    const blob = new Blob(['\ufeff' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Informe_Liquidacion_${grupo.replace(/\s+/g, '_')}_${viaje.replace(/\s+/g, '_')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   // ============ FUNCIÓN PARA CONVERTIR NÚMEROS A TEXTO ============
   const numeroATexto = (numero) => {
     const unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve']
@@ -1066,12 +1238,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
 
-  // Cargar facturas emitidas cuando se abre la pestaña de cierres
-  useEffect(() => {
-    if (tab === 'cierre' && expediente?.id) {
-      cargarFacturasEmitidas()
-    }
-  }, [tab, expediente?.id])
 
   // ============ REGENERAR PDF DESDE DATOS ============
   // Usa la función unificada que acepta objeto factura completo
@@ -5597,188 +5763,170 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             </div>
           )}
 
-            {/* TAB: Cierre de Grupo - Informe de Beneficios para Gestoría */}
+            {/* TAB: Cierre de Grupo - Informe de Liquidación de Beneficios */}
           {tab === 'cierre' && (
-              <div className="max-w-4xl mx-auto space-y-6 print:max-w-none">
-                {/* ========== INFORME DE BENEFICIOS - Estilo factura/informe B&W ========== */}
+              <div className="max-w-4xl mx-auto space-y-6 print:max-w-none" id="informe-liquidacion">
                 <div className="bg-white border border-black p-8 print:p-6 print:shadow-none">
-                  <h1 className="text-2xl font-bold text-black uppercase tracking-tight mb-6 border-b-2 border-black pb-2">
-                    Informe de Beneficios — Cierre de Grupo
-                  </h1>
-                  {expediente?.nombre_grupo && (
-                    <p className="text-sm text-gray-700 mb-6">Grupo: <span className="font-semibold text-black">{expediente.nombre_grupo}</span></p>
-                  )}
-
-                  {/* ========== RESUMEN DE INGRESOS ========== */}
-                  <section className="mb-8">
-                    <h2 className="text-lg font-bold text-black uppercase mb-4 border-b border-gray-400 pb-1">Resumen de Ingresos</h2>
-                    {resultados ? (
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-800">Precio Viaje ({paxPago} pax × {Number(formData?.precio_venta_cliente || 0).toFixed(2)}€)</span>
-                          <span className="font-medium text-black">{(paxPago * toNum(formData?.precio_venta_cliente)).toFixed(2)}€</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-800">Suplementos</span>
-                          <span className="font-medium text-black">{(parseFloat(suplementos?.totalSuplementos || 0)).toFixed(2)}€</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-800">Descuentos (bonificación)</span>
-                          <span className="font-medium text-black">-{(toNum(formData?.bonificacion_pax) * paxPago).toFixed(2)}€</span>
-                        </div>
-                        <div className="flex justify-between pt-3 mt-3 border-t-2 border-black font-bold text-base">
-                          <span className="text-black">COBRO TOTAL</span>
-                          <span className="text-black">{resultados.totalVenta || resultados.ingresos || '0.00'}€</span>
-                        </div>
+                  {/* Cabecera automática */}
+                  <div className="mb-6 pb-4 border-b-2 border-black">
+                    <h1 className="text-2xl font-bold text-black uppercase tracking-tight mb-4">
+                      Informe de Liquidación de Beneficios
+                    </h1>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-600 uppercase">Grupo</span>
+                        <p className="font-bold text-black">{expediente?.nombre_grupo || expediente?.cliente_nombre || '—'}</p>
                       </div>
-                    ) : (
-                      <p className="text-gray-500 py-4">Cargando datos...</p>
-                    )}
+                      <div>
+                        <span className="text-gray-600 uppercase">Viaje</span>
+                        <p className="font-bold text-black">{expediente?.destino || '—'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Ingresos editables */}
+                  <section className="mb-8">
+                    <h2 className="text-lg font-bold text-black uppercase mb-4 border-b border-gray-400 pb-1">Ingresos</h2>
+                    <div className="space-y-3 text-sm">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-gray-800">Precio Viaje</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={informeLiquidacion.ingresos.precioViaje}
+                          onChange={(e) => actualizarInformeIngreso('precioViaje', e.target.value)}
+                          className="w-32 border border-black px-2 py-1 text-right font-medium"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-gray-800">Suplementos</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={informeLiquidacion.ingresos.suplementos}
+                          onChange={(e) => actualizarInformeIngreso('suplementos', e.target.value)}
+                          className="w-32 border border-black px-2 py-1 text-right font-medium"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-gray-800">Descuentos</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={informeLiquidacion.ingresos.descuentos}
+                          onChange={(e) => actualizarInformeIngreso('descuentos', e.target.value)}
+                          className="w-32 border border-black px-2 py-1 text-right font-medium"
+                        />
+                      </div>
+                      <div className="flex justify-between pt-3 mt-3 border-t-2 border-black font-bold">
+                        <span>COBRO TOTAL</span>
+                        <span>{(informeLiquidacion.ingresos.precioViaje + informeLiquidacion.ingresos.suplementos - informeLiquidacion.ingresos.descuentos).toFixed(2)} €</span>
+                      </div>
+                    </div>
                   </section>
 
-                  {/* ========== TABLA DE GASTOS ========== */}
+                  {/* Gastos editables */}
                   <section className="mb-8">
-                    <h2 className="text-lg font-bold text-black uppercase mb-4 border-b border-gray-400 pb-1">Gastos</h2>
+                    <div className="flex justify-between items-center mb-4">
+                      <h2 className="text-lg font-bold text-black uppercase border-b border-gray-400 pb-1">Gastos (Facturas Recibidas)</h2>
+                      <button type="button" onClick={agregarGastoInforme} className="text-sm border border-black px-3 py-1 hover:bg-gray-100 print:hidden">
+                        + Añadir línea
+                      </button>
+                    </div>
                     <table className="w-full border-collapse border border-black text-sm">
                       <thead>
                         <tr className="bg-gray-100">
                           <th className="border border-black px-3 py-2 text-left font-bold text-black">Empresa / Servicio</th>
-                          <th className="border border-black px-3 py-2 text-left font-bold text-black">Detalle (Nº Pax/Días)</th>
-                          <th className="border border-black px-3 py-2 text-right font-bold text-black">Precio Unitario</th>
-                          <th className="border border-black px-3 py-2 text-right font-bold text-black">Total Pagos</th>
+                          <th className="border border-black px-3 py-2 text-left font-bold text-black">Detalle (Pax/Días)</th>
+                          <th className="border border-black px-3 py-2 text-right font-bold text-black">Total Pagado</th>
+                          <th className="border border-black w-10 print:hidden" />
                         </tr>
                       </thead>
                       <tbody>
-                        {servicios.map((s) => {
-                          const prov = obtenerProveedorPorId(s?.proveedorId)
-                          const empresa = prov?.nombreComercial || s?.proveedorNombreTemporal || '—'
-                          const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
-                          const nombre = s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo
-                          const noches = Math.max(1, toNum(s?.noches))
-                          const dias = Math.max(1, toNum(s?.dias_guia))
-                          const esTotalDividir = s?.tipo_calculo === 'Total a dividir' || s?.tipoCalculo === 'porGrupo'
-                          const detalle = esTotalDividir ? '1 grupo' : (tipo === 'Hotel' ? `${totalPax} pax × ${noches} noches` : tipo === 'Guía' ? `${dias} días` : `${totalPax} pax`)
-                          const fila = { ...DEFAULT_SERVICE_VALUES, ...s }
-                          const { total_servicio } = finalizarCalculo(fila, paxPago, totalPax)
-                          const precioUnit = toNum(s?.coste_unitario ?? s?.costeUnitario ?? s?.precio_manual)
-                          return (
-                            <tr key={s?.id} className="border-b border-gray-300">
-                              <td className="border border-black px-3 py-2 text-gray-900">{empresa} — {nombre}</td>
-                              <td className="border border-black px-3 py-2 text-gray-700">{detalle}</td>
-                              <td className="border border-black px-3 py-2 text-right">{precioUnit.toFixed(2)}€</td>
-                              <td className="border border-black px-3 py-2 text-right font-medium">{Number(total_servicio || 0).toFixed(2)}€</td>
-                            </tr>
-                          )
-                        })}
-                        {servicios.length === 0 && (
+                        {informeLiquidacion.gastos.map((g) => (
+                          <tr key={g.id} className="border-b border-gray-300">
+                            <td className="border border-black px-2 py-1">
+                              <input
+                                type="text"
+                                value={g.empresa}
+                                onChange={(e) => actualizarInformeGasto(g.id, 'empresa', e.target.value)}
+                                className="w-full border-0 bg-transparent focus:ring-0 p-0 text-gray-900"
+                                placeholder="Empresa"
+                              />
+                            </td>
+                            <td className="border border-black px-2 py-1">
+                              <input
+                                type="text"
+                                value={g.detalle}
+                                onChange={(e) => actualizarInformeGasto(g.id, 'detalle', e.target.value)}
+                                className="w-full border-0 bg-transparent focus:ring-0 p-0 text-gray-700"
+                                placeholder="Detalle"
+                              />
+                            </td>
+                            <td className="border border-black px-2 py-1">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={g.totalPagado || ''}
+                                onChange={(e) => actualizarInformeGasto(g.id, 'totalPagado', e.target.value)}
+                                className="w-full border-0 bg-transparent focus:ring-0 p-0 text-right font-medium"
+                                placeholder="0"
+                              />
+                            </td>
+                            <td className="border border-black px-1 py-1 print:hidden">
+                              <button type="button" onClick={() => eliminarGastoInforme(g.id)} className="text-red-600 hover:text-red-800 text-xs">✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                        {informeLiquidacion.gastos.length === 0 && (
                           <tr>
-                            <td colSpan={4} className="border border-black px-3 py-4 text-center text-gray-500">No hay gastos registrados</td>
+                            <td colSpan={4} className="border border-black px-3 py-4 text-center text-gray-500">No hay gastos. Pulsa «+ Añadir línea» o abre primero la cotización.</td>
                           </tr>
                         )}
                       </tbody>
                     </table>
+                    <div className="flex justify-end mt-2 font-bold">
+                      Total Gastos: {informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0).toFixed(2)} €
+                    </div>
                   </section>
 
-                  {/* ========== CÁLCULO FINAL ========== */}
-                  {resultados && (
-                    <section className="border-t-2 border-black pt-6">
-                      <h2 className="text-lg font-bold text-black uppercase mb-4">Cálculo Final</h2>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-800">Beneficio Bruto (Cobro Total − Gastos)</span>
-                          <span className="font-medium text-black">{resultados.beneficioTotal || '0.00'}€</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-800">IVA (21% s/ beneficio)</span>
-                          <span className="font-medium text-black">{resultados.iva || '0.00'}€</span>
-                        </div>
-                        <div className="flex justify-between pt-3 mt-3 border-t-2 border-black font-bold text-lg">
-                          <span className="text-black">BENEFICIO NETO (para Hacienda)</span>
-                          <span className="text-black">{resultados.beneficioNeto || '0.00'}€</span>
-                        </div>
-                      </div>
-                    </section>
-                  )}
-                </div>
+                  {/* Cálculo beneficio líquido */}
+                  <section className="border-t-2 border-black pt-6">
+                    <div className="flex justify-between items-center font-bold text-lg">
+                      <span className="text-black">BENEFICIO LÍQUIDO</span>
+                      <span className="text-black">
+                        {(informeLiquidacion.ingresos.precioViaje + informeLiquidacion.ingresos.suplementos - informeLiquidacion.ingresos.descuentos - informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0)).toFixed(2)} €
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">Cobro Total − Suma de facturas de proveedores</p>
+                  </section>
 
-                {/* Historial de Facturas Emitidas */}
-                <div className="bg-white border border-black p-8 print:p-6 print:shadow-none">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-bold text-black uppercase border-b border-gray-400 pb-1">Facturas Emitidas</h3>
+                  {/* Botones de acción */}
+                  <div className="mt-8 flex flex-wrap gap-3 print:hidden">
                     <button
-                      onClick={() => setTab('facturacion')}
-                      className="px-4 py-2 border border-black bg-white text-black hover:bg-gray-100 font-semibold transition-colors flex items-center gap-2 print:hidden"
+                      type="button"
+                      onClick={recargarInformeDesdeCotizacion}
+                      className="flex items-center gap-2 px-4 py-2 border border-gray-400 bg-gray-50 text-gray-700 font-medium hover:bg-gray-100"
                     >
-                      <FileText size={18} />
-                      Nueva Factura
+                      Cargar desde Cotización
+                    </button>
+                    <button
+                      type="button"
+                      onClick={generarInformeLiquidacionPDF}
+                      className="flex items-center gap-2 px-4 py-2 border-2 border-black bg-white text-black font-semibold hover:bg-gray-100"
+                    >
+                      <Printer size={18} />
+                      Imprimir Informe
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exportarInformeGestoria}
+                      className="flex items-center gap-2 px-4 py-2 border-2 border-black bg-white text-black font-semibold hover:bg-gray-100"
+                    >
+                      <FileDown size={18} />
+                      Exportar para Gestoría (Excel/CSV)
                     </button>
                   </div>
-                  
-                  {cargandoFacturasEmitidas ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <p>Cargando facturas...</p>
-                    </div>
-                  ) : facturasEmitidas.length === 0 ? (
-                    <div className="bg-gray-50 p-6 border border-gray-400">
-                      <p className="text-gray-600 text-center">No hay facturas emitidas para este expediente.</p>
-                    </div>
-                  ) : (
-                    <div className="bg-white border border-black overflow-hidden">
-                      <table className="w-full border-collapse border border-black text-sm">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="border border-black px-3 py-2 text-left font-bold text-black">Nº Factura</th>
-                            <th className="border border-black px-3 py-2 text-left font-bold text-black">Cliente</th>
-                            <th className="border border-black px-3 py-2 text-right font-bold text-black">Importe</th>
-                            <th className="border border-black px-3 py-2 text-left font-bold text-black">Fecha</th>
-                            <th className="border border-black px-3 py-2 text-center font-bold text-black print:hidden">Acción</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {facturasEmitidas.map((factura) => (
-                            <tr key={factura.id} className="border-b border-gray-300">
-                              <td className="border border-black px-3 py-2 font-medium text-black">
-                                {factura.numero_factura || '-'}
-                              </td>
-                              <td className="border border-black px-3 py-2 text-gray-800">
-                                {factura.cliente_nombre || '-'}
-                              </td>
-                              <td className="border border-black px-3 py-2 text-right font-medium text-black">
-                                {factura.importe_total ? `${Number(factura.importe_total).toFixed(2)}€` : '-'}
-                              </td>
-                              <td className="border border-black px-3 py-2 text-gray-800">
-                                {factura.created_at 
-                                  ? new Date(factura.created_at).toLocaleDateString('es-ES', {
-                                      day: '2-digit',
-                                      month: '2-digit',
-                                      year: 'numeric'
-                                    })
-                                  : '-'
-                                }
-                              </td>
-                              <td className="border border-black px-3 py-2 text-center print:hidden">
-                                <button
-                                  onClick={() => {
-                                    if (factura.url_pdf) {
-                                      window.open(factura.url_pdf, '_blank')
-                                    } else {
-                                      regenerarPDFDesdeDatos(factura)
-                                    }
-                                  }}
-                                  className="px-3 py-1 border border-black bg-white text-black hover:bg-gray-100 text-sm font-medium"
-                                  title={factura.url_pdf ? 'Ver PDF' : 'Generar PDF'}
-                                >
-                                  <FileText size={14} className="inline mr-1" />
-                                  {factura.url_pdf ? 'Ver PDF' : 'Generar PDF'}
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-
-                    </div>
-                  )}
                 </div>
               </div>
           )}
