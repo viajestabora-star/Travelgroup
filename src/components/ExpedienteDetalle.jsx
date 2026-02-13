@@ -5597,54 +5597,117 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             </div>
           )}
 
-            {/* TAB: Cierre de Grupo */}
+            {/* TAB: Cierre de Grupo - Informe de Beneficios para Gestoría */}
           {tab === 'cierre' && (
-              <div className="max-w-6xl mx-auto space-y-6">
-                {/* Resumen Financiero */}
-                <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200">
-                  <h3 className="text-xl font-bold text-navy-900 mb-6">Resumen Financiero</h3>
-                  
-                  {expediente?.cotizacion?.resultados ? (
-                    <div className="space-y-4">
-                      <div className="flex justify-between py-3 border-b">
-                        <span className="font-semibold">Total Ingresos:</span>
-                        <span className="text-xl font-bold text-green-600">
-                          {(expediente.cotizacion.resultados.totalIngresos || 0).toFixed(2)}€
-                        </span>
+              <div className="max-w-4xl mx-auto space-y-6 print:max-w-none">
+                {/* ========== INFORME DE BENEFICIOS - Estilo factura/informe B&W ========== */}
+                <div className="bg-white border border-black p-8 print:p-6 print:shadow-none">
+                  <h1 className="text-2xl font-bold text-black uppercase tracking-tight mb-6 border-b-2 border-black pb-2">
+                    Informe de Beneficios — Cierre de Grupo
+                  </h1>
+                  {expediente?.nombre_grupo && (
+                    <p className="text-sm text-gray-700 mb-6">Grupo: <span className="font-semibold text-black">{expediente.nombre_grupo}</span></p>
+                  )}
+
+                  {/* ========== RESUMEN DE INGRESOS ========== */}
+                  <section className="mb-8">
+                    <h2 className="text-lg font-bold text-black uppercase mb-4 border-b border-gray-400 pb-1">Resumen de Ingresos</h2>
+                    {resultados ? (
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-800">Precio Viaje ({paxPago} pax × {Number(formData?.precio_venta_cliente || 0).toFixed(2)}€)</span>
+                          <span className="font-medium text-black">{(paxPago * toNum(formData?.precio_venta_cliente)).toFixed(2)}€</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-800">Suplementos</span>
+                          <span className="font-medium text-black">{(parseFloat(suplementos?.totalSuplementos || 0)).toFixed(2)}€</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-800">Descuentos (bonificación)</span>
+                          <span className="font-medium text-black">-{(toNum(formData?.bonificacion_pax) * paxPago).toFixed(2)}€</span>
+                        </div>
+                        <div className="flex justify-between pt-3 mt-3 border-t-2 border-black font-bold text-base">
+                          <span className="text-black">COBRO TOTAL</span>
+                          <span className="text-black">{resultados.totalVenta || resultados.ingresos || '0.00'}€</span>
+                        </div>
                       </div>
-                      <div className="flex justify-between py-3 border-b">
-                        <span className="font-semibold">Total Gastos:</span>
-                        <span className="text-xl font-bold text-red-600">
-                          {(expediente.cotizacion.resultados.totalGastos || 0).toFixed(2)}€
-                        </span>
+                    ) : (
+                      <p className="text-gray-500 py-4">Cargando datos...</p>
+                    )}
+                  </section>
+
+                  {/* ========== TABLA DE GASTOS ========== */}
+                  <section className="mb-8">
+                    <h2 className="text-lg font-bold text-black uppercase mb-4 border-b border-gray-400 pb-1">Gastos</h2>
+                    <table className="w-full border-collapse border border-black text-sm">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="border border-black px-3 py-2 text-left font-bold text-black">Empresa / Servicio</th>
+                          <th className="border border-black px-3 py-2 text-left font-bold text-black">Detalle (Nº Pax/Días)</th>
+                          <th className="border border-black px-3 py-2 text-right font-bold text-black">Precio Unitario</th>
+                          <th className="border border-black px-3 py-2 text-right font-bold text-black">Total Pagos</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {servicios.map((s) => {
+                          const prov = obtenerProveedorPorId(s?.proveedorId)
+                          const empresa = prov?.nombreComercial || s?.proveedorNombreTemporal || '—'
+                          const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
+                          const nombre = s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo
+                          const noches = Math.max(1, toNum(s?.noches))
+                          const dias = Math.max(1, toNum(s?.dias_guia))
+                          const esTotalDividir = s?.tipo_calculo === 'Total a dividir' || s?.tipoCalculo === 'porGrupo'
+                          const detalle = esTotalDividir ? '1 grupo' : (tipo === 'Hotel' ? `${totalPax} pax × ${noches} noches` : tipo === 'Guía' ? `${dias} días` : `${totalPax} pax`)
+                          const fila = { ...DEFAULT_SERVICE_VALUES, ...s }
+                          const { total_servicio } = finalizarCalculo(fila, paxPago, totalPax)
+                          const precioUnit = toNum(s?.coste_unitario ?? s?.costeUnitario ?? s?.precio_manual)
+                          return (
+                            <tr key={s?.id} className="border-b border-gray-300">
+                              <td className="border border-black px-3 py-2 text-gray-900">{empresa} — {nombre}</td>
+                              <td className="border border-black px-3 py-2 text-gray-700">{detalle}</td>
+                              <td className="border border-black px-3 py-2 text-right">{precioUnit.toFixed(2)}€</td>
+                              <td className="border border-black px-3 py-2 text-right font-medium">{Number(total_servicio || 0).toFixed(2)}€</td>
+                            </tr>
+                          )
+                        })}
+                        {servicios.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="border border-black px-3 py-4 text-center text-gray-500">No hay gastos registrados</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </section>
+
+                  {/* ========== CÁLCULO FINAL ========== */}
+                  {resultados && (
+                    <section className="border-t-2 border-black pt-6">
+                      <h2 className="text-lg font-bold text-black uppercase mb-4">Cálculo Final</h2>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-800">Beneficio Bruto (Cobro Total − Gastos)</span>
+                          <span className="font-medium text-black">{resultados.beneficioTotal || '0.00'}€</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-800">IVA (21% s/ beneficio)</span>
+                          <span className="font-medium text-black">{resultados.iva || '0.00'}€</span>
+                        </div>
+                        <div className="flex justify-between pt-3 mt-3 border-t-2 border-black font-bold text-lg">
+                          <span className="text-black">BENEFICIO NETO (para Hacienda)</span>
+                          <span className="text-black">{resultados.beneficioNeto || '0.00'}€</span>
+                        </div>
                       </div>
-                      <div className="flex justify-between py-3 border-b">
-                        <span className="font-semibold">Beneficio Bruto:</span>
-                        <span className="text-xl font-bold text-blue-600">
-                          {((expediente.cotizacion.resultados.totalIngresos || 0) - (expediente.cotizacion.resultados.totalGastos || 0)).toFixed(2)}€
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-3 bg-navy-900 text-white px-4 rounded-lg mt-4">
-                        <span className="font-bold text-lg">BENEFICIO NETO:</span>
-                        <span className="text-3xl font-black">
-                          {((expediente.cotizacion.resultados.totalIngresos || 0) - (expediente.cotizacion.resultados.totalGastos || 0) * 0.79).toFixed(2)}€
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-center text-gray-500 py-8">
-                      No hay datos de cotización. Completa la cotización primero.
-                    </p>
+                    </section>
                   )}
                 </div>
 
                 {/* Historial de Facturas Emitidas */}
-                <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200">
+                <div className="bg-white border border-black p-8 print:p-6 print:shadow-none">
                   <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-xl font-bold text-navy-900">Facturas Emitidas</h3>
+                    <h3 className="text-lg font-bold text-black uppercase border-b border-gray-400 pb-1">Facturas Emitidas</h3>
                     <button
                       onClick={() => setTab('facturacion')}
-                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+                      className="px-4 py-2 border border-black bg-white text-black hover:bg-gray-100 font-semibold transition-colors flex items-center gap-2 print:hidden"
                     >
                       <FileText size={18} />
                       Nueva Factura
@@ -5656,34 +5719,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                       <p>Cargando facturas...</p>
                     </div>
                   ) : facturasEmitidas.length === 0 ? (
-                    <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                    <div className="bg-gray-50 p-6 border border-gray-400">
                       <p className="text-gray-600 text-center">No hay facturas emitidas para este expediente.</p>
                     </div>
                   ) : (
-                    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                      <table className="w-full">
-                        <thead className="bg-slate-900 text-white">
+                    <div className="bg-white border border-black overflow-hidden">
+                      <table className="w-full border-collapse border border-black text-sm">
+                        <thead className="bg-gray-100">
                           <tr>
-                            <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Nº Factura</th>
-                            <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Cliente</th>
-                            <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-right">Importe</th>
-                            <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-left">Fecha</th>
-                            <th className="px-4 py-3 text-xs font-black uppercase tracking-widest text-center">Acción</th>
+                            <th className="border border-black px-3 py-2 text-left font-bold text-black">Nº Factura</th>
+                            <th className="border border-black px-3 py-2 text-left font-bold text-black">Cliente</th>
+                            <th className="border border-black px-3 py-2 text-right font-bold text-black">Importe</th>
+                            <th className="border border-black px-3 py-2 text-left font-bold text-black">Fecha</th>
+                            <th className="border border-black px-3 py-2 text-center font-bold text-black print:hidden">Acción</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100">
+                        <tbody>
                           {facturasEmitidas.map((factura) => (
-                            <tr key={factura.id} className="hover:bg-gray-50 transition-colors">
-                              <td className="px-4 py-3 text-sm font-semibold text-gray-900">
+                            <tr key={factura.id} className="border-b border-gray-300">
+                              <td className="border border-black px-3 py-2 font-medium text-black">
                                 {factura.numero_factura || '-'}
                               </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
+                              <td className="border border-black px-3 py-2 text-gray-800">
                                 {factura.cliente_nombre || '-'}
                               </td>
-                              <td className="px-4 py-3 text-sm font-bold text-green-700 text-right">
+                              <td className="border border-black px-3 py-2 text-right font-medium text-black">
                                 {factura.importe_total ? `${Number(factura.importe_total).toFixed(2)}€` : '-'}
                               </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
+                              <td className="border border-black px-3 py-2 text-gray-800">
                                 {factura.created_at 
                                   ? new Date(factura.created_at).toLocaleDateString('es-ES', {
                                       day: '2-digit',
@@ -5693,7 +5756,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   : '-'
                                 }
                               </td>
-                              <td className="px-4 py-3 text-center">
+                              <td className="border border-black px-3 py-2 text-center print:hidden">
                                 <button
                                   onClick={() => {
                                     if (factura.url_pdf) {
@@ -5702,10 +5765,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                       regenerarPDFDesdeDatos(factura)
                                     }
                                   }}
-                                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-1 mx-auto"
-                                  title={factura.url_pdf ? 'Ver PDF' : 'Regenerar PDF'}
+                                  className="px-3 py-1 border border-black bg-white text-black hover:bg-gray-100 text-sm font-medium"
+                                  title={factura.url_pdf ? 'Ver PDF' : 'Generar PDF'}
                                 >
-                                  <FileText size={14} />
+                                  <FileText size={14} className="inline mr-1" />
                                   {factura.url_pdf ? 'Ver PDF' : 'Generar PDF'}
                                 </button>
                               </td>
@@ -5714,12 +5777,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         </tbody>
                       </table>
 
-                      {/* AUDITORÍA DE CÁLCULOS */}
-                      <div className="mt-2 flex items-center text-xs text-gray-600">
-                        <span className="mr-2">Validando cálculos...</span>
-                        {/* Chequeo simple: todas las líneas usan el motor universal de forma consistente */}
-                        <span className="text-green-600 font-semibold">✓</span>
-                      </div>
                     </div>
                   )}
                 </div>
