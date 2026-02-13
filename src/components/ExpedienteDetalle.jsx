@@ -433,11 +433,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
 
     const cargarServicios = async () => {
       try {
-        const serviciosResponse = await supabase
+        // Orden estable: created_at (orden de inserción) o id si created_at no existe
+        let serviciosResponse = await supabase
           .from('servicios_cotizacion')
           .select('*')
           .eq('id_expediente', String(expedienteId).trim())
+          .order('created_at', { ascending: true, nullsFirst: false })
           .order('id', { ascending: true })
+
+        if (serviciosResponse.error && (serviciosResponse.error.code === 'PGRST204' || String(serviciosResponse.error.message || '').includes('created_at'))) {
+          serviciosResponse = await supabase
+            .from('servicios_cotizacion')
+            .select('*')
+            .eq('id_expediente', String(expedienteId).trim())
+            .order('id', { ascending: true })
+        }
 
         // ============ MAPEO DE SERVICIOS CON SINCRONIZACIÓN DE PROVEEDORES ============
         if (serviciosResponse.data && Array.isArray(serviciosResponse.data) && serviciosResponse.data.length > 0) {
@@ -481,26 +491,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             }
           })
 
-          // IMPORTANTE: Solo actualizar si no hay servicios nuevos sin guardar
-          // Preservar servicios nuevos (con UUID temporal) que aún no se han guardado
+          // IMPORTANTE: Preservar orden y servicios nuevos sin guardar (no están en BD)
+          const idsEnBD = new Set((serviciosResponse.data || []).map(row => row.id))
           setServicios(prevServicios => {
-            const serviciosNuevos = prevServicios.filter(s => 
-              !s.id || typeof s.id !== 'string' || s.id.length <= 10 || !s.id.includes('-')
-            )
-            // Combinar servicios cargados de BD con servicios nuevos sin guardar
+            const serviciosNuevos = prevServicios.filter(s => s.id && !idsEnBD.has(s.id))
             return [...serviciosMapeados, ...serviciosNuevos]
           })
           
           setBusquedaProveedor(busquedaProveedoresRestaurada)
           serviciosInicializados.current = true
         } else {
-          // Si no hay servicios en BD, preservar los servicios nuevos si existen
-          setServicios(prevServicios => {
-            const serviciosNuevos = prevServicios.filter(s => 
-              !s.id || typeof s.id !== 'string' || s.id.length <= 10 || !s.id.includes('-')
-            )
-            return serviciosNuevos
-          })
+          setServicios(prevServicios => prevServicios.filter(s => s.id))
           serviciosInicializados.current = false
         }
       } catch (err) {
