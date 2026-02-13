@@ -7,7 +7,6 @@ import ProveedorForm from './ProveedorForm'
 import jsPDF from 'jspdf'
 
 const CierreGrupo = () => <div>Mantenimiento</div>;
-const resultados = {};
 
 // Cliente de Supabase para cargar proveedores
 const supabase = createClient(
@@ -168,13 +167,14 @@ const finalizarCalculoModulo = (servicio, paxPago = 31, paxTotal = 35) => {
   const n = Math.max(1, toNum(s.noches));
   const d = Math.max(1, toNum(s.dias_guia));
   const manual = toNum(s.total_servicio_manual ?? s.totalServicio ?? s.total_servicio);
+  const tipoNorm = normalizarTipo(s?.tipo_servicio || s?.tipo || '');
   let totalFinal = 0;
   let costePorPersona = 0;
   if (s?.tipo_calculo === 'Total a dividir') {
-    totalFinal = manual > 0 ? manual : (s?.tipo_servicio === 'Guía' ? precio * d : precio);
+    totalFinal = manual > 0 ? manual : (tipoNorm === 'guia' ? precio * d : precio);
     costePorPersona = pP > 0 ? totalFinal / pP : 0;
   } else {
-    const factor = (s?.tipo_servicio === 'Hotel') ? n : (s?.tipo_servicio === 'Guía' ? d : 1);
+    const factor = (tipoNorm === 'hotel') ? n : (tipoNorm === 'guia' ? d : 1);
     costePorPersona = precio * factor;
     totalFinal = costePorPersona * pT;
   }
@@ -213,14 +213,16 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
       };
       const { coste_pax } = finalizarCalculoModulo(fila, paxPago, totalPax);
       const costePax = toNum(coste_pax);
-      const tipo = s.tipo || s.tipo_servicio || 'Hotel';
-      if (tipo === 'Autobús') costeBusPorPax += costePax;
-      else if (tipo === 'Guía') costeGuiaPorPax += costePax;
-      else if (tipo === 'Guía Local') costeGuiaLocalPorPax += costePax;
-      else if (tipo === 'Hotel') costeHotelPorPax += costePax;
-      else if (tipo === 'Seguro') costeSeguroPorPax += costePax;
-      else if (tipo === 'Entradas/Tickets') costeEntradasPorPax += costePax;
-      else if (tipo === 'Restaurante') costeRestaurantePorPax += costePax;
+      const tipo = String(s.tipo || s.tipo_servicio || 'Hotel').trim();
+      const tipoNorm = normalizarTipo(tipo) || 'hotel';
+      // Comparación robusta: acepta "Autobús"/"autobus", "Entradas/Tickets"/"entradas", etc.
+      if (tipoNorm === 'autobus') costeBusPorPax += costePax;
+      else if (tipoNorm === 'guialocal' || tipoNorm === 'guia local') costeGuiaLocalPorPax += costePax;
+      else if (tipoNorm === 'guia') costeGuiaPorPax += costePax;
+      else if (tipoNorm === 'hotel') costeHotelPorPax += costePax;
+      else if (tipoNorm === 'seguro') costeSeguroPorPax += costePax;
+      else if (tipoNorm === 'entradas' || tipoNorm.includes('entradas')) costeEntradasPorPax += costePax;
+      else if (tipoNorm === 'restaurante') costeRestaurantePorPax += costePax;
       else costeOtrosPorPax += costePax; // Tipos nuevos o desconocidos → Otros
     });
 
@@ -677,20 +679,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
               busquedaProveedoresRestaurada[row.id] = row.nombre_proveedor_manual
             }
 
+            const coste = toNum(row.coste_unitario ?? row.precio_venta)
+            const esTotalDividir = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
             return {
               ...DEFAULT_SERVICE_VALUES,
               id: row.id || generarUUID(),
               proveedorId: proveedorIdInt,
               proveedorNombreTemporal: row.nombre_proveedor_manual || '',
               tipo: row.tipo_servicio || row.tipo || 'Hotel',
+              tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
               nombreEspecifico: row.nombre_especifico || '',
               localizacion: row.localizacion || '',
-              costeUnitario: row.coste_unitario != null ? Number(row.coste_unitario) : 0,
-              precioVenta: row.precio_venta != null ? Number(row.precio_venta) : 0,
-              margen: row.margen_pax != null ? Number(row.margen_pax) : 0,
-              noches: row.noches != null ? Number(row.noches) : 1,
+              coste_unitario: coste,
+              costeUnitario: coste,
+              precio_venta: toNum(row.precio_venta),
+              precioVenta: toNum(row.precio_venta),
+              margen: toNum(row.margen_pax),
+              noches: Math.max(1, toNum(row.noches)),
+              dias_guia: toNum(row.dias_guia) || Math.max(1, toNum(row.noches)),
+              total_servicio_manual: esTotalDividir ? coste : 0,
+              totalServicio: esTotalDividir ? coste : 0,
+              tipo_calculo: esTotalDividir ? 'Total a dividir' : 'porPersona',
+              tipoCalculo: esTotalDividir ? 'porGrupo' : 'porPersona',
               fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
-              tipoCalculo: (row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo') ? 'porGrupo' : 'porPersona',
             }
           })
 
@@ -1771,9 +1782,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   }
 
   // ⚠️ BLINDAJE NIVEL 2: Cálculo seguro de pasajeros de pago
-  // Si no hay pax, los cálculos deben devolver 0 (nunca dividir por 0).
-  const paxPago = Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades))
-  const totalPax = Math.max(0, toNum(formData?.total_pax))
+  // Si expediente tiene pax_pago, usarlo como divisor; si no, calcular desde formData.
+  const paxPago = Math.max(0, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
+  const totalPax = Math.max(0, toNum(expediente?.total_pax) || toNum(formData?.total_pax))
+
+  // Resultados de Cotización: usa el array servicios del estado (cargado desde Supabase)
+  const resultados = useMemo(() => {
+    const nochesExpediente = Math.max(1, toNum(expediente?.noches) || toNum(formData?.noches))
+    return calcularFinanzasExpediente({
+      servicios,
+      formData,
+      paxPago,
+      totalPax,
+      nochesExpediente,
+    })
+  }, [servicios, formData, paxPago, totalPax, expediente?.noches, expediente?.pax_pago, expediente?.total_pax])
 
   // NOTA: Para "Total a dividir" (Autobús), costeUnitario almacena el TOTAL que escribe el usuario.
   // NO sobrescribir costeUnitario al cambiar pax_pago (evita que las cifras se muevan al guardar).
