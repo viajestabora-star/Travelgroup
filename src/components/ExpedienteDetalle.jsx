@@ -491,50 +491,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           const tieneDatos = (r) => tieneProveedor(r) || tieneNombreServicio(r) || (r.costeUnitario != null && Number(r.costeUnitario) > 0)
           const serviciosMapeados = todosMapeados.filter(tieneDatos)
 
-          // Preservar orden; añadir una fila vacía al final solo si no hay ya una
+          // Solo datos de Supabase; sin filas template ni vacías
           const idsEnBD = new Set((serviciosResponse.data || []).map(row => row.id))
-          const esFilaVacia = (s) => !tieneProveedor(s) && !tieneNombreServicio(s) && (!s.costeUnitario || Number(s.costeUnitario) === 0)
-          const filaVaciaParaAñadir = {
-            id: generarUUID(),
-            proveedorId: null,
-            tipo: 'Hotel',
-            nombreEspecifico: '',
-            localizacion: '',
-            costeUnitario: 0,
-            precioVenta: 0,
-            margen: 0,
-            noches: 1,
-            fechaRelease: '',
-            tipoCalculo: 'porPersona',
-          }
           setServicios(prevServicios => {
             const serviciosNuevos = prevServicios.filter(s => s.id && !idsEnBD.has(s.id))
-            const combinado = [...serviciosMapeados, ...serviciosNuevos]
-            const ultimo = combinado[combinado.length - 1]
-            const yaHayFilaVacia = ultimo && esFilaVacia(ultimo)
-            return yaHayFilaVacia ? combinado : [...combinado, filaVaciaParaAñadir]
+            return [...serviciosMapeados, ...serviciosNuevos]
           })
           
           setBusquedaProveedor(busquedaProveedoresRestaurada)
           serviciosInicializados.current = true
         } else {
-          const filaVacia = {
-            id: generarUUID(),
-            proveedorId: null,
-            tipo: 'Hotel',
-            nombreEspecifico: '',
-            localizacion: '',
-            costeUnitario: 0,
-            precioVenta: 0,
-            margen: 0,
-            noches: 1,
-            fechaRelease: '',
-            tipoCalculo: 'porPersona',
-          }
-          setServicios(prevServicios => {
-            const validos = prevServicios.filter(s => s.id)
-            return validos.length > 0 ? validos : [filaVacia]
-          })
+          setServicios([])
           serviciosInicializados.current = false
         }
       } catch (err) {
@@ -1332,28 +1299,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
 
-  // ============ INICIALIZACIÓN: UNA SOLA FILA VACÍA PARA AÑADIR RÁPIDO ============
-  // Solo una fila vacía al final si no hay servicios; no listado de campos base en cero
-  useEffect(() => {
-    if (serviciosInicializados.current) return
-    if (!servicios || servicios.length > 0) return
-
-    const filaVacia = {
-      id: generarUUID(),
-      proveedorId: null,
-      tipo: 'Hotel',
-      nombreEspecifico: '',
-      localizacion: '',
-      costeUnitario: 0,
-      precioVenta: 0,
-      margen: 0,
-      noches: 1,
-      fechaRelease: '',
-      tipoCalculo: 'porPersona',
-    }
-    setServicios([filaVacia])
-    serviciosInicializados.current = true
-  }, [servicios])
+  // Sin inicialización automática: servicios solo se llena desde BD o con el botón "+ Añadir Servicio"
   
   // ============ UX: HANDLERS PARA INPUTS ============
   
