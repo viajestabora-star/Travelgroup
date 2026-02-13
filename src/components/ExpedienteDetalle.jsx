@@ -123,6 +123,193 @@ const toNum = (v) => {
   return isNaN(n) ? 0 : n;
 };
 
+/**
+ * ============ DEFAULT_SERVICE_VALUES - DEFENSA CONTRA UNDEFINED ============
+ * Valores por defecto para cualquier tipo de servicio. Si en el futuro se añade
+ * un tipo nuevo (ej. Vuelo, Tren), el sistema usará estos valores y no lanzará
+ * pantalla blanca. NUNCA eliminar campos de este objeto sin revisar todos los usos.
+ */
+const DEFAULT_SERVICE_VALUES = {
+  id: null,
+  proveedorId: null,
+  proveedorNombreTemporal: '',
+  tipo: 'Hotel',
+  tipo_calculo: 'porPersona',
+  tipoCalculo: 'porPersona',
+  tipo_servicio: 'Hotel',
+  nombreEspecifico: '',
+  localizacion: '',
+  coste_unitario: 0,
+  costeUnitario: 0,
+  precio_manual: 0,
+  precioVenta: 0,
+  margen: 0,
+  noches: 1,
+  dias_guia: 1,
+  total_servicio_manual: 0,
+  totalServicio: 0,
+  total_servicio: 0,
+  fechaRelease: '',
+};
+
+/**
+ * ============ MOTOR DE CÁLCULO (MÓDULO) - CÓDIGO CRÍTICO ============
+ * Hotel: Total = Pax * Precio * Noches | Autobús: Total = Precio introducido
+ * NO simplificar ni modificar sin revisión. Usado por calcularFinanzasExpediente.
+ */
+const finalizarCalculoModulo = (servicio, paxPago = 31, paxTotal = 35) => {
+  const s = servicio || {};
+  const pP = Math.max(1, toNum(paxPago));
+  const pT = Math.max(1, toNum(paxTotal));
+  const precio = toNum(s.coste_unitario ?? s.costeUnitario ?? s.precio_manual);
+  const n = Math.max(1, toNum(s.noches));
+  const d = Math.max(1, toNum(s.dias_guia));
+  const manual = toNum(s.total_servicio_manual ?? s.totalServicio ?? s.total_servicio);
+  let totalFinal = 0;
+  let costePorPersona = 0;
+  if (s?.tipo_calculo === 'Total a dividir') {
+    totalFinal = manual > 0 ? manual : (s?.tipo_servicio === 'Guía' ? precio * d : precio);
+    costePorPersona = pP > 0 ? totalFinal / pP : 0;
+  } else {
+    const factor = (s?.tipo_servicio === 'Hotel') ? n : (s?.tipo_servicio === 'Guía' ? d : 1);
+    costePorPersona = precio * factor;
+    totalFinal = costePorPersona * pT;
+  }
+  return { ...s, coste_pax: Number(costePorPersona.toFixed(2)), total_servicio: Number(totalFinal.toFixed(2)) };
+};
+
+/**
+ * ============ CALCULAR FINANZAS EXPEDIENTE - CÓDIGO CRÍTICO ============
+ * Función PURA que encapsula toda la lógica de beneficios y gratuidades.
+ * NO simplificar ni modificar sin revisión exhaustiva.
+ * @param {Object} params - { servicios, formData, paxPago, totalPax, nochesExpediente }
+ * @returns {Object} Resultados financieros formateados
+ */
+const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1, totalPax = 1, nochesExpediente = 1 }) => {
+  const trunc2 = (num) => {
+    const n = Number(num);
+    if (isNaN(n)) return '0.00';
+    return (Math.trunc(n * 100) / 100).toFixed(2);
+  };
+
+  try {
+    const bonif = Math.max(0, toNum(formData?.bonificacion_pax));
+    let costeBusPorPax = 0, costeGuiaPorPax = 0, costeGuiaLocalPorPax = 0, costeHotelPorPax = 0;
+    let costeSeguroPorPax = 0, costeEntradasPorPax = 0, costeRestaurantePorPax = 0, costeOtrosPorPax = 0;
+
+    servicios.forEach((servicio) => {
+      const s = { ...DEFAULT_SERVICE_VALUES, ...servicio };
+      const fila = {
+        ...s,
+        tipo_calculo: s.tipo_calculo || (s.tipoCalculo === 'porGrupo' ? 'Total a dividir' : s.tipoCalculo) || '',
+        tipo_servicio: s.tipo_servicio || s.tipo || '',
+        coste_unitario: toNum(s.coste_unitario ?? s.costeUnitario ?? s.precio_manual),
+        noches: Math.max(1, toNum(s.noches)),
+        dias_guia: toNum(s.dias_guia) || Math.max(1, toNum(s.noches)),
+        total_servicio_manual: toNum(s.total_servicio_manual ?? s.totalServicio ?? s.total_servicio),
+      };
+      const { coste_pax } = finalizarCalculoModulo(fila, paxPago, totalPax);
+      const costePax = toNum(coste_pax);
+      const tipo = s.tipo || s.tipo_servicio || 'Hotel';
+      if (tipo === 'Autobús') costeBusPorPax += costePax;
+      else if (tipo === 'Guía') costeGuiaPorPax += costePax;
+      else if (tipo === 'Guía Local') costeGuiaLocalPorPax += costePax;
+      else if (tipo === 'Hotel') costeHotelPorPax += costePax;
+      else if (tipo === 'Seguro') costeSeguroPorPax += costePax;
+      else if (tipo === 'Entradas/Tickets') costeEntradasPorPax += costePax;
+      else if (tipo === 'Restaurante') costeRestaurantePorPax += costePax;
+      else costeOtrosPorPax += costePax; // Tipos nuevos o desconocidos → Otros
+    });
+
+    const costeBasePorPersona = costeBusPorPax + costeGuiaPorPax + costeGuiaLocalPorPax + costeHotelPorPax +
+      costeSeguroPorPax + costeEntradasPorPax + costeRestaurantePorPax + costeOtrosPorPax;
+
+    let costeTotalProveedor = 0;
+    servicios.forEach((servicio) => {
+      const s = { ...DEFAULT_SERVICE_VALUES, ...servicio };
+      const fila = {
+        ...s,
+        tipo_calculo: s.tipo_calculo || (s.tipoCalculo === 'porGrupo' ? 'Total a dividir' : s.tipoCalculo) || '',
+        tipo_servicio: s.tipo_servicio || s.tipo || '',
+        coste_unitario: toNum(s.coste_unitario ?? s.costeUnitario ?? s.precio_manual),
+        noches: Math.max(1, toNum(s.noches)),
+        dias_guia: toNum(s.dias_guia) || Math.max(1, toNum(s.noches)),
+        total_servicio_manual: toNum(s.total_servicio_manual ?? s.totalServicio ?? s.total_servicio),
+      };
+      const { total_servicio } = finalizarCalculoModulo(fila, paxPago, totalPax);
+      costeTotalProveedor += toNum(total_servicio);
+    });
+
+    const costeBaseGratuidad = costeBasePorPersona;
+    const costePlazasGratuitas = costeBaseGratuidad * Math.max(0, toNum(formData?.gratuidades));
+    const costeGratuidadesPorPax = paxPago > 0 ? costePlazasGratuitas / paxPago : 0;
+    const costeRealPorPersona = costeBasePorPersona + costeGratuidadesPorPax + bonif;
+    const paxDePago = paxPago;
+    const precioBase = Math.max(0, toNum(formData?.precio_venta_cliente));
+    const bonificacionTotal = bonif * paxDePago;
+    const totalSupHabitacion = toNum(formData?.sup_individual_pax) * toNum(formData?.sup_individual_precio_dia) * nochesExpediente;
+    const totalSupSeguro = toNum(formData?.sup_seguro_pax) * toNum(formData?.sup_seguro_precio_total);
+    const suplementosTotal = totalSupHabitacion + totalSupSeguro;
+    const totalVenta = (paxDePago * precioBase) - bonificacionTotal + suplementosTotal;
+    const ingresos = totalVenta;
+    const costes = costeTotalProveedor;
+    const beneficioReal = ingresos - costes;
+    const precioVentaPorPersona = precioBase;
+    const costeTotalViaje = costeRealPorPersona * paxPago;
+    const precioVentaTotal = precioVentaPorPersona * paxPago;
+    const margenPorPersona = precioVentaPorPersona - costeRealPorPersona;
+    const beneficioTotal = beneficioReal;
+    const margenPorcentaje = costeRealPorPersona > 0 ? ((margenPorPersona / costeRealPorPersona) * 100) : 0;
+    const beneficioNetoBase = beneficioTotal;
+    const iva = beneficioNetoBase * 0.21;
+    const beneficioNeto = beneficioNetoBase - iva;
+
+    return {
+      costeBusPorPax: trunc2(costeBusPorPax),
+      costeGuiaPorPax: costeGuiaPorPax.toFixed(2),
+      costeGuiaLocalPorPax: costeGuiaLocalPorPax.toFixed(2),
+      costeHotelPorPax: costeHotelPorPax.toFixed(2),
+      costeSeguroPorPax: costeSeguroPorPax.toFixed(2),
+      costeEntradasPorPax: costeEntradasPorPax.toFixed(2),
+      costeRestaurantePorPax: costeRestaurantePorPax.toFixed(2),
+      costeOtrosPorPax: costeOtrosPorPax.toFixed(2),
+      costeBasePorPersona: costeBasePorPersona.toFixed(2),
+      costeBaseGratuidad: costeBaseGratuidad.toFixed(2),
+      costePlazasGratuitas: costePlazasGratuitas.toFixed(2),
+      costeGratuidadesPorPax: costeGratuidadesPorPax.toFixed(2),
+      bonificacion: bonif.toFixed(2),
+      costeRealPorPersona: costeRealPorPersona.toFixed(2),
+      costeTotalViaje: costeTotalViaje.toFixed(2),
+      precioVentaPorPersona: precioVentaPorPersona.toFixed(2),
+      precioVentaTotal: precioVentaTotal.toFixed(2),
+      margenPorPersona: margenPorPersona.toFixed(2),
+      margenPorcentaje: margenPorcentaje.toFixed(2),
+      beneficioTotal: beneficioTotal.toFixed(2),
+      beneficioNetoBase: beneficioNetoBase.toFixed(2),
+      iva: iva.toFixed(2),
+      beneficioNeto: beneficioNeto.toFixed(2),
+      totalVenta: totalVenta.toFixed(2),
+      ingresos: totalVenta.toFixed(2),
+      costes: costes.toFixed(2),
+      paxPagadores: paxPago,
+      paxDePago: paxPago,
+      totalPasajeros: totalPax,
+      gratuidades: toNum(formData?.gratuidades),
+    };
+  } catch (error) {
+    return {
+      costeBusPorPax: '0.00', costeGuiaPorPax: '0.00', costeGuiaLocalPorPax: '0.00', costeHotelPorPax: '0.00',
+      costeSeguroPorPax: '0.00', costeEntradasPorPax: '0.00', costeRestaurantePorPax: '0.00', costeOtrosPorPax: '0.00',
+      costeBasePorPersona: '0.00', costeBaseGratuidad: '0.00', costePlazasGratuitas: '0.00', costeGratuidadesPorPax: '0.00',
+      bonificacion: '0.00', costeRealPorPersona: '0.00', costeTotalViaje: '0.00', precioVentaPorPersona: '0.00',
+      precioVentaTotal: '0.00', margenPorPersona: '0.00', margenPorcentaje: '0.00', beneficioTotal: '0.00',
+      beneficioNetoBase: '0.00', iva: '0.00', beneficioNeto: '0.00',
+      totalVenta: '0.00', ingresos: '0.00', costes: '0.00',
+      paxPagadores: 1, paxDePago: 1, totalPasajeros: 1, gratuidades: 0,
+    };
+  }
+};
+
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => {
   // ⚠️ BLINDAJE NIVEL 1: Verificar que expediente existe
   if (!expediente) {
@@ -481,16 +668,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             }
 
             return {
+              ...DEFAULT_SERVICE_VALUES,
               id: row.id || generarUUID(),
               proveedorId: proveedorIdInt,
               proveedorNombreTemporal: row.nombre_proveedor_manual || '',
               tipo: row.tipo_servicio || row.tipo || 'Hotel',
               nombreEspecifico: row.nombre_especifico || '',
               localizacion: row.localizacion || '',
-              costeUnitario: row.coste_unitario !== null && row.coste_unitario !== undefined ? Number(row.coste_unitario) : 0,
-              precioVenta: row.precio_venta !== null && row.precio_venta !== undefined ? Number(row.precio_venta) : 0,
-              margen: row.margen_pax !== null && row.margen_pax !== undefined ? Number(row.margen_pax) : 0,
-              noches: row.noches !== null && row.noches !== undefined ? Number(row.noches) : 1,
+              costeUnitario: row.coste_unitario != null ? Number(row.coste_unitario) : 0,
+              precioVenta: row.precio_venta != null ? Number(row.precio_venta) : 0,
+              margen: row.margen_pax != null ? Number(row.margen_pax) : 0,
+              noches: row.noches != null ? Number(row.noches) : 1,
               fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
               tipoCalculo: (row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo') ? 'porGrupo' : 'porPersona',
             }
@@ -1532,18 +1720,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   const añadirServicio = () => {
     const nuevoServicio = {
+      ...DEFAULT_SERVICE_VALUES,
       id: generarUUID(),
-      proveedorId: null, // ID del proveedor seleccionado
       tipo: 'Hotel',
-      nombreEspecifico: '', // Nombre libre (ej: "NH Ciudad de Valencia")
-      localizacion: '', // Ubicación libre
-      costeUnitario: 0, // Coste Real
-      precioVenta: 0, // Precio Venta
-      margen: 0, // Margen
-      noches: 1,
-      fechaRelease: '',
-      tipoCalculo: 'porPersona', // 'porPersona' o 'porGrupo'
-    }
+      tipoCalculo: 'porPersona',
+    };
     setServicios([...servicios, nuevoServicio])
     
     // Guardar automáticamente en Supabase
@@ -1584,30 +1765,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
 
-  // ============ MOTOR DE CÁLCULO - REGLAS ESTRICTAS ============
-  // Hotel (Precio por Persona/Noche): Total = Pax * Precio * Noches
-  // Autobús (Total a dividir): Total = Precio introducido (sin multiplicar por pasajeros)
   const finalizarCalculo = (servicio, paxPago = 31, paxTotal = 35) => {
-    const s = servicio || {}
-    const pP = Math.max(1, toNum(paxPago))
-    const pT = Math.max(1, toNum(paxTotal))
-    const precio = toNum(s.coste_unitario ?? s.costeUnitario ?? s.precio_manual)
-    const n = Math.max(1, toNum(s.noches))
-    const d = Math.max(1, toNum(s.dias_guia))
-    const manual = toNum(s.total_servicio_manual ?? s.totalServicio ?? s.total_servicio)
-    let totalFinal = 0;
-    let costePorPersona = 0;
-
-    if (s?.tipo_calculo === 'Total a dividir') {
-      totalFinal = manual > 0 ? manual : (s?.tipo_servicio === 'Guía' ? precio * d : precio);
-      costePorPersona = pP > 0 ? totalFinal / pP : 0;
-    } else {
-      const factor = (s?.tipo_servicio === 'Hotel') ? n : (s?.tipo_servicio === 'Guía' ? d : 1);
-      costePorPersona = precio * factor;
-      totalFinal = costePorPersona * pT;
-    }
-
-    return { ...s, coste_pax: Number(costePorPersona.toFixed(2)), total_servicio: Number(totalFinal.toFixed(2)) };
+    const s = { ...DEFAULT_SERVICE_VALUES, ...(servicio || {}) };
+    return finalizarCalculoModulo(s, paxPago, paxTotal);
   };
 
   // Helper de UI: adaptar servicio al formato esperado por finalizarCalculo
@@ -1836,224 +1996,58 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     return 1
   }
 
-  // ============ CÁLCULOS DE COTIZACIÓN (BLINDADOS Y COMPLETOS) ============
-  
-  const trunc2 = (num) => {
-    const n = Number(num)
-    if (isNaN(n)) return '0.00'
-    return (Math.trunc(n * 100) / 100).toFixed(2)
-  }
-
   const calcularCotizacion = () => {
-    try {
-      const bonif = Math.max(0, toNum(formData?.bonificacion_pax))
-      
-      // Variables de costes POR CATEGORÍA
-      let costeBusPorPax = 0
-      let costeGuiaPorPax = 0
-      let costeGuiaLocalPorPax = 0
-      let costeHotelPorPax = 0
-      let costeSeguroPorPax = 0
-      let costeEntradasPorPax = 0
-      let costeRestaurantePorPax = 0
-      let costeOtrosPorPax = 0
-      
-      // Calcular cada servicio usando el MOTOR DE CÁLCULO PROFESIONAL
-      servicios.forEach(servicio => {
-        const fila = {
-          ...servicio,
-          tipo_calculo:
-            servicio?.tipo_calculo ||
-            (servicio?.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio?.tipoCalculo) ||
-            '',
-          tipo_servicio: servicio?.tipo_servicio || servicio?.tipo || '',
-          coste_unitario: toNum(servicio?.coste_unitario ?? servicio?.costeUnitario ?? servicio?.precio_manual),
-          noches: Math.max(1, toNum(servicio?.noches)),
-          dias_guia: toNum(servicio?.dias_guia) || Math.max(1, toNum(servicio?.noches)),
-          total_servicio_manual: toNum(servicio?.total_servicio_manual ?? servicio?.totalServicio ?? servicio?.total_servicio),
-        }
-        const { coste_pax } = finalizarCalculo(fila, paxPago, totalPax)
-        const costePax = toNum(coste_pax)
-        
-        if (servicio?.tipo === 'Autobús') {
-          // Siempre: coste por pax del bus (Total a dividir o Por persona)
-          costeBusPorPax += costePax
-          
-        } else if (servicio?.tipo === 'Guía') {
-          costeGuiaPorPax += costePax
-          
-        } else if (servicio?.tipo === 'Guía Local') {
-          costeGuiaLocalPorPax += costePax
-          
-        } else if (servicio?.tipo === 'Hotel') {
-          costeHotelPorPax += costePax
-          
-        } else if (servicio?.tipo === 'Seguro') {
-          costeSeguroPorPax += costePax
-          
-        } else if (servicio?.tipo === 'Entradas/Tickets') {
-          costeEntradasPorPax += costePax
-          
-        } else if (servicio?.tipo === 'Restaurante') {
-          costeRestaurantePorPax += costePax
-          
-        } else if (servicio?.tipo === 'Otros') {
-          // Otros: Total a dividir / Por persona / Fijo por grupo
-          costeOtrosPorPax += costePax
-        }
-      })
-      
-      // COSTE BASE TOTAL (sin gratuidades ni bonificación)
-      const costeBasePorPersona = 
-        costeBusPorPax +                    // Autobús (dividido)
-        costeGuiaPorPax +                   // Guía (dividido por días)
-        costeGuiaLocalPorPax +              // Guía Local (flexible)
-        costeHotelPorPax +                  // Hotel (por noche)
-        costeSeguroPorPax +                 // Seguro (por persona)
-        costeEntradasPorPax +               // Entradas (por persona)
-        costeRestaurantePorPax +            // Restaurantes (flexible)
-        costeOtrosPorPax                    // Otros gastos (flexible)
-      
-      // COSTE TOTAL PROVEEDOR: Suma de total_servicio (el hotel cobra TODAS las plazas, incl. gratuidades)
-      let costeTotalProveedor = 0
-      servicios.forEach(servicio => {
-        const fila = {
-          ...servicio,
-          tipo_calculo: servicio?.tipo_calculo || (servicio?.tipoCalculo === 'porGrupo' ? 'Total a dividir' : servicio?.tipoCalculo) || '',
-          tipo_servicio: servicio?.tipo_servicio || servicio?.tipo || '',
-          coste_unitario: toNum(servicio?.coste_unitario ?? servicio?.costeUnitario ?? servicio?.precio_manual),
-          noches: Math.max(1, toNum(servicio?.noches)),
-          dias_guia: toNum(servicio?.dias_guia) || Math.max(1, toNum(servicio?.noches)),
-          total_servicio_manual: toNum(servicio?.total_servicio_manual ?? servicio?.totalServicio ?? servicio?.total_servicio),
-        }
-        const { total_servicio } = finalizarCalculo(fila, paxPago, totalPax)
-        costeTotalProveedor += toNum(total_servicio)
-      })
-      
-      // CÁLCULO CORRECTO DE GRATUIDADES (Base Real Completa)
-      const costeBaseGratuidad = costeBasePorPersona
-      const costePlazasGratuitas = costeBaseGratuidad * Math.max(0, toNum(formData?.gratuidades))
-      const costeGratuidadesPorPax = paxPago > 0 ? costePlazasGratuitas / paxPago : 0
-      
-      // COSTE REAL POR PERSONA (PAGADOR) = Base + Gratuidades + Bonificación
-      const costeRealPorPersona = costeBasePorPersona + costeGratuidadesPorPax + bonif
-      
-      // PAX DE PAGO: TotalPax - Gratuidades (ya definido como paxPago)
-      const paxDePago = paxPago
-      const precioBase = Math.max(0, toNum(formData?.precio_venta_cliente))
-      const bonificacionTotal = bonif * paxDePago
-      
-      // TOTAL VENTA: (paxDePago * PrecioBase) - BonificacionTotal + Suplementos
-      const nochesSup = calcularNochesExpediente()
-      const totalSupHabitacion = toNum(formData?.sup_individual_pax) * toNum(formData?.sup_individual_precio_dia) * nochesSup
-      const totalSupSeguro = toNum(formData?.sup_seguro_pax) * toNum(formData?.sup_seguro_precio_total)
-      const suplementosTotal = totalSupHabitacion + totalSupSeguro
-      const totalVenta = (paxDePago * precioBase) - bonificacionTotal + suplementosTotal
-      
-      // BENEFICIO REAL: Ingresos (Total Venta) - Costes (el proveedor cobra todas las plazas)
-      const ingresos = totalVenta
-      const costes = costeTotalProveedor
-      const beneficioReal = ingresos - costes
-      
-      const precioVentaPorPersona = precioBase
-      const costeTotalViaje = costeRealPorPersona * paxPago
-      const precioVentaTotal = precioVentaPorPersona * paxPago
-      const margenPorPersona = precioVentaPorPersona - costeRealPorPersona
-      const beneficioTotal = beneficioReal
-      const margenPorcentaje = costeRealPorPersona > 0 ? ((margenPorPersona / costeRealPorPersona) * 100) : 0
-      
-      // CÁLCULO DE IVA: 21% sobre el Beneficio Neto (Base)
-      const beneficioNetoBase = beneficioTotal
-      const iva = beneficioNetoBase * 0.21
-      const beneficioNeto = beneficioNetoBase - iva
-      
-      return {
-        // Gastos fijos (divididos entre pasajeros de pago)
-        // Bus: truncar a 2 decimales para que 2000 / 31 = 64.51 EXACTOS en pantalla
-        costeBusPorPax: trunc2(costeBusPorPax),
-        costeGuiaPorPax: costeGuiaPorPax.toFixed(2),
-        costeGuiaLocalPorPax: costeGuiaLocalPorPax.toFixed(2),
-        
-        // Servicios individuales (por persona)
-        costeHotelPorPax: costeHotelPorPax.toFixed(2),
-        costeSeguroPorPax: costeSeguroPorPax.toFixed(2),
-        costeEntradasPorPax: costeEntradasPorPax.toFixed(2),
-        
-        // NUEVOS: Restaurantes y Otros
-        costeRestaurantePorPax: costeRestaurantePorPax.toFixed(2),
-        costeOtrosPorPax: costeOtrosPorPax.toFixed(2),
-        
-        // Totales auxiliares
-        costeBasePorPersona: costeBasePorPersona.toFixed(2), // NUEVO: Base sin gratuidades ni bonificación
-        costeBaseGratuidad: costeBaseGratuidad.toFixed(2),   // NUEVO: Valor de una gratuidad
-        costePlazasGratuitas: costePlazasGratuitas.toFixed(2),
-        costeGratuidadesPorPax: costeGratuidadesPorPax.toFixed(2),
-        bonificacion: bonif.toFixed(2),
-        
-        // TOTALES PRINCIPALES (NUEVO MODELO)
-        costeRealPorPersona: costeRealPorPersona.toFixed(2),
-        costeTotalViaje: costeTotalViaje.toFixed(2),
-        precioVentaPorPersona: precioVentaPorPersona.toFixed(2),
-        precioVentaTotal: precioVentaTotal.toFixed(2),
-        margenPorPersona: margenPorPersona.toFixed(2), // NUEVO: Margen informativo
-        margenPorcentaje: margenPorcentaje.toFixed(2), // NUEVO: % informativo
-        beneficioTotal: beneficioTotal.toFixed(2),
-        beneficioNetoBase: beneficioNetoBase.toFixed(2), // Beneficio Neto (Base) = Venta - Coste
-        iva: iva.toFixed(2),
-        beneficioNeto: beneficioNeto.toFixed(2), // Total Neto tras Impuestos
-        
-        // Total Venta (con gratuidades descontadas y bonificación)
-        totalVenta: totalVenta.toFixed(2),
-        ingresos: totalVenta.toFixed(2),
-        costes: costes.toFixed(2),
-        
-        // Info
-        paxPagadores: paxPago,
-        paxDePago: paxPago,
-        totalPasajeros: totalPax,
-        gratuidades: toNum(formData?.gratuidades),
-      }
-    } catch (error) {
-      return {
-        costeBusPorPax: '0.00',
-        costeGuiaPorPax: '0.00',
-        costeGuiaLocalPorPax: '0.00',
-        costeHotelPorPax: '0.00',
-        costeSeguroPorPax: '0.00',
-        costeEntradasPorPax: '0.00',
-        costeRestaurantePorPax: '0.00',
-        costeOtrosPorPax: '0.00',
-        costeBasePorPersona: '0.00',
-        costeBaseGratuidad: '0.00',
-        costePlazasGratuitas: '0.00',
-        costeGratuidadesPorPax: '0.00',
-        bonificacion: '0.00',
-        costeRealPorPersona: '0.00',
-        costeTotalViaje: '0.00',
-        precioVentaPorPersona: '0.00',
-        precioVentaTotal: '0.00',
-        margenPorPersona: '0.00',
-        margenPorcentaje: '0.00',
-        beneficioTotal: '0.00',
-        beneficioNetoBase: '0.00',
-        iva: '0.00',
-        beneficioNeto: '0.00',
-        paxPagadores: 1,
-        paxDePago: 1,
-        totalPasajeros: 1,
-        gratuidades: 0,
-        totalVenta: '0.00',
-        ingresos: '0.00',
-        costes: '0.00',
-      }
-    }
-  }
+    const nochesExp = calcularNochesExpediente();
+    return calcularFinanzasExpediente({
+      servicios,
+      formData,
+      paxPago,
+      totalPax,
+      nochesExpediente: nochesExp,
+    });
+  };
   
   // ⚡ REACTIVIDAD AUTOMÁTICA: Se recalcula cuando cambian los servicios o parámetros
   const resultados = useMemo(() => {
     if (!formData) return null
     return calcularCotizacion()
   }, [servicios, formData])
+
+  // ============ CONSOLA DE AUDITORÍA - CHECKPOINT INVISIBLE ============
+  // Verifica integridad de cálculos al cargar. Solo console.warn, nada en UI.
+  useEffect(() => {
+    if (!resultados || !formData || !datosCargados) return
+    const TOLERANCIA = 0.02
+    const precioBase = toNum(formData?.precio_venta_cliente)
+    const bonif = toNum(formData?.bonificacion_pax)
+    const nochesSup = calcularNochesExpediente()
+    const totalSupHabitacion = toNum(formData?.sup_individual_pax) * toNum(formData?.sup_individual_precio_dia) * nochesSup
+    const totalSupSeguro = toNum(formData?.sup_seguro_pax) * toNum(formData?.sup_seguro_precio_total)
+    const suplementosTotal = totalSupHabitacion + totalSupSeguro
+    const totalVentaEsperado = (paxPago * precioBase) - (bonif * paxPago) + suplementosTotal
+    const totalVentaReal = parseFloat(resultados?.totalVenta || 0)
+    const precioVentaTotalEsperado = paxPago * precioBase
+    const precioVentaTotalReal = parseFloat(resultados?.precioVentaTotal || 0)
+    if (Math.abs(totalVentaReal - totalVentaEsperado) > TOLERANCIA) {
+      console.warn('[AUDITORÍA] Total Venta no cuadra:', {
+        esperado: totalVentaEsperado.toFixed(2),
+        real: totalVentaReal.toFixed(2),
+        diff: (totalVentaReal - totalVentaEsperado).toFixed(2),
+        paxPago,
+        precioBase,
+        bonificacionTotal: bonif * paxPago,
+        suplementosTotal,
+      })
+    }
+    if (Math.abs(precioVentaTotalReal - precioVentaTotalEsperado) > TOLERANCIA) {
+      console.warn('[AUDITORÍA] Precio Venta Total (Pax × Precio) no cuadra:', {
+        esperado: precioVentaTotalEsperado.toFixed(2),
+        real: precioVentaTotalReal.toFixed(2),
+        paxPago,
+        precioBase,
+      })
+    }
+  }, [resultados, formData, datosCargados, paxPago])
 
   // ============ CÁLCULOS DE SUPLEMENTOS (INDIVIDUAL Y SEGURO) ============
   const suplementos = useMemo(() => {
