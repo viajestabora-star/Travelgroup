@@ -115,6 +115,14 @@ const limpiarInputNumerico = (valor) => {
   return isNaN(resultado) ? '' : resultado;
 };
 
+/** Sanitización de números: cualquier valor no numérico → 0 (para cálculos financieros) */
+const toNum = (v) => {
+  if (v === null || v === undefined) return 0;
+  if (typeof v === 'number' && !isNaN(v)) return v;
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+};
+
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => {
   // ⚠️ BLINDAJE NIVEL 1: Verificar que expediente existe
   if (!expediente) {
@@ -1574,14 +1582,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       delete busquedaActualizada[id]
       setBusquedaProveedor(busquedaActualizada)
     }
-  }
-  
-  // Sanitización de números: cualquier valor no numérico → 0
-  const toNum = (v) => {
-    if (v === null || v === undefined) return 0
-    if (typeof v === 'number' && !isNaN(v)) return v
-    const n = Number(v)
-    return isNaN(n) ? 0 : n
   }
 
   // ============ MOTOR DE CÁLCULO - REGLAS ESTRICTAS ============
