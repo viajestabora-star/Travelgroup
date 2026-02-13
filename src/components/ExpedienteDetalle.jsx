@@ -1986,25 +1986,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // Ref para debounce de guardado automático
   const timeoutsGuardado = useRef({})
 
-  const actualizarServicio = (id, campo, valor) => {
+  const actualizarServicio = (id, campo, valor, opts = {}) => {
     const serviciosActualizados = servicios.map(s => 
       s.id === id ? { ...s, [campo]: valor } : s
     )
     setServicios(serviciosActualizados)
     
-    // Guardar automáticamente en Supabase con debounce (500ms)
     const servicioActualizado = serviciosActualizados.find(s => s.id === id)
     if (servicioActualizado && expediente?.id) {
-      // Cancelar timeout anterior para este servicio
       if (timeoutsGuardado.current[id]) {
         clearTimeout(timeoutsGuardado.current[id])
-      }
-      
-      // Crear nuevo timeout
-      timeoutsGuardado.current[id] = setTimeout(() => {
-        guardarServicioEnSupabase(servicioActualizado)
         delete timeoutsGuardado.current[id]
-      }, 500)
+      }
+      if (opts.immediate) {
+        guardarServicioEnSupabase(servicioActualizado)
+      } else {
+        timeoutsGuardado.current[id] = setTimeout(() => {
+          guardarServicioEnSupabase(servicioActualizado)
+          delete timeoutsGuardado.current[id]
+        }, 500)
+      }
     }
   }
   
@@ -2060,6 +2061,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         margen_pax: toNum(servicio?.margen),
         noches: nochesFinal,
         dias_guia: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : nochesFinal,
+        cantidad: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : Math.max(1, toNum(servicio?.noches ?? 1)),
         fecha_release: servicio?.fechaRelease || null,
         tipo_calculo: tipoCalculo === 'porGrupo' ? 'Total a dividir' : (tipoCalculo || 'porPersona'),
         proveedor_id_int: proveedorIdLimpio,
@@ -4483,14 +4485,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                       const valorNumerico = valor === '' ? 1 : Number(valor) || 1
                                       actualizarServicio(servicio.id, 'cantidad', Math.max(1, valorNumerico))
                                     }}
+                                    onBlur={(e) => {
+                                      e.target.style.borderColor = '#e2e8f0'
+                                      e.target.style.boxShadow = 'none'
+                                      const valor = e.target.value
+                                      const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1)
+                                      actualizarServicio(servicio.id, 'cantidad', valorNumerico, { immediate: true })
+                                    }}
                                     onFocus={(e) => {
                                       handleFocus(e)
                                       e.target.style.borderColor = '#3b82f6'
                                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                    }}
-                                    onBlur={(e) => {
-                                      e.target.style.borderColor = '#e2e8f0'
-                                      e.target.style.boxShadow = 'none'
                                     }}
                                     onWheel={handleWheel}
                                     className="input-field text-xs text-center w-20 transition-all"
