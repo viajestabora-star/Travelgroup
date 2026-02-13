@@ -453,35 +453,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         if (serviciosResponse.data && Array.isArray(serviciosResponse.data) && serviciosResponse.data.length > 0) {
           const busquedaProveedoresRestaurada = {}
           
-          const serviciosMapeados = serviciosResponse.data.map(row => {
-            // Validar y convertir proveedor_id_int (int8) a número
+          const todosMapeados = serviciosResponse.data.map(row => {
             const proveedorIdInt = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
             
-            // Sincronizar proveedor: buscar en array usando ID numérico
             if (proveedorIdInt && !isNaN(proveedorIdInt) && proveedorIdInt > 0) {
               const proveedorEncontrado = proveedores.find(p => {
                 const proveedorIdLista = Number(p.id)
                 return !isNaN(proveedorIdLista) && proveedorIdLista === proveedorIdInt
               })
-              
               if (proveedorEncontrado) {
                 busquedaProveedoresRestaurada[row.id] = proveedorEncontrado.nombreComercial
               }
             }
-            
-            // Si no hay proveedor por ID pero hay nombre manual, usarlo
             if (!busquedaProveedoresRestaurada[row.id] && row.nombre_proveedor_manual) {
               busquedaProveedoresRestaurada[row.id] = row.nombre_proveedor_manual
             }
 
-            // Mapear servicio con validación numérica estricta
             return {
-            id: row.id || generarUUID(),
+              id: row.id || generarUUID(),
               proveedorId: proveedorIdInt,
               proveedorNombreTemporal: row.nombre_proveedor_manual || '',
-            tipo: row.tipo_servicio || row.tipo || 'Hotel',
-            nombreEspecifico: row.nombre_especifico || '',
-            localizacion: row.localizacion || '',
+              tipo: row.tipo_servicio || row.tipo || 'Hotel',
+              nombreEspecifico: row.nombre_especifico || '',
+              localizacion: row.localizacion || '',
               costeUnitario: row.coste_unitario !== null && row.coste_unitario !== undefined ? Number(row.coste_unitario) : 0,
               precioVenta: row.precio_venta !== null && row.precio_venta !== undefined ? Number(row.precio_venta) : 0,
               margen: row.margen_pax !== null && row.margen_pax !== undefined ? Number(row.margen_pax) : 0,
@@ -491,17 +485,56 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             }
           })
 
-          // IMPORTANTE: Preservar orden y servicios nuevos sin guardar (no están en BD)
+          // Filtrar filas vacías: solo mostrar si tiene proveedor_id o nombre de servicio válido
+          const tieneProveedor = (r) => r.proveedorId != null || (r.proveedorNombreTemporal && String(r.proveedorNombreTemporal).trim())
+          const tieneNombreServicio = (r) => r.nombreEspecifico && String(r.nombreEspecifico).trim()
+          const tieneDatos = (r) => tieneProveedor(r) || tieneNombreServicio(r) || (r.costeUnitario != null && Number(r.costeUnitario) > 0)
+          const serviciosMapeados = todosMapeados.filter(tieneDatos)
+
+          // Preservar orden; añadir una fila vacía al final solo si no hay ya una
           const idsEnBD = new Set((serviciosResponse.data || []).map(row => row.id))
+          const esFilaVacia = (s) => !tieneProveedor(s) && !tieneNombreServicio(s) && (!s.costeUnitario || Number(s.costeUnitario) === 0)
+          const filaVaciaParaAñadir = {
+            id: generarUUID(),
+            proveedorId: null,
+            tipo: 'Hotel',
+            nombreEspecifico: '',
+            localizacion: '',
+            costeUnitario: 0,
+            precioVenta: 0,
+            margen: 0,
+            noches: 1,
+            fechaRelease: '',
+            tipoCalculo: 'porPersona',
+          }
           setServicios(prevServicios => {
             const serviciosNuevos = prevServicios.filter(s => s.id && !idsEnBD.has(s.id))
-            return [...serviciosMapeados, ...serviciosNuevos]
+            const combinado = [...serviciosMapeados, ...serviciosNuevos]
+            const ultimo = combinado[combinado.length - 1]
+            const yaHayFilaVacia = ultimo && esFilaVacia(ultimo)
+            return yaHayFilaVacia ? combinado : [...combinado, filaVaciaParaAñadir]
           })
           
           setBusquedaProveedor(busquedaProveedoresRestaurada)
           serviciosInicializados.current = true
         } else {
-          setServicios(prevServicios => prevServicios.filter(s => s.id))
+          const filaVacia = {
+            id: generarUUID(),
+            proveedorId: null,
+            tipo: 'Hotel',
+            nombreEspecifico: '',
+            localizacion: '',
+            costeUnitario: 0,
+            precioVenta: 0,
+            margen: 0,
+            noches: 1,
+            fechaRelease: '',
+            tipoCalculo: 'porPersona',
+          }
+          setServicios(prevServicios => {
+            const validos = prevServicios.filter(s => s.id)
+            return validos.length > 0 ? validos : [filaVacia]
+          })
           serviciosInicializados.current = false
         }
       } catch (err) {
@@ -1299,83 +1332,27 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     }
   }
 
-  // ============ INICIALIZACIÓN AUTOMÁTICA DE SERVICIOS SI NO HAY NADA EN BD ============
-  // Carga automática: Si la lista de servicios está vacía, inicializar con 5 servicios básicos
+  // ============ INICIALIZACIÓN: UNA SOLA FILA VACÍA PARA AÑADIR RÁPIDO ============
+  // Solo una fila vacía al final si no hay servicios; no listado de campos base en cero
   useEffect(() => {
     if (serviciosInicializados.current) return
     if (!servicios || servicios.length > 0) return
 
-    const timestamp = Date.now()
-    const serviciosIniciales = [
-      {
-        id: generarUUID(),
-        proveedorId: null,
-        tipo: 'Autobús',
-        nombreEspecifico: '',
-        localizacion: '',
-        costeUnitario: 0, // Coste Real
-        precioVenta: 0, // Precio Venta
-        margen: 0, // Margen
-        noches: 0,
-        fechaRelease: '',
-        tipoCalculo: 'porGrupo', // Autobús: total a dividir entre pax_pago
-      },
-      {
-        id: generarUUID(),
-        proveedorId: null,
-        tipo: 'Hotel',
-        nombreEspecifico: '',
-        localizacion: '',
-        costeUnitario: 0, // Coste Real
-        precioVenta: 0, // Precio Venta
-        margen: 0, // Margen
-        noches: 1,
-        fechaRelease: '',
-        tipoCalculo: 'porPersona',
-      },
-      {
-        id: generarUUID(),
-        proveedorId: null,
-        tipo: 'Guía',
-        nombreEspecifico: '',
-        localizacion: '',
-        costeUnitario: 0, // Coste Real
-        precioVenta: 0, // Precio Venta
-        margen: 0, // Margen
-        noches: 0,
-        fechaRelease: '',
-        tipoCalculo: 'porGrupo', // Guía: total a dividir entre pax_pago
-      },
-      {
-        id: generarUUID(),
-        proveedorId: null,
-        tipo: 'Seguro',
-        nombreEspecifico: '',
-        localizacion: '',
-        costeUnitario: 0, // Coste Real
-        precioVenta: 0, // Precio Venta
-        margen: 0, // Margen
-        noches: 0,
-        fechaRelease: '',
-        tipoCalculo: 'porPersona',
-      },
-      {
-        id: generarUUID(),
-        proveedorId: null,
-        tipo: 'Restaurante',
-        nombreEspecifico: '',
-        localizacion: '',
-        costeUnitario: 0, // Coste Real
-        precioVenta: 0, // Precio Venta
-        margen: 0, // Margen
-        noches: 0,
-        fechaRelease: '',
-        tipoCalculo: 'porPersona', // Por defecto, puede cambiarse a 'porGrupo'
-      },
-    ]
-
-    setServicios(serviciosIniciales)
-    serviciosInicializados.current = true // Marcar como inicializado
+    const filaVacia = {
+      id: generarUUID(),
+      proveedorId: null,
+      tipo: 'Hotel',
+      nombreEspecifico: '',
+      localizacion: '',
+      costeUnitario: 0,
+      precioVenta: 0,
+      margen: 0,
+      noches: 1,
+      fechaRelease: '',
+      tipoCalculo: 'porPersona',
+    }
+    setServicios([filaVacia])
+    serviciosInicializados.current = true
   }, [servicios])
   
   // ============ UX: HANDLERS PARA INPUTS ============
