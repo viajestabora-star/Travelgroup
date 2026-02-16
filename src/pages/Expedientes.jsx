@@ -134,6 +134,7 @@ const obtenerSiguienteNumeroExpediente = async (año) => {
 const ESTADOS = {
   peticion: { label: 'Petición', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', badge: 'bg-yellow-500', cssClass: 'peticion' },
   confirmado: { label: 'Confirmado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500', cssClass: 'confirmado' },
+  en_curso: { label: 'En Curso', color: 'bg-indigo-100 text-indigo-800 border-indigo-300', badge: 'bg-indigo-500', cssClass: 'en_curso' },
   finalizado: { label: 'Finalizado', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'finalizado' },
   cancelado: { label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300', badge: 'bg-red-500', cssClass: 'cancelado' },
 }
@@ -954,28 +955,46 @@ const Expedientes = () => {
     setShowExportModal(false)
   }
 
-  // Filtrar expedientes por ejercicio y búsqueda
-  const expedientesFiltradosPorEjercicio = expedientes.filter(exp => {
+  // Tab: Activos vs Archivo
+  const [tabExpedientes, setTabExpedientes] = useState('activos')
+
+  // Filtrar expedientes por ejercicio y búsqueda (base común)
+  const expedientesFiltradosPorEjercicioYBusqueda = expedientes.filter(exp => {
     // Filtro por ejercicio
     const fechaInicio = exp.fecha_inicio || exp.fechaInicio
     if (!fechaInicio) return false
     const añoExpediente = extraerAño(fechaInicio)
     if (añoExpediente !== ejercicioActual) return false
     
-    // Filtro por búsqueda
+    // Filtro por búsqueda (cliente, responsable, destino, observaciones)
     if (!searchTermExpedientes.trim()) return true
     
     const term = searchTermExpedientes.toLowerCase()
     const cliente = clientes.find(c => String(c.id) === String(exp.cliente_id || exp.clienteId))
     const nombreCliente = cliente?.nombre || exp.cliente_nombre || ''
+    const responsable = exp.responsable || ''
     const destino = exp.destino || ''
     
     return (
       nombreCliente.toLowerCase().includes(term) ||
+      responsable.toLowerCase().includes(term) ||
       destino.toLowerCase().includes(term) ||
       exp.observaciones?.toLowerCase().includes(term)
     )
   })
+
+  // Expedientes Activos: Petición, Confirmado, En Curso
+  const ESTADOS_ACTIVOS = ['peticion', 'confirmado', 'en_curso']
+  const expedientesActivos = expedientesFiltradosPorEjercicioYBusqueda.filter(exp =>
+    ESTADOS_ACTIVOS.includes(exp.estado || '')
+  )
+
+  // Archivo / Finalizados: solo Finalizado
+  const expedientesArchivo = expedientesFiltradosPorEjercicioYBusqueda.filter(exp =>
+    (exp.estado || '') === 'finalizado'
+  )
+
+  const expedientesFiltradosPorEjercicio = tabExpedientes === 'activos' ? expedientesActivos : expedientesArchivo
 
   return (
     <div>
@@ -1027,17 +1046,47 @@ const Expedientes = () => {
         </div>
       </div>
 
+      {/* ==================== PESTAÑAS: ACTIVOS / ARCHIVO ==================== */}
+      <div className="mb-6 border-b border-gray-200">
+        <nav className="flex gap-2 -mb-px overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setTabExpedientes('activos')}
+            className={`flex items-center gap-2 px-5 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+              tabExpedientes === 'activos'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+            }`}
+          >
+            Expedientes Activos ({expedientesActivos.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setTabExpedientes('archivo')}
+            className={`flex items-center gap-2 px-5 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+              tabExpedientes === 'archivo'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+            }`}
+          >
+            Archivo / Finalizados ({expedientesArchivo.length})
+          </button>
+        </nav>
+      </div>
+
       {/* ==================== CONTADOR DE EXPEDIENTES ==================== */}
       <div className="mb-6 p-4 bg-gradient-to-r from-navy-50 to-blue-50 rounded-xl border border-navy-200">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <Calendar className="text-navy-600" size={24} />
             <div>
-              <p className="text-sm font-medium text-gray-700">Ejercicio {ejercicioActual}</p>
+              <p className="text-sm font-medium text-gray-700">
+                Ejercicio {ejercicioActual} · {tabExpedientes === 'activos' ? 'Activos' : 'Archivo'}
+              </p>
               <p className="text-xs text-gray-500">
                 {searchTermExpedientes 
                   ? `Buscando: "${searchTermExpedientes}" - ${expedientesFiltradosPorEjercicio.length} resultado${expedientesFiltradosPorEjercicio.length !== 1 ? 's' : ''}`
-                  : `Vista de expedientes del año seleccionado`
+                  : tabExpedientes === 'activos' ? 'Petición, Confirmado, En Curso' : 'Expedientes finalizados'
                 }
               </p>
             </div>
@@ -1049,7 +1098,9 @@ const Expedientes = () => {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {Object.entries(ESTADOS).map(([key, estado]) => {
+        {(tabExpedientes === 'activos' ? ['peticion', 'confirmado', 'en_curso'] : ['finalizado']).map((key) => {
+          const estado = ESTADOS[key]
+          if (!estado) return null
           const count = expedientesFiltradosPorEjercicio.filter(exp => exp.estado === key).length
           return (
             <div key={key} className={`card border-2 ${estado.color}`}>
@@ -1068,17 +1119,21 @@ const Expedientes = () => {
       {expedientesFiltradosPorEjercicio.length === 0 ? (
         <div className="card text-center py-12">
           <FileText className="mx-auto text-gray-400 mb-4" size={64} />
-          <h3 className="text-xl font-bold text-gray-700 mb-2">No hay expedientes en {ejercicioActual}</h3>
+          <h3 className="text-xl font-bold text-gray-700 mb-2">
+            {tabExpedientes === 'activos' ? 'No hay expedientes activos' : 'No hay expedientes finalizados'}
+          </h3>
           <p className="text-gray-600 mb-6">
-            {expedientes.length === 0
-              ? 'Crea tu primer expediente'
-              : `Cambia el ejercicio arriba o crea un nuevo expediente para ${ejercicioActual}`
+            {tabExpedientes === 'activos'
+              ? (expedientes.length === 0 ? 'Crea tu primer expediente' : `No hay expedientes en Petición, Confirmado o En Curso para ${ejercicioActual}`)
+              : `No hay expedientes con estado Finalizado en ${ejercicioActual}`
             }
           </p>
-          <button onClick={() => setShowExpedienteModal(true)} className="btn-primary inline-flex items-center gap-2">
-            <Plus size={20} />
-            Nuevo Expediente
-          </button>
+          {tabExpedientes === 'activos' && (
+            <button onClick={() => setShowExpedienteModal(true)} className="btn-primary inline-flex items-center gap-2">
+              <Plus size={20} />
+              Nuevo Expediente
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -1086,16 +1141,18 @@ const Expedientes = () => {
             .slice()
             .sort((a, b) => {
               try {
-                const esFinalizadoA = a.estado === 'finalizado' || a.estado === 'cancelado'
-                const esFinalizadoB = b.estado === 'finalizado' || b.estado === 'cancelado'
-                if (esFinalizadoA && !esFinalizadoB) return 1
-                if (!esFinalizadoA && esFinalizadoB) return -1
                 const fechaInicioA = a.fecha_inicio || a.fechaInicio
                 const fechaInicioB = b.fecha_inicio || b.fechaInicio
                 const fechaObjA = parsearFecha(fechaInicioA)
                 const fechaObjB = parsearFecha(fechaInicioB)
                 if (!fechaObjA) return 1
                 if (!fechaObjB) return -1
+                // Archivo: más recientes primero; Activos: por fecha ascendente
+                if (tabExpedientes === 'archivo') return fechaObjB - fechaObjA
+                const esFinalizadoA = a.estado === 'finalizado' || a.estado === 'cancelado'
+                const esFinalizadoB = b.estado === 'finalizado' || b.estado === 'cancelado'
+                if (esFinalizadoA && !esFinalizadoB) return 1
+                if (!esFinalizadoA && esFinalizadoB) return -1
                 return fechaObjA - fechaObjB
               } catch (error) {
                 return 0
