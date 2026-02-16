@@ -3020,14 +3020,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   
   try {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]">
         <div 
-          className="bg-white rounded-2xl shadow-2xl max-w-7xl w-full h-[90vh] flex flex-col"
+          className="bg-white rounded-2xl shadow-2xl max-w-7xl w-full h-[90vh] sm:h-[90vh] flex flex-col"
           style={{ backgroundColor: 'white', color: 'black' }}
         >
           
-          {/* HEADER con JERARQUÍA VISUAL ESTRICTA */}
-          <div className="px-8 py-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-white">
+          {/* HEADER con JERARQUÍA VISUAL ESTRICTA - Safe area para X y barra iPhone */}
+          <div className="px-4 sm:px-8 py-4 sm:py-6 pt-[max(1rem,env(safe-area-inset-top))] border-b border-gray-200 bg-gradient-to-r from-blue-50 to-white flex-shrink-0">
             <div className="flex justify-between items-start">
           <div>
                 {/* REGLA: Nombre del Grupo = GRANDE Y NEGRITA */}
@@ -3059,7 +3059,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
         </div>
 
           {/* TABS */}
-          <div className="border-b border-gray-200 px-8 bg-white">
+          <div className="border-b border-gray-200 px-4 sm:px-8 bg-white flex-shrink-0">
             <nav className="flex gap-2 -mb-px overflow-x-auto">
               {tabs.map(t => {
                 const Icon = t.icon
@@ -3081,8 +3081,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
           </nav>
         </div>
 
-          {/* CONTENIDO */}
-          <div className="flex-1 overflow-y-auto p-8" style={{ backgroundColor: 'white', color: 'black' }}>
+          {/* CONTENIDO - Padding inferior safe-area para iPhone */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-8 pb-[max(1rem,env(safe-area-inset-bottom))]" style={{ backgroundColor: 'white', color: 'black' }}>
             
             {/* TAB: Ficha del Grupo */}
             {tab === 'grupo' && (
@@ -4181,8 +4181,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                 </div>
 
                 {/* Tabla de Servicios */}
-                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
-                  <div className="flex justify-between items-center mb-4">
+                <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 border border-gray-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
                     <h3 className="text-xl font-bold text-navy-900">Servicios del Viaje</h3>
                     <button
                       onClick={async () => {
@@ -4202,7 +4202,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                         }
                       }}
                       disabled={isSaving}
-                      className="btn-secondary flex items-center gap-2 px-3 py-1.5 text-sm disabled:opacity-60"
+                      className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60"
                     >
                       <Save size={16} />
                       {isSaving ? 'Guardando...' : 'Guardar'}
@@ -4212,13 +4212,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                   {servicios.length === 0 ? (
                     <div className="space-y-4">
                       <p className="text-center text-gray-500 py-8">No hay servicios añadidos</p>
-                      <button onClick={añadirServicio} className="btn-primary w-full flex items-center justify-center gap-2">
+                      <button onClick={añadirServicio} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
                         <Plus size={20} />
                         Añadir Primer Servicio
                       </button>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <>
+                    {/* DESKTOP: Tabla tradicional - oculta en móvil */}
+                    <div className="hidden md:block overflow-x-auto">
                       <table className="w-full">
                         <thead className="bg-gray-50">
                           <tr>
@@ -4659,22 +4661,115 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                           ))}
                         </tbody>
                       </table>
+                    </div>
+
+                    {/* MÓVIL: Cards apiladas - ocultas en desktop */}
+                    <div className="md:hidden space-y-4">
+                      {servicios.map(servicio => (
+                        <div key={servicio.id} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 shadow-sm">
+                          <div className="flex justify-between items-start">
+                            <span className="text-xs font-semibold text-gray-500 uppercase">Proveedor</span>
+                            <button onClick={() => eliminarServicio(servicio.id)} className="text-red-600 hover:text-red-900 p-1" title="Eliminar"><Trash2 size={16} /></button>
+                          </div>
+                          <div className="relative">
+                            <div className="flex gap-1 items-center">
+                              <div className="relative flex-1">
+                                <input
+                                  type="text"
+                                  value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')}
+                                  onChange={(e) => { const inputValue = e.target.value; setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true }); }}
+                                  onFocus={(e) => { setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true }); if (!busquedaProveedor[servicio.id]) { setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' }); } e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }}
+                                  placeholder="Buscar proveedor..."
+                                  className="input-field text-xs w-full pr-8 transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                  onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                                />
+                                {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
+                                  <button onClick={() => { setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' }); actualizarServicio(servicio.id, 'proveedorId', null); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10" title="Limpiar"><X size={14} /></button>
+                                )}
+                              </div>
+                              <button type="button" onClick={() => abrirModalProveedor(busquedaProveedor[servicio.id] || '', servicio.tipo, servicio.id)} className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors" title="Añadir nuevo proveedor"><Plus size={16} /></button>
+                            </div>
+                            {mostrarSugerencias[servicio.id] && (
+                              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                                {(() => {
+                                  const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
+                                  const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase().trim()
+                                  const proveedoresFiltrados = proveedores.filter(p => { const tipoProveedorNormalizado = normalizarText(p.tipo || ''); const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado || ''); const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado; if (!textoBusqueda) return coincideTipo; const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda); return coincideTipo && coincideNombre; }).sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || ''))
+                                  return (
+                                    <>
+                                      {proveedoresFiltrados.length === 0 && !textoBusqueda && <div className="px-3 py-3 text-xs text-center"><p className="text-gray-600 mb-2">No hay proveedores de <strong>{servicio.tipo}</strong></p><p className="text-green-600 font-medium">💡 Usa el botón + para añadir uno nuevo</p></div>}
+                                      {proveedoresFiltrados.length === 0 && textoBusqueda && <div className="px-3 py-3 text-xs text-center"><p className="text-gray-600 mb-2">No se encontró "{busquedaProveedor[servicio.id]}" en {servicio.tipo}</p><p className="text-green-600 font-medium">➕ Usa el botón + para crear nuevo proveedor</p></div>}
+                                      {proveedoresFiltrados.length > 0 && (
+                                        <div className="py-1">
+                                          {proveedoresFiltrados.map(proveedor => (
+                                            <button key={proveedor.id} type="button" onClick={() => { actualizarServicio(servicio.id, 'proveedorId', proveedor.id); setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); }} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
+                                            ><span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>{proveedor.telefono && <span className="text-gray-500">· {proveedor.telefono}</span>}</button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </>
+                                  )
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                          <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Servicio</span>
+                            <select value={servicio.tipo} onChange={(e) => { const nuevoTipo = e.target.value; const updates = { tipo: nuevoTipo }; if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') { updates.tipo_calculo = 'porGrupo'; if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario); } if (servicio.proveedorId) { const proveedorActual = obtenerProveedorPorId(servicio.proveedorId); const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || ''); const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo); if (tipoProveedorActual !== nuevoTipoProveedor) { updates.proveedorId = null; setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' })); } } actualizarServicio(servicio.id, updates); setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true })); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
+                              <option>Hotel</option><option>Restaurante</option><option>Autobús</option><option>Transporte</option><option>Guía</option><option>Guía Local</option><option>Entradas/Tickets</option><option>Seguro</option><option>Otros</option>
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Cantidad</span>
+                              {servicio.tipo === 'Hotel' ? (
+                                <input type="number" value={servicio.noches || 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'noches', Math.max(1, valorNumerico)); }} onWheel={handleWheel} onFocus={(e) => { handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
+                              ) : servicio.tipo === 'Guía' ? (
+                                <input type="number" value={servicio.cantidad ?? servicio.dias_guia ?? 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'cantidad', Math.max(1, valorNumerico)); }} onWheel={handleWheel} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const valor = e.target.value; const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1); actualizarServicio(servicio.id, 'cantidad', valorNumerico, { immediate: true }); }} onFocus={(e) => { handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
+                              ) : (
+                                <span className="text-gray-600 text-xs font-medium block py-2">1</span>
+                              )}
+                            </div>
+                            <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Precio</span>
+                              <input type="number" step="0.01" value={servicio.coste_unitario === '' || servicio.coste_unitario == null ? '' : servicio.coste_unitario} onWheel={handleWheel} onChange={(e) => { const valorInput = e.target.value; if (valorInput === '' || valorInput === '-') { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: '', total_servicio_manual: '' } : { coste_unitario: '' }); return; } const valorLimpio = valorInput.replace(/,/g, '.'); const valorNumerico = parseFloat(valorLimpio); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } else { actualizarServicio(servicio.id, 'coste_unitario', valorLimpio); } }} onFocus={(e) => { handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { const valor = e.target.value; if (valor !== '' && valor !== '-') { const valorNumerico = parseFloat(valor.replace(/,/g, '.')); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } } else { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: 0, total_servicio_manual: 0 } : { coste_unitario: 0 }); } e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }} className="input-field text-xs text-right w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} placeholder="0.00" min="0" />
+                            </div>
+                          </div>
+                          <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Modo</span>
+                            {(servicio.tipo === 'Autobús' || servicio.tipo === 'Transporte') ? (
+                              <span className="text-xs font-medium text-slate-600">Total ÷ pax</span>
+                            ) : (
+                              <select value={servicio.tipo_calculo || 'porPersona'} onChange={(e) => { const nuevoModo = e.target.value; const updates = { tipo_calculo: nuevoModo }; if (nuevoModo === 'porGrupo' && servicio.coste_unitario) { updates.total_servicio_manual = toNum(servicio.coste_unitario); } else if (nuevoModo === 'porPersona') { updates.total_servicio_manual = 0; } actualizarServicio(servicio.id, updates); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
+                                <option value="porPersona">Precio por Persona</option>
+                                <option value="porGrupo">Total a dividir entre el grupo</option>
+                              </select>
+                            )}
+                          </div>
+                          <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+                            <span className="text-xs font-semibold text-gray-500 uppercase">Total</span>
+                            <span className="text-gray-900 text-sm font-semibold">{calcularTotalFilaUI(servicio).toFixed(2)}€</span>
+                          </div>
+                          <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Release</span>
+                            <input type="date" value={servicio.fechaRelease || ''} onChange={(e) => { actualizarServicio(servicio.id, 'fechaRelease', e.target.value || ''); }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; guardarFechaReleaseServicio(servicio.id, e.target.value || ''); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '6px 8px' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                       
                       {/* Botón Añadir Servicio al final */}
                       <div className="mt-4 pt-4 border-t border-gray-200">
-                        <button onClick={añadirServicio} className="btn-primary w-full flex items-center justify-center gap-2">
+                        <button onClick={añadirServicio} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
                           <Plus size={20} />
                           Añadir Servicio
                         </button>
                       </div>
-                    </div>
+                    </>
                   )}
                 </div>
 
                 {/* Resultados de la Cotización */}
-                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+                <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 border border-gray-200">
                   <h3 className="text-xl font-bold text-navy-900 mb-4">Resumen Financiero</h3>
                   
+                  {/* 8 cuadros: 2 columnas en móvil, 4 en desktop */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                       <p className="text-xs text-blue-700 font-semibold uppercase mb-1">🚌 Autobús/Pax</p>
