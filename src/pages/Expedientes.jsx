@@ -989,9 +989,10 @@ const Expedientes = () => {
     ESTADOS_ACTIVOS.includes(exp.estado || '')
   )
 
-  // Archivo / Finalizados: solo Finalizado
+  // Archivo / Finalizados: Finalizado y Cancelado
+  const ESTADOS_ARCHIVO = ['finalizado', 'cancelado']
   const expedientesArchivo = expedientesFiltradosPorEjercicioYBusqueda.filter(exp =>
-    (exp.estado || '') === 'finalizado'
+    ESTADOS_ARCHIVO.includes(exp.estado || '')
   )
 
   const expedientesFiltradosPorEjercicio = tabExpedientes === 'activos' ? expedientesActivos : expedientesArchivo
@@ -1086,7 +1087,7 @@ const Expedientes = () => {
               <p className="text-xs text-gray-500">
                 {searchTermExpedientes 
                   ? `Buscando: "${searchTermExpedientes}" - ${expedientesFiltradosPorEjercicio.length} resultado${expedientesFiltradosPorEjercicio.length !== 1 ? 's' : ''}`
-                  : tabExpedientes === 'activos' ? 'Petición, Confirmado, En Curso' : 'Expedientes finalizados'
+                  : tabExpedientes === 'activos' ? 'Petición, Confirmado, En Curso' : 'Expedientes finalizados y cancelados'
                 }
               </p>
             </div>
@@ -1098,7 +1099,7 @@ const Expedientes = () => {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {(tabExpedientes === 'activos' ? ['peticion', 'confirmado', 'en_curso'] : ['finalizado']).map((key) => {
+        {(tabExpedientes === 'activos' ? ['peticion', 'confirmado', 'en_curso'] : ['finalizado', 'cancelado']).map((key) => {
           const estado = ESTADOS[key]
           if (!estado) return null
           const count = expedientesFiltradosPorEjercicio.filter(exp => exp.estado === key).length
@@ -1125,7 +1126,7 @@ const Expedientes = () => {
           <p className="text-gray-600 mb-6">
             {tabExpedientes === 'activos'
               ? (expedientes.length === 0 ? 'Crea tu primer expediente' : `No hay expedientes en Petición, Confirmado o En Curso para ${ejercicioActual}`)
-              : `No hay expedientes con estado Finalizado en ${ejercicioActual}`
+              : `No hay expedientes finalizados ni cancelados en ${ejercicioActual}`
             }
           </p>
           {tabExpedientes === 'activos' && (
@@ -1168,8 +1169,9 @@ const Expedientes = () => {
                 const fechaInicio = expediente.fecha_inicio || expediente.fechaInicio || ''
                 const fechaFin = expediente.fecha_final || expediente.fechaFin || expediente.fecha_fin || ''
 
+                const esCancelado = (expediente.estado || '') === 'cancelado'
                 return (
-                  <div key={expediente?.id || Math.random()} className={`card border-l-4 ${estado.badge.replace('bg-', 'border-')} hover:shadow-xl transition-shadow cursor-pointer`}
+                  <div key={expediente?.id || Math.random()} className={`card border-l-4 ${estado.badge.replace('bg-', 'border-')} hover:shadow-xl transition-shadow cursor-pointer ${esCancelado ? 'bg-red-50/50 border-red-200' : ''}`}
                        onClick={() => abrirDetalle(expediente)}>
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex-1">
