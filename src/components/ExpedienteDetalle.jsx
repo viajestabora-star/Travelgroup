@@ -4450,8 +4450,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                       <table className="w-full">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Proveedor</th>
                             <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Servicio</th>
+                            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Proveedor</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Cantidad</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Precio</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Modo</th>
@@ -4463,7 +4463,55 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                         <tbody>
                           {servicios.map(servicio => (
                             <tr key={servicio.id} className="border-t border-gray-200 hover:bg-gray-50">
-                              {/* COLUMNA 1: PROVEEDOR CON BÚSQUEDA */}
+                              {/* COLUMNA 1: SERVICIO (TIPO) */}
+                              <td className="px-2 py-2">
+                                <select
+                                  value={servicio.tipo}
+                                  onChange={(e) => {
+                                    const nuevoTipo = e.target.value
+                                    const updates = { tipo: nuevoTipo }
+                                    // Autobús/Transporte: blindaje fijo — siempre Total ÷ pasajeros_pago
+                                    if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') {
+                                      updates.tipo_calculo = 'porGrupo'
+                                      if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
+                                    }
+                                    // Limpiar proveedor si cambia el tipo y no coincide
+                                    if (servicio.proveedorId) {
+                                      const proveedorActual = obtenerProveedorPorId(servicio.proveedorId)
+                                      const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || '')
+                                      const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo)
+                                      if (tipoProveedorActual !== nuevoTipoProveedor) {
+                                        updates.proveedorId = null
+                                        setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
+                                      }
+                                    }
+                                    actualizarServicio(servicio.id, updates)
+                                    setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true }))
+                                  }}
+                                  className="input-field text-xs w-full transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                  onFocus={(e) => {
+                                    e.target.style.borderColor = '#3b82f6'
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                  }}
+                                >
+                                  <option>Hotel</option>
+                                  <option>Restaurante</option>
+                                  <option>Autobús</option>
+                                  <option>Transporte</option>
+                                  <option>Guía</option>
+                                  <option>Guía Local</option>
+                                  <option>Entradas/Tickets</option>
+                                  <option>Seguro</option>
+                                  <option>Otros</option>
+                                </select>
+                              </td>
+                              
+                              {/* COLUMNA 2: PROVEEDOR CON BÚSQUEDA */}
                               <td className="px-2 py-2">
                                 <div className="relative">
                                 <div className="flex gap-1 items-center">
@@ -4635,54 +4683,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                     </div>
                                   )}
                                 </div>
-                              </td>
-                              
-                              {/* COLUMNA 2: SERVICIO (TIPO) */}
-                              <td className="px-2 py-2">
-                                <select
-                                  value={servicio.tipo}
-                                  onChange={(e) => {
-                                    const nuevoTipo = e.target.value
-                                    const updates = { tipo: nuevoTipo }
-                                    // Autobús/Transporte: blindaje fijo — siempre Total ÷ pasajeros_pago
-                                    if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') {
-                                      updates.tipo_calculo = 'porGrupo'
-                                      if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
-                                    }
-                                    // Limpiar proveedor si cambia el tipo y no coincide
-                                    if (servicio.proveedorId) {
-                                      const proveedorActual = obtenerProveedorPorId(servicio.proveedorId)
-                                      const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || '')
-                                      const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo)
-                                      if (tipoProveedorActual !== nuevoTipoProveedor) {
-                                        updates.proveedorId = null
-                                        setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
-                                      }
-                                    }
-                                    actualizarServicio(servicio.id, updates)
-                                    setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true }))
-                                  }}
-                                  className="input-field text-xs w-full transition-all"
-                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                                  onFocus={(e) => {
-                                    e.target.style.borderColor = '#3b82f6'
-                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                  }}
-                                  onBlur={(e) => {
-                                    e.target.style.borderColor = '#e2e8f0'
-                                    e.target.style.boxShadow = 'none'
-                                  }}
-                                >
-                                  <option>Hotel</option>
-                                  <option>Restaurante</option>
-                                  <option>Autobús</option>
-                                  <option>Transporte</option>
-                                  <option>Guía</option>
-                                  <option>Guía Local</option>
-                                  <option>Entradas/Tickets</option>
-                                  <option>Seguro</option>
-                                  <option>Otros</option>
-                                </select>
                               </td>
                               
                               {/* COLUMNA 3: CANTIDAD (Noches para Hotel, cantidad manual para Guía, 1 para otros) */}
@@ -4894,9 +4894,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                       {servicios.map(servicio => (
                         <div key={servicio.id} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 shadow-sm">
                           <div className="flex justify-between items-start">
-                            <span className="text-xs font-semibold text-gray-500 uppercase">Proveedor</span>
+                            <span className="text-xs font-semibold text-gray-500 uppercase">Servicio</span>
                             <button onClick={() => eliminarServicio(servicio.id)} className="text-red-600 hover:text-red-900 p-1" title="Eliminar"><Trash2 size={16} /></button>
                           </div>
+                          <div>
+                            <select value={servicio.tipo} onChange={(e) => { const nuevoTipo = e.target.value; const updates = { tipo: nuevoTipo }; if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') { updates.tipo_calculo = 'porGrupo'; if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario); } if (servicio.proveedorId) { const proveedorActual = obtenerProveedorPorId(servicio.proveedorId); const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || ''); const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo); if (tipoProveedorActual !== nuevoTipoProveedor) { updates.proveedorId = null; setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' })); } } actualizarServicio(servicio.id, updates); setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true })); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
+                              <option>Hotel</option><option>Restaurante</option><option>Autobús</option><option>Transporte</option><option>Guía</option><option>Guía Local</option><option>Entradas/Tickets</option><option>Seguro</option><option>Otros</option>
+                            </select>
+                          </div>
+                          <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Proveedor</span>
                           <div className="relative">
                             <div className="flex gap-1 items-center">
                               <div className="relative flex-1">
@@ -4940,10 +4946,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                               </div>
                             )}
                           </div>
-                          <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Servicio</span>
-                            <select value={servicio.tipo} onChange={(e) => { const nuevoTipo = e.target.value; const updates = { tipo: nuevoTipo }; if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') { updates.tipo_calculo = 'porGrupo'; if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario); } if (servicio.proveedorId) { const proveedorActual = obtenerProveedorPorId(servicio.proveedorId); const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || ''); const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo); if (tipoProveedorActual !== nuevoTipoProveedor) { updates.proveedorId = null; setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' })); } } actualizarServicio(servicio.id, updates); setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true })); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
-                              <option>Hotel</option><option>Restaurante</option><option>Autobús</option><option>Transporte</option><option>Guía</option><option>Guía Local</option><option>Entradas/Tickets</option><option>Seguro</option><option>Otros</option>
-                            </select>
                           </div>
                           <div className="grid grid-cols-2 gap-3">
                             <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Cantidad</span>
