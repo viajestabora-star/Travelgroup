@@ -47,6 +47,8 @@ const ProveedorForm = ({
     poblacion: initialData.poblacion || '',
     provincia: initialData.provincia || '',
     iban: initialData.iban || '',
+    entidad_bancaria: initialData.entidad_bancaria || '',
+    swift_bic: initialData.swift_bic || '',
     observaciones: initialData.observaciones || ''
   })
 
@@ -357,6 +359,48 @@ const ProveedorForm = ({
               value={formData.iban}
               onChange={e => setFormData({ ...formData, iban: e.target.value })}
             />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+            <div>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Entidad Bancaria
+              </label>
+              <input
+                className="w-full p-4 transition-all"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
+                value={formData.entidad_bancaria}
+                onChange={e => setFormData({ ...formData, entidad_bancaria: e.target.value })}
+                placeholder="Ej: Banco Santander, BBVA..."
+              />
+            </div>
+            <div>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                SWIFT/BIC
+              </label>
+              <input
+                className="w-full p-4 transition-all font-mono"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
+                value={formData.swift_bic}
+                onChange={e => setFormData({ ...formData, swift_bic: e.target.value })}
+                placeholder="Ej: BSCHESMMXXX"
+              />
+            </div>
           </div>
         </div>
 

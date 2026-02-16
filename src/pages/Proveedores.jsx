@@ -16,7 +16,7 @@ const Proveedores = () => {
   const [formData, setFormData] = useState({
     nombre_comercial: '', servicio: 'hotel', ciudad: '', cif: '', persona_contacto: '',
     telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
-    poblacion: '', provincia: '', iban: '', observaciones: ''
+    poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '', observaciones: ''
   })
 
   // Servicios normalizados (minúsculas, sin tildes) para coincidir con la base de datos
@@ -118,7 +118,7 @@ const Proveedores = () => {
       setFormData({
         nombre_comercial: '', servicio: 'hotel', ciudad: '', cif: '', persona_contacto: '',
         telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
-        poblacion: '', provincia: '', iban: '', observaciones: ''
+        poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '', observaciones: ''
       })
     }
     setShowModal(true)
@@ -394,6 +394,24 @@ const Proveedores = () => {
                   className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none" 
                   value={formData.iban} 
                   onChange={e=>setFormData({...formData, iban:e.target.value})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">Entidad Bancaria</label>
+                <input 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  value={formData.entidad_bancaria || ''} 
+                  onChange={e=>setFormData({...formData, entidad_bancaria:e.target.value})} 
+                  placeholder="Ej: Banco Santander, BBVA..."
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase">SWIFT/BIC</label>
+                <input 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none" 
+                  value={formData.swift_bic || ''} 
+                  onChange={e=>setFormData({...formData, swift_bic:e.target.value})} 
+                  placeholder="Ej: BSCHESMMXXX"
                 />
               </div>
 
