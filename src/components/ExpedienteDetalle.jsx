@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown } from 'lucide-react'
 import { storage } from '../utils/storage'
-import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
+import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { createClient } from '@supabase/supabase-js'
 import ProveedorForm from './ProveedorForm'
 import jsPDF from 'jspdf'
@@ -2292,23 +2292,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
   }
 
   // Helper: noches del expediente (prioriza campo en BD, si no, calcula por fechas)
+  // Regla: noches = días - 1 (mismo día = 1 día = 0 noches; 4 días = 3 noches)
   const calcularNochesExpediente = () => {
     const n = toNum(expediente?.noches)
     if (n > 0) return n
 
-    // Si no, calcular por fechas (como en el resumen de fechas)
     if (expediente?.fechaInicio && expediente?.fechaFin) {
-      try {
-        const inicio = new Date(expediente?.fechaInicio)
-        const fin = new Date(expediente?.fechaFin)
-        const dias = Math.ceil((fin - inicio) / (1000 * 60 * 60 * 24))
-        if (!isNaN(dias) && dias > 0) return dias
-      } catch (e) {
-        // Silenciar y devolver 1 noche como mínimo
+      const inicio = parsearFechaADate(expediente.fechaInicio)
+      const fin = parsearFechaADate(expediente.fechaFin)
+      if (inicio && fin && fin.getTime() >= inicio.getTime()) {
+        const diffMs = fin.getTime() - inicio.getTime()
+        const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1
+        const noches = Math.max(0, dias - 1)
+        return Math.max(1, noches) // Mínimo 1 noche para cálculos de cotización
       }
     }
 
-    // Valor por defecto
     return 1
   }
 
@@ -3912,16 +3911,25 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                   {expediente.fechaInicio && (
                     <div className="mt-4 p-4 bg-white rounded-lg border border-blue-200">
                       <p className="text-sm text-gray-700">
-                        <strong className="text-navy-900">Duración calculada:</strong> {
-                          expediente.fechaFin && expediente.fechaInicio ? 
+                        <strong className="text-navy-900">Duración calculada:</strong>{' '}
+                        {expediente.fechaFin && expediente.fechaInicio ? (
                           (() => {
-                            const inicio = new Date(expediente.fechaInicio)
-                            const fin = new Date(expediente.fechaFin)
-                            const dias = Math.ceil((fin - inicio) / (1000 * 60 * 60 * 24))
-                            return dias > 0 ? `${dias} día${dias !== 1 ? 's' : ''}` : 'Fechas incorrectas'
-                          })() 
-                          : 'Falta fecha de fin'
-                        }
+                            const inicio = parsearFechaADate(expediente.fechaInicio)
+                            const fin = parsearFechaADate(expediente.fechaFin)
+                            if (!inicio || !fin) return <span className="text-red-600">Error en fechas</span>
+                            const diffMs = fin.getTime() - inicio.getTime()
+                            if (diffMs < 0) return <span className="text-red-600 font-medium">Error en fechas</span>
+                            const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1
+                            const noches = Math.max(0, dias - 1)
+                            return (
+                              <span>
+                                {dias} día{dias !== 1 ? 's' : ''} / {noches} noche{noches !== 1 ? 's' : ''}
+                              </span>
+                            )
+                          })()
+                        ) : (
+                          'Falta fecha de fin'
+                        )}
                       </p>
                     </div>
                   )}
