@@ -302,6 +302,9 @@ const Expedientes = () => {
           total_pax: exp.total_pax || null,
           pax_pago: exp.pax_pago || null,
 
+          // Cierre de Grupo (liquidación real, no machaca cotización)
+          cierre_grupo: exp.cierre_grupo || null,
+
           // Campos por defecto para compatibilidad
           pasajeros: [],
           cobros: [],
@@ -371,7 +374,6 @@ const Expedientes = () => {
           bus: viaje.bus || '',
           precioBus: viaje.precioBus || 0,
           clienteNombre: viaje.grupo || '',
-          responsable: '',
         }
         nuevosExpedientes.push(nuevoExpediente)
       }

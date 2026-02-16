@@ -363,15 +363,31 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       setTab(initialTab)
     }
   }, [initialTab])
+
+  // Restaurar cierre_grupo guardado al cargar expediente
+  useEffect(() => {
+    if (expediente?.cierre_grupo?.resumen) {
+      const cg = expediente.cierre_grupo
+      setInformeLiquidacion(prev => ({
+        ...prev,
+        ingresos: cg.ingresos || prev.ingresos,
+        costesReales: cg.costesReales || prev.costesReales || [],
+        gastosImprevistos: cg.gastosImprevistos || prev.gastosImprevistos || [],
+      }))
+    }
+  }, [expediente?.id])
   
   // Ref para rastrear si ya se inicializaron los servicios automáticamente
   const serviciosInicializados = useRef(false)
   const informeLiquidacionInicializadoRef = useRef(false)
 
-  // Estado local del Informe de Liquidación (editable, no afecta cotización)
+  // Estado local del Cierre de Grupo (editable, NO machaca cotización)
+  // costesReales: desde servicios cotización, con coste_real editable (factura proveedor)
+  // gastosImprevistos: conceptos extra (taxis, propinas, reparaciones, etc.)
   const [informeLiquidacion, setInformeLiquidacion] = useState({
     ingresos: { precioViaje: 0, suplementos: 0, descuentos: 0 },
-    gastos: [],
+    costesReales: [],      // { id_servicio, concepto, proveedor, coste_cotizado, coste_real }
+    gastosImprevistos: [], // { id, concepto, importe }
   })
   
   // ============ ESTADO GLOBAL UNIFICADO DEL FORMULARIO ============
@@ -760,24 +776,33 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
     const precioViaje = paxPago * toNum(formData?.precio_venta_cliente)
     const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
     const descuentosVal = toNum(formData?.bonificacion_pax) * paxPago
-    const gastosIniciales = servicios.map((s) => {
+    const savedCostesReales = (informeLiquidacion.costesReales || []).reduce((acc, c) => {
+      acc[c.id_servicio] = c.coste_real
+      return acc
+    }, {})
+    const costesRealesIniciales = servicios.map((s) => {
       const prov = obtenerProveedorPorId(s?.proveedorId)
-      const empresa = prov?.nombreComercial || s?.proveedorNombreTemporal || '—'
+      const proveedor = prov?.nombreComercial || s?.proveedorNombreTemporal || '—'
       const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
       const nombre = s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo
-      const noches = Math.max(1, toNum(s?.noches))
-      const cantidad = Math.max(1, toNum(s?.cantidad ?? s?.dias_guia ?? 1))
-      const esPorGrupo = s?.tipo_calculo === 'porGrupo' || s?.tipo_calculo === 'Total a dividir'
-      const tipoNorm = normalizarTipo(tipo) || ''
-      const detalle = esPorGrupo ? '1 grupo' : (tipo === 'Hotel' ? `${totalPax} pax × ${noches} noches` : tipo === 'Guía' ? `${cantidad} días` : `${totalPax} pax`)
+      const concepto = nombre
       const fila = { ...DEFAULT_SERVICE_VALUES, ...s }
-      const precioCoste = toNum(s?.coste_unitario)
-      const totalPagado = (tipoNorm === 'guia' || tipoNorm === 'g')
-        ? precioCoste * cantidad
-        : Number(finalizarCalculoModulo(fila, paxPago, totalPax)?.total_servicio || 0)
-      return { id: s?.id || generarUUID(), empresa: `${empresa} — ${nombre}`, detalle, totalPagado }
+      const costeCotizado = calcularTotalFilaUI(s)
+      const costeReal = savedCostesReales[s?.id] ?? costeCotizado
+      return {
+        id_servicio: s?.id || generarUUID(),
+        concepto,
+        proveedor,
+        coste_cotizado: costeCotizado,
+        coste_real: costeReal,
+      }
     })
-    setInformeLiquidacion({ ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal }, gastos: gastosIniciales })
+    setInformeLiquidacion(prev => ({
+      ...prev,
+      ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal },
+      costesReales: costesRealesIniciales,
+      gastosImprevistos: prev.gastosImprevistos || [],
+    }))
     informeLiquidacionInicializadoRef.current = true
   }
 
@@ -787,26 +812,41 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       ingresos: { ...prev.ingresos, [campo]: toNum(valor) }
     }))
   }
-  const actualizarInformeGasto = (id, campo, valor) => {
+  const actualizarCosteReal = (idServicio, costeReal) => {
     setInformeLiquidacion(prev => ({
       ...prev,
-      gastos: prev.gastos.map(g => g.id === id ? { ...g, [campo]: campo === 'totalPagado' ? toNum(valor) : valor } : g)
+      costesReales: prev.costesReales.map(c =>
+        c.id_servicio === idServicio ? { ...c, coste_real: toNum(costeReal) } : c
+      )
     }))
   }
-  const agregarGastoInforme = () => {
+  const agregarGastoImprevisto = () => {
     setInformeLiquidacion(prev => ({
       ...prev,
-      gastos: [...prev.gastos, { id: generarUUID(), empresa: '', detalle: '', totalPagado: 0 }]
+      gastosImprevistos: [...(prev.gastosImprevistos || []), { id: generarUUID(), concepto: '', importe: 0 }]
     }))
   }
-  const eliminarGastoInforme = (id) => {
-    setInformeLiquidacion(prev => ({ ...prev, gastos: prev.gastos.filter(g => g.id !== id) }))
+  const eliminarGastoImprevisto = (id) => {
+    setInformeLiquidacion(prev => ({
+      ...prev,
+      gastosImprevistos: (prev.gastosImprevistos || []).filter(g => g.id !== id)
+    }))
+  }
+  const actualizarGastoImprevisto = (id, campo, valor) => {
+    setInformeLiquidacion(prev => ({
+      ...prev,
+      gastosImprevistos: (prev.gastosImprevistos || []).map(g =>
+        g.id === id ? { ...g, [campo]: campo === 'importe' ? toNum(valor) : valor } : g
+      )
+    }))
   }
 
   const generarInformeLiquidacionPDF = () => {
     const ing = informeLiquidacion.ingresos
     const cobroTotal = ing.precioViaje + ing.suplementos - ing.descuentos
-    const sumaGastos = informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0)
+    const gastosReales = (informeLiquidacion.costesReales || []).reduce((a, c) => a + toNum(c.coste_real), 0)
+    const imprevistos = (informeLiquidacion.gastosImprevistos || []).reduce((a, g) => a + toNum(g.importe), 0)
+    const sumaGastos = gastosReales + imprevistos
     const beneficioBruto = cobroTotal - sumaGastos
     const ivaSobreBeneficio = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
     const beneficioNetoReal = beneficioBruto - ivaSobreBeneficio
@@ -838,12 +878,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
     doc.text(`COBRO TOTAL: ${cobroTotal.toFixed(2)} €`, 25, y)
     y += 12
     doc.setFont('helvetica', 'bold')
-    doc.text('Gastos (Facturas Recibidas)', 20, y)
+    doc.text('Costes Reales (por servicio)', 20, y)
     y += 6
-    informeLiquidacion.gastos.forEach(g => {
+    ;(informeLiquidacion.costesReales || []).forEach(c => {
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
-      doc.text(`${g.empresa || '—'} | ${g.detalle || '—'} | ${Number(g.totalPagado || 0).toFixed(2)} €`, 25, y)
+      doc.text(`${c.concepto || '—'} | ${c.proveedor || '—'} | ${Number(c.coste_real || 0).toFixed(2)} €`, 25, y)
+      y += 5
+    })
+    ;(informeLiquidacion.gastosImprevistos || []).forEach(g => {
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.text(`[Imprevisto] ${g.concepto || '—'} | ${Number(g.importe || 0).toFixed(2)} €`, 25, y)
       y += 5
     })
     y += 4
@@ -865,7 +911,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
   const exportarInformeGestoria = () => {
     const ing = informeLiquidacion.ingresos
     const cobroTotal = ing.precioViaje + ing.suplementos - ing.descuentos
-    const sumaGastos = informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0)
+    const gastosReales = (informeLiquidacion.costesReales || []).reduce((a, c) => a + toNum(c.coste_real), 0)
+    const imprevistos = (informeLiquidacion.gastosImprevistos || []).reduce((a, g) => a + toNum(g.importe), 0)
+    const sumaGastos = gastosReales + imprevistos
     const beneficioBruto = cobroTotal - sumaGastos
     const ivaSobreBeneficio = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
     const beneficioNetoReal = beneficioBruto - ivaSobreBeneficio
@@ -882,9 +930,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       `Descuentos,-${Number(ing.descuentos).toFixed(2)}`,
       `COBRO TOTAL,${cobroTotal.toFixed(2)}`,
       '',
-      'Gastos',
-      'Empresa/Servicio,Detalle,Total Pagado',
-      ...informeLiquidacion.gastos.map(g => `"${(g.empresa || '').replace(/"/g, '""')}","${(g.detalle || '').replace(/"/g, '""')}",${Number(g.totalPagado || 0).toFixed(2)}`),
+      'Costes Reales',
+      'Concepto,Proveedor,Coste Real',
+      ...(informeLiquidacion.costesReales || []).map(c => `"${(c.concepto || '').replace(/"/g, '""')}","${(c.proveedor || '').replace(/"/g, '""')}",${Number(c.coste_real || 0).toFixed(2)}`),
+      '',
+      'Gastos Imprevistos',
+      'Concepto,Importe',
+      ...(informeLiquidacion.gastosImprevistos || []).map(g => `"${(g.concepto || '').replace(/"/g, '""')}",${Number(g.importe || 0).toFixed(2)}`),
       `TOTAL GASTOS,${sumaGastos.toFixed(2)}`,
       '',
       `Beneficio Bruto,${beneficioBruto.toFixed(2)}`,
@@ -898,6 +950,57 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
     a.download = `Informe_Liquidacion_${grupo.replace(/\s+/g, '_')}_${viaje.replace(/\s+/g, '_')}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  // ============ GUARDAR CIERRE (sin machacar cotización) ============
+  const [guardandoCierre, setGuardandoCierre] = useState(false)
+  const handleGuardarCierre = async () => {
+    if (!expediente?.id) return
+    setGuardandoCierre(true)
+    try {
+      const ing = informeLiquidacion.ingresos
+      const ingresosTotales = ing.precioViaje + ing.suplementos - ing.descuentos
+      const gastosReales = (informeLiquidacion.costesReales || []).reduce((a, c) => a + toNum(c.coste_real), 0)
+      const totalImprevistos = (informeLiquidacion.gastosImprevistos || []).reduce((a, g) => a + toNum(g.importe), 0)
+      const beneficioBruto = ingresosTotales - gastosReales - totalImprevistos
+      const ivaSobreBeneficio = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
+      const beneficioNeto = beneficioBruto - ivaSobreBeneficio
+
+      const payload = {
+        ingresos: informeLiquidacion.ingresos,
+        costesReales: informeLiquidacion.costesReales || [],
+        gastosImprevistos: informeLiquidacion.gastosImprevistos || [],
+        resumen: {
+          ingresos_totales: ingresosTotales,
+          gastos_reales: gastosReales,
+          gastos_imprevistos: totalImprevistos,
+          beneficio_bruto: beneficioBruto,
+          iva_sobre_beneficio: ivaSobreBeneficio,
+          beneficio_neto: beneficioNeto,
+          updated_at: new Date().toISOString(),
+        },
+      }
+
+      const { error } = await supabase
+        .from('expedientes')
+        .update({ cierre_grupo: payload })
+        .eq('id', expediente.id)
+
+      if (error) {
+        console.error('Error guardando cierre:', error)
+        alert('Error al guardar el cierre: ' + (error.message || 'Revisa que la columna cierre_grupo exista en expedientes.'))
+        return
+      }
+
+      setExpediente(prev => prev ? { ...prev, cierre_grupo: payload } : prev)
+      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: payload })
+      alert('Cierre guardado correctamente.')
+    } catch (err) {
+      console.error('Error inesperado guardando cierre:', err)
+      alert('Error inesperado al guardar el cierre.')
+    } finally {
+      setGuardandoCierre(false)
+    }
   }
 
   // ============ FUNCIÓN PARA CONVERTIR NÚMEROS A TEXTO ============
@@ -5915,13 +6018,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
             </div>
           )}
 
-            {/* TAB: Cierre de Grupo - Informe de Liquidación con IVA fiscal */}
+            {/* TAB: Cierre de Grupo - Liquidación real con costes editables e imprevistos */}
           {tab === 'cierre' && (
               <div className="max-w-4xl mx-auto space-y-6 print:max-w-none" id="informe-liquidacion">
-                <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm">
                   <div className="mb-6 pb-4 border-b-2 border-slate-200">
-                    <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tight mb-4">
-                      Informe de Liquidación de Beneficios
+                    <h1 className="text-xl sm:text-2xl font-bold text-slate-900 uppercase tracking-tight mb-4">
+                      Liquidación de Beneficios
                     </h1>
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
@@ -5936,165 +6039,136 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                   </div>
 
                   {/* Ingresos editables */}
-                  <section className="mb-8">
-                    <h2 className="text-lg font-bold text-slate-800 uppercase mb-4 border-b border-slate-300 pb-1">Ingresos</h2>
-                    <div className="space-y-3 text-sm">
+                  <section className="mb-6">
+                    <h2 className="text-base font-bold text-slate-800 uppercase mb-3 border-b border-slate-300 pb-1">Ingresos Totales</h2>
+                    <div className="space-y-2 text-sm">
                       <div className="flex items-center justify-between gap-4">
                         <span className="text-slate-700">Precio Viaje</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={informeLiquidacion.ingresos.precioViaje}
-                          onChange={(e) => actualizarInformeIngreso('precioViaje', e.target.value)}
-                          className="w-32 border border-slate-300 rounded-lg px-2 py-1.5 text-right font-medium focus:ring-2 focus:ring-blue-500"
-                        />
+                        <input type="number" step="0.01" value={informeLiquidacion.ingresos.precioViaje} onChange={(e) => actualizarInformeIngreso('precioViaje', e.target.value)} className="w-28 sm:w-32 border border-slate-300 rounded-lg px-2 py-1.5 text-right font-medium focus:ring-2 focus:ring-blue-500" />
                       </div>
                       <div className="flex items-center justify-between gap-4">
                         <span className="text-slate-700">Suplementos</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={informeLiquidacion.ingresos.suplementos}
-                          onChange={(e) => actualizarInformeIngreso('suplementos', e.target.value)}
-                          className="w-32 border border-slate-300 rounded-lg px-2 py-1.5 text-right font-medium focus:ring-2 focus:ring-blue-500"
-                        />
+                        <input type="number" step="0.01" value={informeLiquidacion.ingresos.suplementos} onChange={(e) => actualizarInformeIngreso('suplementos', e.target.value)} className="w-28 sm:w-32 border border-slate-300 rounded-lg px-2 py-1.5 text-right font-medium focus:ring-2 focus:ring-blue-500" />
                       </div>
                       <div className="flex items-center justify-between gap-4">
                         <span className="text-slate-700">Descuentos</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={informeLiquidacion.ingresos.descuentos}
-                          onChange={(e) => actualizarInformeIngreso('descuentos', e.target.value)}
-                          className="w-32 border border-slate-300 rounded-lg px-2 py-1.5 text-right font-medium focus:ring-2 focus:ring-blue-500"
-                        />
+                        <input type="number" step="0.01" value={informeLiquidacion.ingresos.descuentos} onChange={(e) => actualizarInformeIngreso('descuentos', e.target.value)} className="w-28 sm:w-32 border border-slate-300 rounded-lg px-2 py-1.5 text-right font-medium focus:ring-2 focus:ring-blue-500" />
                       </div>
-                      <div className="flex justify-between pt-3 mt-3 border-t-2 border-slate-200 font-bold text-slate-900">
+                      <div className="flex justify-between pt-2 mt-2 border-t-2 border-slate-200 font-bold text-slate-900">
                         <span>Ingreso Total</span>
                         <span>{(informeLiquidacion.ingresos.precioViaje + informeLiquidacion.ingresos.suplementos - informeLiquidacion.ingresos.descuentos).toFixed(2)} €</span>
                       </div>
                     </div>
                   </section>
 
-                  {/* Gastos editables */}
-                  <section className="mb-8">
-                    <div className="flex justify-between items-center mb-4">
-                      <h2 className="text-lg font-bold text-slate-800 uppercase border-b border-slate-300 pb-1">Gastos Reales (Facturas Recibidas)</h2>
-                      <button type="button" onClick={agregarGastoInforme} className="text-sm border border-slate-400 px-3 py-1.5 rounded-lg hover:bg-slate-50 font-medium">
-                        + Añadir línea
+                  {/* Tabla de Costes Reales (desde cotización, coste editable) */}
+                  <section className="mb-6">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3">
+                      <h2 className="text-base font-bold text-slate-800 uppercase border-b border-slate-300 pb-1">Costes Reales (factura proveedor)</h2>
+                      <button type="button" onClick={recargarInformeDesdeCotizacion} className="text-sm border border-slate-400 px-3 py-1.5 rounded-lg hover:bg-slate-50 font-medium self-start sm:self-auto">
+                        Cargar desde Cotización
                       </button>
                     </div>
-                    <table className="w-full border-collapse border border-slate-200 rounded-lg overflow-hidden text-sm">
-                      <thead>
-                        <tr className="bg-slate-100">
-                          <th className="border border-slate-200 px-3 py-2 text-left font-bold text-slate-800">Empresa / Servicio</th>
-                          <th className="border border-slate-200 px-3 py-2 text-left font-bold text-slate-800">Detalle (Pax/Días)</th>
-                          <th className="border border-slate-200 px-3 py-2 text-right font-bold text-slate-800">Total Pagado</th>
-                          <th className="border border-slate-200 w-10" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {informeLiquidacion.gastos.map((g) => (
-                          <tr key={g.id} className="border-b border-slate-100 hover:bg-slate-50">
-                            <td className="border border-slate-200 px-2 py-1.5">
-                              <input
-                                type="text"
-                                value={g.empresa}
-                                onChange={(e) => actualizarInformeGasto(g.id, 'empresa', e.target.value)}
-                                className="w-full border-0 bg-transparent focus:ring-0 p-0 text-slate-900"
-                                placeholder="Empresa"
-                              />
-                            </td>
-                            <td className="border border-slate-200 px-2 py-1.5">
-                              <input
-                                type="text"
-                                value={g.detalle}
-                                onChange={(e) => actualizarInformeGasto(g.id, 'detalle', e.target.value)}
-                                className="w-full border-0 bg-transparent focus:ring-0 p-0 text-slate-700"
-                                placeholder="Detalle"
-                              />
-                            </td>
-                            <td className="border border-slate-200 px-2 py-1.5">
-                              <input
-                                type="number"
-                                step="0.01"
-                                value={g.totalPagado || ''}
-                                onChange={(e) => actualizarInformeGasto(g.id, 'totalPagado', e.target.value)}
-                                className="w-full border-0 bg-transparent focus:ring-0 p-0 text-right font-medium"
-                                placeholder="0"
-                              />
-                            </td>
-                            <td className="border border-slate-200 px-1 py-1">
-                              <button type="button" onClick={() => eliminarGastoInforme(g.id)} className="text-red-600 hover:text-red-800 text-xs p-1">✕</button>
-                            </td>
-                          </tr>
-                        ))}
-                        {informeLiquidacion.gastos.length === 0 && (
-                          <tr>
-                            <td colSpan={4} className="border border-slate-200 px-3 py-4 text-center text-slate-500">No hay gastos. Pulsa «+ Añadir línea» o abre la cotización y usa «Cargar desde Cotización».</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                    <div className="flex justify-end mt-2 font-bold text-slate-800">
-                      Total Gastos Reales: {informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0).toFixed(2)} €
-                    </div>
+                    {(informeLiquidacion.costesReales || []).length === 0 ? (
+                      <div className="py-6 text-center text-slate-500 text-sm border border-slate-200 rounded-lg bg-slate-50">
+                        No hay servicios. Abre la pestaña Cotización, añade servicios y pulsa «Cargar desde Cotización».
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-lg border border-slate-200">
+                        <table className="w-full text-sm min-w-[400px]">
+                          <thead>
+                            <tr className="bg-slate-100">
+                              <th className="px-3 py-2 text-left font-bold text-slate-800">Concepto</th>
+                              <th className="px-3 py-2 text-left font-bold text-slate-800 hidden sm:table-cell">Proveedor</th>
+                              <th className="px-3 py-2 text-right font-bold text-slate-800">Cotizado</th>
+                              <th className="px-3 py-2 text-right font-bold text-slate-800">Precio Coste Real</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(informeLiquidacion.costesReales || []).map((c) => (
+                              <tr key={c.id_servicio} className="border-b border-slate-100 hover:bg-slate-50">
+                                <td className="px-3 py-2 font-medium text-slate-800">{c.concepto || '—'}</td>
+                                <td className="px-3 py-2 text-slate-600 hidden sm:table-cell">{c.proveedor || '—'}</td>
+                                <td className="px-3 py-2 text-right text-slate-500">{Number(c.coste_cotizado || 0).toFixed(2)} €</td>
+                                <td className="px-3 py-2">
+                                  <input type="number" step="0.01" value={c.coste_real ?? ''} onChange={(e) => actualizarCosteReal(c.id_servicio, e.target.value)} className="w-full min-w-[80px] border border-slate-300 rounded-lg px-2 py-1 text-right font-medium focus:ring-2 focus:ring-blue-500" placeholder="0" />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div className="px-3 py-2 bg-slate-50 text-right font-bold text-slate-800 text-sm">
+                          Total Gastos Reales: {(informeLiquidacion.costesReales || []).reduce((a, c) => a + toNum(c.coste_real), 0).toFixed(2)} €
+                        </div>
+                      </div>
+                    )}
                   </section>
 
-                  {/* Cálculo fiscal: Beneficio Bruto → IVA 21% → Beneficio Neto Real */}
+                  {/* Gastos Imprevistos */}
+                  <section className="mb-6">
+                    <div className="flex justify-between items-center mb-3">
+                      <h2 className="text-base font-bold text-slate-800 uppercase border-b border-slate-300 pb-1">Gastos Imprevistos</h2>
+                      <button type="button" onClick={agregarGastoImprevisto} className="text-sm border border-amber-500 text-amber-700 px-3 py-1.5 rounded-lg hover:bg-amber-50 font-medium flex items-center gap-1">
+                        <Plus size={14} /> Añadir Gasto Extra
+                      </button>
+                    </div>
+                    {(informeLiquidacion.gastosImprevistos || []).length === 0 ? (
+                      <p className="text-sm text-slate-500 py-2">Taxis, propinas, reparaciones… Pulsa «Añadir Gasto Extra».</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {(informeLiquidacion.gastosImprevistos || []).map((g) => (
+                          <div key={g.id} className="flex gap-2 items-center">
+                            <input type="text" value={g.concepto || ''} onChange={(e) => actualizarGastoImprevisto(g.id, 'concepto', e.target.value)} placeholder="Concepto" className="flex-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+                            <input type="number" step="0.01" value={g.importe ?? ''} onChange={(e) => actualizarGastoImprevisto(g.id, 'importe', e.target.value)} placeholder="0" className="w-24 border border-slate-300 rounded-lg px-2 py-1.5 text-right text-sm" />
+                            <button type="button" onClick={() => eliminarGastoImprevisto(g.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button>
+                          </div>
+                        ))}
+                        <div className="text-right font-semibold text-slate-700 text-sm">
+                          Total Imprevistos: {(informeLiquidacion.gastosImprevistos || []).reduce((a, g) => a + toNum(g.importe), 0).toFixed(2)} €
+                        </div>
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Resumen visual grande (iPhone-friendly) */}
                   {(() => {
                     const ingresoTotal = informeLiquidacion.ingresos.precioViaje + informeLiquidacion.ingresos.suplementos - informeLiquidacion.ingresos.descuentos
-                    const gastoReal = informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0)
-                    const beneficioBruto = ingresoTotal - gastoReal
+                    const gastosReales = (informeLiquidacion.costesReales || []).reduce((a, c) => a + toNum(c.coste_real), 0)
+                    const imprevistos = (informeLiquidacion.gastosImprevistos || []).reduce((a, g) => a + toNum(g.importe), 0)
+                    const beneficioBruto = ingresoTotal - gastosReales - imprevistos
                     const ivaSobreBeneficio = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
-                    const beneficioNetoReal = beneficioBruto - ivaSobreBeneficio
+                    const beneficioNeto = beneficioBruto - ivaSobreBeneficio
                     return (
-                      <section className="border-t-2 border-slate-200 pt-6 space-y-3">
-                        <div className="flex justify-between items-center font-semibold text-slate-800">
-                          <span>Beneficio Bruto (Ingresos − Gastos Reales)</span>
-                          <span className={beneficioBruto >= 0 ? 'text-emerald-700' : 'text-red-700'}>
-                            {beneficioBruto.toFixed(2)} €
-                          </span>
+                      <section className="border-t-2 border-slate-200 pt-6 pb-6">
+                        <div className="bg-slate-900 text-white rounded-2xl p-6 space-y-4">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-300 text-sm sm:text-base">Beneficio Bruto</span>
+                            <span className={`text-xl sm:text-2xl font-bold ${beneficioBruto >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{beneficioBruto.toFixed(2)} €</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-300 text-sm sm:text-base">IVA sobre Beneficio (21%)</span>
+                            <span className="text-amber-400 text-lg sm:text-xl font-semibold">− {ivaSobreBeneficio.toFixed(2)} €</span>
+                          </div>
+                          <div className="flex justify-between items-center pt-4 border-t border-slate-600">
+                            <span className="text-white font-bold text-base sm:text-lg">Beneficio Neto</span>
+                            <span className={`text-2xl sm:text-3xl font-extrabold ${beneficioNeto >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{beneficioNeto.toFixed(2)} €</span>
+                          </div>
+                          <p className="text-slate-400 text-xs">Ingresos − (Gastos Reales + Imprevistos) − IVA</p>
                         </div>
-                        <div className="flex justify-between items-center text-slate-700">
-                          <span>IVA sobre Beneficio (21%)</span>
-                          <span className="text-amber-700">− {ivaSobreBeneficio.toFixed(2)} €</span>
-                        </div>
-                        <div className="flex justify-between items-center font-bold text-lg pt-3 border-t border-slate-200">
-                          <span className="text-slate-900">Beneficio Neto Real</span>
-                          <span className={beneficioNetoReal >= 0 ? 'text-emerald-700' : 'text-red-700'}>
-                            {beneficioNetoReal.toFixed(2)} €
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500">Cifra que te queda limpia en el bolsillo (tras IVA)</p>
                       </section>
                     )
                   })()}
 
                   {/* Botones de acción */}
-                  <div className="mt-8 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={recargarInformeDesdeCotizacion}
-                      className="flex items-center gap-2 px-4 py-2 border border-slate-400 rounded-lg bg-slate-50 text-slate-700 font-medium hover:bg-slate-100"
-                    >
-                      Cargar desde Cotización
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <button type="button" onClick={handleGuardarCierre} disabled={guardandoCierre} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 text-white font-bold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed">
+                      <Save size={18} /> {guardandoCierre ? 'Guardando…' : 'Guardar Cierre'}
                     </button>
-                    <button
-                      type="button"
-                      onClick={generarInformeLiquidacionPDF}
-                      className="flex items-center gap-2 px-4 py-2 border-2 border-slate-800 rounded-lg bg-white text-slate-900 font-semibold hover:bg-slate-100"
-                    >
-                      <Printer size={18} />
-                      Imprimir Informe
+                    <button type="button" onClick={generarInformeLiquidacionPDF} className="flex items-center gap-2 px-4 py-2 border-2 border-slate-800 rounded-lg bg-white text-slate-900 font-semibold hover:bg-slate-100">
+                      <Printer size={18} /> Imprimir
                     </button>
-                    <button
-                      type="button"
-                      onClick={exportarInformeGestoria}
-                      className="flex items-center gap-2 px-4 py-2 border-2 border-slate-800 rounded-lg bg-white text-slate-900 font-semibold hover:bg-slate-100"
-                    >
-                      <FileDown size={18} />
-                      Exportar para Gestoría (CSV)
+                    <button type="button" onClick={exportarInformeGestoria} className="flex items-center gap-2 px-4 py-2 border-2 border-slate-800 rounded-lg bg-white text-slate-900 font-semibold hover:bg-slate-100">
+                      <FileDown size={18} /> Exportar CSV
                     </button>
                   </div>
                 </div>
