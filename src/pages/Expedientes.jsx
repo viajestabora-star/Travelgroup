@@ -140,12 +140,12 @@ const ESTADOS = {
   cancelado: { label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300', badge: 'bg-red-500', cssClass: 'cancelado' },
 }
 
+// 4 pestañas: Pendientes agrupa peticion + confirmado; el resto una cada una
 const TABS_EXPEDIENTES = [
-  { id: 'peticion', label: 'Pendientes', estado: 'peticion' },
-  { id: 'confirmado', label: 'Cotizaciones', estado: 'confirmado' },
-  { id: 'en_curso', label: 'En Marcha', estado: 'en_curso' },
-  { id: 'finalizado', label: 'Finalizados', estado: 'finalizado' },
-  { id: 'cancelado', label: 'Cancelados', estado: 'cancelado' },
+  { id: 'pendientes', label: 'Pendientes', estados: ['peticion', 'confirmado'] },
+  { id: 'en_curso', label: 'En Marcha', estados: ['en_curso'] },
+  { id: 'finalizado', label: 'Finalizados', estados: ['finalizado'] },
+  { id: 'cancelado', label: 'Cancelados', estados: ['cancelado'] },
 ]
 
 // ============================================================================
@@ -964,8 +964,8 @@ const Expedientes = () => {
     setShowExportModal(false)
   }
 
-  // Tab: Pendientes | Cotizaciones | En Marcha | Finalizados | Cancelados
-  const [tabExpedientes, setTabExpedientes] = useState('peticion')
+  // Tab: Pendientes | En Marcha | Finalizados | Cancelados
+  const [tabExpedientes, setTabExpedientes] = useState('pendientes')
 
   // Filtrar expedientes por ejercicio y búsqueda (base común)
   const expedientesFiltradosPorEjercicioYBusqueda = expedientes.filter(exp => {
@@ -992,9 +992,11 @@ const Expedientes = () => {
     )
   })
 
-  // Filtrar por pestaña activa (cada pestaña = un estado)
+  // Filtrar por pestaña activa (cada pestaña = uno o más estados)
   const expedientesPorTab = TABS_EXPEDIENTES.reduce((acc, t) => {
-    acc[t.id] = expedientesFiltradosPorEjercicioYBusqueda.filter(exp => (exp.estado || '') === t.estado)
+    acc[t.id] = expedientesFiltradosPorEjercicioYBusqueda.filter(exp =>
+      (t.estados || []).includes(exp.estado || '')
+    )
     return acc
   }, {})
 
@@ -1096,16 +1098,16 @@ const Expedientes = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {TABS_EXPEDIENTES.map(t => {
-          const estado = ESTADOS[t.estado]
-          if (!estado) return null
+          const primerEstado = (t.estados || [])[0]
+          const estado = ESTADOS[primerEstado] || ESTADOS.peticion
           const count = (expedientesPorTab[t.id] || []).length
           return (
             <div key={t.id} className={`card border-2 ${estado.color}`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium">{estado.label}</p>
+                  <p className="text-sm font-medium">{t.label}</p>
                   <p className="text-2xl font-bold">{count}</p>
                 </div>
                 <div className={`w-3 h-3 rounded-full ${estado.badge}`}></div>
@@ -1124,7 +1126,7 @@ const Expedientes = () => {
           <p className="text-gray-600 mb-6">
             {expedientes.length === 0 ? 'Crea tu primer expediente' : `No hay expedientes con estado ${(TABS_EXPEDIENTES.find(t => t.id === tabExpedientes) || {}).label || ''} en ${ejercicioActual}`}
           </p>
-          {tabExpedientes === 'peticion' && (
+          {tabExpedientes === 'pendientes' && (
             <button onClick={() => setShowExpedienteModal(true)} className="btn-primary inline-flex items-center gap-2">
               <Plus size={20} />
               Nuevo Expediente
