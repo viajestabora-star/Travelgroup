@@ -60,7 +60,8 @@ const ProveedorForm = ({
       // Normalizar el tipo antes de guardar: minúsculas + sin tildes
       const datosParaGuardar = {
         ...formData,
-        tipo: normalizarTipo(formData.tipo)
+        tipo: normalizarTipo(formData.tipo),
+        es_mayorista: Boolean(formData.es_mayorista)
       }
 
       const { data: nuevoProveedor, error } = await supabase
@@ -342,26 +343,27 @@ const ProveedorForm = ({
         {/* Tarjeta: Información Bancaria */}
         <div style={{ background: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)', marginBottom: '16px', border: '1px solid #f1f5f9' }}>
           <h3 className="text-lg font-semibold text-navy-900 mb-4">Información Bancaria</h3>
-          <div>
-            <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              IBAN
-            </label>
-            <input
-              className="w-full p-4 transition-all font-mono"
-              style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-              onFocus={(e) => {
-                e.target.style.borderColor = '#3b82f6'
-                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = '#e2e8f0'
-                e.target.style.boxShadow = 'none'
-              }}
-              value={formData.iban}
-              onChange={e => setFormData({ ...formData, iban: e.target.value })}
-            />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                IBAN
+              </label>
+              <input
+                className="w-full p-4 transition-all font-mono"
+                style={{ backgroundColor: '#f8fafc', color: '#0f172a', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0'
+                  e.target.style.boxShadow = 'none'
+                }}
+                value={formData.iban}
+                onChange={e => setFormData({ ...formData, iban: e.target.value })}
+                placeholder="ES00 0000 0000 0000 0000 0000"
+              />
+            </div>
             <div>
               <label className="block mb-2" style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Entidad Bancaria
@@ -402,18 +404,18 @@ const ProveedorForm = ({
                 placeholder="Ej: BSCHESMMXXX"
               />
             </div>
-          </div>
-          <div className="mt-4 flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="es_mayorista"
-              checked={!!formData.es_mayorista}
-              onChange={e => setFormData({ ...formData, es_mayorista: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <label htmlFor="es_mayorista" className="text-sm font-medium text-gray-700">
-              Es Mayorista
-            </label>
+            <div className="flex items-center" style={{ padding: '12px 0', alignSelf: 'flex-end' }}>
+              <input
+                type="checkbox"
+                id="es_mayorista_proveedorform"
+                checked={!!formData.es_mayorista}
+                onChange={e => setFormData({ ...formData, es_mayorista: e.target.checked })}
+                className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 focus:ring-2"
+              />
+              <label htmlFor="es_mayorista_proveedorform" className="ml-3 text-sm font-semibold text-navy-900 cursor-pointer">
+                Es Mayorista
+              </label>
+            </div>
           </div>
         </div>
 

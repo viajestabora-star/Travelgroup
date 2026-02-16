@@ -81,7 +81,8 @@ const Proveedores = () => {
     const datosParaGuardar = { 
       ...formData,
       tipo: servicioValido, // Campo correcto en la BD
-      servicio: undefined // Eliminar campo 'servicio' si existe
+      servicio: undefined, // Eliminar campo 'servicio' si existe
+      es_mayorista: Boolean(formData.es_mayorista) // Enviar explícitamente como boolean a Supabase
     }
     
     // Eliminar campo 'servicio' del objeto antes de guardar
@@ -112,7 +113,8 @@ const Proveedores = () => {
       setFormData({ 
         ...p,
         servicio: tipoNormalizado, // Usar 'servicio' en el formulario
-        ciudad: p.ciudad || ''
+        ciudad: p.ciudad || '',
+        es_mayorista: !!p.es_mayorista
       })
     } else {
       setEditingId(null)
@@ -390,41 +392,50 @@ const Proveedores = () => {
                 />
               </div>
 
-              <div className="md:col-span-2 space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">IBAN</label>
-                <input 
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none" 
-                  value={formData.iban} 
-                  onChange={e=>setFormData({...formData, iban:e.target.value})} 
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">Entidad Bancaria</label>
-                <input 
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                  value={formData.entidad_bancaria || ''} 
-                  onChange={e=>setFormData({...formData, entidad_bancaria:e.target.value})} 
-                  placeholder="Ej: Banco Santander, BBVA..."
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">SWIFT/BIC</label>
-                <input 
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none" 
-                  value={formData.swift_bic || ''} 
-                  onChange={e=>setFormData({...formData, swift_bic:e.target.value})} 
-                  placeholder="Ej: BSCHESMMXXX"
-                />
-              </div>
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  id="es_mayorista"
-                  checked={!!formData.es_mayorista}
-                  onChange={e=>setFormData({...formData, es_mayorista:e.target.checked})}
-                  className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
-                />
-                <label htmlFor="es_mayorista" className="text-xs font-black text-slate-400 uppercase">Es Mayorista</label>
+              {/* SECCIÓN: Información Bancaria (IBAN, Entidad, SWIFT, Es Mayorista) */}
+              <div className="md:col-span-3 border-t border-slate-200 pt-8 mt-4">
+                <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-6">Información Bancaria</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="md:col-span-2 space-y-2">
+                    <label className="text-xs font-black text-slate-400 uppercase">IBAN</label>
+                    <input 
+                      className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                      value={formData.iban} 
+                      onChange={e=>setFormData({...formData, iban:e.target.value})} 
+                      placeholder="ES00 0000 0000 0000 0000 0000"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-400 uppercase">Entidad Bancaria</label>
+                    <input 
+                      className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                      value={formData.entidad_bancaria || ''} 
+                      onChange={e=>setFormData({...formData, entidad_bancaria:e.target.value})} 
+                      placeholder="Ej: Banco Santander, BBVA..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-400 uppercase">SWIFT/BIC</label>
+                    <input 
+                      className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                      value={formData.swift_bic || ''} 
+                      onChange={e=>setFormData({...formData, swift_bic:e.target.value})} 
+                      placeholder="Ej: BSCHESMMXXX"
+                    />
+                  </div>
+                  <div className="md:col-span-3 flex items-center gap-4 p-4 bg-slate-50 rounded-2xl">
+                    <input
+                      type="checkbox"
+                      id="es_mayorista_proveedores"
+                      checked={!!formData.es_mayorista}
+                      onChange={e=>setFormData({...formData, es_mayorista:e.target.checked})}
+                      className="w-5 h-5 rounded border-slate-300 text-slate-900 focus:ring-slate-500 focus:ring-2"
+                    />
+                    <label htmlFor="es_mayorista_proveedores" className="text-sm font-black text-slate-700 uppercase tracking-wide cursor-pointer">
+                      Es Mayorista
+                    </label>
+                  </div>
+                </div>
               </div>
 
               <div className="md:col-span-3 flex gap-4 pt-10">

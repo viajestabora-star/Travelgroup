@@ -454,7 +454,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         try {
           const cached = storage.get('proveedores')
           if (Array.isArray(cached) && cached.length > 0) {
-            setProveedores(cached)
+            const conEsMayorista = cached.map(c => ({ ...c, es_mayorista: !!c.es_mayorista }))
+            setProveedores(conEsMayorista)
             return
           }
         } catch (_) {}
@@ -467,7 +468,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         try {
           const cached = storage.get('proveedores')
           if (Array.isArray(cached) && cached.length > 0) {
-            setProveedores(cached)
+            const conEsMayorista = cached.map(c => ({ ...c, es_mayorista: !!c.es_mayorista }))
+            setProveedores(conEsMayorista)
             return
           }
         } catch (_) {}
@@ -476,19 +478,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       }
       
       // Mapear campos de Supabase a formato interno
-      // IMPORTANTE: Los IDs de proveedores son int8 (números enteros: 1, 2, 3...)
-      const proveedoresMapeados = data.map(p => ({
-        id: typeof p.id === 'string' ? Number(p.id) : Number(p.id),
-        nombreComercial: p.nombre_comercial || p.nombreComercial || '',
-        nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
-        tipo: p.tipo || '',
-        telefono: p.telefono || p.movil || '',
-        email: p.email || '',
-        direccion: p.direccion || '',
-        poblacion: p.poblacion || '',
-        cif: p.cif || '',
-        es_mayorista: !!p.es_mayorista
-      }));
+      // IMPORTANTE: Los IDs de proveedores son int8 (números enteros). es_mayorista debe venir explícitamente.
+      const proveedoresMapeados = data.map(p => {
+        return {
+          id: typeof p.id === 'string' ? Number(p.id) : Number(p.id),
+          nombreComercial: p.nombre_comercial || p.nombreComercial || '',
+          nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
+          tipo: p.tipo || '',
+          telefono: p.telefono || p.movil || '',
+          email: p.email || '',
+          direccion: p.direccion || '',
+          poblacion: p.poblacion || '',
+          cif: p.cif || '',
+          es_mayorista: p.es_mayorista === true || p.es_mayorista === 'true'
+        }
+      });
       
       setProveedores(proveedoresMapeados)
       
@@ -2052,6 +2056,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
   const obtenerProveedorPorId = (id) => {
     return proveedores.find(p => p.id === id)
   }
+
+  // Lista de proveedores marcados como mayoristas (para selector Vínculo con Mayorista)
+  const mayoristas = useMemo(() => {
+    return (proveedores || []).filter(p => p && (p.es_mayorista === true || p.es_mayorista === 'true'))
+  }, [proveedores])
   
   // ============ FUNCIONES DE SERVICIOS ============
   
@@ -4892,10 +4901,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                               {/* COLUMNA 9: VÍNCULO CON MAYORISTA */}
                               <td className="px-2 py-2">
                                 <select
-                                  value={servicio.mayorista_id ?? ''}
+                                  value={servicio.mayorista_id != null && servicio.mayorista_id !== '' ? String(servicio.mayorista_id) : ''}
                                   onChange={(e) => {
                                     const val = e.target.value
-                                    const mayoristaId = val === '' ? null : Number(val)
+                                    const mayoristaId = val === '' ? null : (Number(val) || null)
                                     actualizarServicio(servicio.id, 'mayorista_id', mayoristaId)
                                   }}
                                   className="input-field text-xs w-full transition-all"
@@ -4910,8 +4919,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                   }}
                                 >
                                   <option value="">— Sin mayorista</option>
-                                  {proveedores.filter(p => !!p.es_mayorista).map(m => (
-                                    <option key={m.id} value={m.id}>{m.nombreComercial || `Proveedor ${m.id}`}</option>
+                                  {mayoristas.map(m => (
+                                    <option key={m.id} value={String(m.id)}>{m.nombreComercial || `Proveedor ${m.id}`}</option>
                                   ))}
                                 </select>
                               </td>
@@ -5011,10 +5020,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                             <input type="date" value={servicio.fechaRelease || ''} onChange={(e) => { actualizarServicio(servicio.id, 'fechaRelease', e.target.value || ''); }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; guardarFechaReleaseServicio(servicio.id, e.target.value || ''); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '6px 8px' }} />
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Vínculo con Mayorista</span>
-                            <select value={servicio.mayorista_id ?? ''} onChange={(e) => { const val = e.target.value; actualizarServicio(servicio.id, 'mayorista_id', val === '' ? null : Number(val)); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
+                            <select value={servicio.mayorista_id != null && servicio.mayorista_id !== '' ? String(servicio.mayorista_id) : ''} onChange={(e) => { const val = e.target.value; actualizarServicio(servicio.id, 'mayorista_id', val === '' ? null : (Number(val) || null)); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
                               <option value="">— Sin mayorista</option>
-                              {proveedores.filter(p => !!p.es_mayorista).map(m => (
-                                <option key={m.id} value={m.id}>{m.nombreComercial || `Proveedor ${m.id}`}</option>
+                              {mayoristas.map(m => (
+                                <option key={m.id} value={String(m.id)}>{m.nombreComercial || `Proveedor ${m.id}`}</option>
                               ))}
                             </select>
                           </div>
