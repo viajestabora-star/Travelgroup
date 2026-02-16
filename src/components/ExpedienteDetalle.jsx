@@ -4274,7 +4274,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                               marginBottom: '4px',
                             }}
                           >
-                            Precio Total Seguro (€)
+                            Precio por Persona (€)
                             {(!formData?.sup_seguro_precio_total || Number(formData?.sup_seguro_precio_total) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
