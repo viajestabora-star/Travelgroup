@@ -228,17 +228,21 @@ const Expedientes = () => {
     return unsubscribe
   }, [])
 
-  // ============ DETECCIÓN DE NAVEGACIÓN DESDE DASHBOARD ============
-  // Abrir expediente automáticamente si se navega desde Dashboard con un ID
+  // Tab inicial al abrir desde Historial de Cierres (Ver Detalle)
+  const [tabInicialParaDetalle, setTabInicialParaDetalle] = useState(null)
+
+  // ============ DETECCIÓN DE NAVEGACIÓN DESDE DASHBOARD O HISTORIAL ============
+  // Abrir expediente automáticamente si se navega con un ID (y opcionalmente tab inicial)
   useEffect(() => {
     if (location.state?.abrirExpedienteId && expedientes.length > 0) {
       const expedienteId = location.state.abrirExpedienteId
+      const tabInicial = location.state?.tabInicial
       const expedienteEncontrado = expedientes.find(exp => exp.id === expedienteId)
       
       if (expedienteEncontrado) {
         setExpedienteActual(expedienteEncontrado)
+        setTabInicialParaDetalle(tabInicial || null)
         setShowDetalleModal(true)
-        // Limpiar el estado de navegación para evitar reabrir al recargar
         navigate(location.pathname, { replace: true, state: {} })
       }
     }
@@ -1572,8 +1576,12 @@ const Expedientes = () => {
         <ExpedienteDetalle
           expediente={expedienteActual}
           clientes={clientes}
-          onClose={() => setShowDetalleModal(false)}
+          onClose={() => {
+            setShowDetalleModal(false)
+            setTabInicialParaDetalle(null)
+          }}
           onUpdate={actualizarExpediente}
+          initialTab={tabInicialParaDetalle}
         />
       )}
     </div>

@@ -6,8 +6,6 @@ import { createClient } from '@supabase/supabase-js'
 import ProveedorForm from './ProveedorForm'
 import jsPDF from 'jspdf'
 
-const CierreGrupo = () => <div>Mantenimiento</div>;
-
 // Cliente de Supabase para cargar proveedores
 const supabase = createClient(
   'https://gtwyqxfkpdwpakmgrkbu.supabase.co',
@@ -336,7 +334,7 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
   }
 };
 
-const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => {
+const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initialTab }) => {
   // ⚠️ BLINDAJE NIVEL 1: Verificar que expediente existe
   if (!expediente) {
     return (
@@ -358,6 +356,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
   // Estados
   const [tab, setTab] = useState('grupo')
   const [editandoCliente, setEditandoCliente] = useState(false)
+
+  // Abrir en tab específica cuando se navega desde Historial de Cierres (Ver Detalle)
+  useEffect(() => {
+    if (initialTab && ['grupo', 'cotizacion', 'pasajeros', 'cobros', 'facturacion', 'documentacion', 'cierre'].includes(initialTab)) {
+      setTab(initialTab)
+    }
+  }, [initialTab])
   
   // Ref para rastrear si ya se inicializaron los servicios automáticamente
   const serviciosInicializados = useRef(false)
@@ -802,7 +807,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     const ing = informeLiquidacion.ingresos
     const cobroTotal = ing.precioViaje + ing.suplementos - ing.descuentos
     const sumaGastos = informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0)
-    const beneficioLiquido = cobroTotal - sumaGastos
+    const beneficioBruto = cobroTotal - sumaGastos
+    const ivaSobreBeneficio = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
+    const beneficioNetoReal = beneficioBruto - ivaSobreBeneficio
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
     const viaje = expediente?.destino || 'Sin destino'
     const doc = new jsPDF()
@@ -843,8 +850,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     doc.setFont('helvetica', 'bold')
     doc.text(`TOTAL GASTOS: ${sumaGastos.toFixed(2)} €`, 25, y)
     y += 10
+    doc.setFont('helvetica', 'bold')
+    doc.text(`Beneficio Bruto: ${beneficioBruto.toFixed(2)} €`, 20, y)
+    y += 6
+    doc.setFont('helvetica', 'normal')
+    doc.text(`IVA sobre Beneficio (21%): -${ivaSobreBeneficio.toFixed(2)} €`, 20, y)
+    y += 6
+    doc.setFont('helvetica', 'bold')
     doc.setFontSize(12)
-    doc.text(`BENEFICIO LÍQUIDO: ${beneficioLiquido.toFixed(2)} €`, 20, y)
+    doc.text(`BENEFICIO NETO REAL: ${beneficioNetoReal.toFixed(2)} €`, 20, y)
     doc.save(`Informe_Liquidacion_${grupo.replace(/\s+/g, '_')}_${viaje.replace(/\s+/g, '_')}.pdf`)
   }
 
@@ -852,7 +866,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
     const ing = informeLiquidacion.ingresos
     const cobroTotal = ing.precioViaje + ing.suplementos - ing.descuentos
     const sumaGastos = informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0)
-    const beneficioLiquido = cobroTotal - sumaGastos
+    const beneficioBruto = cobroTotal - sumaGastos
+    const ivaSobreBeneficio = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
+    const beneficioNetoReal = beneficioBruto - ivaSobreBeneficio
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
     const viaje = expediente?.destino || 'Sin destino'
     const lineas = [
@@ -871,7 +887,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       ...informeLiquidacion.gastos.map(g => `"${(g.empresa || '').replace(/"/g, '""')}","${(g.detalle || '').replace(/"/g, '""')}",${Number(g.totalPagado || 0).toFixed(2)}`),
       `TOTAL GASTOS,${sumaGastos.toFixed(2)}`,
       '',
-      `BENEFICIO LÍQUIDO,${beneficioLiquido.toFixed(2)}`
+      `Beneficio Bruto,${beneficioBruto.toFixed(2)}`,
+      `IVA sobre Beneficio (21%),-${ivaSobreBeneficio.toFixed(2)}`,
+      `BENEFICIO NETO REAL,${beneficioNetoReal.toFixed(2)}`
     ]
     const blob = new Blob(['\ufeff' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -5897,8 +5915,191 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
             </div>
           )}
 
-            {/* TAB: Cierre de Grupo */}
-          {tab === 'cierre' && <CierreGrupo />}
+            {/* TAB: Cierre de Grupo - Informe de Liquidación con IVA fiscal */}
+          {tab === 'cierre' && (
+              <div className="max-w-4xl mx-auto space-y-6 print:max-w-none" id="informe-liquidacion">
+                <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
+                  <div className="mb-6 pb-4 border-b-2 border-slate-200">
+                    <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tight mb-4">
+                      Informe de Liquidación de Beneficios
+                    </h1>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-slate-500 uppercase font-semibold">Grupo</span>
+                        <p className="font-bold text-slate-900">{expediente?.nombre_grupo || expediente?.cliente_nombre || '—'}</p>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 uppercase font-semibold">Viaje</span>
+                        <p className="font-bold text-slate-900">{expediente?.destino || '—'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Ingresos editables */}
+                  <section className="mb-8">
+                    <h2 className="text-lg font-bold text-slate-800 uppercase mb-4 border-b border-slate-300 pb-1">Ingresos</h2>
+                    <div className="space-y-3 text-sm">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-slate-700">Precio Viaje</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={informeLiquidacion.ingresos.precioViaje}
+                          onChange={(e) => actualizarInformeIngreso('precioViaje', e.target.value)}
+                          className="w-32 border border-slate-300 rounded-lg px-2 py-1.5 text-right font-medium focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-slate-700">Suplementos</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={informeLiquidacion.ingresos.suplementos}
+                          onChange={(e) => actualizarInformeIngreso('suplementos', e.target.value)}
+                          className="w-32 border border-slate-300 rounded-lg px-2 py-1.5 text-right font-medium focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-slate-700">Descuentos</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={informeLiquidacion.ingresos.descuentos}
+                          onChange={(e) => actualizarInformeIngreso('descuentos', e.target.value)}
+                          className="w-32 border border-slate-300 rounded-lg px-2 py-1.5 text-right font-medium focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="flex justify-between pt-3 mt-3 border-t-2 border-slate-200 font-bold text-slate-900">
+                        <span>Ingreso Total</span>
+                        <span>{(informeLiquidacion.ingresos.precioViaje + informeLiquidacion.ingresos.suplementos - informeLiquidacion.ingresos.descuentos).toFixed(2)} €</span>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Gastos editables */}
+                  <section className="mb-8">
+                    <div className="flex justify-between items-center mb-4">
+                      <h2 className="text-lg font-bold text-slate-800 uppercase border-b border-slate-300 pb-1">Gastos Reales (Facturas Recibidas)</h2>
+                      <button type="button" onClick={agregarGastoInforme} className="text-sm border border-slate-400 px-3 py-1.5 rounded-lg hover:bg-slate-50 font-medium">
+                        + Añadir línea
+                      </button>
+                    </div>
+                    <table className="w-full border-collapse border border-slate-200 rounded-lg overflow-hidden text-sm">
+                      <thead>
+                        <tr className="bg-slate-100">
+                          <th className="border border-slate-200 px-3 py-2 text-left font-bold text-slate-800">Empresa / Servicio</th>
+                          <th className="border border-slate-200 px-3 py-2 text-left font-bold text-slate-800">Detalle (Pax/Días)</th>
+                          <th className="border border-slate-200 px-3 py-2 text-right font-bold text-slate-800">Total Pagado</th>
+                          <th className="border border-slate-200 w-10" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {informeLiquidacion.gastos.map((g) => (
+                          <tr key={g.id} className="border-b border-slate-100 hover:bg-slate-50">
+                            <td className="border border-slate-200 px-2 py-1.5">
+                              <input
+                                type="text"
+                                value={g.empresa}
+                                onChange={(e) => actualizarInformeGasto(g.id, 'empresa', e.target.value)}
+                                className="w-full border-0 bg-transparent focus:ring-0 p-0 text-slate-900"
+                                placeholder="Empresa"
+                              />
+                            </td>
+                            <td className="border border-slate-200 px-2 py-1.5">
+                              <input
+                                type="text"
+                                value={g.detalle}
+                                onChange={(e) => actualizarInformeGasto(g.id, 'detalle', e.target.value)}
+                                className="w-full border-0 bg-transparent focus:ring-0 p-0 text-slate-700"
+                                placeholder="Detalle"
+                              />
+                            </td>
+                            <td className="border border-slate-200 px-2 py-1.5">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={g.totalPagado || ''}
+                                onChange={(e) => actualizarInformeGasto(g.id, 'totalPagado', e.target.value)}
+                                className="w-full border-0 bg-transparent focus:ring-0 p-0 text-right font-medium"
+                                placeholder="0"
+                              />
+                            </td>
+                            <td className="border border-slate-200 px-1 py-1">
+                              <button type="button" onClick={() => eliminarGastoInforme(g.id)} className="text-red-600 hover:text-red-800 text-xs p-1">✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                        {informeLiquidacion.gastos.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="border border-slate-200 px-3 py-4 text-center text-slate-500">No hay gastos. Pulsa «+ Añadir línea» o abre la cotización y usa «Cargar desde Cotización».</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                    <div className="flex justify-end mt-2 font-bold text-slate-800">
+                      Total Gastos Reales: {informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0).toFixed(2)} €
+                    </div>
+                  </section>
+
+                  {/* Cálculo fiscal: Beneficio Bruto → IVA 21% → Beneficio Neto Real */}
+                  {(() => {
+                    const ingresoTotal = informeLiquidacion.ingresos.precioViaje + informeLiquidacion.ingresos.suplementos - informeLiquidacion.ingresos.descuentos
+                    const gastoReal = informeLiquidacion.gastos.reduce((a, g) => a + toNum(g.totalPagado), 0)
+                    const beneficioBruto = ingresoTotal - gastoReal
+                    const ivaSobreBeneficio = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
+                    const beneficioNetoReal = beneficioBruto - ivaSobreBeneficio
+                    return (
+                      <section className="border-t-2 border-slate-200 pt-6 space-y-3">
+                        <div className="flex justify-between items-center font-semibold text-slate-800">
+                          <span>Beneficio Bruto (Ingresos − Gastos Reales)</span>
+                          <span className={beneficioBruto >= 0 ? 'text-emerald-700' : 'text-red-700'}>
+                            {beneficioBruto.toFixed(2)} €
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-700">
+                          <span>IVA sobre Beneficio (21%)</span>
+                          <span className="text-amber-700">− {ivaSobreBeneficio.toFixed(2)} €</span>
+                        </div>
+                        <div className="flex justify-between items-center font-bold text-lg pt-3 border-t border-slate-200">
+                          <span className="text-slate-900">Beneficio Neto Real</span>
+                          <span className={beneficioNetoReal >= 0 ? 'text-emerald-700' : 'text-red-700'}>
+                            {beneficioNetoReal.toFixed(2)} €
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500">Cifra que te queda limpia en el bolsillo (tras IVA)</p>
+                      </section>
+                    )
+                  })()}
+
+                  {/* Botones de acción */}
+                  <div className="mt-8 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={recargarInformeDesdeCotizacion}
+                      className="flex items-center gap-2 px-4 py-2 border border-slate-400 rounded-lg bg-slate-50 text-slate-700 font-medium hover:bg-slate-100"
+                    >
+                      Cargar desde Cotización
+                    </button>
+                    <button
+                      type="button"
+                      onClick={generarInformeLiquidacionPDF}
+                      className="flex items-center gap-2 px-4 py-2 border-2 border-slate-800 rounded-lg bg-white text-slate-900 font-semibold hover:bg-slate-100"
+                    >
+                      <Printer size={18} />
+                      Imprimir Informe
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exportarInformeGestoria}
+                      className="flex items-center gap-2 px-4 py-2 border-2 border-slate-800 rounded-lg bg-white text-slate-900 font-semibold hover:bg-slate-100"
+                    >
+                      <FileDown size={18} />
+                      Exportar para Gestoría (CSV)
+                    </button>
+                  </div>
+                </div>
+              </div>
+          )}
             
           </div>
         </div>

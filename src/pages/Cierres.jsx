@@ -535,13 +535,18 @@ const Cierres = () => {
     setGuardandoInforme(true)
     try {
       const { totalGastosReales, totalFacturadoClientes, beneficio } = calcularTotalesInforme
+      const beneficioBruto = beneficio
+      const ivaSobreBeneficio = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
+      const beneficioNetoReal = beneficioBruto - ivaSobreBeneficio
 
       const payloadInforme = {
         lineas: lineasInforme,
         resumen: {
           total_gastos_reales: totalGastosReales,
           total_facturado_clientes: totalFacturadoClientes,
-          liquidacion_final_beneficio: beneficio,
+          liquidacion_final_beneficio: beneficioBruto,
+          iva_sobre_beneficio: ivaSobreBeneficio,
+          beneficio_neto_real: beneficioNetoReal,
           updated_at: new Date().toISOString(),
         },
       }

@@ -11,7 +11,8 @@ import {
   X, 
   Plane, 
   Truck,
-  Edit3
+  Edit3,
+  History
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
@@ -41,7 +42,8 @@ const Layout = () => {
     { path: '/planning', icon: Calendar, label: `Planning ${ejercicioActual}` },
     { path: '/crm', icon: Plane, label: 'CRM / Captación' },
     { path: '/composer', icon: Edit3, label: 'Composer' },
-    { path: '/cierres', icon: Calculator, label: 'Cierres' }
+    { path: '/cierres', icon: Calculator, label: 'Cierres' },
+    { path: '/historial-cierres', icon: History, label: 'Historial de Cierres' }
   ], [ejercicioActual])
 
   return (

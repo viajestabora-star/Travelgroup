@@ -8,6 +8,7 @@ import Proveedores from './pages/Proveedores';
 import Planning from './pages/Planning';
 import CRM from './pages/CRM';
 import Cierres from './pages/Cierres';
+import HistorialCierres from './pages/HistorialCierres';
 import NotasTrabajo from './pages/NotasTrabajo'; // NUEVA PÁGINA
 import Composer from './pages/Composer';
 
@@ -79,6 +80,7 @@ function App() {
           <Route path="notas" element={<NotasTrabajo user={user} />} /> {/* RUTA AÑADIDA */}
           <Route path="composer" element={<Composer user={user} />} />
           <Route path="cierres" element={<Cierres user={user} />} />
+          <Route path="historial-cierres" element={<HistorialCierres user={user} />} />
         </Route>
       </Routes>
     </BrowserRouter>
