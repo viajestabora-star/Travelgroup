@@ -16,7 +16,8 @@ const Proveedores = () => {
   const [formData, setFormData] = useState({
     nombre_comercial: '', servicio: 'hotel', ciudad: '', cif: '', persona_contacto: '',
     telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
-    poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '', observaciones: ''
+    poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '',
+    es_mayorista: false, observaciones: ''
   })
 
   // Servicios normalizados (minúsculas, sin tildes) para coincidir con la base de datos
@@ -118,7 +119,8 @@ const Proveedores = () => {
       setFormData({
         nombre_comercial: '', servicio: 'hotel', ciudad: '', cif: '', persona_contacto: '',
         telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
-        poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '', observaciones: ''
+        poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '',
+        es_mayorista: false, observaciones: ''
       })
     }
     setShowModal(true)
@@ -413,6 +415,16 @@ const Proveedores = () => {
                   onChange={e=>setFormData({...formData, swift_bic:e.target.value})} 
                   placeholder="Ej: BSCHESMMXXX"
                 />
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="es_mayorista"
+                  checked={!!formData.es_mayorista}
+                  onChange={e=>setFormData({...formData, es_mayorista:e.target.checked})}
+                  className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
+                />
+                <label htmlFor="es_mayorista" className="text-xs font-black text-slate-400 uppercase">Es Mayorista</label>
               </div>
 
               <div className="md:col-span-3 flex gap-4 pt-10">

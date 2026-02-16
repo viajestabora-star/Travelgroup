@@ -139,6 +139,7 @@ const DEFAULT_SERVICE_VALUES = {
   id: null,
   proveedorId: null,
   proveedorNombreTemporal: '',
+  mayorista_id: null,
   tipo: 'Hotel',
   tipo_servicio: 'Hotel',
   tipo_calculo: 'porPersona', // 'porPersona' | 'porGrupo' (Precio por Persona | Total a dividir)
@@ -485,7 +486,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         email: p.email || '',
         direccion: p.direccion || '',
         poblacion: p.poblacion || '',
-        cif: p.cif || ''
+        cif: p.cif || '',
+        es_mayorista: !!p.es_mayorista
       }));
       
       setProveedores(proveedoresMapeados)
@@ -778,6 +780,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
               dias_guia: toNum(row.dias_guia) || Math.max(1, toNum(row.noches)),
               cantidad: Math.max(1, toNum(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)),
               fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
+              mayorista_id: row.mayorista_id != null ? (typeof row.mayorista_id === 'string' ? Number(row.mayorista_id) : Number(row.mayorista_id)) : null,
             }
           })
 
@@ -2198,7 +2201,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         fecha_release: servicio?.fechaRelease || null,
         tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
         proveedor_id_int: proveedorIdLimpio,
-        nombre_proveedor_manual: servicio?.proveedorNombreTemporal || null
+        nombre_proveedor_manual: servicio?.proveedorNombreTemporal || null,
+        mayorista_id: servicio?.mayorista_id != null && !isNaN(Number(servicio.mayorista_id)) ? Number(servicio.mayorista_id) : null
       }
       
       // ============ CONSOLE.LOG DE DEBUG ============
@@ -4458,6 +4462,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Total (€)</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Release</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Acciones</th>
+                            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Vínculo con Mayorista</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -4883,6 +4888,33 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                   <Trash2 size={16} />
                                 </button>
                               </td>
+                              
+                              {/* COLUMNA 9: VÍNCULO CON MAYORISTA */}
+                              <td className="px-2 py-2">
+                                <select
+                                  value={servicio.mayorista_id ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value
+                                    const mayoristaId = val === '' ? null : Number(val)
+                                    actualizarServicio(servicio.id, 'mayorista_id', mayoristaId)
+                                  }}
+                                  className="input-field text-xs w-full transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: '140px' }}
+                                  onFocus={(e) => {
+                                    e.target.style.borderColor = '#3b82f6'
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                  }}
+                                >
+                                  <option value="">— Sin mayorista</option>
+                                  {proveedores.filter(p => !!p.es_mayorista).map(m => (
+                                    <option key={m.id} value={m.id}>{m.nombreComercial || `Proveedor ${m.id}`}</option>
+                                  ))}
+                                </select>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -4977,6 +5009,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Release</span>
                             <input type="date" value={servicio.fechaRelease || ''} onChange={(e) => { actualizarServicio(servicio.id, 'fechaRelease', e.target.value || ''); }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; guardarFechaReleaseServicio(servicio.id, e.target.value || ''); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '6px 8px' }} />
+                          </div>
+                          <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Vínculo con Mayorista</span>
+                            <select value={servicio.mayorista_id ?? ''} onChange={(e) => { const val = e.target.value; actualizarServicio(servicio.id, 'mayorista_id', val === '' ? null : Number(val)); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
+                              <option value="">— Sin mayorista</option>
+                              {proveedores.filter(p => !!p.es_mayorista).map(m => (
+                                <option key={m.id} value={m.id}>{m.nombreComercial || `Proveedor ${m.id}`}</option>
+                              ))}
+                            </select>
                           </div>
                         </div>
                       ))}

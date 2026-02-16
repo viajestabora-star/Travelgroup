@@ -49,6 +49,7 @@ const ProveedorForm = ({
     iban: initialData.iban || '',
     entidad_bancaria: initialData.entidad_bancaria || '',
     swift_bic: initialData.swift_bic || '',
+    es_mayorista: !!initialData.es_mayorista,
     observaciones: initialData.observaciones || ''
   })
 
@@ -401,6 +402,18 @@ const ProveedorForm = ({
                 placeholder="Ej: BSCHESMMXXX"
               />
             </div>
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="es_mayorista"
+              checked={!!formData.es_mayorista}
+              onChange={e => setFormData({ ...formData, es_mayorista: e.target.checked })}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="es_mayorista" className="text-sm font-medium text-gray-700">
+              Es Mayorista
+            </label>
           </div>
         </div>
 
