@@ -20,14 +20,14 @@ const formatearFecha = formatearFechaVisual
 
 // ============ ESTADOS CON COLORES (IGUALES A EXPEDIENTES.JSX) ============
 
-// Mapeo frontend: mismos que Expedientes (Pendiente, Cotización, En Marcha, Finalizado, Cancelado)
+// Mapeo frontend: NOMBRES FIJOS = Expedientes (Pendiente, Cotización, Confirmado, Finalizado, Cancelado)
 const ESTADOS = {
   peticion: { label: 'Pendiente', color: 'bg-gray-100 text-gray-800 border-gray-300', badge: 'bg-gray-500' },
   presupuesto: { label: 'Pendiente', color: 'bg-gray-100 text-gray-800 border-gray-300', badge: 'bg-gray-500' },
   confirmado: { label: 'Cotización', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500' },
-  encurso: { label: 'En Marcha', color: 'bg-amber-100 text-amber-800 border-amber-300', badge: 'bg-amber-500' },
-  en_curso: { label: 'En Marcha', color: 'bg-amber-100 text-amber-800 border-amber-300', badge: 'bg-amber-500' },
-  finalizado: { label: 'Finalizado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500' },
+  encurso: { label: 'Confirmado', color: 'bg-lime-100 text-lime-800 border-lime-300', badge: 'bg-lime-500' },
+  en_curso: { label: 'Confirmado', color: 'bg-lime-100 text-lime-800 border-lime-300', badge: 'bg-lime-500' },
+  finalizado: { label: 'Finalizado', color: 'bg-emerald-100 text-emerald-800 border-emerald-300', badge: 'bg-emerald-600' },
   cancelado: { label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300', badge: 'bg-red-500' },
 }
 

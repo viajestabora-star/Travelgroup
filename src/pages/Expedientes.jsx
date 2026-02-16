@@ -132,18 +132,19 @@ const obtenerSiguienteNumeroExpediente = async (año) => {
   }
 };
 // Mapeo frontend: DB usa peticion, confirmado, en_curso, finalizado, cancelado (NO cambiar en Supabase)
+// NOMBRES FIJOS: Pendiente, Cotización, Confirmado, Finalizado, Cancelado
 const ESTADOS = {
   peticion: { label: 'Pendiente', color: 'bg-gray-100 text-gray-800 border-gray-300', badge: 'bg-gray-500', cssClass: 'peticion' },
   confirmado: { label: 'Cotización', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'confirmado' },
-  en_curso: { label: 'En Marcha', color: 'bg-amber-100 text-amber-800 border-amber-300', badge: 'bg-amber-500', cssClass: 'en_curso' },
-  finalizado: { label: 'Finalizado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500', cssClass: 'finalizado' },
+  en_curso: { label: 'Confirmado', color: 'bg-lime-100 text-lime-800 border-lime-300', badge: 'bg-lime-500', cssClass: 'en_curso' },
+  finalizado: { label: 'Finalizado', color: 'bg-emerald-100 text-emerald-800 border-emerald-300', badge: 'bg-emerald-600', cssClass: 'finalizado' },
   cancelado: { label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300', badge: 'bg-red-500', cssClass: 'cancelado' },
 }
 
-// 4 pestañas: Pendientes agrupa peticion + confirmado; el resto una cada una
+// 4 pestañas: Pendientes (P+C), Confirmados (E), Finalizados (F), Cancelados
 const TABS_EXPEDIENTES = [
   { id: 'pendientes', label: 'Pendientes', estados: ['peticion', 'confirmado'] },
-  { id: 'en_curso', label: 'En Marcha', estados: ['en_curso'] },
+  { id: 'confirmados', label: 'Confirmados', estados: ['en_curso'] },
   { id: 'finalizado', label: 'Finalizados', estados: ['finalizado'] },
   { id: 'cancelado', label: 'Cancelados', estados: ['cancelado'] },
 ]
@@ -964,7 +965,7 @@ const Expedientes = () => {
     setShowExportModal(false)
   }
 
-  // Tab: Pendientes | En Marcha | Finalizados | Cancelados
+  // Tab: Pendientes | Confirmados | Finalizados | Cancelados
   const [tabExpedientes, setTabExpedientes] = useState('pendientes')
 
   // Filtrar expedientes por ejercicio y búsqueda (base común)
@@ -1052,7 +1053,7 @@ const Expedientes = () => {
         </div>
       </div>
 
-      {/* ==================== PESTAÑAS: 5 ESTADOS ==================== */}
+      {/* ==================== PESTAÑAS: 4 ESTADOS ==================== */}
       <div className="mb-6 border-b border-gray-200 overflow-x-auto">
         <nav className="flex gap-2 -mb-px min-w-max pb-px" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           {TABS_EXPEDIENTES.map(t => {
