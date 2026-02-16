@@ -437,11 +437,27 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       
       if (error) {
         console.error('Error cargando proveedores:', error)
+        // Fallback: intentar cargar desde storage (sesión anterior)
+        try {
+          const cached = storage.get('proveedores')
+          if (Array.isArray(cached) && cached.length > 0) {
+            setProveedores(cached)
+            return
+          }
+        } catch (_) {}
         setProveedores([])
         return
       }
       
       if (!data || !Array.isArray(data) || data.length === 0) {
+        // Fallback: usar cache de storage si la BD está vacía
+        try {
+          const cached = storage.get('proveedores')
+          if (Array.isArray(cached) && cached.length > 0) {
+            setProveedores(cached)
+            return
+          }
+        } catch (_) {}
         setProveedores([])
         return
       }
@@ -474,9 +490,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
     }
   };
   
-  // Cargar proveedores desde Supabase al montar
+  // Cargar proveedores desde Supabase al montar (imprescindible para dropdowns de Cotización)
   useEffect(() => {
-    cargarProveedores();
+    cargarProveedores()
   }, [])
 
   // Función para cargar historial de expedientes del mismo cliente
@@ -679,9 +695,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
   }, [expediente?.id]) // Solo depende del ID del expediente
 
   // ============ CARGA DE SERVICIOS (separada, depende de proveedores) ============
+  // Cargar servicios cuando hay expediente; proveedores puede estar vacío inicialmente
+  // (se cargarán en paralelo; si proveedores llega después, el mapeo se hace con lo disponible)
   useEffect(() => {
     const expedienteId = expediente?.id
-    if (!expedienteId || proveedores.length === 0) return
+    if (!expedienteId) return
 
     const cargarServicios = async () => {
       try {
