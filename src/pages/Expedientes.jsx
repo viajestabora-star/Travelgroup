@@ -131,13 +131,22 @@ const obtenerSiguienteNumeroExpediente = async (año) => {
     return `${año}-001`;
   }
 };
+// Mapeo frontend: DB usa peticion, confirmado, en_curso, finalizado, cancelado (NO cambiar en Supabase)
 const ESTADOS = {
-  peticion: { label: 'Petición', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', badge: 'bg-yellow-500', cssClass: 'peticion' },
-  confirmado: { label: 'Confirmado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500', cssClass: 'confirmado' },
-  en_curso: { label: 'En Curso', color: 'bg-indigo-100 text-indigo-800 border-indigo-300', badge: 'bg-indigo-500', cssClass: 'en_curso' },
-  finalizado: { label: 'Finalizado', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'finalizado' },
+  peticion: { label: 'Pendiente', color: 'bg-gray-100 text-gray-800 border-gray-300', badge: 'bg-gray-500', cssClass: 'peticion' },
+  confirmado: { label: 'Cotización', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'confirmado' },
+  en_curso: { label: 'En Marcha', color: 'bg-amber-100 text-amber-800 border-amber-300', badge: 'bg-amber-500', cssClass: 'en_curso' },
+  finalizado: { label: 'Finalizado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500', cssClass: 'finalizado' },
   cancelado: { label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300', badge: 'bg-red-500', cssClass: 'cancelado' },
 }
+
+const TABS_EXPEDIENTES = [
+  { id: 'peticion', label: 'Pendientes', estado: 'peticion' },
+  { id: 'confirmado', label: 'Cotizaciones', estado: 'confirmado' },
+  { id: 'en_curso', label: 'En Marcha', estado: 'en_curso' },
+  { id: 'finalizado', label: 'Finalizados', estado: 'finalizado' },
+  { id: 'cancelado', label: 'Cancelados', estado: 'cancelado' },
+]
 
 // ============================================================================
 // FUNCIONES DE FECHAS: Usar normalizador centralizado
@@ -955,8 +964,8 @@ const Expedientes = () => {
     setShowExportModal(false)
   }
 
-  // Tab: Activos vs Archivo
-  const [tabExpedientes, setTabExpedientes] = useState('activos')
+  // Tab: Pendientes | Cotizaciones | En Marcha | Finalizados | Cancelados
+  const [tabExpedientes, setTabExpedientes] = useState('peticion')
 
   // Filtrar expedientes por ejercicio y búsqueda (base común)
   const expedientesFiltradosPorEjercicioYBusqueda = expedientes.filter(exp => {
@@ -983,19 +992,13 @@ const Expedientes = () => {
     )
   })
 
-  // Expedientes Activos: Petición, Confirmado, En Curso
-  const ESTADOS_ACTIVOS = ['peticion', 'confirmado', 'en_curso']
-  const expedientesActivos = expedientesFiltradosPorEjercicioYBusqueda.filter(exp =>
-    ESTADOS_ACTIVOS.includes(exp.estado || '')
-  )
+  // Filtrar por pestaña activa (cada pestaña = un estado)
+  const expedientesPorTab = TABS_EXPEDIENTES.reduce((acc, t) => {
+    acc[t.id] = expedientesFiltradosPorEjercicioYBusqueda.filter(exp => (exp.estado || '') === t.estado)
+    return acc
+  }, {})
 
-  // Archivo / Finalizados: Finalizado y Cancelado
-  const ESTADOS_ARCHIVO = ['finalizado', 'cancelado']
-  const expedientesArchivo = expedientesFiltradosPorEjercicioYBusqueda.filter(exp =>
-    ESTADOS_ARCHIVO.includes(exp.estado || '')
-  )
-
-  const expedientesFiltradosPorEjercicio = tabExpedientes === 'activos' ? expedientesActivos : expedientesArchivo
+  const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
 
   return (
     <div>
@@ -1047,31 +1050,26 @@ const Expedientes = () => {
         </div>
       </div>
 
-      {/* ==================== PESTAÑAS: ACTIVOS / ARCHIVO ==================== */}
-      <div className="mb-6 border-b border-gray-200">
-        <nav className="flex gap-2 -mb-px overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setTabExpedientes('activos')}
-            className={`flex items-center gap-2 px-5 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
-              tabExpedientes === 'activos'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
-            }`}
-          >
-            Expedientes Activos ({expedientesActivos.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setTabExpedientes('archivo')}
-            className={`flex items-center gap-2 px-5 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
-              tabExpedientes === 'archivo'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
-            }`}
-          >
-            Archivo / Finalizados ({expedientesArchivo.length})
-          </button>
+      {/* ==================== PESTAÑAS: 5 ESTADOS ==================== */}
+      <div className="mb-6 border-b border-gray-200 overflow-x-auto">
+        <nav className="flex gap-2 -mb-px min-w-max pb-px" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          {TABS_EXPEDIENTES.map(t => {
+            const count = (expedientesPorTab[t.id] || []).length
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTabExpedientes(t.id)}
+                className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
+                  tabExpedientes === t.id
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                }`}
+              >
+                {t.label} ({count})
+              </button>
+            )
+          })}
         </nav>
       </div>
 
@@ -1082,12 +1080,12 @@ const Expedientes = () => {
             <Calendar className="text-navy-600" size={24} />
             <div>
               <p className="text-sm font-medium text-gray-700">
-                Ejercicio {ejercicioActual} · {tabExpedientes === 'activos' ? 'Activos' : 'Archivo'}
+                Ejercicio {ejercicioActual} · {(TABS_EXPEDIENTES.find(t => t.id === tabExpedientes) || {}).label || tabExpedientes}
               </p>
               <p className="text-xs text-gray-500">
                 {searchTermExpedientes 
                   ? `Buscando: "${searchTermExpedientes}" - ${expedientesFiltradosPorEjercicio.length} resultado${expedientesFiltradosPorEjercicio.length !== 1 ? 's' : ''}`
-                  : tabExpedientes === 'activos' ? 'Petición, Confirmado, En Curso' : 'Expedientes finalizados y cancelados'
+                  : `${(TABS_EXPEDIENTES.find(t => t.id === tabExpedientes) || {}).label || ''} en ${ejercicioActual}`
                 }
               </p>
             </div>
@@ -1098,13 +1096,13 @@ const Expedientes = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {(tabExpedientes === 'activos' ? ['peticion', 'confirmado', 'en_curso'] : ['finalizado', 'cancelado']).map((key) => {
-          const estado = ESTADOS[key]
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+        {TABS_EXPEDIENTES.map(t => {
+          const estado = ESTADOS[t.estado]
           if (!estado) return null
-          const count = expedientesFiltradosPorEjercicio.filter(exp => exp.estado === key).length
+          const count = (expedientesPorTab[t.id] || []).length
           return (
-            <div key={key} className={`card border-2 ${estado.color}`}>
+            <div key={t.id} className={`card border-2 ${estado.color}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium">{estado.label}</p>
@@ -1121,15 +1119,12 @@ const Expedientes = () => {
         <div className="card text-center py-12">
           <FileText className="mx-auto text-gray-400 mb-4" size={64} />
           <h3 className="text-xl font-bold text-gray-700 mb-2">
-            {tabExpedientes === 'activos' ? 'No hay expedientes activos' : 'No hay expedientes finalizados'}
+            No hay expedientes en {(TABS_EXPEDIENTES.find(t => t.id === tabExpedientes) || {}).label || 'esta pestaña'}
           </h3>
           <p className="text-gray-600 mb-6">
-            {tabExpedientes === 'activos'
-              ? (expedientes.length === 0 ? 'Crea tu primer expediente' : `No hay expedientes en Petición, Confirmado o En Curso para ${ejercicioActual}`)
-              : `No hay expedientes finalizados ni cancelados en ${ejercicioActual}`
-            }
+            {expedientes.length === 0 ? 'Crea tu primer expediente' : `No hay expedientes con estado ${(TABS_EXPEDIENTES.find(t => t.id === tabExpedientes) || {}).label || ''} en ${ejercicioActual}`}
           </p>
-          {tabExpedientes === 'activos' && (
+          {tabExpedientes === 'peticion' && (
             <button onClick={() => setShowExpedienteModal(true)} className="btn-primary inline-flex items-center gap-2">
               <Plus size={20} />
               Nuevo Expediente
@@ -1148,13 +1143,9 @@ const Expedientes = () => {
                 const fechaObjB = parsearFecha(fechaInicioB)
                 if (!fechaObjA) return 1
                 if (!fechaObjB) return -1
-                // Archivo: más recientes primero; Activos: por fecha ascendente
-                if (tabExpedientes === 'archivo') return fechaObjB - fechaObjA
-                const esFinalizadoA = a.estado === 'finalizado' || a.estado === 'cancelado'
-                const esFinalizadoB = b.estado === 'finalizado' || b.estado === 'cancelado'
-                if (esFinalizadoA && !esFinalizadoB) return 1
-                if (!esFinalizadoA && esFinalizadoB) return -1
-                return fechaObjA - fechaObjB
+                // Finalizados y Cancelados: más recientes primero; resto: por fecha ascendente
+                const esArchivo = tabExpedientes === 'finalizado' || tabExpedientes === 'cancelado'
+                return esArchivo ? fechaObjB - fechaObjA : fechaObjA - fechaObjB
               } catch (error) {
                 return 0
               }
@@ -1206,22 +1197,25 @@ const Expedientes = () => {
                         </p>
                       )}
                     </div>
-                    <div className="flex gap-2 mt-3">
-                      {Object.entries(ESTADOS).map(([key, est]) => (
-                        <button
-                          key={key}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            cambiarEstado(expediente?.id, key)
-                          }}
-                          className={`flex-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                            expediente?.estado === key ? est.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          }`}
-                          title={est.label}
-                        >
-                          {est.label.charAt(0)}
-                        </button>
-                      ))}
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {Object.entries(ESTADOS).map(([key, est]) => {
+                        const abbr = key === 'confirmado' ? 'Cot' : key === 'cancelado' ? 'Ca' : est.label.charAt(0)
+                        return (
+                          <button
+                            key={key}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              cambiarEstado(expediente?.id, key)
+                            }}
+                            className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                              expediente?.estado === key ? est.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                            title={est.label}
+                          >
+                            {abbr}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 )
