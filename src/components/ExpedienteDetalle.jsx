@@ -163,13 +163,13 @@ const finalizarCalculoModulo = (servicio, paxPago = 31, paxTotal = 35) => {
   const manual = toNum(s.total_servicio_manual);
   const tipoNorm = normalizarTipo(s?.tipo_servicio || s?.tipo || '');
   const esPorGrupo = s?.tipo_calculo === 'porGrupo' || s?.tipo_calculo === 'Total a dividir';
-  const esAutobus = tipoNorm === 'autobus';
+  const esAutobusOTransporte = tipoNorm === 'autobus' || tipoNorm === 'transporte';
 
   let totalFinal = 0;
   let costePorPersona = 0;
 
-  if (esAutobus || esPorGrupo) {
-    // Autobús o Total a dividir: total = manual (o precio×cantidad para guía), coste_pax = total / pasajeros_pago
+  if (esAutobusOTransporte || esPorGrupo) {
+    // Autobús/Transporte o Total a dividir: total = manual (o precio×cantidad para guía), coste_pax = total / pasajeros_pago
     totalFinal = manual > 0 ? manual : (tipoNorm === 'guia' || tipoNorm === 'g' ? precio * Math.max(1, toNum(s.cantidad ?? d)) : precio);
     costePorPersona = pP > 0 ? totalFinal / pP : 0;
   } else {
@@ -230,7 +230,7 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
         costePax = toNum(coste_pax);
       }
 
-      if (tipoNorm === 'autobus') costeBusPorPax += costePax;
+      if (tipoNorm === 'autobus' || tipoNorm === 'transporte') costeBusPorPax += costePax;
       else if (tipoNorm === 'guialocal' || tipoNorm === 'guia local') costeGuiaLocalPorPax += costePax;
       else if (tipoNorm === 'guia' || tipoNorm === 'g') costeGuiaPorPax += costePax;
       else if (tipoNorm === 'hotel') costeHotelPorPax += costePax;
@@ -1858,6 +1858,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       'Hotel': 'hotel',
       'Restaurante': 'restaurante',
       'Autobús': 'autobus',
+      'Transporte': 'transporte',
       'Guía': 'guia',
       'Guía Local': 'guialocal',
       'Entradas/Tickets': 'entradas',
@@ -3996,6 +3997,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   : '1px solid #e2e8f0',
                             }}
                             onFocus={(e) => {
+                              e.target.select()
                               e.target.style.borderColor = '#3b82f6'
                               e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                             }}
@@ -4414,8 +4416,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   onChange={(e) => {
                                     const nuevoTipo = e.target.value
                                     const updates = { tipo: nuevoTipo }
-                                    // Autobús: blindaje fijo — siempre Total ÷ pasajeros_pago
-                                    if (nuevoTipo === 'Autobús') {
+                                    // Autobús/Transporte: blindaje fijo — siempre Total ÷ pasajeros_pago
+                                    if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') {
                                       updates.tipo_calculo = 'porGrupo'
                                       if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
                                     }
@@ -4446,6 +4448,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                   <option>Hotel</option>
                                   <option>Restaurante</option>
                                   <option>Autobús</option>
+                                  <option>Transporte</option>
                                   <option>Guía</option>
                                   <option>Guía Local</option>
                                   <option>Entradas/Tickets</option>
@@ -4566,10 +4569,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
                                 />
                               </td>
 
-                              {/* COLUMNA 5: MODO (Autobús fijo: Total ÷ pax; resto: selector) */}
+                              {/* COLUMNA 5: MODO (Autobús/Transporte fijo: Total ÷ pax; resto: selector) */}
                               <td className="px-2 py-2 text-center">
-                                {servicio.tipo === 'Autobús' ? (
-                                  <span className="text-xs font-medium text-slate-600" title="Autobús siempre divide el total entre pasajeros de pago">
+                                {(servicio.tipo === 'Autobús' || servicio.tipo === 'Transporte') ? (
+                                  <span className="text-xs font-medium text-slate-600" title="Autobús/Transporte siempre divide el total entre pasajeros de pago">
                                     Total ÷ pax
                                   </span>
                                 ) : (
