@@ -123,6 +123,14 @@ const toNum = (v) => {
   return isNaN(n) ? 0 : n;
 };
 
+/** Compara formData de cotización con último guardado (para detectar cambios sin guardar) */
+const formDataCotizacionIgual = (a, b) => {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  const keys = ['total_pax', 'gratuidades', 'precio_venta_cliente', 'bonificacion_pax', 'sup_individual_pax', 'sup_individual_precio_dia', 'sup_seguro_pax', 'sup_seguro_precio_total'];
+  return keys.every(k => toNum(a[k]) === toNum(b[k]));
+};
+
 /**
  * ============ DEFAULT_SERVICE_VALUES - DEFENSA CONTRA UNDEFINED ============
  * Valores por defecto para cualquier tipo de servicio. Campos canónicos únicos (sin duplicados).
@@ -380,6 +388,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
   // Ref para rastrear si ya se inicializaron los servicios automáticamente
   const serviciosInicializados = useRef(false)
   const informeLiquidacionInicializadoRef = useRef(false)
+
+  // Ref para detectar cambios sin guardar en cotización (formData)
+  const lastSavedFormDataRef = useRef(null)
+  const [guardadoExitoCotizacion, setGuardadoExitoCotizacion] = useState(false)
 
   // Estado local del Cierre de Grupo (editable, NO machaca cotización)
   // costesReales: desde servicios cotización, con coste_real editable (factura proveedor)
@@ -671,6 +683,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         
         // Carga Blindada: Solo establecer formData si los datos son válidos
         setFormData(datosCargados)
+        lastSavedFormDataRef.current = { ...datosCargados }
         
         // Liberar guardado: Marcar como cargado para permitir guardados
         setDatosCargados(true)
@@ -693,6 +706,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       clearTimeout(timeoutSeguridad)
     }
   }, [expediente?.id]) // Solo depende del ID del expediente
+
+  // Detectar cambios sin guardar en cotización (formData vs último guardado)
+  const hasCotizacionSinGuardar = useMemo(() => {
+    const last = lastSavedFormDataRef.current
+    if (!last || !formData) return false
+    return !formDataCotizacionIgual(formData, last)
+  }, [formData])
 
   // ============ CARGA DE SERVICIOS (separada, depende de proveedores) ============
   // Cargar servicios cuando hay expediente; proveedores puede estar vacío inicialmente
@@ -3067,6 +3087,47 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
     }
   }
 
+  // Guardar cotización (formData) y mostrar feedback. Retorna { ok } para permitir navegación tras guardar.
+  const guardarCotizacion = async () => {
+    const resultado = await persistirCambios()
+    if (resultado.ok) {
+      lastSavedFormDataRef.current = { ...formData }
+      setGuardadoExitoCotizacion(true)
+      setTimeout(() => setGuardadoExitoCotizacion(false), 2500)
+    } else {
+      alert(`❌ Error al guardar: ${resultado.error}`)
+    }
+    return resultado
+  }
+
+  // Interceptar cambio de pestaña: aviso si hay cotización sin guardar
+  const handleTabChange = (nuevoTab) => {
+    if (tab === 'cotizacion' && hasCotizacionSinGuardar) {
+      const guardar = window.confirm('Tienes cambios sin guardar en la cotización. ¿Deseas guardarlos?')
+      if (guardar) {
+        guardarCotizacion().then((r) => { if (r?.ok) setTab(nuevoTab) })
+      } else {
+        setTab(nuevoTab)
+      }
+    } else {
+      setTab(nuevoTab)
+    }
+  }
+
+  // Interceptar cierre: aviso si hay cotización sin guardar
+  const handleClose = () => {
+    if (tab === 'cotizacion' && hasCotizacionSinGuardar) {
+      const guardar = window.confirm('Tienes cambios sin guardar en la cotización. ¿Deseas guardarlos?')
+      if (guardar) {
+        guardarCotizacion().then((r) => { if (r?.ok) onClose() })
+      } else {
+        onClose()
+      }
+    } else {
+      onClose()
+    }
+  }
+
   // ============ GUARDAR HABITACIONES ============
   
   const guardarHabitaciones = () => {
@@ -3188,7 +3249,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                 </p>
           </div>
               <button 
-                onClick={onClose} 
+                onClick={handleClose} 
                 className="text-gray-400 hover:text-gray-600 transition-colors p-2 hover:bg-gray-100 rounded-full"
               >
             <X size={24} />
@@ -3204,7 +3265,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                 return (
               <button
                 key={t.id}
-                onClick={() => setTab(t.id)}
+                onClick={() => handleTabChange(t.id)}
                     className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
                   tab === t.id
                         ? 'border-blue-600 text-blue-600'
@@ -3939,7 +4000,25 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
 
             {/* TAB: Cotización */}
           {tab === 'cotizacion' && formData && (
-              <div className="max-w-6xl mx-auto space-y-6">
+              <div className="max-w-6xl mx-auto space-y-6 relative">
+                {/* Botón Guardar Cotización + feedback éxito */}
+                {hasCotizacionSinGuardar && (
+                  <div className="sticky top-0 z-10 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 bg-amber-50/95 backdrop-blur border-b border-amber-200 flex items-center justify-between gap-4">
+                    <span className="text-sm text-amber-800">Cambios sin guardar</span>
+                    <button
+                      onClick={guardarCotizacion}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition-colors"
+                    >
+                      <Save size={18} />
+                      Guardar Cotización
+                    </button>
+                  </div>
+                )}
+                {guardadoExitoCotizacion && (
+                  <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg shadow-lg animate-pulse">
+                    ✓ Guardado con éxito
+                  </div>
+                )}
                 
                 {/* Parámetros Principales */}
                 <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
