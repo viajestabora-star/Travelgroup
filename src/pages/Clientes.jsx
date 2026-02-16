@@ -780,7 +780,7 @@ const Clientes = () => {
                                 </div>
                               </td>
                               <td className="px-6 py-4">
-                                <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${
+                                <span className={`inline-block px-3 py-1.5 rounded-full text-sm font-bold ${
                                   exp.estado === 'cerrado' ? 'bg-green-100 text-green-800' :
                                   exp.estado === 'confirmado' ? 'bg-blue-100 text-blue-800' :
                                   exp.estado === 'peticion' ? 'bg-yellow-100 text-yellow-800' :

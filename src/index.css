@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   ACCESIBILIDAD: Tipografía para vista cansada (Germán, Marisa)
+   - Tablas: 16px en celdas de datos
+   - Formularios: 16px en inputs, selects, textareas
+   - Badges: texto más grande y legible
+   - Contraste: evitar grises claros sobre blanco
+   ============================================================================ */
+
 @layer base {
   body {
     @apply bg-gray-50 text-gray-900;
@@ -20,9 +28,59 @@
   .card {
     @apply bg-white rounded-xl shadow-md p-6 border border-gray-200;
   }
+
+  /* Cards de expedientes: texto de datos 16px para legibilidad */
+  .card .text-sm {
+    font-size: 16px;
+  }
   
   .input-field {
-    @apply w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent outline-none;
+    @apply w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent outline-none text-base;
+  }
+
+  /* Formularios: 16px en inputs, selects, textareas para legibilidad (prioridad sobre utilidades) */
+  input[type="text"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="number"],
+  input[type="date"],
+  input[type="search"],
+  input[type="password"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Tablas de datos: 16px en celdas (encabezados mantienen su tamaño) */
+  table tbody td {
+    font-size: 16px;
+  }
+  /* Sobrescribe text-xs dentro de celdas para legibilidad */
+  table tbody td [class*="text-xs"],
+  table tbody td [class*="text-\[10px\]"] {
+    font-size: 16px;
+  }
+
+  /* Badges de estado: texto más grande y legible */
+  .badge-estado {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 0.35rem 0.65rem;
+  }
+
+  /* Contraste: texto de datos mínimo gray-600 sobre blanco */
+  .text-data {
+    @apply text-gray-700;
+  }
+
+  /* Mejorar contraste en tablas: evitar grises claros (400) sobre blanco */
+  table tbody td .text-slate-400,
+  table tbody td .text-gray-400 {
+    color: #475569; /* slate-600 */
+  }
+  table tbody td .text-slate-500,
+  table tbody td .text-gray-500 {
+    color: #334155; /* slate-700 */
   }
 
   /* Ocultar spinners en inputs numéricos (evita cambios accidentales por clic en flechas) */

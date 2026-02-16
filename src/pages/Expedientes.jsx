@@ -1170,7 +1170,7 @@ const Expedientes = () => {
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${estado.color}`}>
+                          <span className={`px-2.5 py-1 rounded-full text-sm font-semibold ${estado.color}`}>
                             {estado.label}
                           </span>
                         </div>
@@ -1210,7 +1210,7 @@ const Expedientes = () => {
                               e.stopPropagation()
                               cambiarEstado(expediente?.id, key)
                             }}
-                            className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                            className={`px-2.5 py-1 rounded text-sm font-semibold transition-colors ${
                               expediente?.estado === key ? est.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                             }`}
                             title={est.label}

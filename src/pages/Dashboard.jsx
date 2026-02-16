@@ -499,7 +499,7 @@ const Dashboard = () => {
                           {release.clienteNombre} {release.destino ? `· ${release.destino}` : ''}
                         </p>
                       </div>
-                      <div className={`px-3 py-1 rounded-full text-xs font-bold ${badgeColor} whitespace-nowrap ml-3`}>
+                      <div className={`px-3 py-1.5 rounded-full text-sm font-bold ${badgeColor} whitespace-nowrap ml-3`}>
                         {diasTexto}
                       </div>
                     </div>

@@ -339,7 +339,7 @@ const Planning = () => {
         <div className="flex justify-between items-start mb-3">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-2">
-              <span className={`px-2 py-1 rounded-full text-xs font-medium ${estado.color}`}>
+              <span className={`px-2.5 py-1 rounded-full text-sm font-semibold ${estado.color}`}>
                 {estado.label}
               </span>
             </div>
