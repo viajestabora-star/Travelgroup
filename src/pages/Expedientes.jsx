@@ -131,13 +131,12 @@ const obtenerSiguienteNumeroExpediente = async (año) => {
     return `${año}-001`;
   }
 };
-// SOLO 4 ESTADOS: Petición, Confirmado, Finalizado, Cancelado (Cotización/COT PROHIBIDO)
-// DB puede tener confirmado: se muestra como Petición para compatibilidad
+// Mapa de colores corporativo: Petición=Amarillo, Finalizado=Azul, Confirmado=Verde, Cancelado=Rojo
 const ESTADOS = {
-  peticion: { label: 'Petición', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'peticion' },
-  confirmado: { label: 'Petición', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'peticion' },
+  peticion: { label: 'Petición', color: 'bg-yellow-100 text-yellow-900 border-yellow-400', badge: 'bg-yellow-500', cssClass: 'peticion' },
+  confirmado: { label: 'Petición', color: 'bg-yellow-100 text-yellow-900 border-yellow-400', badge: 'bg-yellow-500', cssClass: 'peticion' },
   en_curso: { label: 'Confirmado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500', cssClass: 'en_curso' },
-  finalizado: { label: 'Finalizado', color: 'bg-gray-700 text-gray-100 border-gray-600', badge: 'bg-gray-700', cssClass: 'finalizado' },
+  finalizado: { label: 'Finalizado', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'finalizado' },
   cancelado: { label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300', badge: 'bg-red-500', cssClass: 'cancelado' },
 }
 
@@ -1187,19 +1186,21 @@ const Expedientes = () => {
                         </p>
                     </div>
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation()
                           handleDeleteExpediente(expediente?.id)
                         }}
                         className="text-red-600 hover:text-red-900 p-2"
+                        style={{ cursor: 'pointer' }}
                         title="Eliminar expediente"
                       >
                         <Trash2 size={18} />
                       </button>
                     </div>
-                    <div className="space-y-2 text-sm mb-4">
+                    <div className="space-y-2 mb-4">
                       {fechaInicio && (
-                        <p className="text-gray-700">
+                        <p className="text-gray-700" style={{ fontSize: '16px' }}>
                           📅 {formatearFecha(fechaInicio)}
                           {fechaFin && ` - ${formatearFecha(fechaFin)}`}
                         </p>
@@ -1213,14 +1214,15 @@ const Expedientes = () => {
                         return (
                           <button
                             key={key}
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation()
                               cambiarEstado(expediente?.id, key)
                             }}
-                            className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                            className={`px-4 py-2 rounded-lg font-semibold transition-colors cursor-pointer ${
                               esActivo ? est.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                             }`}
-                            style={{ fontSize: '16px' }}
+                            style={{ fontSize: '16px', cursor: 'pointer' }}
                             title={est.label}
                           >
                             {abbr}
