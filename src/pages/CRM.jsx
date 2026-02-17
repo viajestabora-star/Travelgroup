@@ -2,9 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabase'
 import { X, Phone, Navigation } from 'lucide-react'
 
-// Nombres de prueba a eliminar (ajustar según datos a conservar)
-const NOMBRES_PRUEBA_ELIMINAR = ['Rocafort', 'Alzira', 'Llombai']
-
 const CRM = () => {
   // Estados principales
   const [activeTab, setActiveTab] = useState('calendario') // calendario | proximas | historial | estadisticas
@@ -71,7 +68,6 @@ const CRM = () => {
       if (!clientesRes.error) setClientes(clientesRes.data || [])
       if (!visitasRes.error) setVisitas(visitasRes.data || [])
     } catch (err) {
-      console.error('Error cargando datos:', err)
     } finally {
       setLoading(false)
     }
@@ -111,31 +107,6 @@ const CRM = () => {
     })
     return items.sort((a, b) => a.nombre.localeCompare(b.nombre))
   }, [clientes, prospectos])
-
-  const limpiarDatosPrueba = async () => {
-    if (!window.confirm('¿Estás seguro de que deseas limpiar los datos de prueba? Esta acción es irreversible.')) return
-    try {
-      const { data } = await supabase.from('prospectos').select('id, grupo')
-      const aBorrar = (data || []).filter(p =>
-        NOMBRES_PRUEBA_ELIMINAR.some(
-          n => String(p.grupo || '').trim().toLowerCase() === n.trim().toLowerCase()
-        )
-      )
-      if (aBorrar.length === 0) {
-        alert('No hay prospectos de prueba que borrar.')
-        return
-      }
-      for (const p of aBorrar) {
-        await supabase.from('visitas').delete().eq('prospecto_id', p.id)
-        await supabase.from('prospectos').delete().eq('id', p.id)
-      }
-      await fetchData()
-      alert(`✅ ${aBorrar.length} prospecto(s) de prueba eliminados.`)
-    } catch (err) {
-      console.error('Error limpiando datos de prueba:', err)
-      alert('Error al limpiar datos de prueba.')
-    }
-  }
 
   // Filtrar prospectos según pestaña activa
   const hoyStr = new Date().toISOString().split('T')[0]
@@ -192,7 +163,6 @@ const CRM = () => {
       await fetchData()
       alert('Prospecto registrado con éxito')
     } catch (err) {
-      console.error('Error guardando prospecto:', err)
       alert('Error al guardar prospecto.')
     }
   }
@@ -576,12 +546,6 @@ const CRM = () => {
             style={{ fontSize: '16px' }}
           >
             <span>➕</span> Registrar Visita
-          </button>
-          <button
-            onClick={limpiarDatosPrueba}
-            className="px-3 py-2 rounded-xl text-[10px] font-bold bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600 border border-slate-200"
-          >
-            Limpiar pruebas
           </button>
         </div>
 
