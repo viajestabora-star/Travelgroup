@@ -15,7 +15,7 @@ const Proveedores = () => {
   
   const [formData, setFormData] = useState({
     nombre_comercial: '', servicio: 'hotel', ciudad: '', codigo_postal: '', cif: '', persona_contacto: '',
-    telefono_fijo: '', telefono_movil: '', email: '', direccion: '', 
+    telefono_fijo: '', telefono_movil: '', email: '', email_2: '', direccion: '', 
     poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '',
     es_mayorista: false, observaciones: ''
   })
@@ -91,6 +91,7 @@ const Proveedores = () => {
       telefono_fijo: sanitizarTexto(formData.telefono_fijo),
       telefono_movil: sanitizarTexto(formData.telefono_movil),
       email: sanitizarTexto(formData.email),
+      email_2: sanitizarTexto(formData.email_2),
       direccion: sanitizarTexto(formData.direccion),
       poblacion: sanitizarTexto(formData.poblacion),
       provincia: sanitizarTexto(formData.provincia),
@@ -133,6 +134,7 @@ const Proveedores = () => {
         telefono_fijo: p.telefono_fijo || '',
         telefono_movil: p.telefono_movil || p.movil || '',
         email: p.email || '',
+        email_2: p.email_2 || '',
         direccion: p.direccion || '',
         poblacion: p.poblacion || '',
         provincia: p.provincia || '',
@@ -146,7 +148,7 @@ const Proveedores = () => {
       setEditingId(null)
       setFormData({
         nombre_comercial: '', servicio: 'hotel', ciudad: '', codigo_postal: '', cif: '', persona_contacto: '',
-        telefono_fijo: '', telefono_movil: '', email: '', direccion: '', 
+        telefono_fijo: '', telefono_movil: '', email: '', email_2: '', direccion: '', 
         poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '',
         es_mayorista: false, observaciones: ''
       })
@@ -401,8 +403,19 @@ const Proveedores = () => {
                   type="email" 
                   className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none text-base" 
                   style={{ fontSize: '16px' }}
-                  value={formData.email} 
+                  value={formData.email || ''} 
                   onChange={e=>setFormData({...formData, email:e.target.value})} 
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-base font-black text-slate-600 uppercase">Email 2 (Contabilidad)</label>
+                <input 
+                  type="email" 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none text-base" 
+                  style={{ fontSize: '16px' }}
+                  value={formData.email_2 || ''} 
+                  onChange={e=>setFormData({...formData, email_2:e.target.value})} 
+                  placeholder="Ej: contabilidad@proveedor.com"
                 />
               </div>
 
