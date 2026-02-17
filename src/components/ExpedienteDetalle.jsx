@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown } from 'lucide-react'
+import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown, CheckCircle } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { createClient } from '@supabase/supabase-js'
@@ -152,6 +152,7 @@ const DEFAULT_SERVICE_VALUES = {
   dias_guia: 1,
   cantidad: 1,
   fechaRelease: '',
+  releasePagado: false,
 };
 
 /**
@@ -787,6 +788,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
               dias_guia: toNum(row.dias_guia) || Math.max(1, toNum(row.noches)),
               cantidad: Math.max(1, toNum(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)),
               fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
+              releasePagado: !!row.release_pagado,
               mayorista_id: (row.mayorista_id != null && row.mayorista_id !== '') ? (typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-') ? row.mayorista_id : String(row.mayorista_id)) : null,
             }
           })
@@ -2212,6 +2214,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         dias_guia: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : nochesFinal,
         cantidad: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : Math.max(1, toNum(servicio?.noches ?? 1)),
         fecha_release: servicio?.fechaRelease || null,
+        release_pagado: !!servicio?.releasePagado,
         tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
         proveedor_id_int: proveedorIdLimpio,
         nombre_proveedor_manual: servicio?.proveedorNombreTemporal || null,
@@ -2331,6 +2334,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       }
     } catch (e) {
       console.error('❌ Error inesperado guardando fecha_release:', e)
+    }
+  }
+
+  const marcarReleaseComoPagadoServicio = async (servicioId) => {
+    if (!servicioId) return
+    if (!window.confirm('¿Estás seguro de marcar este release como pagado?')) return
+    try {
+      const { error } = await supabase
+        .from('servicios_cotizacion')
+        .update({ release_pagado: true })
+        .eq('id', servicioId)
+      if (error) {
+        console.error('❌ Error marcando release como pagado:', error)
+        alert('No se pudo marcar como pagado. Inténtalo de nuevo.')
+        return
+      }
+      actualizarServicio(servicioId, 'releasePagado', true)
+    } catch (e) {
+      console.error('❌ Error inesperado marcando release como pagado:', e)
+      alert('No se pudo marcar como pagado.')
     }
   }
 
@@ -4864,37 +4887,56 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                 </span>
                               </td>
                               
-                              {/* COLUMNA 7: RELEASE (Fecha de liberación) */}
+                              {/* COLUMNA 7: RELEASE (Fecha de liberación) + Marcar como Pagado */}
                               <td className="px-2 py-2 text-center">
-                                <input
-                                  type="date"
-                                  value={servicio.fechaRelease || ''}
-                                  onChange={(e) => {
-                                    const fechaValue = e.target.value || ''
-                                    actualizarServicio(servicio.id, 'fechaRelease', fechaValue)
-                                  }}
-                                  onFocus={(e) => {
-                                    e.target.style.borderColor = '#3b82f6'
-                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                  }}
-                                  onBlur={(e) => {
-                                    e.target.style.borderColor = '#e2e8f0'
-                                    e.target.style.boxShadow = 'none'
-                                    const fechaValue = e.target.value || ''
-                                    // Persistir cambio de release en Supabase
-                                    guardarFechaReleaseServicio(servicio.id, fechaValue)
-                                  }}
-                                  className="input-field text-xs text-center transition-all"
-                                  style={{ 
-                                    backgroundColor: '#f8fafc', 
-                                    color: '#0f172a', 
-                                    borderRadius: '12px', 
-                                    border: '1px solid #e2e8f0',
-                                    padding: '6px 8px',
-                                    width: '100%',
-                                    maxWidth: '140px'
-                                  }}
-                                />
+                                <div className="flex flex-col items-center gap-1">
+                                  <input
+                                    type="date"
+                                    value={servicio.fechaRelease || ''}
+                                    onChange={(e) => {
+                                      const fechaValue = e.target.value || ''
+                                      actualizarServicio(servicio.id, 'fechaRelease', fechaValue)
+                                    }}
+                                    onFocus={(e) => {
+                                      e.target.style.borderColor = '#3b82f6'
+                                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                    }}
+                                    onBlur={(e) => {
+                                      e.target.style.borderColor = '#e2e8f0'
+                                      e.target.style.boxShadow = 'none'
+                                      const fechaValue = e.target.value || ''
+                                      guardarFechaReleaseServicio(servicio.id, fechaValue)
+                                    }}
+                                    className="input-field text-center transition-all"
+                                    style={{ 
+                                      backgroundColor: '#f8fafc', 
+                                      color: '#0f172a', 
+                                      borderRadius: '12px', 
+                                      border: '1px solid #e2e8f0',
+                                      padding: '6px 8px',
+                                      width: '100%',
+                                      maxWidth: '140px',
+                                      fontSize: '16px'
+                                    }}
+                                  />
+                                  {!servicio.releasePagado && servicio.fechaRelease && (
+                                    <button
+                                      type="button"
+                                      onClick={() => marcarReleaseComoPagadoServicio(servicio.id)}
+                                      className="flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-semibold"
+                                      style={{ fontSize: '14px' }}
+                                      title="Marcar como pagado"
+                                    >
+                                      <CheckCircle size={12} />
+                                      Pagado
+                                    </button>
+                                  )}
+                                  {servicio.releasePagado && (
+                                    <span className="text-green-600 text-xs font-semibold flex items-center gap-1" style={{ fontSize: '14px' }}>
+                                      <CheckCircle size={12} /> Pagado
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               
                               {/* COLUMNA 8: ACCIONES */}
@@ -5027,7 +5069,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                             <span className="text-gray-900 text-sm font-semibold">{calcularTotalFilaUI(servicio).toFixed(2)}€</span>
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Release</span>
-                            <input type="date" value={servicio.fechaRelease || ''} onChange={(e) => { actualizarServicio(servicio.id, 'fechaRelease', e.target.value || ''); }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; guardarFechaReleaseServicio(servicio.id, e.target.value || ''); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '6px 8px' }} />
+                            <input type="date" value={servicio.fechaRelease || ''} onChange={(e) => { actualizarServicio(servicio.id, 'fechaRelease', e.target.value || ''); }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; guardarFechaReleaseServicio(servicio.id, e.target.value || ''); }} className="input-field w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '6px 8px', fontSize: '16px' }} />
+                            {!servicio.releasePagado && servicio.fechaRelease && (
+                              <button type="button" onClick={() => marcarReleaseComoPagadoServicio(servicio.id)} className="mt-2 flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-semibold w-full justify-center" style={{ fontSize: '14px' }}>
+                                <CheckCircle size={14} /> Marcar como Pagado
+                              </button>
+                            )}
+                            {servicio.releasePagado && (
+                              <span className="mt-2 text-green-600 font-semibold flex items-center gap-1" style={{ fontSize: '14px' }}><CheckCircle size={14} /> Pagado</span>
+                            )}
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Vínculo con Mayorista</span>
                             <select value={servicio.mayorista_id != null && servicio.mayorista_id !== '' ? String(servicio.mayorista_id) : ''} onChange={(e) => { const val = e.target.value; actualizarServicio(servicio.id, 'mayorista_id', val === '' ? null : val); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>

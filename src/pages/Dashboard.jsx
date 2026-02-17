@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Users, Calculator, Calendar, TrendingUp, Briefcase, FileText, AlertTriangle, Clock } from 'lucide-react'
+import { Users, Calculator, Calendar, TrendingUp, Briefcase, FileText, AlertTriangle, Clock, CheckCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import { createClient } from '@supabase/supabase-js'
@@ -136,16 +136,14 @@ const Dashboard = () => {
   }
 
   // ============ CARGAR PRÓXIMOS RELEASES ============
-  // Consulta servicios_cotizacion con fecha_release >= hoy
+  // Persistencia: release aparece SIEMPRE que release_pagado = FALSE (no importa si la fecha ya pasó)
   const cargarProximosReleases = async () => {
     try {
-      const hoy = new Date().toISOString().split('T')[0] // YYYY-MM-DD
-      
-      // Cargar servicios con fecha_release >= hoy
+      // Filtrar por release_pagado = false (incluye null para registros antiguos)
       const { data: serviciosData, error: serviciosError } = await supabase
         .from('servicios_cotizacion')
-        .select('id, fecha_release, tipo_servicio, nombre_especifico, id_expediente')
-        .gte('fecha_release', hoy)
+        .select('id, fecha_release, tipo_servicio, nombre_especifico, id_expediente, release_pagado')
+        .or('release_pagado.is.null,release_pagado.eq.false')
         .not('fecha_release', 'is', null)
         .order('fecha_release', { ascending: true })
         .limit(50)
@@ -261,6 +259,27 @@ const Dashboard = () => {
 
     cargarDatos()
   }, [ejercicioActual]) // Recargar cuando cambie el ejercicio
+
+  const marcarReleaseComoPagado = async (releaseId, e) => {
+    e?.stopPropagation?.()
+    if (!window.confirm('¿Estás seguro de marcar este release como pagado?')) return
+    try {
+      const { error } = await supabase
+        .from('servicios_cotizacion')
+        .update({ release_pagado: true })
+        .eq('id', releaseId)
+      if (error) {
+        console.error('Error marcando release como pagado:', error)
+        alert('No se pudo marcar como pagado. Inténtalo de nuevo.')
+        return
+      }
+      const releases = await cargarProximosReleases()
+      setProximosReleases(releases)
+    } catch (err) {
+      console.error('Error marcando release como pagado:', err)
+      alert('No se pudo marcar como pagado.')
+    }
+  }
 
   const calcularAlertasRelease = (expedientes) => {
     const hoy = new Date()
@@ -442,70 +461,74 @@ const Dashboard = () => {
           ) : (
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {proximosReleases.map((release) => {
-                // Determinar color según días restantes
-                let colorClass = 'bg-green-50 border-green-300 text-green-900'
-                let iconColor = 'text-green-600'
-                let badgeColor = 'bg-green-100 text-green-800'
-                
-                if (release.diasRestantes < 3) {
+                // Pendientes: naranja llamativo; vencidos: rojo
+                const diasRestantes = release.diasRestantes ?? 0
+                let colorClass = 'bg-orange-50 border-orange-300 text-orange-900'
+                let iconColor = 'text-orange-600'
+                let badgeColor = 'bg-orange-100 text-orange-800'
+                if (diasRestantes < 0) {
                   colorClass = 'bg-red-50 border-red-300 text-red-900'
                   iconColor = 'text-red-600'
                   badgeColor = 'bg-red-100 text-red-800'
-                } else if (release.diasRestantes < 7) {
+                } else if (diasRestantes < 3) {
+                  colorClass = 'bg-red-50 border-red-300 text-red-900'
+                  iconColor = 'text-red-600'
+                  badgeColor = 'bg-red-100 text-red-800'
+                } else if (diasRestantes < 7) {
                   colorClass = 'bg-orange-50 border-orange-300 text-orange-900'
                   iconColor = 'text-orange-600'
                   badgeColor = 'bg-orange-100 text-orange-800'
                 }
-                
-                // Formatear días restantes
                 let diasTexto = ''
-                if (release.diasRestantes === 0) {
-                  diasTexto = '¡HOY!'
-                } else if (release.diasRestantes === 1) {
-                  diasTexto = 'Mañana'
-                } else {
-                  diasTexto = `${release.diasRestantes} días`
-                }
-                
-                // Formatear fecha
+                if (diasRestantes === 0) diasTexto = '¡HOY!'
+                else if (diasRestantes === 1) diasTexto = 'Mañana'
+                else if (diasRestantes < 0) diasTexto = `Hace ${Math.abs(diasRestantes)} días`
+                else diasTexto = `${diasRestantes} días`
                 const fechaFormateada = new Date(release.fechaRelease).toLocaleDateString('es-ES', {
                   day: '2-digit',
                   month: 'short',
                   year: 'numeric'
                 })
-                
                 return (
                   <div
                     key={release.id}
-                    onClick={() => {
-                      // Navegar a expedientes con el UUID del expediente para abrir el detalle
-                      navigate('/expedientes', { state: { abrirExpedienteId: release.expedienteId } })
-                    }}
+                    onClick={() => navigate('/expedientes', { state: { abrirExpedienteId: release.expedienteId } })}
                     className={`p-4 rounded-lg border-2 ${colorClass} cursor-pointer hover:shadow-md transition-all`}
-                    style={{ cursor: 'pointer' }}
+                    style={{ cursor: 'pointer', fontSize: '16px' }}
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-bold text-base">{release.tipoServicio}</h3>
+                          <h3 className="font-bold" style={{ fontSize: '16px' }}>{release.tipoServicio}</h3>
                           {release.nombreEspecifico && (
-                            <span className="text-xs opacity-75">- {release.nombreEspecifico}</span>
+                            <span className="opacity-75" style={{ fontSize: '14px' }}>- {release.nombreEspecifico}</span>
                           )}
                         </div>
-                        <p className="text-sm font-medium mb-1">
+                        <p className="font-medium mb-1" style={{ fontSize: '16px' }}>
                           Expediente: <span className="font-bold">{release.numeroExpediente}</span>
                         </p>
-                        <p className="text-xs opacity-80">
+                        <p className="opacity-80" style={{ fontSize: '14px' }}>
                           {release.clienteNombre} {release.destino ? `· ${release.destino}` : ''}
                         </p>
                       </div>
-                      <div className={`px-3 py-1.5 rounded-full text-sm font-bold ${badgeColor} whitespace-nowrap ml-3`}>
+                      <div className={`px-3 py-1.5 rounded-full font-bold ${badgeColor} whitespace-nowrap ml-3`} style={{ fontSize: '14px' }}>
                         {diasTexto}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-current border-opacity-20">
-                      <Clock size={14} className={iconColor} />
-                      <span className="text-xs font-medium">{fechaFormateada}</span>
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-current border-opacity-20">
+                      <div className="flex items-center gap-2">
+                        <Clock size={14} className={iconColor} />
+                        <span className="font-medium" style={{ fontSize: '16px' }}>{fechaFormateada}</span>
+                      </div>
+                      <button
+                        onClick={(e) => marcarReleaseComoPagado(release.id, e)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors"
+                        style={{ fontSize: '14px' }}
+                        title="Marcar como pagado"
+                      >
+                        <CheckCircle size={16} />
+                        Pagado
+                      </button>
                     </div>
                   </div>
                 )
