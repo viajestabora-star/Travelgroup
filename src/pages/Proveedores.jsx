@@ -15,7 +15,7 @@ const Proveedores = () => {
   
   const [formData, setFormData] = useState({
     nombre_comercial: '', servicio: 'hotel', ciudad: '', codigo_postal: '', cif: '', persona_contacto: '',
-    telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
+    telefono_fijo: '', telefono_movil: '', email: '', direccion: '', 
     poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '',
     es_mayorista: false, observaciones: ''
   })
@@ -80,7 +80,7 @@ const Proveedores = () => {
       ? servicioNormalizado
       : 'hotel'
 
-    // IMPORTANTE: Todos los campos de texto como string para evitar uuid vs bigint
+    // IMPORTANTE: Columnas exactas de Supabase (telefono_fijo, telefono_movil, codigo_postal)
     const datosParaGuardar = {
       nombre_comercial: sanitizarTexto(formData.nombre_comercial),
       tipo: servicioValido,
@@ -89,9 +89,8 @@ const Proveedores = () => {
       cif: sanitizarTexto(formData.cif),
       persona_contacto: sanitizarTexto(formData.persona_contacto),
       telefono_fijo: sanitizarTexto(formData.telefono_fijo),
-      telefono: sanitizarTexto(formData.telefono),
+      telefono_movil: sanitizarTexto(formData.telefono_movil),
       email: sanitizarTexto(formData.email),
-      movil: sanitizarTexto(formData.movil),
       direccion: sanitizarTexto(formData.direccion),
       poblacion: sanitizarTexto(formData.poblacion),
       provincia: sanitizarTexto(formData.provincia),
@@ -121,21 +120,33 @@ const Proveedores = () => {
   const openModal = (p = null) => {
     if (p) {
       setEditingId(p.id)
-      // Mapear 'tipo' de la BD a 'servicio' del formulario, normalizando
       const tipoBD = p.tipo || p.servicio || 'hotel'
       const tipoNormalizado = normalizarTipoServicio(tipoBD)
-      setFormData({ 
-        ...p,
-        servicio: tipoNormalizado, // Usar 'servicio' en el formulario
+      // Mapeo explícito desde columnas de Supabase para que los datos se muestren correctamente
+      setFormData({
+        nombre_comercial: p.nombre_comercial || '',
+        servicio: tipoNormalizado,
         ciudad: p.ciudad || '',
         codigo_postal: p.codigo_postal || '',
-        es_mayorista: !!p.es_mayorista
+        cif: p.cif || '',
+        persona_contacto: p.persona_contacto || '',
+        telefono_fijo: p.telefono_fijo || '',
+        telefono_movil: p.telefono_movil || p.movil || '',
+        email: p.email || '',
+        direccion: p.direccion || '',
+        poblacion: p.poblacion || '',
+        provincia: p.provincia || '',
+        iban: p.iban || '',
+        entidad_bancaria: p.entidad_bancaria || '',
+        swift_bic: p.swift_bic || '',
+        es_mayorista: !!p.es_mayorista,
+        observaciones: p.observaciones || ''
       })
     } else {
       setEditingId(null)
       setFormData({
         nombre_comercial: '', servicio: 'hotel', ciudad: '', codigo_postal: '', cif: '', persona_contacto: '',
-        telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
+        telefono_fijo: '', telefono_movil: '', email: '', direccion: '', 
         poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '',
         es_mayorista: false, observaciones: ''
       })
@@ -273,7 +284,7 @@ const Proveedores = () => {
                         </td>
                         <td className="px-6 py-6">
                           <div className="text-xs font-bold text-slate-600 flex items-center gap-2">
-                            <Phone size={14}/> {p.telefono_fijo || p.telefono || p.movil || '-'}
+                            <Phone size={14}/> {p.telefono_fijo || p.telefono_movil || p.telefono || p.movil || '-'}
                           </div>
                           <div className="text-[10px] font-bold text-slate-400 flex items-center gap-2 mt-1">
                             <Mail size={14}/> {p.email || '-'}
@@ -379,8 +390,8 @@ const Proveedores = () => {
                   type="tel"
                   className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none text-base" 
                   style={{ fontSize: '16px' }}
-                  value={formData.movil} 
-                  onChange={e=>setFormData({...formData, movil:e.target.value})} 
+                  value={formData.telefono_movil || ''} 
+                  onChange={e=>setFormData({...formData, telefono_movil:e.target.value})} 
                   placeholder="Ej: 612 345 678"
                 />
               </div>
