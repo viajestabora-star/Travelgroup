@@ -1056,8 +1056,16 @@ const Expedientes = () => {
           const primerEstado = (t.estados || [])[0]
           const estado = ESTADOS[primerEstado] || ESTADOS.peticion
           const count = (expedientesPorTab[t.id] || []).length
+          const isActive = tabExpedientes === t.id
           return (
-            <div key={t.id} className={`card border-2 ${estado.color}`}>
+            <div
+              key={t.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setTabExpedientes(t.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTabExpedientes(t.id); } }}
+              className={`card border-2 cursor-pointer transition-all hover:shadow-lg ${estado.color} ${isActive ? 'ring-2 ring-navy-500 ring-offset-2 shadow-lg' : ''}`}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium">{t.label}</p>
