@@ -36,6 +36,23 @@ const CRM = () => {
   // Visitas del prospecto seleccionado
   const [visitasProspecto, setVisitasProspecto] = useState([])
 
+  // Modal Registrar Visita - Nuevo Prospecto (mapeo exacto CSV)
+  const [showVisitaModal, setShowVisitaModal] = useState(false)
+  const [formProspecto, setFormProspecto] = useState({
+    grupo: '',
+    cif: '',
+    contacto_persona: '',
+    telefono: '',
+    poblacion: '',
+    provincia: '',
+    direccion: '',
+    interes: '',
+    nivel_interes: '',
+    proxima_visita: '',
+    status: '',
+    notas_comerciales: ''
+  })
+
   // Cargar datos iniciales
   useEffect(() => {
     fetchData()
@@ -96,7 +113,7 @@ const CRM = () => {
   }, [clientes, prospectos])
 
   const limpiarDatosPrueba = async () => {
-    if (!window.confirm(`¿Borrar prospectos de prueba (${NOMBRES_PRUEBA_ELIMINAR.join(', ')})?`)) return
+    if (!window.confirm('¿Estás seguro de que deseas limpiar los datos de prueba? Esta acción es irreversible.')) return
     try {
       const { data } = await supabase.from('prospectos').select('id, grupo')
       const aBorrar = (data || []).filter(p =>
@@ -145,6 +162,45 @@ const CRM = () => {
     }
     return []
   }, [prospectos, activeTab, hoyStr])
+
+  const guardarProspectoDesdeModal = async () => {
+    try {
+      const { error } = await supabase
+        .from('prospectos')
+        .insert({
+          grupo: formProspecto.grupo || null,
+          cif: formProspecto.cif || null,
+          contacto_persona: formProspecto.contacto_persona || null,
+          telefono: formProspecto.telefono || null,
+          poblacion: formProspecto.poblacion || null,
+          provincia: formProspecto.provincia || null,
+          direccion: formProspecto.direccion || null,
+          interes: formProspecto.interes || null,
+          nivel_interes: formProspecto.nivel_interes || null,
+          proxima_visita: formProspecto.proxima_visita || null,
+          status: formProspecto.status || null,
+          notas_comerciales: formProspecto.notas_comerciales || null,
+          es_cliente: false,
+          estado_comercial: 'POTENCIAL'
+        })
+      if (error) {
+        alert('Error al registrar prospecto: ' + error.message)
+        return
+      }
+      setShowVisitaModal(false)
+      setFormProspecto(resetFormProspecto())
+      await fetchData()
+      alert('Prospecto registrado con éxito')
+    } catch (err) {
+      console.error('Error guardando prospecto:', err)
+      alert('Error al guardar prospecto.')
+    }
+  }
+
+  const resetFormProspecto = () => ({
+    grupo: '', cif: '', contacto_persona: '', telefono: '', poblacion: '', provincia: '', direccion: '',
+    interes: '', nivel_interes: '', proxima_visita: '', status: '', notas_comerciales: ''
+  })
 
   // Abrir ficha del prospecto
   const abrirFicha = async (prospecto) => {
@@ -511,6 +567,16 @@ const CRM = () => {
               </button>
             ))}
           </div>
+          <button
+            onClick={() => {
+              setFormProspecto(resetFormProspecto())
+              setShowVisitaModal(true)
+            }}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 hover:bg-orange-600 text-white shadow-md flex items-center gap-2 transition-all"
+            style={{ fontSize: '16px' }}
+          >
+            <span>➕</span> Registrar Visita
+          </button>
           <button
             onClick={limpiarDatosPrueba}
             className="px-3 py-2 rounded-xl text-[10px] font-bold bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600 border border-slate-200"
@@ -1026,6 +1092,98 @@ const CRM = () => {
               >
                 Guardar Visita
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL REGISTRAR VISITA - Formulario completo CSV */}
+      {showVisitaModal && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowVisitaModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto mx-4" onClick={e => e.stopPropagation()} style={{ fontSize: '16px' }}>
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
+              <h3 className="text-xl font-bold text-slate-900" style={{ fontSize: '16px' }}>Registrar Prospecto / Visita</h3>
+              <button onClick={() => setShowVisitaModal(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* COLUMNA IZQUIERDA - Identificación */}
+                <div className="space-y-4">
+                  <h4 className="font-bold text-slate-700 uppercase text-sm tracking-wider" style={{ fontSize: '16px' }}>Identificación</h4>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Grupo (Empresa)</label>
+                    <input type="text" value={formProspecto.grupo} onChange={e => setFormProspecto(p => ({ ...p, grupo: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="Nombre de la empresa" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>CIF</label>
+                    <input type="text" value={formProspecto.cif} onChange={e => setFormProspecto(p => ({ ...p, cif: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="CIF/NIF" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Contacto Persona</label>
+                    <input type="text" value={formProspecto.contacto_persona} onChange={e => setFormProspecto(p => ({ ...p, contacto_persona: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="Nombre del contacto" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Teléfono</label>
+                    <input type="text" value={formProspecto.telefono} onChange={e => setFormProspecto(p => ({ ...p, telefono: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="Teléfono" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Población</label>
+                    <input type="text" value={formProspecto.poblacion} onChange={e => setFormProspecto(p => ({ ...p, poblacion: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="Población" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Provincia</label>
+                    <input type="text" value={formProspecto.provincia} onChange={e => setFormProspecto(p => ({ ...p, provincia: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="Provincia" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Dirección</label>
+                    <input type="text" value={formProspecto.direccion} onChange={e => setFormProspecto(p => ({ ...p, direccion: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="Dirección" />
+                  </div>
+                </div>
+
+                {/* COLUMNA DERECHA - Comercial */}
+                <div className="space-y-4">
+                  <h4 className="font-bold text-slate-700 uppercase text-sm tracking-wider" style={{ fontSize: '16px' }}>Comercial</h4>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Interés (Destino/Viaje)</label>
+                    <input type="text" value={formProspecto.interes} onChange={e => setFormProspecto(p => ({ ...p, interes: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="Destino o tipo de viaje" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Nivel de Interés</label>
+                    <select value={formProspecto.nivel_interes} onChange={e => setFormProspecto(p => ({ ...p, nivel_interes: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }}>
+                      <option value="">Seleccionar...</option>
+                      <option value="Bajo">Bajo</option>
+                      <option value="Medio">Medio</option>
+                      <option value="Alto">Alto</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Próxima Visita (Fecha)</label>
+                    <input type="date" value={formProspecto.proxima_visita} onChange={e => setFormProspecto(p => ({ ...p, proxima_visita: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Status (Selector de color)</label>
+                    <select value={formProspecto.status} onChange={e => setFormProspecto(p => ({ ...p, status: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }}>
+                      <option value="">Seleccionar...</option>
+                      <option value="POTENCIAL" className="bg-amber-50">🟡 Potencial</option>
+                      <option value="CONTACTADO" className="bg-blue-50">🔵 Contactado</option>
+                      <option value="PROPUESTA" className="bg-green-50">🟢 Propuesta</option>
+                      <option value="NEGOCIACION" className="bg-purple-50">🟣 Negociación</option>
+                      <option value="CERRADO" className="bg-emerald-50">✅ Cerrado</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Notas Comerciales</label>
+                    <textarea value={formProspecto.notas_comerciales} onChange={e => setFormProspecto(p => ({ ...p, notas_comerciales: e.target.value }))} rows={5} className="w-full px-4 py-2 rounded-xl border border-slate-200 min-h-[120px]" style={{ fontSize: '16px' }} placeholder="Notas y observaciones comerciales..." />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6 pt-6 border-t border-slate-200">
+                <button onClick={() => setShowVisitaModal(false)} className="flex-1 py-3 px-4 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-slate-200" style={{ fontSize: '16px' }}>Cancelar</button>
+                <button onClick={guardarProspectoDesdeModal} className="flex-1 py-3 px-4 rounded-xl font-bold bg-orange-500 text-white hover:bg-orange-600" style={{ fontSize: '16px' }}>Guardar Prospecto</button>
+              </div>
             </div>
           </div>
         </div>
