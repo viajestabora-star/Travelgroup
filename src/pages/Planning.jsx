@@ -61,7 +61,6 @@ const Planning = () => {
   // ============ SINCRONIZACIÓN GLOBAL DEL EJERCICIO ============
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
-      console.log('📅 Ejercicio cambiado globalmente a:', nuevoEjercicio)
       setEjercicioActual(nuevoEjercicio)
     })
     
@@ -72,89 +71,46 @@ const Planning = () => {
   const loadExpedientes = () => {
     try {
       const allExpedientes = storage.get('expedientes') || []
-      
-      console.log('📦 Total expedientes en base de datos:', allExpedientes.length)
-      
+
       // ============ NORMALIZACIÓN AUTOMÁTICA DE FECHAS ============
       const expedientesNormalizados = normalizarExpedientes(allExpedientes)
       
-      // ============ FILTRAR POR EJERCICIO (AÑO) SELECCIONADO ============
+      // ============ FILTRAR POR EJERCICIO Y ESTADO ============
+      // INCLUSIÓN: Petición, Confirmado, Finalizado
+      // EXCLUSIÓN: Cancelado (nunca aparece en Planning)
       const expedientesFiltrados = expedientesNormalizados.filter(exp => {
-        // Solo mostrar expedientes con fecha_inicio o fechaInicio (compatibilidad)
+        const estado = (exp.estado || 'peticion').toLowerCase()
+        if (estado === 'cancelado') return false
+
         const fechaInicio = exp.fecha_inicio || exp.fechaInicio
-        if (!fechaInicio) {
-          return false
-        }
-        
-        // Extraer año del expediente
+        if (!fechaInicio) return true
         const añoExpediente = extraerAño(fechaInicio)
-        if (!añoExpediente) {
-          return false
-        }
-        
+        if (!añoExpediente) return true
         return añoExpediente === ejercicioActual
       })
-      
-      console.log(`📅 Expedientes de ${ejercicioActual} filtrados:`, expedientesFiltrados.length)
-      console.log('📋 Nombres:', expedientesFiltrados.map(e => e.nombre_grupo || e.clienteNombre).join(', '))
-      
+
       setExpedientes(expedientesFiltrados)
     } catch (error) {
-      console.error('❌ Error cargando expedientes para Planning:', error)
       setExpedientes([])
     }
   }
 
-  // ============ FUNCIÓN DE ORDENACIÓN UNIVERSAL ============
+  // ============ ORDENACIÓN CRONOLÓGICA ESTRICTA (ASCENDENTE) ============
+  // Fecha de salida ascendente. Fechas nulas o inválidas → al final (sin errores)
   const ordenarExpedientes = (exps) => {
     return exps.slice().sort((a, b) => {
       try {
-        // ============ NUEVA LÓGICA: SOLO FECHA PARA ACTIVOS ============
-        // REGLA: Finalizados y Cancelados al final, el resto SOLO por fecha
-        
-        const esFinalizadoA = a.estado === 'finalizado' || a.estado === 'cancelado'
-        const esFinalizadoB = b.estado === 'finalizado' || b.estado === 'cancelado'
-        
-        // Si uno está finalizado y el otro no → finalizado va al final
-        if (esFinalizadoA && !esFinalizadoB) return 1
-        if (!esFinalizadoA && esFinalizadoB) return -1
-        
-        // ============ ORDENACIÓN ESTRICTA POR FECHA ============
-        // Para TODOS los activos o TODOS los finalizados
-        // NO importa el estado, SOLO la fecha
-        
         const fechaInicioA = a.fecha_inicio || a.fechaInicio
         const fechaInicioB = b.fecha_inicio || b.fechaInicio
-        const fechaObjA = parsearFecha(fechaInicioA)
-        const fechaObjB = parsearFecha(fechaInicioB)
-        
-        // Debug log para verificar conversión
-        if (a.nombre_grupo === 'ARRANCAPINS' || a.nombre_grupo === 'VIVEROS' || 
-            b.nombre_grupo === 'ARRANCAPINS' || b.nombre_grupo === 'VIVEROS') {
-          console.log('🔍 Planning - Comparando fechas:', {
-            A: { nombre: a.nombre_grupo, fechaStr: fechaInicioA, fechaObj: fechaObjA },
-            B: { nombre: b.nombre_grupo, fechaStr: fechaInicioB, fechaObj: fechaObjB }
-          })
-        }
-        
-        // Sin fecha → al final del grupo
+        const fechaObjA = fechaInicioA ? parsearFecha(fechaInicioA) : null
+        const fechaObjB = fechaInicioB ? parsearFecha(fechaInicioB) : null
+
+        if (!fechaObjA && !fechaObjB) return 0
         if (!fechaObjA) return 1
         if (!fechaObjB) return -1
-        
-        // Más cercano primero: 16/01 < 25/01
-        const resultado = fechaObjA - fechaObjB
-        
-        // Debug log del resultado
-        if (a.nombre_grupo === 'ARRANCAPINS' || a.nombre_grupo === 'VIVEROS' || 
-            b.nombre_grupo === 'ARRANCAPINS' || b.nombre_grupo === 'VIVEROS') {
-          console.log('📊 Planning - Resultado:', resultado, 
-            resultado < 0 ? `${a.nombre_grupo} va ANTES` : `${b.nombre_grupo} va ANTES`)
-        }
-        
-        return resultado
-        
-      } catch (error) {
-        console.error('❌ Error en ordenación:', error)
+
+        return fechaObjA - fechaObjB
+      } catch (e) {
         return 0
       }
     })
@@ -197,38 +153,6 @@ const Planning = () => {
     Q2: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fecha_inicio || e.fechaInicio) === 'Q2')),
     Q3: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fecha_inicio || e.fechaInicio) === 'Q3')),
     Q4: ordenarExpedientes(expedientes.filter(e => getTrimestreFromFecha(e.fecha_inicio || e.fechaInicio) === 'Q4')),
-  }
-
-  console.log('📊 Distribución por trimestre:', {
-    Q1: expedientesPorTrimestre.Q1.length,
-    Q2: expedientesPorTrimestre.Q2.length,
-    Q3: expedientesPorTrimestre.Q3.length,
-    Q4: expedientesPorTrimestre.Q4.length,
-  })
-  
-  // VERIFICACIÓN: Orden de Arrancapins y Viveros en Q1
-  const arrancapinsIndex = expedientesPorTrimestre.Q1.findIndex(e => e.nombre_grupo === 'ARRANCAPINS')
-  const viverosIndex = expedientesPorTrimestre.Q1.findIndex(e => e.nombre_grupo === 'VIVEROS')
-  
-  if (arrancapinsIndex !== -1 || viverosIndex !== -1) {
-    console.log('✅ VERIFICACIÓN DE ORDEN EN Q1:')
-    if (arrancapinsIndex !== -1) {
-      const fechaArrancapins = expedientesPorTrimestre.Q1[arrancapinsIndex].fecha_inicio || expedientesPorTrimestre.Q1[arrancapinsIndex].fechaInicio
-      console.log(`   ARRANCAPINS en posición ${arrancapinsIndex + 1}`, 
-        `(Fecha: ${fechaArrancapins})`)
-    }
-    if (viverosIndex !== -1) {
-      const fechaViveros = expedientesPorTrimestre.Q1[viverosIndex].fecha_inicio || expedientesPorTrimestre.Q1[viverosIndex].fechaInicio
-      console.log(`   VIVEROS en posición ${viverosIndex + 1}`, 
-        `(Fecha: ${fechaViveros})`)
-    }
-    if (arrancapinsIndex !== -1 && viverosIndex !== -1) {
-      if (arrancapinsIndex < viverosIndex) {
-        console.log('   ✅ ORDEN CORRECTO: Arrancapins está ANTES que Viveros')
-      } else {
-        console.log('   ❌ ORDEN INCORRECTO: Arrancapins está DESPUÉS que Viveros')
-      }
-    }
   }
 
   // ============ CREAR EXPEDIENTE ============
@@ -312,10 +236,7 @@ const Planning = () => {
       storage.set('expedientes', updated)
       setExpedienteActual(expedienteActualizado)
       loadExpedientes() // Recargar para reflejar orden actualizado
-      
-      console.log('✅ Expediente actualizado:', expedienteActualizado.nombre_grupo)
     } catch (error) {
-      console.error('❌ Error actualizando expediente:', error)
     }
   }
 
