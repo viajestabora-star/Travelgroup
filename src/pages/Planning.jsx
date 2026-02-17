@@ -18,17 +18,16 @@ import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejerci
 const parsearFecha = parsearFechaADate
 const formatearFecha = formatearFechaVisual
 
-// ============ ESTADOS CON COLORES (IGUALES A EXPEDIENTES.JSX) ============
-
-// Mapeo frontend: NOMBRES FIJOS = Expedientes (Pendiente, Cotización, Confirmado, Finalizado, Cancelado)
+// ============ ESTADOS CON COLORES (REGLA 1.14 - IDÉNTICO A EXPEDIENTES) ============
+// Petición: #FACC15 | Confirmado: Verde | Finalizado: #3B82F6
 const ESTADOS = {
-  peticion: { label: 'Pendiente', color: 'bg-gray-100 text-gray-800 border-gray-300', badge: 'bg-gray-500' },
-  presupuesto: { label: 'Pendiente', color: 'bg-gray-100 text-gray-800 border-gray-300', badge: 'bg-gray-500' },
-  confirmado: { label: 'Cotización', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500' },
-  encurso: { label: 'Confirmado', color: 'bg-lime-100 text-lime-800 border-lime-300', badge: 'bg-lime-500' },
-  en_curso: { label: 'Confirmado', color: 'bg-lime-100 text-lime-800 border-lime-300', badge: 'bg-lime-500' },
-  finalizado: { label: 'Finalizado', color: 'bg-emerald-100 text-emerald-800 border-emerald-300', badge: 'bg-emerald-600' },
-  cancelado: { label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300', badge: 'bg-red-500' },
+  peticion: { label: 'Petición', color: 'bg-[#FACC15] text-black', badge: 'bg-[#FACC15]' },
+  presupuesto: { label: 'Petición', color: 'bg-[#FACC15] text-black', badge: 'bg-[#FACC15]' },
+  confirmado: { label: 'Petición', color: 'bg-[#FACC15] text-black', badge: 'bg-[#FACC15]' },
+  encurso: { label: 'Confirmado', color: 'bg-green-500 text-white', badge: 'bg-green-500' },
+  en_curso: { label: 'Confirmado', color: 'bg-green-500 text-white', badge: 'bg-green-500' },
+  finalizado: { label: 'Finalizado', color: 'bg-[#3B82F6] text-white', badge: 'bg-[#3B82F6]' },
+  cancelado: { label: 'Cancelado', color: 'bg-red-500 text-white', badge: 'bg-red-500' },
 }
 
 // ============ COMPONENTE PRINCIPAL ============
@@ -260,7 +259,7 @@ const Planning = () => {
         <div className="flex justify-between items-start mb-3">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-2">
-              <span className={`px-2.5 py-1 rounded-full text-sm font-semibold ${estado.color}`}>
+              <span className={`px-2.5 py-1 rounded-lg text-sm font-bold ${estado.color}`}>
                 {estado.label}
               </span>
             </div>
