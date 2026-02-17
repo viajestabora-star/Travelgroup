@@ -14,7 +14,7 @@ const Proveedores = () => {
   const [cargando, setCargando] = useState(true)
   
   const [formData, setFormData] = useState({
-    nombre_comercial: '', servicio: 'hotel', ciudad: '', cif: '', persona_contacto: '',
+    nombre_comercial: '', servicio: 'hotel', ciudad: '', codigo_postal: '', cif: '', persona_contacto: '',
     telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
     poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '',
     es_mayorista: false, observaciones: ''
@@ -66,6 +66,9 @@ const Proveedores = () => {
     }
   }
 
+  // Sanitizar valores a texto para evitar errores uuid vs bigint en Supabase
+  const sanitizarTexto = (v) => (v == null || v === '') ? '' : String(v).trim()
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     
@@ -77,16 +80,27 @@ const Proveedores = () => {
       ? servicioNormalizado
       : 'hotel'
 
-    // IMPORTANTE: Guardar como 'tipo' en la base de datos (no 'servicio')
-    const datosParaGuardar = { 
-      ...formData,
-      tipo: servicioValido, // Campo correcto en la BD
-      servicio: undefined, // Eliminar campo 'servicio' si existe
-      es_mayorista: Boolean(formData.es_mayorista) // Enviar explícitamente como boolean a Supabase
+    // IMPORTANTE: Todos los campos de texto como string para evitar uuid vs bigint
+    const datosParaGuardar = {
+      nombre_comercial: sanitizarTexto(formData.nombre_comercial),
+      tipo: servicioValido,
+      ciudad: sanitizarTexto(formData.ciudad),
+      codigo_postal: sanitizarTexto(formData.codigo_postal),
+      cif: sanitizarTexto(formData.cif),
+      persona_contacto: sanitizarTexto(formData.persona_contacto),
+      telefono_fijo: sanitizarTexto(formData.telefono_fijo),
+      telefono: sanitizarTexto(formData.telefono),
+      email: sanitizarTexto(formData.email),
+      movil: sanitizarTexto(formData.movil),
+      direccion: sanitizarTexto(formData.direccion),
+      poblacion: sanitizarTexto(formData.poblacion),
+      provincia: sanitizarTexto(formData.provincia),
+      iban: sanitizarTexto(formData.iban),
+      entidad_bancaria: sanitizarTexto(formData.entidad_bancaria),
+      swift_bic: sanitizarTexto(formData.swift_bic),
+      es_mayorista: Boolean(formData.es_mayorista),
+      observaciones: sanitizarTexto(formData.observaciones)
     }
-    
-    // Eliminar campo 'servicio' del objeto antes de guardar
-    delete datosParaGuardar.servicio
     
     const action = editingId 
       ? supabase.from('proveedores').update(datosParaGuardar).eq('id', editingId)
@@ -114,12 +128,13 @@ const Proveedores = () => {
         ...p,
         servicio: tipoNormalizado, // Usar 'servicio' en el formulario
         ciudad: p.ciudad || '',
+        codigo_postal: p.codigo_postal || '',
         es_mayorista: !!p.es_mayorista
       })
     } else {
       setEditingId(null)
       setFormData({
-        nombre_comercial: '', servicio: 'hotel', ciudad: '', cif: '', persona_contacto: '',
+        nombre_comercial: '', servicio: 'hotel', ciudad: '', codigo_postal: '', cif: '', persona_contacto: '',
         telefono: '', telefono_fijo: '', email: '', movil: '', direccion: '', 
         poblacion: '', provincia: '', iban: '', entidad_bancaria: '', swift_bic: '',
         es_mayorista: false, observaciones: ''
@@ -258,7 +273,7 @@ const Proveedores = () => {
                         </td>
                         <td className="px-6 py-6">
                           <div className="text-xs font-bold text-slate-600 flex items-center gap-2">
-                            <Phone size={14}/> {p.telefono || p.movil || '-'}
+                            <Phone size={14}/> {p.telefono_fijo || p.telefono || p.movil || '-'}
                           </div>
                           <div className="text-[10px] font-bold text-slate-400 flex items-center gap-2 mt-1">
                             <Mail size={14}/> {p.email || '-'}
@@ -294,21 +309,23 @@ const Proveedores = () => {
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-8 text-base" style={{ fontSize: '16px' }}>
               <div className="md:col-span-2 space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Nombre Comercial *</label>
+                <label className="block text-base font-black text-slate-600 uppercase tracking-widest">Nombre Comercial *</label>
                 <input 
                   required 
-                  className="w-full p-6 bg-slate-50 rounded-2xl font-black text-2xl border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                  className="w-full p-6 bg-slate-50 rounded-2xl font-black border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                  style={{ fontSize: '16px' }}
                   value={formData.nombre_comercial} 
                   onChange={e=>setFormData({...formData, nombre_comercial:e.target.value})} 
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Servicio *</label>
+                <label className="block text-base font-black text-slate-600 uppercase tracking-widest">Servicio *</label>
                 <select 
                   required 
-                  className="w-full p-6 bg-slate-50 rounded-2xl font-black text-lg border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                  className="w-full p-6 bg-slate-50 rounded-2xl font-black border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                  style={{ fontSize: '16px' }}
                   value={formData.servicio} 
                   onChange={e=>setFormData({...formData, servicio:e.target.value})}
                 >
@@ -316,77 +333,100 @@ const Proveedores = () => {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Ciudad</label>
+                <label className="block text-base font-black text-slate-600 uppercase tracking-widest">Ciudad</label>
                 <input 
-                  className="w-full p-6 bg-slate-50 rounded-2xl font-black text-lg border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                  className="w-full p-6 bg-slate-50 rounded-2xl font-black text-base border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                  style={{ fontSize: '16px' }}
                   value={formData.ciudad} 
                   onChange={e=>setFormData({...formData, ciudad:e.target.value})} 
                   placeholder="Ej: Toledo, Madrid..." 
                 />
               </div>
+              <div className="space-y-2">
+                <label className="block text-base font-black text-slate-600 uppercase tracking-widest">Código Postal</label>
+                <input 
+                  className="w-full p-6 bg-slate-50 rounded-2xl font-bold text-base border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                  style={{ fontSize: '16px' }}
+                  value={formData.codigo_postal || ''} 
+                  onChange={e=>setFormData({...formData, codigo_postal:e.target.value})} 
+                  placeholder="Ej: 45001" 
+                />
+              </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">Persona Contacto</label>
+                <label className="block text-base font-black text-slate-600 uppercase">Persona Contacto</label>
                 <input 
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none text-base" 
+                  style={{ fontSize: '16px' }}
                   value={formData.persona_contacto} 
                   onChange={e=>setFormData({...formData, persona_contacto:e.target.value})} 
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">Email Reservas</label>
+                <label className="block text-base font-black text-slate-600 uppercase">Teléfono Fijo (principal)</label>
+                <input 
+                  type="tel"
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none text-base" 
+                  style={{ fontSize: '16px' }}
+                  value={formData.telefono_fijo || ''} 
+                  onChange={e=>setFormData({...formData, telefono_fijo:e.target.value})} 
+                  placeholder="Ej: 925 123 456"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-base font-black text-slate-600 uppercase">Móvil / WhatsApp (secundario)</label>
+                <input 
+                  type="tel"
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none text-base" 
+                  style={{ fontSize: '16px' }}
+                  value={formData.movil} 
+                  onChange={e=>setFormData({...formData, movil:e.target.value})} 
+                  placeholder="Ej: 612 345 678"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-base font-black text-slate-600 uppercase">Email Reservas</label>
                 <input 
                   type="email" 
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none text-base" 
+                  style={{ fontSize: '16px' }}
                   value={formData.email} 
                   onChange={e=>setFormData({...formData, email:e.target.value})} 
                 />
               </div>
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">Móvil WhatsApp</label>
-                <input 
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                  value={formData.movil} 
-                  onChange={e=>setFormData({...formData, movil:e.target.value})} 
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">Teléfono Fijo</label>
-                <input 
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
-                  value={formData.telefono_fijo || ''} 
-                  onChange={e=>setFormData({...formData, telefono_fijo:e.target.value})} 
-                />
-              </div>
 
               <div className="md:col-span-3 space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">Dirección</label>
+                <label className="block text-base font-black text-slate-600 uppercase">Dirección</label>
                 <input 
                   className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  style={{ fontSize: '16px' }}
                   value={formData.direccion} 
                   onChange={e=>setFormData({...formData, direccion:e.target.value})} 
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">Población</label>
+                <label className="block text-base font-black text-slate-600 uppercase">Población</label>
                 <input 
                   className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  style={{ fontSize: '16px' }}
                   value={formData.poblacion} 
                   onChange={e=>setFormData({...formData, poblacion:e.target.value})} 
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">Provincia</label>
+                <label className="block text-base font-black text-slate-600 uppercase">Provincia</label>
                 <input 
                   className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  style={{ fontSize: '16px' }}
                   value={formData.provincia} 
                   onChange={e=>setFormData({...formData, provincia:e.target.value})} 
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase">CIF</label>
+                <label className="block text-base font-black text-slate-600 uppercase">CIF</label>
                 <input 
                   className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none" 
+                  style={{ fontSize: '16px' }}
                   value={formData.cif} 
                   onChange={e=>setFormData({...formData, cif:e.target.value})} 
                 />
@@ -394,30 +434,33 @@ const Proveedores = () => {
 
               {/* SECCIÓN: Información Bancaria (IBAN, Entidad, SWIFT, Es Mayorista) */}
               <div className="md:col-span-3 border-t border-slate-200 pt-8 mt-4">
-                <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-6">Información Bancaria</h3>
+                <h3 className="text-base font-black text-slate-600 uppercase tracking-widest mb-6">Información Bancaria</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="md:col-span-2 space-y-2">
-                    <label className="text-xs font-black text-slate-400 uppercase">IBAN</label>
+                    <label className="block text-base font-black text-slate-600 uppercase">IBAN</label>
                     <input 
                       className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                      style={{ fontSize: '16px' }}
                       value={formData.iban} 
                       onChange={e=>setFormData({...formData, iban:e.target.value})} 
                       placeholder="ES00 0000 0000 0000 0000 0000"
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-400 uppercase">Entidad Bancaria</label>
+                    <label className="block text-base font-black text-slate-600 uppercase">Entidad Bancaria</label>
                     <input 
                       className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                      style={{ fontSize: '16px' }}
                       value={formData.entidad_bancaria || ''} 
                       onChange={e=>setFormData({...formData, entidad_bancaria:e.target.value})} 
                       placeholder="Ej: Banco Santander, BBVA..."
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-400 uppercase">SWIFT/BIC</label>
+                    <label className="block text-base font-black text-slate-600 uppercase">SWIFT/BIC</label>
                     <input 
                       className="w-full p-5 bg-slate-50 rounded-2xl font-mono border-none outline-none focus:ring-4 focus:ring-blue-100" 
+                      style={{ fontSize: '16px' }}
                       value={formData.swift_bic || ''} 
                       onChange={e=>setFormData({...formData, swift_bic:e.target.value})} 
                       placeholder="Ej: BSCHESMMXXX"
@@ -431,7 +474,7 @@ const Proveedores = () => {
                       onChange={e=>setFormData({...formData, es_mayorista:e.target.checked})}
                       className="w-5 h-5 rounded border-slate-300 text-slate-900 focus:ring-slate-500 focus:ring-2"
                     />
-                    <label htmlFor="es_mayorista_proveedores" className="text-sm font-black text-slate-700 uppercase tracking-wide cursor-pointer">
+                    <label htmlFor="es_mayorista_proveedores" className="text-base font-black text-slate-700 uppercase tracking-wide cursor-pointer">
                       Es Mayorista
                     </label>
                   </div>
