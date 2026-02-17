@@ -136,10 +136,8 @@ const Dashboard = () => {
   }
 
   // ============ CARGAR PRÓXIMOS RELEASES ============
-  // Persistencia: release aparece SIEMPRE que release_pagado = FALSE (no importa si la fecha ya pasó)
   const cargarProximosReleases = async () => {
     try {
-      // Filtrar por release_pagado = false (incluye null para registros antiguos)
       const { data: serviciosData, error: serviciosError } = await supabase
         .from('servicios_cotizacion')
         .select('id, fecha_release, tipo_servicio, nombre_especifico, id_expediente, release_pagado')
@@ -210,7 +208,7 @@ const Dashboard = () => {
             diasRestantes: diasRestantes
           }
         })
-        .filter(Boolean) // Eliminar nulls
+        .filter(Boolean)
         .sort((a, b) => a.diasRestantes - b.diasRestantes) // Ordenar por días restantes
       
       return releases
@@ -501,17 +499,17 @@ const Dashboard = () => {
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-bold" style={{ fontSize: '16px' }}>{release.tipoServicio}</h3>
                           {release.nombreEspecifico && (
-                            <span className="opacity-75" style={{ fontSize: '14px' }}>- {release.nombreEspecifico}</span>
+                            <span className="opacity-75" style={{ fontSize: '16px' }}>- {release.nombreEspecifico}</span>
                           )}
                         </div>
                         <p className="font-medium mb-1" style={{ fontSize: '16px' }}>
                           Expediente: <span className="font-bold">{release.numeroExpediente}</span>
                         </p>
-                        <p className="opacity-80" style={{ fontSize: '14px' }}>
-                          {release.clienteNombre} {release.destino ? `· ${release.destino}` : ''}
+                        <p className="opacity-80" style={{ fontSize: '16px' }}>
+                          {release.clienteNombre} {release.destino ? ` · ${release.destino}` : ''}
                         </p>
                       </div>
-                      <div className={`px-3 py-1.5 rounded-full font-bold ${badgeColor} whitespace-nowrap ml-3`} style={{ fontSize: '14px' }}>
+                      <div className={`px-3 py-1.5 rounded-full font-bold ${badgeColor} whitespace-nowrap ml-3`} style={{ fontSize: '16px' }}>
                         {diasTexto}
                       </div>
                     </div>
@@ -523,7 +521,7 @@ const Dashboard = () => {
                       <button
                         onClick={(e) => marcarReleaseComoPagado(release.id, e)}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors"
-                        style={{ fontSize: '14px' }}
+                        style={{ fontSize: '16px' }}
                         title="Marcar como pagado"
                       >
                         <CheckCircle size={16} />

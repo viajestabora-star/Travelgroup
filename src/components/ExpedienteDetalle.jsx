@@ -4887,7 +4887,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                 </span>
                               </td>
                               
-                              {/* COLUMNA 7: RELEASE (Fecha de liberación) + Marcar como Pagado */}
+{/* COLUMNA 7: RELEASE (fecha + Marcar como Pagado) */}
                               <td className="px-2 py-2 text-center">
                                 <div className="flex flex-col items-center gap-1">
                                   <input
@@ -4908,33 +4908,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                       guardarFechaReleaseServicio(servicio.id, fechaValue)
                                     }}
                                     className="input-field text-center transition-all"
-                                    style={{ 
-                                      backgroundColor: '#f8fafc', 
-                                      color: '#0f172a', 
-                                      borderRadius: '12px', 
-                                      border: '1px solid #e2e8f0',
-                                      padding: '6px 8px',
-                                      width: '100%',
-                                      maxWidth: '140px',
-                                      fontSize: '16px'
-                                    }}
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '6px 8px', width: '100%', maxWidth: '140px', fontSize: '16px' }}
                                   />
                                   {!servicio.releasePagado && servicio.fechaRelease && (
-                                    <button
-                                      type="button"
-                                      onClick={() => marcarReleaseComoPagadoServicio(servicio.id)}
-                                      className="flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-semibold"
-                                      style={{ fontSize: '14px' }}
-                                      title="Marcar como pagado"
-                                    >
-                                      <CheckCircle size={12} />
-                                      Pagado
-                                    </button>
+                                    <button type="button" onClick={() => marcarReleaseComoPagadoServicio(servicio.id)} className="flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-semibold" style={{ fontSize: '16px' }} title="Marcar como pagado"><CheckCircle size={12} /> Pagado</button>
                                   )}
                                   {servicio.releasePagado && (
-                                    <span className="text-green-600 text-xs font-semibold flex items-center gap-1" style={{ fontSize: '14px' }}>
-                                      <CheckCircle size={12} /> Pagado
-                                    </span>
+                                    <span className="text-green-600 font-semibold flex items-center gap-1" style={{ fontSize: '16px' }}><CheckCircle size={12} /> Pagado</span>
                                   )}
                                 </div>
                               </td>
@@ -5071,12 +5051,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Release</span>
                             <input type="date" value={servicio.fechaRelease || ''} onChange={(e) => { actualizarServicio(servicio.id, 'fechaRelease', e.target.value || ''); }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; guardarFechaReleaseServicio(servicio.id, e.target.value || ''); }} className="input-field w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '6px 8px', fontSize: '16px' }} />
                             {!servicio.releasePagado && servicio.fechaRelease && (
-                              <button type="button" onClick={() => marcarReleaseComoPagadoServicio(servicio.id)} className="mt-2 flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-semibold w-full justify-center" style={{ fontSize: '14px' }}>
-                                <CheckCircle size={14} /> Marcar como Pagado
-                              </button>
+                              <button type="button" onClick={() => marcarReleaseComoPagadoServicio(servicio.id)} className="mt-2 flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-semibold w-full justify-center" style={{ fontSize: '16px' }}><CheckCircle size={14} /> Marcar como Pagado</button>
                             )}
                             {servicio.releasePagado && (
-                              <span className="mt-2 text-green-600 font-semibold flex items-center gap-1" style={{ fontSize: '14px' }}><CheckCircle size={14} /> Pagado</span>
+                              <span className="mt-2 text-green-600 font-semibold flex items-center gap-1" style={{ fontSize: '16px' }}><CheckCircle size={14} /> Pagado</span>
                             )}
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Vínculo con Mayorista</span>
