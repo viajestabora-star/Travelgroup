@@ -131,22 +131,24 @@ const obtenerSiguienteNumeroExpediente = async (año) => {
     return `${año}-001`;
   }
 };
-// Mapeo frontend: DB usa peticion, confirmado, en_curso, finalizado, cancelado (NO cambiar en Supabase)
-// NOMBRES FIJOS: Pendiente, Cotización, Confirmado, Finalizado, Cancelado
+// SOLO 4 ESTADOS: Petición, Confirmado, Finalizado, Cancelado (Cotización/COT PROHIBIDO)
+// DB puede tener confirmado: se muestra como Petición para compatibilidad
 const ESTADOS = {
-  peticion: { label: 'Pendiente', color: 'bg-gray-100 text-gray-800 border-gray-300', badge: 'bg-gray-500', cssClass: 'peticion' },
-  confirmado: { label: 'Cotización', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'confirmado' },
-  en_curso: { label: 'Confirmado', color: 'bg-lime-100 text-lime-800 border-lime-300', badge: 'bg-lime-500', cssClass: 'en_curso' },
-  finalizado: { label: 'Finalizado', color: 'bg-emerald-100 text-emerald-800 border-emerald-300', badge: 'bg-emerald-600', cssClass: 'finalizado' },
+  peticion: { label: 'Petición', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'peticion' },
+  confirmado: { label: 'Petición', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'peticion' },
+  en_curso: { label: 'Confirmado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500', cssClass: 'en_curso' },
+  finalizado: { label: 'Finalizado', color: 'bg-gray-700 text-gray-100 border-gray-600', badge: 'bg-gray-700', cssClass: 'finalizado' },
   cancelado: { label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300', badge: 'bg-red-500', cssClass: 'cancelado' },
 }
 
-// 4 pestañas: Pendientes (P+C), Confirmados (E), Finalizados (F), Cancelados
+const ESTADOS_UI = ['peticion', 'en_curso', 'finalizado', 'cancelado']
+
+// 4 pestañas: Petición, Confirmado, Finalizado, Cancelado
 const TABS_EXPEDIENTES = [
-  { id: 'pendientes', label: 'Pendientes', estados: ['peticion', 'confirmado'] },
-  { id: 'confirmados', label: 'Confirmados', estados: ['en_curso'] },
-  { id: 'finalizado', label: 'Finalizados', estados: ['finalizado'] },
-  { id: 'cancelado', label: 'Cancelados', estados: ['cancelado'] },
+  { id: 'pendientes', label: 'Petición', estados: ['peticion', 'confirmado'] },
+  { id: 'confirmados', label: 'Confirmado', estados: ['en_curso'] },
+  { id: 'finalizado', label: 'Finalizado', estados: ['finalizado'] },
+  { id: 'cancelado', label: 'Cancelado', estados: ['cancelado'] },
 ]
 
 // ============================================================================
@@ -1028,13 +1030,11 @@ const Expedientes = () => {
               ))}
             </select>
           </div>
-          <button onClick={() => setShowExportModal(true)} className="btn-secondary flex items-center gap-2">
+          <button onClick={() => setShowExportModal(true)} className="btn-secondary flex items-center justify-center p-3 rounded-xl" title="Exportar trimestre" style={{ fontSize: '16px' }}>
             <Download size={20} />
-            Exportar Trimestre
           </button>
-          <button onClick={() => setShowExpedienteModal(true)} className="btn-primary flex items-center gap-2">
+          <button onClick={() => setShowExpedienteModal(true)} className="btn-primary flex items-center justify-center p-3 rounded-xl" title="Nuevo expediente" style={{ fontSize: '16px' }}>
             <Plus size={20} />
-            Nuevo Expediente
           </button>
         </div>
       </div>
@@ -1049,6 +1049,8 @@ const Expedientes = () => {
             value={searchTermExpedientes}
             onChange={(e) => setSearchTermExpedientes(e.target.value)}
             className="w-full pl-12 pr-4 py-3 border-2 border-navy-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-navy-500 focus:border-transparent"
+            style={{ fontSize: '16px' }}
+            title="Buscar por cliente, responsable o destino"
           />
         </div>
       </div>
@@ -1063,11 +1065,13 @@ const Expedientes = () => {
                 key={t.id}
                 type="button"
                 onClick={() => setTabExpedientes(t.id)}
-                className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
+                className={`flex items-center gap-2 px-5 py-3 border-b-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   tabExpedientes === t.id
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
                 }`}
+                style={{ fontSize: '16px' }}
+                title={t.label}
               >
                 {t.label} ({count})
               </button>
@@ -1128,9 +1132,8 @@ const Expedientes = () => {
             {expedientes.length === 0 ? 'Crea tu primer expediente' : `No hay expedientes con estado ${(TABS_EXPEDIENTES.find(t => t.id === tabExpedientes) || {}).label || ''} en ${ejercicioActual}`}
           </p>
           {tabExpedientes === 'pendientes' && (
-            <button onClick={() => setShowExpedienteModal(true)} className="btn-primary inline-flex items-center gap-2">
+            <button onClick={() => setShowExpedienteModal(true)} className="btn-primary inline-flex items-center justify-center p-3 rounded-xl" title="Nuevo expediente" style={{ fontSize: '16px' }}>
               <Plus size={20} />
-              Nuevo Expediente
             </button>
           )}
         </div>
@@ -1159,6 +1162,7 @@ const Expedientes = () => {
                 const estado = ESTADOS[expediente.estado || 'peticion'] || ESTADOS.peticion
                 const cliente = clientes.find(c => String(c.id) === String(expediente.cliente_id || expediente.clienteId)) || {}
                 const nombreGrupo = expediente.cliente_nombre || cliente.nombre || 'GRUPO SIN NOMBRE'
+                const responsableCompleto = expediente.responsable || cliente.responsable || ''
                 const destino = expediente.destino || 'Sin destino'
                 const fechaInicio = expediente.fecha_inicio || expediente.fechaInicio || ''
                 const fechaFin = expediente.fecha_final || expediente.fechaFin || expediente.fecha_fin || ''
@@ -1169,16 +1173,16 @@ const Expedientes = () => {
                        onClick={() => abrirDetalle(expediente)}>
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`px-2.5 py-1 rounded-full text-sm font-semibold ${estado.color}`}>
-                            {estado.label}
-                          </span>
-                        </div>
-                        <h2 className="text-2xl font-black text-navy-900 uppercase tracking-wide mb-1">
+                        <h2 className="text-2xl font-black text-navy-900 uppercase tracking-wide mb-1" style={{ fontSize: '16px' }}>
                           {nombreGrupo}
                         </h2>
-                        <p className="flex items-center gap-2 text-xl text-blue-700 font-bold">
-                          <MapPin size={18} className="text-blue-700" />
+                        {responsableCompleto && (
+                          <p className="text-navy-700 font-medium mb-1" style={{ fontSize: '16px' }} title="Responsable">
+                            👤 {responsableCompleto}
+                          </p>
+                        )}
+                        <p className="flex items-center gap-2 text-xl text-blue-700 font-bold" style={{ fontSize: '16px' }}>
+                          <MapPin size={18} className="text-blue-700" title="Destino" />
                           <span>{destino}</span>
                         </p>
                     </div>
@@ -1188,6 +1192,7 @@ const Expedientes = () => {
                           handleDeleteExpediente(expediente?.id)
                         }}
                         className="text-red-600 hover:text-red-900 p-2"
+                        title="Eliminar expediente"
                       >
                         <Trash2 size={18} />
                       </button>
@@ -1200,9 +1205,11 @@ const Expedientes = () => {
                         </p>
                       )}
                     </div>
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {Object.entries(ESTADOS).map(([key, est]) => {
-                        const abbr = key === 'confirmado' ? 'Cot' : key === 'cancelado' ? 'Ca' : est.label.charAt(0)
+                    <div className="flex flex-wrap gap-3 mt-4">
+                      {ESTADOS_UI.map((key) => {
+                        const est = ESTADOS[key]
+                        const esActivo = expediente?.estado === key || (key === 'peticion' && expediente?.estado === 'confirmado')
+                        const abbr = key === 'cancelado' ? 'Ca' : est.label.charAt(0)
                         return (
                           <button
                             key={key}
@@ -1210,9 +1217,10 @@ const Expedientes = () => {
                               e.stopPropagation()
                               cambiarEstado(expediente?.id, key)
                             }}
-                            className={`px-2.5 py-1 rounded text-sm font-semibold transition-colors ${
-                              expediente?.estado === key ? est.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                              esActivo ? est.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                             }`}
+                            style={{ fontSize: '16px' }}
                             title={est.label}
                           >
                             {abbr}
@@ -1456,8 +1464,8 @@ const Expedientes = () => {
                     className="input-field bg-white text-black border-gray-200"
                     style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   >
-                    {Object.entries(ESTADOS).map(([key, estado]) => (
-                      <option key={key} value={key}>{estado.label}</option>
+                    {ESTADOS_UI.map((key) => (
+                      <option key={key} value={key}>{ESTADOS[key].label}</option>
                     ))}
                   </select>
                 </div>
