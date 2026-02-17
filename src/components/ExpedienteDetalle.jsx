@@ -450,7 +450,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .order('nombre_comercial', { ascending: true });
       
       if (error) {
-        console.error('Error cargando proveedores:', error)
         // Fallback: intentar cargar desde storage (sesión anterior)
         try {
           const cached = storage.get('proveedores')
@@ -507,11 +506,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       }
       
     } catch (error) {
-      console.error('Error cargando proveedores:', error)
       setProveedores([])
     }
   };
-  
+
   // Cargar proveedores desde Supabase al montar (imprescindible para dropdowns de Cotización)
   useEffect(() => {
     cargarProveedores()
@@ -793,10 +791,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
             }
           })
 
-          // Filtrar filas vacías: solo mostrar si tiene proveedor_id o nombre de servicio válido
+          // Filtrar filas vacías: mostrar si tiene tipo, proveedor, nombre, importe o cualquier dato útil
+          // REGLA 1.26: Proveedor NO es obligatorio; se permite cotizar sin asignar
           const tieneProveedor = (r) => r.proveedorId != null || (r.proveedorNombreTemporal && String(r.proveedorNombreTemporal).trim())
           const tieneNombreServicio = (r) => r.nombreEspecifico && String(r.nombreEspecifico).trim()
-          const tieneDatos = (r) => tieneProveedor(r) || tieneNombreServicio(r) || (r.coste_unitario != null && Number(r.coste_unitario) > 0)
+          const tieneTipo = (r) => r.tipo && String(r.tipo).trim()
+          const tieneImporte = (r) => r.coste_unitario != null && Number(r.coste_unitario) > 0
+          const tieneTotalManual = (r) => r.total_servicio_manual != null && Number(r.total_servicio_manual) > 0
+          const tieneDatos = (r) => tieneProveedor(r) || tieneNombreServicio(r) || tieneImporte(r) || tieneTotalManual(r) || tieneTipo(r)
           const serviciosMapeados = todosMapeados.filter(tieneDatos)
 
           // Solo datos de Supabase; sin filas template ni vacías
@@ -813,7 +815,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
           serviciosInicializados.current = false
         }
       } catch (err) {
-        console.error('❌ Error cargando servicios:', err)
       }
     }
 
@@ -2167,10 +2168,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
   // ============ GUARDAR SERVICIO EN SUPABASE ============
   // Guarda automáticamente cada servicio cuando se modifica (con debounce)
   const guardarServicioEnSupabase = async (servicio) => {
-    if (!expediente?.id || !servicio) {
-      console.log('⚠️ guardarServicioEnSupabase: No se puede guardar - expediente.id:', expediente?.id, 'servicio:', servicio)
-      return
-    }
+    if (!expediente?.id || !servicio) return
     
     try {
       const nochesFinal = Math.max(1, toNum(servicio?.noches))
@@ -2226,25 +2224,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
           return esUuidValido ? str : null
         })()
       }
-      
-      // ============ CONSOLE.LOG DE DEBUG ============
-      console.log('📋 DATOS QUE SE ENVIARÁN A SUPABASE:', {
-        'expediente.id (original)': expediente.id,
-        'expediente.id (string trim)': String(expediente.id).trim(),
-        'servicio.id (actual)': servicio.id,
-        'tipo_servicio_id': typeof servicio.id === 'string' && servicio.id.length > 10 && servicio.id.includes('-') ? 'UUID Supabase (UPDATE)' : 'UUID Temporal (INSERT)',
-        'datos_completos': datosParaSupabase,
-        'servicio_completo_original': servicio
-      })
-      console.log('📊 ESTRUCTURA DE COLUMNAS QUE SE ENVIARÁN:', Object.keys(datosParaSupabase))
-      console.log('🔗 VINCULACIÓN AL EXPEDIENTE:', {
-        'id_expediente_enviado': datosParaSupabase.id_expediente,
-        'tipo': typeof datosParaSupabase.id_expediente,
-        'coincide_con_expediente_actual': datosParaSupabase.id_expediente === String(expediente.id).trim()
-      })
-      console.log('✅ TABLA CORRECTA: servicios_cotizacion')
-      console.log('✅ VALOR RESTAURANTE: El mapeo convierte "Restaurante" -> "restaurante" (igual que en Proveedores.jsx)')
-      
+
       // ============ VERIFICAR SI EL SERVICIO YA EXISTE EN SUPABASE ============
       // Para evitar duplicados: verificar si ya existe un servicio con el mismo ID en la BD
       let servicioExiste = false
@@ -2264,9 +2244,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       
       // Si el servicio tiene ID de Supabase y existe, actualizar; si no, insertar
       if (servicioExiste) {
-        // Es un UUID de Supabase que existe, actualizar
-        console.log('🔄 OPERACIÓN: UPDATE (servicio existente en Supabase)')
-        console.log('🔍 ID del servicio a actualizar:', servicio.id)
         const { error } = await supabase
           .from('servicios_cotizacion')
           .update(datosParaSupabase)
@@ -2274,15 +2251,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
           .eq('id_expediente', String(expediente.id).trim()) // Doble verificación para seguridad
         
         if (error) {
-          console.error('❌ Error actualizando servicio:', error)
           alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
-        } else {
-          console.log('✅ Servicio actualizado en Supabase:', servicio.id)
         }
       } else {
-        // Es un UUID temporal o no existe, insertar nuevo
-        console.log('➕ OPERACIÓN: INSERT (nuevo servicio)')
-        console.log('🔍 ID temporal del servicio:', servicio.id)
         const { data, error } = await supabase
           .from('servicios_cotizacion')
           .insert([datosParaSupabase])
@@ -2290,38 +2261,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
           .single()
         
         if (error) {
-          console.error('❌ Error insertando servicio:', error)
           alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
         } else if (data) {
-          console.log('✅ Servicio insertado en Supabase:', data.id)
-          console.log('📦 Datos devueltos por Supabase:', data)
-          // Actualizar el ID del servicio en el estado local con el ID real de Supabase
           setServicios(prevServicios => prevServicios.map(s => 
             s.id === servicio.id ? { ...s, id: data.id } : s
           ))
         }
       }
     } catch (err) {
-      console.error('❌ Error inesperado guardando servicio:', err)
       alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
     }
   }
 
   // Guardar fecha de release de un servicio concreto en Supabase
   const guardarFechaReleaseServicio = async (servicioId, fechaReleaseISO) => {
-    if (!servicioId) {
-      console.warn('⚠️ No se puede guardar fecha_release: servicio sin ID')
-      return
-    }
+    if (!servicioId) return
 
-    const payload = {
-      fecha_release: fechaReleaseISO || null,
-    }
-
-    console.log('Guardando fecha_release en servicios_cotizacion:', {
-      servicioId,
-      ...payload,
-    })
+    const payload = { fecha_release: fechaReleaseISO || null }
 
     try {
       const { error } = await supabase
@@ -2329,11 +2285,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .update(payload)
         .eq('id', servicioId)
 
-      if (error) {
-        console.error('❌ Error guardando fecha_release:', error)
-      }
+      if (error) return
     } catch (e) {
-      console.error('❌ Error inesperado guardando fecha_release:', e)
     }
   }
 
@@ -2346,13 +2299,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .update({ release_pagado: true })
         .eq('id', servicioId)
       if (error) {
-        console.error('❌ Error marcando release como pagado:', error)
         alert('No se pudo marcar como pagado. Inténtalo de nuevo.')
         return
       }
       actualizarServicio(servicioId, 'releasePagado', true)
     } catch (e) {
-      console.error('❌ Error inesperado marcando release como pagado:', e)
       alert('No se pudo marcar como pagado.')
     }
   }
@@ -3091,16 +3042,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       return String(err)
     }
     const expedienteId = expediente?.id
-    if (!expedienteId) {
-      console.error('❌ No se puede guardar: expediente sin ID')
-      return { ok: false, error: 'Expediente sin ID' }
-    }
-
-    // BLOQUEO CRÍTICO: No guardar si los datos aún no se han cargado
-    if (!datosCargados) {
-      console.warn('⚠️ Guardado bloqueado: datos aún cargando')
-      return { ok: false, error: 'Datos aún cargando' }
-    }
+    if (!expedienteId) return { ok: false, error: 'Expediente sin ID' }
+    if (!datosCargados) return { ok: false, error: 'Datos aún cargando' }
 
     try {
       const datosParaGuardar = {
@@ -3120,15 +3063,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .update(datosParaGuardar)
         .eq('id', expedienteId)
 
-      if (error) {
-        console.error('❌ Error guardando:', error)
-        return { ok: false, error: extraerMensajeError(error) }
-      }
+      if (error) return { ok: false, error: extraerMensajeError(error) }
 
       onUpdate({ ...expediente, ...datosParaGuardar })
       return { ok: true }
     } catch (error) {
-      console.error('❌ Error inesperado:', error)
       return { ok: false, error: extraerMensajeError(error) }
     }
   }
@@ -4587,7 +4526,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                         e.target.style.borderColor = '#3b82f6'
                                         e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                                       }}
-                                      placeholder="Buscar proveedor..."
+                                      placeholder="Pendiente de asignar"
                                         className="input-field text-xs w-full pr-8 transition-all"
                                         style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                                         onBlur={(e) => {
@@ -4637,13 +4576,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                         const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
                                         const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase().trim()
                                         
-                                        console.log('🔍 Filtrado de proveedores:', {
-                                          totalProveedores: proveedores.length,
-                                          tipoServicio: servicio.tipo,
-                                          tipoProveedorBuscado,
-                                          textoBusqueda
-                                        })
-                                        
                                         // ============ COMBOBOX: MOSTRAR TODOS O FILTRADOS ============
                                         // COMPARACIÓN ROBUSTA: Normalizar ambos lados para evitar problemas de formato
                                         const proveedoresFiltrados = proveedores
@@ -4653,15 +4585,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                             const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado || '');
                                             
                                             const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado
-                                            
-                                            console.log('🔍 Comparando tipos:', {
-                                              proveedor: p.nombreComercial,
-                                              tipoProveedor: p.tipo,
-                                              tipoProveedorNormalizado,
-                                              tipoBuscadoNormalizado,
-                                              coincideTipo
-                                            })
-                                            
+
                                             // Si no hay búsqueda de texto, mostrar todos del tipo
                                             if (!textoBusqueda) {
                                               return coincideTipo
@@ -4672,9 +4596,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                             return coincideTipo && coincideNombre
                                           })
                                           .sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || ''))
-                                        
-                                        console.log('✅ Proveedores filtrados:', proveedoresFiltrados.length, proveedoresFiltrados.map(p => p.nombreComercial))
-                                        
+
                                         return (
                                           <>
                                             {/* Mensajes según estado */}
@@ -4709,7 +4631,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                                 key={proveedor.id}
                                                     type="button"
                                                 onClick={() => {
-                                                      console.log('✅ Seleccionando proveedor:', proveedor)
                                                   actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
                                                   setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
                                                   setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
@@ -4984,7 +4905,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                                   value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')}
                                   onChange={(e) => { const inputValue = e.target.value; setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true }); }}
                                   onFocus={(e) => { setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true }); if (!busquedaProveedor[servicio.id]) { setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' }); } e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }}
-                                  placeholder="Buscar proveedor..."
+                                  placeholder="Pendiente de asignar"
                                   className="input-field text-xs w-full pr-8 transition-all"
                                   style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                                   onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
