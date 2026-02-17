@@ -33,7 +33,6 @@ const convertirFechaAISO = (fecha) => {
       const [dia, mes, año] = fecha.trim().split('/');
       return `${año}-${mes}-${dia}`;
     } catch (error) {
-      console.error('Error convirtiendo fecha:', fecha, error);
       return '';
     }
   }
@@ -45,7 +44,6 @@ const convertirFechaAISO = (fecha) => {
       return fechaDate.toISOString().split('T')[0];
     }
   } catch (error) {
-    console.error('Error parseando fecha:', fecha, error);
   }
   
   // Si no se puede convertir, intentar usar la función existente
@@ -53,7 +51,6 @@ const convertirFechaAISO = (fecha) => {
     const fechaISO = convertirEspañolAISO(fecha);
     if (fechaISO) return fechaISO;
   } catch (error) {
-    console.error('Error usando convertirEspañolAISO:', fecha, error);
   }
   
   return '';
@@ -76,16 +73,13 @@ const manejarErrorSupabase = (error, operacion = 'operación') => {
     errorMessage.includes('new row violates row-level security policy') ||
     errorMessage.includes('violates row-level security')
   ) {
-    console.error(`❌ Error de permisos (RLS) en ${operacion}:`, error);
     return {
       tipo: 'permisos',
       mensaje: `🔒 Error de permisos: No tienes permisos para realizar esta ${operacion}. Verifica las políticas RLS en Supabase.`,
       error: error
     };
   }
-  
-  // Otros errores
-  console.error(`❌ Error en ${operacion}:`, error);
+
   return {
     tipo: 'otro',
     mensaje: `⚠️ Error en ${operacion}: ${errorMessage}`,
@@ -107,7 +101,6 @@ const obtenerSiguienteNumeroExpediente = async (año) => {
       .limit(1);
 
     if (error) {
-      console.error('❌ Error obteniendo último numero_expediente:', error);
       // Fallback seguro
       return `${año}-001`;
     }
@@ -127,7 +120,6 @@ const obtenerSiguienteNumeroExpediente = async (año) => {
     const sufijo = String(siguienteSecuencia).padStart(3, '0');
     return `${año}-${sufijo}`;
   } catch (err) {
-    console.error('❌ Error inesperado generando numero_expediente:', err);
     return `${año}-001`;
   }
 };
@@ -206,18 +198,12 @@ const Expedientes = () => {
     try {
       const { data, error } = await supabase.from('clientes').select('*')
       if (error) {
-        const errorInfo = manejarErrorSupabase(error, 'cargar clientes');
-        if (errorInfo) {
-          console.error(errorInfo.mensaje);
-        } else {
-          console.error('Error obteniendo clientes de Supabase:', error);
-        }
+        manejarErrorSupabase(error, 'cargar clientes');
         return []
       }
       setClientes(Array.isArray(data) ? data : [])
       return data
     } catch (error) {
-      console.error('Error fetch clientes supabase:', error)
       return []
     }
   }
@@ -337,7 +323,6 @@ const Expedientes = () => {
       // Cargar clientes de Supabase
       fetchClientesFromSupabase()
     } catch (error) {
-      console.error('Error cargando datos:', error)
       // Fallback a localStorage si hay error - limpiar estructura antigua si existe
       const localData = (storage.get('expedientes') || []).map(exp => ({
         ...exp,
@@ -447,7 +432,6 @@ const Expedientes = () => {
       storage.set('expedientes', dataToSave);
 
     } catch (error) {
-      console.error('Error crítico en saveExpedientes:', error);
       const errorInfo = manejarErrorSupabase(error, 'sincronizar expediente');
       alert(errorInfo ? errorInfo.mensaje : 'Error al guardar el expediente');
     }
@@ -463,7 +447,6 @@ const Expedientes = () => {
       // CORRECCIÓN OBLIGATORIA: Sanitización Pre-Envío - Redefinir cliente_id ANTES de cualquier otra operación
       // Obtener el ID del formulario
       let selectedClientId = expedienteForm.clienteId;
-      console.log('🔍 ID Cliente desde formulario (ANTES de sanitización):', selectedClientId, '(tipo:', typeof selectedClientId, ')');
       
       // ARQUITECTURA UUID: cliente_id es ahora UUID (string), NO integer
       // Validar que sea un UUID válido (string no vacío)
@@ -471,7 +454,6 @@ const Expedientes = () => {
       if (selectedClientId !== null && selectedClientId !== undefined && selectedClientId !== '') {
         // CORRECCIÓN: Asegurar que no sea un objeto
         if (typeof selectedClientId === 'object') {
-          console.error('❌ ERROR: cliente_id es un objeto, debe ser string UUID:', selectedClientId);
           alert('⚠️ ERROR: El ID del cliente tiene un formato inválido. Por favor, selecciona un cliente válido.');
           throw new Error('cliente_id es un objeto en lugar de string UUID');
         }
@@ -485,11 +467,8 @@ const Expedientes = () => {
       // ARQUITECTURA UUID: Bloqueo de Seguridad - Abortar si cliente_id es null o string vacío
       if (!clienteIdSanitizado || clienteIdSanitizado.trim() === '') {
         alert('⚠️ Por favor, selecciona un cliente válido de la lista antes de crear el expediente.');
-        console.error('❌ Bloqueo de seguridad: cliente_id inválido o vacío. selectedClientId:', selectedClientId);
         throw new Error('cliente_id inválido o vacío');
       }
-    
-    console.log('✅ ID Cliente (UUID):', clienteIdSanitizado, '(tipo:', typeof clienteIdSanitizado, ')');
     
     let finalId = clienteIdSanitizado; // UUID (string)
     let finalNombre = expedienteForm.clienteNombre || clienteInputValue.trim() || 'Sin Nombre';
@@ -513,24 +492,18 @@ const Expedientes = () => {
         const idGeneradoCliente = data.id ? String(data.id).trim() : null;
         if (!idGeneradoCliente || idGeneradoCliente === '') {
           alert('⚠️ ERROR: El cliente se creó pero el ID generado no es válido. Por favor, contacta al administrador.');
-          console.error('❌ ID inválido devuelto por Supabase:', data.id);
           throw new Error('ID de cliente generado inválido');
         }
         finalId = idGeneradoCliente; // UUID (string)
         finalNombre = data.nombre;
         await reloadClientes();
       } catch (err) {
-        console.error('Error creando cliente previo:', err);
         throw err; // Re-lanzar para que el catch principal lo maneje
       }
     }
 
     // ARQUITECTURA UUID: cliente_id es UUID (string)
     const clienteIdUUID = finalId; // UUID (string) ya sanitizado
-    
-    // DEPURACIÓN: Console.log antes del insert
-    console.log('🔍 ID Cliente (UUID) a enviar:', clienteIdUUID, '(tipo:', typeof clienteIdUUID, ')');
-    console.log('🔍 Objeto expedienteForm completo:', expedienteForm);
 
     // 2. Insertar Expediente con mapeo a cliente_nombre
     try {
@@ -546,7 +519,6 @@ const Expedientes = () => {
       // CORRECCIÓN: Verificar que clienteIdFinal sea realmente un string UUID, no un objeto
       if (typeof clienteIdFinal !== 'string' || clienteIdFinal.trim() === '') {
         alert('⚠️ ERROR CRÍTICO: El cliente_id no es un UUID válido (string).');
-        console.error('❌ clienteIdFinal inválido:', clienteIdFinal, '(tipo:', typeof clienteIdFinal, ')');
         throw new Error('cliente_id no es un UUID válido');
       }
       
@@ -588,8 +560,6 @@ const Expedientes = () => {
       // ARQUITECTURA UUID: Verificar que cliente_id sea un UUID válido (string no vacío)
       if (!datosInsertar.cliente_id || typeof datosInsertar.cliente_id !== 'string' || datosInsertar.cliente_id.trim() === '') {
         alert('⚠️ ERROR CRÍTICO: El cliente_id no es un UUID válido. No se puede crear el expediente.');
-        console.error('❌ Objeto datosInsertar con cliente_id inválido:', datosInsertar);
-        console.error('❌ Tipo de cliente_id:', typeof datosInsertar.cliente_id, 'Valor:', datosInsertar.cliente_id);
         throw new Error('cliente_id en datosInsertar no es válido');
       }
 
@@ -599,10 +569,6 @@ const Expedientes = () => {
         : new Date().getFullYear();
       datosInsertar.numero_expediente = await obtenerSiguienteNumeroExpediente(añoExpediente);
 
-      // DEPURACIÓN: Console.log antes del insert
-      console.log('✅ Enviando expediente con cliente_id (UUID):', datosInsertar.cliente_id, '(tipo:', typeof datosInsertar.cliente_id, ')');
-      console.log('🔍 Objeto completo datosInsertar:', JSON.stringify(datosInsertar, null, 2));
-
       // Insertar sin id - Supabase generará automáticamente el UUID
       const { data, error } = await supabase
         .from('expedientes')
@@ -611,8 +577,6 @@ const Expedientes = () => {
         .single();
 
       if (error) {
-        console.error('❌ Error Supabase al insertar expediente:', error);
-        console.error('❌ Código:', error.code, 'Detalles:', error.details, 'Hint:', error.hint);
         const errorInfo = manejarErrorSupabase(error, 'crear expediente');
         const mensaje = errorInfo ? errorInfo.mensaje : `Error al guardar: ${error.message || String(error)}`;
         alert(mensaje);
@@ -628,15 +592,12 @@ const Expedientes = () => {
       setShowSuggestions(false);
       alert(`✅ Expediente creado con éxito. ID: ${data.id}`);
       } catch (err) {
-        console.error('❌ Error al crear expediente:', err);
-        console.error('❌ Detalles:', err?.message, err?.code, err?.details);
         const errorInfo = manejarErrorSupabase(err, 'crear expediente');
         const mensaje = errorInfo ? errorInfo.mensaje : `No se pudo guardar: ${err?.message || String(err)}`;
         alert(mensaje);
       }
     } catch (error) {
       const errorInfo = manejarErrorSupabase(error, 'procesar expediente');
-      console.error('❌ Error general procesando expediente:', error);
       const mensaje = errorInfo ? errorInfo.mensaje : `Error inesperado: ${error?.message || String(error)}`;
       alert(mensaje);
     } finally {
@@ -679,7 +640,6 @@ const Expedientes = () => {
       const nuevoClienteIdUUID = data.id ? String(data.id).trim() : null;
       if (!nuevoClienteIdUUID || nuevoClienteIdUUID === '') {
         alert('⚠️ ERROR: El cliente se creó pero el ID generado no es válido. Por favor, contacta al administrador.');
-        console.error('❌ ID inválido devuelto por Supabase al crear cliente:', data.id);
         return;
       }
 
@@ -727,7 +687,6 @@ const Expedientes = () => {
         storage.set('expedientes', nuevosExpedientes)
         alert('✅ Expediente eliminado correctamente')
       } catch (err) {
-        console.error('Error eliminando expediente:', err)
         alert('⚠️ Error eliminando expediente. Revisa tu conexión.')
       }
     }
@@ -751,7 +710,6 @@ const Expedientes = () => {
       // Usar EXACTAMENTE los nombres de columna restaurados en Supabase
       // ARQUITECTURA UUID: cliente_id es UUID (string)
       const clienteIdParaUpdate = expedienteActualizado.cliente_id || expedienteActualizado.clienteId;
-      console.log('🔍 ID Cliente (UUID) a enviar (UPDATE):', clienteIdParaUpdate, '(tipo:', typeof clienteIdParaUpdate, ')');
       
       let clienteIdUUIDUpdate = null;
       if (clienteIdParaUpdate !== null && clienteIdParaUpdate !== undefined && clienteIdParaUpdate !== '') {
@@ -760,9 +718,6 @@ const Expedientes = () => {
           clienteIdUUIDUpdate = null;
         }
       }
-      
-      // DEPURACIÓN: Console.log antes del update
-      console.log('🔍 ID Cliente (UUID) para UPDATE:', clienteIdUUIDUpdate, '(tipo:', typeof clienteIdUUIDUpdate, ')');
       
       const expedienteActualizadoParaSupabase = {
         cliente_id: (clienteIdUUIDUpdate && clienteIdUUIDUpdate !== '') ? clienteIdUUIDUpdate : null, // UUID (string) o null
@@ -800,7 +755,6 @@ const Expedientes = () => {
       setExpedientes(updated)
       storage.set('expedientes', updated)
     } catch (err) {
-      console.error('Error actualizando expediente:', err)
       alert('⚠️ Error actualizando expediente. Revisa tu conexión.')
     }
   }
@@ -840,7 +794,6 @@ const Expedientes = () => {
         storage.setPlanning(updatedPlanning)
       }
     } catch (err) {
-      console.error('Error cambiando estado:', err)
       alert('⚠️ Error actualizando estado. Revisa tu conexión.')
     }
   }
@@ -863,7 +816,6 @@ const Expedientes = () => {
   const seleccionarCliente = (cliente) => {
     // CORRECCIÓN CRÍTICA: Forzar conversión a número entero ANTES de guardar
     if (!cliente || !cliente.id) {
-      console.error('❌ ERROR: Cliente o ID inválido:', cliente);
       alert('⚠️ ERROR: Cliente inválido. Por favor, selecciona un cliente válido de la lista.');
       return;
     }
@@ -871,12 +823,9 @@ const Expedientes = () => {
     // ARQUITECTURA UUID: cliente.id es UUID (string), NO integer
     const clienteIdUUID = cliente.id ? String(cliente.id).trim() : null;
     if (!clienteIdUUID || clienteIdUUID === '') {
-      console.error('❌ ERROR: ID de cliente inválido:', cliente.id, '(tipo:', typeof cliente.id, ')');
       alert(`⚠️ ERROR: El cliente seleccionado tiene un ID inválido (${cliente.id}). Por favor, selecciona un cliente válido.`);
       return;
     }
-    
-    console.log('✅ Cliente seleccionado:', cliente.nombre, 'con ID (UUID):', clienteIdUUID, '(tipo:', typeof clienteIdUUID, ')');
     
     // ARQUITECTURA UUID: Guardar como UUID (string)
     setExpedienteForm(prev => ({
@@ -957,7 +906,6 @@ const Expedientes = () => {
       const cliente = clientes.find(c => c.id === clienteId)
       return cliente?.nombre || 'Pendiente'
     } catch (error) {
-      console.error('Error obteniendo cliente:', error)
       return 'Pendiente'
     }
   }
@@ -1032,8 +980,9 @@ const Expedientes = () => {
           <button onClick={() => setShowExportModal(true)} className="btn-secondary flex items-center justify-center p-3 rounded-xl" title="Exportar trimestre" style={{ fontSize: '16px' }}>
             <Download size={20} />
           </button>
-          <button onClick={() => setShowExpedienteModal(true)} className="btn-primary flex items-center justify-center p-3 rounded-xl" title="Nuevo expediente" style={{ fontSize: '16px' }}>
+          <button onClick={() => setShowExpedienteModal(true)} className="px-4 py-2 bg-slate-800 text-white rounded-lg flex items-center gap-2 font-semibold hover:bg-slate-700 transition-colors" title="Nuevo Expediente">
             <Plus size={20} />
+            Nuevo Expediente
           </button>
         </div>
       </div>
@@ -1131,8 +1080,9 @@ const Expedientes = () => {
             {expedientes.length === 0 ? 'Crea tu primer expediente' : `No hay expedientes con estado ${(TABS_EXPEDIENTES.find(t => t.id === tabExpedientes) || {}).label || ''} en ${ejercicioActual}`}
           </p>
           {tabExpedientes === 'pendientes' && (
-            <button onClick={() => setShowExpedienteModal(true)} className="btn-primary inline-flex items-center justify-center p-3 rounded-xl" title="Nuevo expediente" style={{ fontSize: '16px' }}>
+            <button onClick={() => setShowExpedienteModal(true)} className="px-4 py-2 bg-slate-800 text-white rounded-lg flex items-center gap-2 font-semibold hover:bg-slate-700 transition-colors" title="Nuevo Expediente">
               <Plus size={20} />
+              Nuevo Expediente
             </button>
           )}
         </div>
@@ -1207,28 +1157,30 @@ const Expedientes = () => {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-3 mt-4">
-                      {ESTADOS_UI.map((key) => {
-                        const est = ESTADOS[key]
-                        const esActivo = expediente?.estado === key || (key === 'peticion' && expediente?.estado === 'confirmado')
-                        const abbr = key === 'cancelado' ? 'Ca' : est.label.charAt(0)
-                        return (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              cambiarEstado(expediente?.id, key)
-                            }}
-                            className={`px-4 py-2 rounded-lg font-semibold transition-colors cursor-pointer ${
-                              esActivo ? est.color : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                            }`}
-                            style={{ fontSize: '16px', cursor: 'pointer' }}
-                            title={est.label}
-                          >
-                            {abbr}
-                          </button>
-                        )
-                      })}
+                      <button
+                        title="Petición"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'peticion'); }}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${(expediente?.estado === 'peticion' || expediente?.estado === 'confirmado') ? 'bg-[#FACC15] text-black' : 'bg-gray-100 text-gray-400'}`}
+                      >P</button>
+                      <button
+                        title="Confirmado"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'en_curso'); }}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${expediente?.estado === 'en_curso' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}
+                      >C</button>
+                      <button
+                        title="Finalizado"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'finalizado'); }}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${expediente?.estado === 'finalizado' ? 'bg-[#3B82F6] text-white' : 'bg-gray-100 text-gray-400'}`}
+                      >F</button>
+                      <button
+                        title="Cancelado"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'cancelado'); }}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${expediente?.estado === 'cancelado' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-400'}`}
+                      >Ca</button>
                     </div>
                   </div>
                 )
