@@ -17,7 +17,7 @@ const Proveedores = () => {
   const [formData, setFormData] = useState({
     nombre_comercial: '', servicio: 'hotel', ciudad: '', codigo_postal: '', cif: '', persona_contacto: '',
     telefono_fijo: '', telefono_movil: '', email: '', email_2: '', direccion: '', 
-    poblacion: '', provincia: '', ubicacion_base: '', iban: '', entidad_bancaria: '', swift_bic: '',
+    poblacion: '', provincia: '', ubicacion: '', iban: '', entidad_bancaria: '', swift_bic: '',
     es_mayorista: false, observaciones: ''
   })
 
@@ -95,7 +95,7 @@ const Proveedores = () => {
       direccion: sanitizarTexto(formData.direccion),
       poblacion: sanitizarTexto(formData.poblacion),
       provincia: sanitizarTexto(formData.provincia),
-      ubicacion_base: sanitizarTexto(formData.ubicacion_base),
+      ubicacion: sanitizarTexto(formData.ubicacion),
       iban: sanitizarTexto(formData.iban),
       entidad_bancaria: sanitizarTexto(formData.entidad_bancaria),
       swift_bic: sanitizarTexto(formData.swift_bic),
@@ -142,7 +142,7 @@ const Proveedores = () => {
         direccion: p.direccion || '',
         poblacion: p.poblacion || '',
         provincia: p.provincia || '',
-        ubicacion_base: p.ubicacion_base || '',
+        ubicacion: p.ubicacion || '',
         iban: p.iban || '',
         entidad_bancaria: p.entidad_bancaria || '',
         swift_bic: p.swift_bic || '',
@@ -154,7 +154,7 @@ const Proveedores = () => {
       setFormData({
         nombre_comercial: '', servicio: 'hotel', ciudad: '', codigo_postal: '', cif: '', persona_contacto: '',
         telefono_fijo: '', telefono_movil: '', email: '', email_2: '', direccion: '', 
-        poblacion: '', provincia: '', ubicacion_base: '', iban: '', entidad_bancaria: '', swift_bic: '',
+        poblacion: '', provincia: '', ubicacion: '', iban: '', entidad_bancaria: '', swift_bic: '',
         es_mayorista: false, observaciones: ''
       })
     }
@@ -283,9 +283,9 @@ const Proveedores = () => {
                           <div className="text-xs font-bold text-slate-800 uppercase flex items-center gap-1">
                             <MapPin size={12} className="text-slate-400"/> {p.ciudad || p.poblacion || '-'}
                           </div>
-                          {p.ubicacion_base && (
+                          {p.ubicacion && (
                             <div className="text-[10px] font-bold text-blue-600 mt-1 uppercase">
-                              📍 {p.ubicacion_base}
+                              📍 {p.ubicacion}
                             </div>
                           )}
                           <div className="text-[10px] font-black text-slate-400 mt-1 uppercase ml-4">
@@ -368,8 +368,8 @@ const Proveedores = () => {
                 <input 
                   className="w-full p-6 bg-slate-50 rounded-2xl font-black text-base border-none outline-none focus:ring-4 focus:ring-blue-100" 
                   style={{ fontSize: '16px' }}
-                  value={formData.ubicacion_base || ''} 
-                  onChange={e=>setFormData({...formData, ubicacion_base:e.target.value})} 
+                  value={formData.ubicacion || ''} 
+                  onChange={e=>setFormData({...formData, ubicacion:e.target.value})} 
                   placeholder="Ej: Guía local de Santiago, Base Madrid..." 
                 />
               </div>

@@ -145,6 +145,7 @@ const DEFAULT_SERVICE_VALUES = {
   tipo_calculo: 'porPersona', // 'porPersona' | 'porGrupo' (Precio por Persona | Total a dividir)
   nombreEspecifico: '',
   localizacion: '',
+  especificacion_destino: '',
   coste_unitario: 0,
   total_servicio_manual: 0,
   margen: 0,
@@ -766,6 +767,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
               nombreEspecifico: row.nombre_especifico || '',
               localizacion: row.localizacion || '',
+              especificacion_destino: row.especificacion_destino || '',
               coste_unitario: coste,
               total_servicio_manual: esPorGrupo ? coste : 0,
               tipo_calculo: esPorGrupo ? 'porGrupo' : 'porPersona',
@@ -2164,6 +2166,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         tipo_servicio: servicio?.tipo || 'Hotel',
         nombre_especifico: servicio?.nombreEspecifico || '',
         localizacion: servicio?.localizacion || '',
+        especificacion_destino: (servicio?.especificacion_destino && String(servicio.especificacion_destino).trim()) || null,
         coste_unitario: toNum(precioUnitario),
         total_servicio: totalServicioFinal,
         precio_venta: toNum(precioUnitario),
@@ -4522,6 +4525,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                     <Plus size={16} />
                                   </button>
                                 </div>
+                                {/* Especificación destino: solo Guía Local, Entradas/Tickets, Otros */}
+                                {['Guía Local', 'Entradas/Tickets', 'Otros'].includes(servicio.tipo) && (
+                                  <div className="mt-1.5 flex items-center gap-1">
+                                    <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap">
+                                      {servicio.tipo === 'Guía Local' ? 'Guía local de ' : servicio.tipo === 'Entradas/Tickets' ? 'Entradas de ' : 'Destino: '}
+                                    </span>
+                                    <input
+                                      type="text"
+                                      value={servicio.especificacion_destino || ''}
+                                      onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
+                                      onFocus={(e) => e.target.select()}
+                                      placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'ej. Museo'}
+                                      className="input-field text-[10px] flex-1 min-w-0 py-1 px-2"
+                                      style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                    />
+                                  </div>
+                                )}
                                   
                                   {/* Lista de sugerencias - POSICIONAMIENTO ABSOLUTO CORRECTO */}
                                   {mostrarSugerencias[servicio.id] && (
@@ -4908,6 +4928,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               </div>
                             )}
                           </div>
+                            {['Guía Local', 'Entradas/Tickets', 'Otros'].includes(servicio.tipo) && (
+                              <div className="mt-2 flex items-center gap-1">
+                                <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap">
+                                  {servicio.tipo === 'Guía Local' ? 'Guía local de ' : servicio.tipo === 'Entradas/Tickets' ? 'Entradas de ' : 'Destino: '}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={servicio.especificacion_destino || ''}
+                                  onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
+                                  onFocus={(e) => e.target.select()}
+                                  placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'ej. Museo'}
+                                  className="input-field text-[10px] flex-1 min-w-0 py-1 px-2"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                />
+                              </div>
+                            )}
                           </div>
                           <div className="grid grid-cols-2 gap-3">
                             <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Cantidad</span>
