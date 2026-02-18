@@ -4396,10 +4396,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           {servicios.map(servicio => (
                             <tr key={servicio.id} className="border-t border-gray-200 hover:bg-gray-50">
                               {/* COLUMNA 1: SERVICIO (TIPO) */}
-                              <td className="px-2 py-2">
+                              <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                                 <select
                                   value={servicio.tipo}
+                                  onClick={(e) => e.stopPropagation()}
                                   onChange={(e) => {
+                                    e.stopPropagation()
                                     const nuevoTipo = e.target.value
                                     const updates = { tipo: nuevoTipo }
                                     // Autobús/Transporte: blindaje fijo — siempre Total ÷ pasajeros_pago
@@ -4444,7 +4446,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               </td>
                               
                               {/* COLUMNA 2: PROVEEDOR CON BÚSQUEDA */}
-                              <td className="px-2 py-2">
+                              <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                                 <div className="relative" data-provider-combobox>
                                 <div className="flex gap-1 items-center">
                                   <div className="relative flex-1">
@@ -4582,7 +4584,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                               <button
                                                 key={proveedor.id}
                                                     type="button"
-                                                onClick={() => {
+                                                onMouseDown={(e) => {
+                                                  e.preventDefault()
+                                                  e.stopPropagation()
                                                   actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
                                                   setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
                                                   setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
@@ -4847,12 +4851,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             <button onClick={() => eliminarServicio(servicio.id)} className="text-red-600 hover:text-red-900 p-1" title="Eliminar"><Trash2 size={16} /></button>
                           </div>
                           <div>
-                            <select value={servicio.tipo} onChange={(e) => { const nuevoTipo = e.target.value; const updates = { tipo: nuevoTipo }; if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') { updates.tipo_calculo = 'porGrupo'; if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario); } if (servicio.proveedorId) { const proveedorActual = obtenerProveedorPorId(servicio.proveedorId); const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || ''); const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo); if (tipoProveedorActual !== nuevoTipoProveedor) { updates.proveedorId = null; setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' })); } } actualizarServicio(servicio.id, updates); setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true })); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
+                            <select value={servicio.tipo} onClick={(e) => e.stopPropagation()} onChange={(e) => { e.stopPropagation(); const nuevoTipo = e.target.value; const updates = { tipo: nuevoTipo }; if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') { updates.tipo_calculo = 'porGrupo'; if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario); } if (servicio.proveedorId) { const proveedorActual = obtenerProveedorPorId(servicio.proveedorId); const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || ''); const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo); if (tipoProveedorActual !== nuevoTipoProveedor) { updates.proveedorId = null; setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' })); } } actualizarServicio(servicio.id, updates); setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true })); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
                               <option>Hotel</option><option>Restaurante</option><option>Autobús</option><option>Transporte</option><option>Guía</option><option>Guía Local</option><option>Entradas/Tickets</option><option>Seguro</option><option>Otros</option>
                             </select>
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Proveedor</span>
-                          <div className="relative" data-provider-combobox>
+                          <div className="relative" data-provider-combobox onClick={(e) => e.stopPropagation()}>
                             <div className="flex gap-1 items-center">
                               <div className="relative flex-1">
                                 <input
@@ -4893,7 +4897,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       {proveedoresFiltrados.length > 0 && (
                                         <div className="py-1">
                                           {proveedoresFiltrados.map(proveedor => (
-                                            <button key={proveedor.id} type="button" onClick={() => { actualizarServicio(servicio.id, 'proveedorId', proveedor.id); setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); }} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
+                                            <button key={proveedor.id} type="button" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); actualizarServicio(servicio.id, 'proveedorId', proveedor.id); setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); }} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
                                             ><span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>{proveedor.telefono && <span className="text-gray-500">· {proveedor.telefono}</span>}</button>
                                           ))}
                                         </div>
