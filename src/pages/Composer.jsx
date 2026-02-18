@@ -61,20 +61,13 @@ const Composer = () => {
         if (!provRes.error && Array.isArray(provRes.data)) {
           setProveedores(provRes.data)
         } else if (provRes.error) {
-          console.error('❌ Error cargando proveedores:', provRes.error)
         }
 
         if (!expRes.error && Array.isArray(expRes.data)) {
           setExpedientes(expRes.data)
-          console.log('Datos cargados:', expRes.data)
-          if (expRes.data.length > 0) {
-            console.log('Primer expediente - cliente_nombre:', expRes.data[0].cliente_nombre)
-          }
         } else if (expRes.error) {
-          console.error('❌ Error cargando expedientes:', expRes.error)
         }
       } catch (err) {
-        console.error('❌ Error inesperado cargando datos:', err)
       }
     }
 
@@ -91,8 +84,6 @@ const Composer = () => {
     if (selectedId) {
       // Forzamos String porque son IDs de tipo int8
       const p = proveedores.find((item) => String(item.id) === String(e.target.value))
-      console.log('Proveedor seleccionado:', p)
-
       if (p) {
         // Mapeo de Datos: actualizar estados del formulario
         setTelefono(p.movil || p.telefono_fijo || p.telefono || '')
@@ -111,8 +102,6 @@ const Composer = () => {
     
     // Son UUIDs, no uses Number - comparación directa
     const exp = expedientes.find((item) => item.id === e.target.value)
-    console.log('Expediente seleccionado:', exp)
-
     if (exp) {
       // Mapeo de Datos de Viaje: inyectar campos en formulario y bono
       setTitulo(exp.cliente_nombre ? `Bono para ${exp.cliente_nombre}` : '')
@@ -171,14 +160,12 @@ const Composer = () => {
         .insert([datosParaGuardar])
 
       if (error) {
-        console.error('❌ Error guardando bono:', error)
         alert(`Error al guardar el bono: ${error.message}`)
         return
       }
 
       alert('✅ Bono guardado con éxito')
     } catch (err) {
-      console.error('❌ Error inesperado guardando plantilla:', err)
       alert('Error inesperado al guardar la plantilla')
     } finally {
       setGuardando(false)

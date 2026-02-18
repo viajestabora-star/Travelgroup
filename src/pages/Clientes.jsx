@@ -66,8 +66,6 @@ const Clientes = () => {
 
     // Normalizar nombre: eliminar espacios extra y trim
     const nombreNormalizado = nombreCliente.trim().replace(/\s+/g, ' ')
-    console.log("Buscando expedientes para:", nombreNormalizado)
-
     setCargandoExpedientes(true)
     try {
       const { data, error } = await supabase
@@ -76,16 +74,12 @@ const Clientes = () => {
         .ilike('cliente_nombre', nombreNormalizado)
         .order('fecha_viaje', { ascending: false })
 
-      console.log("DATOS RECUPERADOS:", data)
-
       if (error) {
-        console.error('Error cargando expedientes:', error)
         setExpedientesCliente([])
         return
       }
 
       if (!data || data.length === 0) {
-        console.log("No se encontraron expedientes")
         setExpedientesCliente([])
         setCargandoExpedientes(false)
         return
@@ -125,7 +119,6 @@ const Clientes = () => {
               beneficioNeto: isNaN(beneficioNeto) ? null : beneficioNeto
             }
           } catch (err) {
-            console.error('Error calculando beneficio para expediente:', exp.id, err)
             return { ...exp, beneficioNeto: null }
           }
         })
@@ -133,7 +126,6 @@ const Clientes = () => {
 
       setExpedientesCliente(expedientesConBeneficio)
     } catch (err) {
-      console.error('Error inesperado cargando expedientes:', err)
       setExpedientesCliente([])
     } finally {
       setCargandoExpedientes(false)
@@ -735,11 +727,6 @@ const Clientes = () => {
               {editingId && (
                 <div className="mt-8 border-t pt-8" style={{ borderColor: '#f1f5f9' }}>
                   <h2 className="text-2xl font-bold text-slate-900 mb-6">📂 Historial de Expedientes</h2>
-                  
-                  {(() => {
-                    console.log("Expedientes encontrados:", expedientesCliente)
-                    return null
-                  })()}
                   
                   {cargandoExpedientes ? (
                     <div className="text-center py-8 text-slate-500">

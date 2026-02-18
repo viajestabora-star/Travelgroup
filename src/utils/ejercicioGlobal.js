@@ -21,7 +21,6 @@ export const getEjercicioActual = () => {
       }
     }
   } catch (error) {
-    console.error('Error leyendo ejercicio de localStorage:', error)
   }
   return EJERCICIO_POR_DEFECTO
 }
@@ -36,18 +35,14 @@ export const setEjercicioActual = (ejercicio) => {
     // Validar rango
     if (year >= EJERCICIO_MIN && year <= EJERCICIO_MAX) {
       localStorage.setItem(EJERCICIO_KEY, year.toString())
-      console.log('✅ Ejercicio guardado:', year)
-      
       // Disparar evento personalizado para notificar a todos los componentes
       window.dispatchEvent(new CustomEvent('ejercicioChanged', { detail: year }))
       
       return true
     } else {
-      console.warn('⚠️ Ejercicio fuera de rango:', year)
       return false
     }
   } catch (error) {
-    console.error('Error guardando ejercicio en localStorage:', error)
     return false
   }
 }

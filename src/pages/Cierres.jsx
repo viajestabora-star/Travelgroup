@@ -84,7 +84,6 @@ const generarFacturaPDFUnificado = async (factura) => {
         doc.rect(20, 15, 40, 15, 'F')
         doc.addImage(logoImg, 'PNG', 20, 15, 40, 15)
       } catch (e) {
-        console.warn('Error añadiendo logo a factura:', e)
       }
     }
     
@@ -273,10 +272,8 @@ const Cierres = () => {
         .order('fecha_emision', { ascending: false })
 
       if (errorGlobal) {
-        console.error('Error cargando facturas_emitidas_global:', errorGlobal)
       }
       if (errorExpedientes) {
-        console.error('Error cargando facturas (expedientes):', errorExpedientes)
       }
 
       const listaGlobal = Array.isArray(facturasGlobal) ? facturasGlobal : []
@@ -353,12 +350,9 @@ const Cierres = () => {
       return 0
     })
 
-    console.log('Facturas cargadas (unificadas + normalizadas + únicas):', todasLasFacturas)
-    console.log(`Total facturas en historial: ${todasLasFacturas.length}`)
 
     setFacturas(todasLasFacturas)
     } catch (err) {
-      console.error('Error inesperado unificando facturas:', err)
       setFacturas([])
     } finally {
       setCargandoFacturas(false)
@@ -378,7 +372,6 @@ const Cierres = () => {
         .order('nombre', { ascending: true })
       
       if (error) {
-        console.error('Error cargando clientes para facturación directa:', error)
         alert(`Error cargando clientes: ${error.message}`)
         setClientes([])
         return
@@ -386,7 +379,6 @@ const Cierres = () => {
       
       setClientes(data || [])
     } catch (err) {
-      console.error('Error inesperado cargando clientes:', err)
       setClientes([])
     } finally {
       setCargandoClientes(false)
@@ -419,14 +411,12 @@ const Cierres = () => {
         .order('id', { ascending: false })
 
       if (error) {
-        console.error('Error cargando expedientes para Informe Hacienda:', error)
         setExpedientesCierre([])
         return
       }
 
       setExpedientesCierre(data || [])
     } catch (err) {
-      console.error('Error inesperado cargando expedientes para Informe Hacienda:', err)
       setExpedientesCierre([])
     } finally {
       setCargandoExpedientesCierre(false)
@@ -469,7 +459,6 @@ const Cierres = () => {
         .order('id', { ascending: true })
 
       if (error) {
-        console.error('Error cargando servicios_cotizacion para Informe Hacienda:', error)
         setLineasInforme([])
         return
       }
@@ -517,7 +506,6 @@ const Cierres = () => {
 
       setLineasInforme(lineas)
     } catch (err) {
-      console.error('Error inesperado cargando servicios para Informe Hacienda:', err)
       setLineasInforme([])
     }
   }
@@ -564,7 +552,6 @@ const Cierres = () => {
         )
 
       if (error) {
-        console.error('Error guardando Informe Hacienda:', error)
         alert('Error guardando Informe Hacienda: ' + error.message)
         return
       }
@@ -584,7 +571,6 @@ const Cierres = () => {
         )
       )
     } catch (err) {
-      console.error('Error inesperado guardando Informe Hacienda:', err)
       alert('Error inesperado guardando Informe Hacienda.')
     } finally {
       setGuardandoInforme(false)
@@ -699,10 +685,8 @@ const Cierres = () => {
       const { data: dataExpedientes, error: errorExpedientes } = expedientesRes || {}
 
       if (errorGlobal) {
-        console.error('Error obteniendo facturas de facturas_emitidas_global:', errorGlobal)
       }
       if (errorExpedientes) {
-        console.error('Error obteniendo facturas de facturas:', errorExpedientes)
       }
 
       // 2) Unificar y encontrar el máximo número entre ambas tablas
@@ -736,7 +720,6 @@ const Cierres = () => {
       const siguienteNum = maxNumero + 1
       return `${año}-${String(siguienteNum).padStart(4, '0')}`
     } catch (err) {
-      console.error('Error inesperado obteniendo número de factura:', err)
       // Fallback seguro: devolver el primer número del año actual
       return `${año}-0001`
     }
@@ -818,7 +801,6 @@ const Cierres = () => {
       ])
 
       if (errorInsert) {
-        console.error('Error insertando factura directa en facturas_emitidas_global:', errorInsert)
         alert(`Error guardando factura directa: ${errorInsert.message}`)
         return
       }
@@ -883,7 +865,6 @@ const Cierres = () => {
         
         doc.save(`Factura_${numeroFactura}_Directa.pdf`)
       } catch (pdfError) {
-        console.error('Error generando PDF de factura directa:', pdfError)
       }
 
       alert(`✅ Factura directa ${numeroFactura} emitida correctamente`)
@@ -897,7 +878,6 @@ const Cierres = () => {
       // Refrescar listado
       await cargarFacturas()
     } catch (err) {
-      console.error('Error inesperado en facturación directa:', err)
       alert(`Error inesperado emitiendo factura directa: ${err.message}`)
     } finally {
       setAplicandoFacturaDirecta(false)

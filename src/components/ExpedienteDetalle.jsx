@@ -600,16 +600,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [expediente?.cliente_nombre, expediente?.nombre_grupo])
   
-  // Cerrar sugerencias al hacer clic fuera
+  // Cerrar sugerencias al hacer clic fuera (selector específico para combobox proveedor)
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (!e.target.closest('.relative')) {
+      if (!e.target.closest('[data-provider-combobox]')) {
         setMostrarSugerencias({})
       }
     }
-    
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('touchstart', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('touchstart', handleClickOutside)
+    }
   }, [])
   
   // ============ CARGA OBLIGATORIA AL MONTAR ============
@@ -1803,9 +1806,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     e.target.select() // Auto-seleccionar al hacer focus para fácil reemplazo
   }
   
-  // Deshabilitar cambio con rueda del ratón en inputs numéricos (infalible: blur + preventDefault)
+  // Deshabilitar cambio con rueda en inputs numéricos: blur sin preventDefault (evita errores passive listener)
   const handleWheel = (e) => {
-    e.preventDefault()
     e.target.blur()
   }
   
@@ -4437,7 +4439,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               
                               {/* COLUMNA 2: PROVEEDOR CON BÚSQUEDA */}
                               <td className="px-2 py-2">
-                                <div className="relative">
+                                <div className="relative" data-provider-combobox>
                                 <div className="flex gap-1 items-center">
                                   <div className="relative flex-1">
                                     {/* Input de búsqueda - SOLO búsqueda, NO crea nada */}
@@ -4464,12 +4466,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                         e.target.style.borderColor = '#3b82f6'
                                         e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                                       }}
-                                      placeholder="Pendiente de asignar"
+                                      placeholder="Pendiente"
                                         className="input-field text-xs w-full pr-8 transition-all"
                                         style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                                         onBlur={(e) => {
                                           e.target.style.borderColor = '#e2e8f0'
                                           e.target.style.boxShadow = 'none'
+                                          setTimeout(() => {
+                                            setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: false }))
+                                            if (!servicio.proveedorId && busquedaProveedor[servicio.id]) {
+                                              setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
+                                            }
+                                          }, 120)
                                         }}
                                     />
                                     
@@ -4835,7 +4843,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             </select>
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Proveedor</span>
-                          <div className="relative">
+                          <div className="relative" data-provider-combobox>
                             <div className="flex gap-1 items-center">
                               <div className="relative flex-1">
                                 <input
@@ -4843,10 +4851,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')}
                                   onChange={(e) => { const inputValue = e.target.value; setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true }); }}
                                   onFocus={(e) => { setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true }); if (!busquedaProveedor[servicio.id]) { setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' }); } e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }}
-                                  placeholder="Pendiente de asignar"
+                                  placeholder="Pendiente"
                                   className="input-field text-xs w-full pr-8 transition-all"
                                   style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                                  onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                    setTimeout(() => {
+                                      setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: false }))
+                                      if (!servicio.proveedorId && busquedaProveedor[servicio.id]) {
+                                        setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
+                                      }
+                                    }, 120)
+                                  }}
                                 />
                                 {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
                                   <button onClick={() => { setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' }); actualizarServicio(servicio.id, 'proveedorId', null); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10" title="Limpiar"><X size={14} /></button>

@@ -7,7 +7,6 @@ export const storage = {
       const item = localStorage.getItem(key)
       return item ? JSON.parse(item) : null
     } catch (error) {
-      console.error(`Error getting ${key}:`, error)
       return null
     }
   },
@@ -17,7 +16,6 @@ export const storage = {
       localStorage.setItem(key, JSON.stringify(value))
       return true
     } catch (error) {
-      console.error(`Error setting ${key}:`, error)
       return false
     }
   },
@@ -27,7 +25,6 @@ export const storage = {
       localStorage.removeItem(key)
       return true
     } catch (error) {
-      console.error(`Error removing ${key}:`, error)
       return false
     }
   },

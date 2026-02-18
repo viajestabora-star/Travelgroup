@@ -50,7 +50,6 @@ const Proveedores = () => {
         .order('nombre_comercial', { ascending: true })
       
       if (error) {
-        console.error('Error cargando proveedores:', error)
         setProveedores([])
         setCargando(false)
         return
@@ -60,7 +59,6 @@ const Proveedores = () => {
       setProveedores(Array.isArray(data) ? data : [])
       setCargando(false)
     } catch (err) {
-      console.error('Error inesperado cargando proveedores:', err)
       setProveedores([])
       setCargando(false)
     }

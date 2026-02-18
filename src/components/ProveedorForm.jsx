@@ -92,7 +92,6 @@ const ProveedorForm = ({
         onSaved(proveedorMapeado)
       }
     } catch (error) {
-      console.error('Error al guardar proveedor:', error)
       alert('Error al guardar proveedor. Revisa la consola.')
     }
   }

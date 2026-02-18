@@ -26,7 +26,6 @@ const Layout = () => {
   // Sincronizar con cambios globales del ejercicio
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
-      console.log('📅 Layout: Ejercicio cambiado a', nuevoEjercicio)
       setEjercicioActual(nuevoEjercicio)
     })
     return unsubscribe

@@ -67,18 +67,11 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
       const { data, error } = await query.order('fecha_plazo', { ascending: false });
 
       if (error) {
-        console.error('❌ Error cargando notas:', error);
-        console.error('Detalles del error:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint
-        });
         setNotas([]);
       } else {
         setNotas(data || []);
       }
     } catch (error) {
-      console.error('❌ Error fatal cargando notas:', error);
       setNotas([]);
     } finally {
       setCargando(false);
@@ -101,26 +94,16 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
           fecha_plazo: editando.fecha_plazo || null
         };
 
-        console.log('📝 Actualizando nota:', datosActualizar);
-
         const { error } = await supabase
           .from('notas')
           .update(datosActualizar)
           .eq('id', editando.id);
 
         if (error) {
-          console.error('❌ Error actualizando nota:', error);
-          console.error('Detalles:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code
-          });
           alert(`Error al actualizar la nota: ${error.message}`);
           return;
         }
 
-        console.log('✅ Nota actualizada correctamente');
         setEditando(null);
       } else {
         // Crear nueva nota - Notas generales: expediente_id siempre null
@@ -133,8 +116,6 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
           fecha_plazo: nuevaNota.fecha_plazo || null
         };
 
-        console.log('💾 Guardando nueva nota:', notaParaGuardar);
-
         const { data, error } = await supabase
           .from('notas')
           .insert([notaParaGuardar])
@@ -142,18 +123,9 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
           .single();
 
         if (error) {
-          console.error('❌ Error guardando nota:', error);
-          console.error('Detalles:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code
-          });
           alert(`Error al guardar la nota: ${error.message}`);
           return;
         }
-
-        console.log('✅ Nota guardada correctamente:', data);
 
         // Limpiar formulario
         setMostrarForm(false);
@@ -169,7 +141,6 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
       // Recargar notas
       await cargarNotas();
     } catch (error) {
-      console.error('❌ Error inesperado:', error);
       alert(`Error inesperado: ${error.message}`);
     }
   };
@@ -186,20 +157,12 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
         .eq('id', id);
 
       if (error) {
-        console.error('❌ Error eliminando nota:', error);
-        console.error('Detalles:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint
-        });
         alert(`Error al eliminar la nota: ${error.message}`);
         return;
       }
 
-      console.log('✅ Nota eliminada correctamente');
       await cargarNotas();
     } catch (error) {
-      console.error('❌ Error inesperado:', error);
       alert(`Error inesperado: ${error.message}`);
     }
   };
@@ -284,7 +247,6 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
         .eq('id', notaId);
 
       if (error) {
-        console.error('❌ Error guardando respuesta:', error);
         // Revertir actualización optimista
         setNotas(prevNotas => 
           prevNotas.map(nota => 
@@ -297,9 +259,7 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
         return;
       }
 
-      console.log('✅ Respuesta guardada correctamente');
     } catch (error) {
-      console.error('❌ Error inesperado:', error);
       alert(`Error inesperado: ${error.message}`);
     } finally {
       setRespondiendo(prev => ({ ...prev, [notaId]: false }));
@@ -319,7 +279,6 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
         .eq('id', notaId);
 
       if (error) {
-        console.error('❌ Error completando nota:', error);
         alert(`Error al completar la nota: ${error.message}`);
         setNotasCompletando(prev => {
           const nuevo = new Set(prev);
@@ -350,7 +309,6 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
         }, 300); // Tiempo de animación
       }, 100);
     } catch (error) {
-      console.error('❌ Error inesperado:', error);
       alert(`Error inesperado: ${error.message}`);
       setNotasCompletando(prev => {
         const nuevo = new Set(prev);

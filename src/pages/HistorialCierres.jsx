@@ -27,7 +27,6 @@ const HistorialCierres = () => {
         .order('id', { ascending: false })
 
       if (error) {
-        console.error('Error cargando cierres:', error)
         setCierres([])
         return
       }
@@ -63,7 +62,6 @@ const HistorialCierres = () => {
 
       setCierres(mapeados)
     } catch (err) {
-      console.error('Error inesperado cargando cierres:', err)
       setCierres([])
     } finally {
       setCargando(false)

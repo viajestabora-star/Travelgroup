@@ -27,7 +27,6 @@ const Dashboard = () => {
   // Sincronizar con cambios globales del ejercicio
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
-      console.log('📅 Dashboard: Ejercicio cambiado a', nuevoEjercicio)
       setEjercicioActual(nuevoEjercicio)
     })
     return unsubscribe
@@ -41,7 +40,6 @@ const Dashboard = () => {
         .select('id', { count: 'exact' })
       
       if (error) {
-        console.error('Error cargando clientes:', error)
         // Fallback a localStorage
         const clientes = storage.getClientes()
         return clientes.length
@@ -49,7 +47,6 @@ const Dashboard = () => {
       
       return data?.length || 0
     } catch (error) {
-      console.error('Error fatal cargando clientes:', error)
       // Fallback a localStorage
       const clientes = storage.getClientes()
       return clientes.length
@@ -71,7 +68,6 @@ const Dashboard = () => {
         .lte('fecha_inicio', finAño)
       
       if (error) {
-        console.error('Error cargando expedientes del año:', error)
         // Fallback a localStorage
         const expedientes = storage.get('expedientes') || []
         return expedientes.filter(exp => {
@@ -84,7 +80,6 @@ const Dashboard = () => {
       
       return data?.length || 0
     } catch (error) {
-      console.error('Error fatal cargando expedientes del año:', error)
       // Fallback a localStorage
       const expedientes = storage.get('expedientes') || []
       return expedientes.filter(exp => {
@@ -115,7 +110,6 @@ const Dashboard = () => {
         .limit(10)
       
       if (error) {
-        console.error('Error cargando próximas visitas:', error)
         return []
       }
       
@@ -130,7 +124,6 @@ const Dashboard = () => {
         email: exp.email
       }))
     } catch (error) {
-      console.error('Error fatal cargando próximas visitas:', error)
       return []
     }
   }
@@ -147,7 +140,6 @@ const Dashboard = () => {
         .limit(50)
       
       if (serviciosError) {
-        console.error('Error cargando servicios con release:', serviciosError)
         return []
       }
       
@@ -169,7 +161,6 @@ const Dashboard = () => {
         .in('id', expedientesIds)
       
       if (expedientesError) {
-        console.error('Error cargando expedientes:', expedientesError)
         return []
       }
       
@@ -213,7 +204,6 @@ const Dashboard = () => {
       
       return releases
     } catch (error) {
-      console.error('Error fatal cargando próximos releases:', error)
       return []
     }
   }
@@ -267,14 +257,12 @@ const Dashboard = () => {
         .update({ release_pagado: true })
         .eq('id', releaseId)
       if (error) {
-        console.error('Error marcando release como pagado:', error)
         alert('No se pudo marcar como pagado. Inténtalo de nuevo.')
         return
       }
       const releases = await cargarProximosReleases()
       setProximosReleases(releases)
     } catch (err) {
-      console.error('Error marcando release como pagado:', err)
       alert('No se pudo marcar como pagado.')
     }
   }
