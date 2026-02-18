@@ -194,10 +194,13 @@ const Expedientes = () => {
     email: ''
   })
 
-  // Cargar todos los clientes de Supabase
+  // Cargar todos los clientes de Supabase (orden A-Z por nombre)
   const fetchClientesFromSupabase = async () => {
     try {
-      const { data, error } = await supabase.from('clientes').select('*')
+      const { data, error } = await supabase
+        .from('clientes')
+        .select('*')
+        .order('nombre', { ascending: true })
       if (error) {
         manejarErrorSupabase(error, 'cargar clientes');
         return []

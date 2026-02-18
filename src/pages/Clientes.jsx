@@ -13,7 +13,6 @@ const Clientes = () => {
   const [editingId, setEditingId] = useState(null)
   const [expedientesCliente, setExpedientesCliente] = useState([])
   const [cargandoExpedientes, setCargandoExpedientes] = useState(false)
-  const [confirmarBorrado, setConfirmarBorrado] = useState(null) // { id, nombre } - Modal Regla 1.14
   
   const [formData, setFormData] = useState({
     nombre: '', 
@@ -52,16 +51,11 @@ const Clientes = () => {
     else { alert("Error al guardar cliente: " + error.message) }
   }
 
-  // Regla 1.14: Modal de confirmación antes de borrar
-  const solicitarBorradoCliente = (id, nombre) => setConfirmarBorrado({ id, nombre })
-
-  const ejecutarBorradoCliente = async () => {
-    if (!confirmarBorrado?.id) return
-    const { error } = await supabase.from('clientes').delete().eq('id', confirmarBorrado.id)
-    if (!error) {
-      fetchClientes()
-      setConfirmarBorrado(null)
-    }
+  // Regla 1.14: Confirmación antes de borrar (evita pérdidas accidentales)
+  const deleteCliente = async (id, nombre) => {
+    if (!window.confirm(`¿Está seguro de que desea eliminar al cliente "${nombre}"?\n\nEsta acción no se puede deshacer.`)) return
+    const { error } = await supabase.from('clientes').delete().eq('id', id)
+    if (!error) fetchClientes()
   }
 
   const cargarExpedientesCliente = async (nombreCliente) => {
@@ -229,7 +223,7 @@ const Clientes = () => {
                 </td>
                 <td className="px-8 py-6 text-right opacity-0 group-hover:opacity-100 transition-opacity">
                   <button onClick={() => openModal(c)} className="p-4 bg-slate-100 text-slate-900 rounded-2xl hover:bg-slate-900 hover:text-white transition-all mr-2"><Edit2 size={20}/></button>
-                  <button onClick={() => solicitarBorradoCliente(c.id, c.nombre)} className="p-4 bg-red-50 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all"><Trash2 size={20}/></button>
+                  <button onClick={() => deleteCliente(c.id, c.nombre)} className="p-4 bg-red-50 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all"><Trash2 size={20}/></button>
                 </td>
               </tr>
             ))}
@@ -806,33 +800,6 @@ const Clientes = () => {
                   </>
                 )
               })()}
-          </div>
-        </div>
-      )}
-
-      {/* Modal Confirmación Borrado (Regla 1.14) */}
-      {confirmarBorrado && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Confirmar eliminación</h2>
-            <p className="text-gray-600 mb-4">
-              ¿Está seguro de que desea eliminar al cliente <strong>"{confirmarBorrado.nombre}"</strong>?
-            </p>
-            <p className="text-sm text-red-600 mb-6">Esta acción no se puede deshacer.</p>
-            <div className="flex gap-3">
-              <button
-                onClick={ejecutarBorradoCliente}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
-              >
-                Eliminar
-              </button>
-              <button
-                onClick={() => setConfirmarBorrado(null)}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
-              >
-                Cancelar
-              </button>
-            </div>
           </div>
         </div>
       )}
