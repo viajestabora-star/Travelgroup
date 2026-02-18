@@ -49,8 +49,7 @@ const Proveedores = () => {
       const { data, error } = await supabase
         .from('proveedores')
         .select('*')
-        .order('tipo', { ascending: true })
-        .order('nombre_comercial', { ascending: true }) // Regla 1.14: por Servicio, luego A-Z
+        .order('nombre_comercial', { ascending: true }) // Regla 1.14: siempre A-Z alfabético
       
       if (error) {
         setProveedores([])

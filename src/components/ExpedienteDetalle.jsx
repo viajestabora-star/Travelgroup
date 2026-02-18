@@ -448,8 +448,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const { data, error } = await supabase
         .from('proveedores')
         .select('*')
-        .order('tipo', { ascending: true })
-        .order('nombre_comercial', { ascending: true }); // Regla 1.14: por Servicio, luego A-Z
+        .order('nombre_comercial', { ascending: true }); // Regla 1.14: siempre A-Z alfabético
       
       if (error) {
         // Fallback: intentar cargar desde storage (sesión anterior)
@@ -2211,6 +2210,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         tipo_servicio: servicio?.tipo || 'Hotel',
         nombre_especifico: servicio?.nombreEspecifico || '',
         localizacion: servicio?.localizacion || '',
+        // Blindaje datos: Detalle (especificación destino) y relación Mayorista-Hotel
         especificacion_destino: (servicio?.especificacion_destino && String(servicio.especificacion_destino).trim()) || null,
         coste_unitario: toNum(precioUnitario),
         total_servicio: totalServicioFinal,
@@ -2224,6 +2224,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
         proveedor_id_int: proveedorIdLimpio,
         nombre_proveedor_manual: (servicio?.proveedorNombreTemporal && String(servicio.proveedorNombreTemporal).trim()) || null,
+        // Relación Mayorista-Hotel (servicio_vinculado_id en esquema alternativo)
         mayorista_id: (() => {
           const v = servicio?.mayorista_id
           if (v == null || v === '' || v === undefined) return null
@@ -3076,12 +3077,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Interceptar cambio de pestaña: aviso si hay cotización sin guardar
   const handleTabChange = (nuevoTab) => {
     if (tab === 'cotizacion' && hasCotizacionSinGuardar) {
-      const guardar = window.confirm('Tienes cambios sin guardar en la cotización. ¿Deseas guardarlos?')
-      if (guardar) {
+      const salir = window.confirm('Tienes cambios sin guardar. ¿Deseas salir?')
+      if (salir) {
         guardarCotizacion().then((r) => { if (r?.ok) setTab(nuevoTab) })
-      } else {
-        setTab(nuevoTab)
       }
+      // Si cancela, permanece en la pantalla (no cambia de pestaña)
     } else {
       setTab(nuevoTab)
     }
@@ -3090,12 +3090,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Interceptar cierre: aviso si hay cotización sin guardar
   const handleClose = () => {
     if (tab === 'cotizacion' && hasCotizacionSinGuardar) {
-      const guardar = window.confirm('Tienes cambios sin guardar en la cotización. ¿Deseas guardarlos?')
-      if (guardar) {
+      const salir = window.confirm('Tienes cambios sin guardar. ¿Deseas salir?')
+      if (salir) {
         guardarCotizacion().then((r) => { if (r?.ok) onClose() })
-      } else {
-        onClose()
       }
+      // Si cancela, permanece en la pantalla (no cierra)
     } else {
       onClose()
     }
@@ -4429,6 +4428,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     <>
                     {/* DESKTOP: Tabla tradicional - oculta en móvil */}
                     <div className="hidden md:block overflow-x-auto">
+                      {/* Interfaz final: anchos fijos persistentes (160, 348=170+130, 50, 70, 120, 90, 120, 40) */}
                       <table className="w-full whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '960px' }}>
                         <colgroup>
                           <col style={{ width: '160px', minWidth: '160px', maxWidth: '160px' }} />
@@ -4625,13 +4625,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                             const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda)
                                             return coincideTipo && coincideNombre
                                           })
-                                          .sort((a, b) => {
-                                            // Regla 1.14: por servicio (tipo), luego alfabético
-                                            const ta = normalizarText(a.tipo || '');
-                                            const tb = normalizarText(b.tipo || '');
-                                            if (ta !== tb) return ta.localeCompare(tb);
-                                            return (a.nombreComercial || '').localeCompare(b.nombreComercial || '');
-                                          })
+                                          .sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || '')) // Regla 1.14: A-Z alfabético
 
                                         return (
                                           <>
@@ -4968,7 +4962,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 {(() => {
                                   const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
                                   const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase().trim()
-                                  const proveedoresFiltrados = proveedores.filter(p => { const tipoProveedorNormalizado = normalizarText(p.tipo || ''); const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado || ''); const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado; if (!textoBusqueda) return coincideTipo; const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda); return coincideTipo && coincideNombre; }).sort((a, b) => { const ta = normalizarText(a.tipo || ''); const tb = normalizarText(b.tipo || ''); if (ta !== tb) return ta.localeCompare(tb); return (a.nombreComercial || '').localeCompare(b.nombreComercial || ''); })
+                                  const proveedoresFiltrados = proveedores.filter(p => { const tipoProveedorNormalizado = normalizarText(p.tipo || ''); const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado || ''); const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado; if (!textoBusqueda) return coincideTipo; const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda); return coincideTipo && coincideNombre; }).sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || '')) // Regla 1.14: A-Z
                                   return (
                                     <>
                                       {proveedoresFiltrados.length === 0 && !textoBusqueda && <div className="px-3 py-3 text-xs text-center"><p className="text-gray-600 mb-2">No hay proveedores de <strong>{servicio.tipo}</strong></p><p className="text-green-600 font-medium">💡 Usa el botón + para añadir uno nuevo</p></div>}
