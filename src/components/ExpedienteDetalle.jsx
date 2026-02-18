@@ -4818,8 +4818,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       e.target.style.boxShadow = 'none'
                                     }}
                                   >
-                                    <option value="porPersona">Precio por Persona</option>
-                                    <option value="porGrupo">Total a dividir entre el grupo</option>
+                                    <option value="porPersona">X pax</option>
+                                    <option value="porGrupo">÷ Todos</option>
                                   </select>
                                 )}
                               </td>
@@ -4981,8 +4981,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               <span className="text-xs font-medium text-slate-600">Total ÷ pax</span>
                             ) : (
                               <select value={servicio.tipo_calculo || 'porPersona'} onChange={(e) => { const nuevoModo = e.target.value; const updates = { tipo_calculo: nuevoModo }; if (nuevoModo === 'porGrupo' && servicio.coste_unitario) { updates.total_servicio_manual = toNum(servicio.coste_unitario); } else if (nuevoModo === 'porPersona') { updates.total_servicio_manual = 0; } actualizarServicio(servicio.id, updates); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
-                                <option value="porPersona">Precio por Persona</option>
-                                <option value="porGrupo">Total a dividir entre el grupo</option>
+                                <option value="porPersona">X pax</option>
+                                <option value="porGrupo">÷ Todos</option>
                               </select>
                             )}
                           </div>
