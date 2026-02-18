@@ -299,6 +299,9 @@ const Expedientes = () => {
           // Parámetros de cotización resumidos en columnas planas
           total_pax: exp.total_pax || null,
           pax_pago: exp.pax_pago || null,
+          gratuidades: exp.gratuidades ?? 0,
+          precio_venta_cliente: exp.precio_venta_cliente ?? 0,
+          bonificacion_pax: exp.bonificacion_pax ?? 0,
 
           // Cierre de Grupo (liquidación real, no machaca cotización)
           cierre_grupo: exp.cierre_grupo || null,
@@ -392,9 +395,12 @@ const Expedientes = () => {
         const clienteIdParaSync = expediente.cliente_id || expediente.clienteId;
         const clienteIdUUID = clienteIdParaSync ? String(clienteIdParaSync).trim() : null;
 
+        const totalPaxNum = expediente.total_pax != null ? Number(expediente.total_pax) : 1
+        const gratuidadesNum = expediente.gratuidades != null ? Number(expediente.gratuidades) : 0
+        const paxPagoNum = Math.max(1, (isNaN(totalPaxNum) ? 1 : totalPaxNum) - (isNaN(gratuidadesNum) ? 0 : gratuidadesNum))
         const datosParaSupabase = {
           numero_expediente: String(expediente.numero_expediente || expediente.numeroExpediente || ''),
-          cliente_id: (clienteIdUUID && clienteIdUUID !== '') ? clienteIdUUID : null, // UUID (string) o null
+          cliente_id: (clienteIdUUID && clienteIdUUID !== '') ? clienteIdUUID : null,
           cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
           fecha_inicio: convertirFechaAISO(expediente.fecha_inicio || expediente.fechaInicio || ''),
           fecha_final: convertirFechaAISO(expediente.fecha_final || expediente.fechaFin || expediente.fecha_fin || ''),
@@ -405,9 +411,11 @@ const Expedientes = () => {
           estado: String(expediente.estado || 'peticion'),
           observaciones: String(expediente.observaciones || ''),
           itinerario: String(expediente.itinerario || ''),
-          total_pax: (expediente.total_pax !== undefined && expediente.total_pax !== null)
-            ? String(expediente.total_pax)
-            : null,
+          total_pax: (expediente.total_pax !== undefined && expediente.total_pax !== null) ? String(expediente.total_pax) : null,
+          gratuidades: isNaN(gratuidadesNum) ? 0 : gratuidadesNum,
+          pax_pago: paxPagoNum,
+          precio_venta_cliente: expediente.precio_venta_cliente != null ? Number(expediente.precio_venta_cliente) : 0,
+          bonificacion_pax: expediente.bonificacion_pax != null ? Number(expediente.bonificacion_pax) : 0,
         };
 
         const idExpediente = expediente.id;
@@ -719,8 +727,11 @@ const Expedientes = () => {
         }
       }
       
+      const totalPaxNum = expedienteActualizado.total_pax != null ? Number(expedienteActualizado.total_pax) : NaN
+      const gratuidadesNum = expedienteActualizado.gratuidades != null ? Number(expedienteActualizado.gratuidades) : 0
+      const paxPagoNum = Math.max(1, (isNaN(totalPaxNum) ? 1 : totalPaxNum) - (isNaN(gratuidadesNum) ? 0 : gratuidadesNum))
       const expedienteActualizadoParaSupabase = {
-        cliente_id: (clienteIdUUIDUpdate && clienteIdUUIDUpdate !== '') ? clienteIdUUIDUpdate : null, // UUID (string) o null
+        cliente_id: (clienteIdUUIDUpdate && clienteIdUUIDUpdate !== '') ? clienteIdUUIDUpdate : null,
         cliente_nombre: String(expedienteActualizado.cliente_nombre || expedienteActualizado.clienteNombre || ''),
         fecha_inicio: convertirFechaAISO(expedienteActualizado.fecha_inicio || expedienteActualizado.fechaInicio || ''),
         fecha_final: convertirFechaAISO(expedienteActualizado.fecha_final || expedienteActualizado.fechaFin || expedienteActualizado.fecha_fin || ''),
@@ -732,6 +743,10 @@ const Expedientes = () => {
         observaciones: String(expedienteActualizado.observaciones || ''),
         itinerario: String(expedienteActualizado.itinerario || ''),
         total_pax: String(totalPaxTexto),
+        gratuidades: isNaN(gratuidadesNum) ? 0 : gratuidadesNum,
+        pax_pago: paxPagoNum,
+        precio_venta_cliente: expedienteActualizado.precio_venta_cliente != null ? Number(expedienteActualizado.precio_venta_cliente) : 0,
+        bonificacion_pax: expedienteActualizado.bonificacion_pax != null ? Number(expedienteActualizado.bonificacion_pax) : 0,
       }
       
       const { error } = await supabase
@@ -1609,6 +1624,7 @@ const Expedientes = () => {
             setTabInicialParaDetalle(null)
           }}
           onUpdate={actualizarExpediente}
+          onRefresh={loadData}
           initialTab={tabInicialParaDetalle}
         />
       )}

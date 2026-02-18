@@ -344,7 +344,7 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
   }
 };
 
-const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initialTab }) => {
+const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes = [], initialTab }) => {
   // ⚠️ BLINDAJE NIVEL 1: Verificar que expediente existe
   if (!expediente) {
     return (
@@ -524,7 +524,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
 
     // Normalizar nombre: eliminar espacios extra y trim
     const nombreNormalizado = nombreCliente.trim().replace(/\s+/g, ' ')
-    console.log("Buscando expedientes para:", nombreNormalizado)
 
     setCargandoHistorial(true)
     try {
@@ -534,10 +533,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .ilike('cliente_nombre', nombreNormalizado)
         .order('fecha_viaje', { ascending: false })
 
-      console.log("DATOS RECUPERADOS:", data)
 
       if (error) {
-        console.error('Error cargando historial de expedientes:', error)
         setExpedientesHistorial([])
         return
       }
@@ -582,16 +579,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
               beneficioNeto: isNaN(beneficioNeto) ? null : beneficioNeto
             }
           } catch (err) {
-            console.error('❌ [Historial] Error calculando beneficio para expediente:', exp.id, err)
             return { ...exp, beneficioNeto: null }
           }
         })
       )
 
-      console.log("✅ [Historial] Expedientes procesados:", expedientesConBeneficio.length)
       setExpedientesHistorial(expedientesConBeneficio)
     } catch (err) {
-      console.error('❌ [Historial] Error inesperado cargando historial:', err)
       setExpedientesHistorial([])
     } finally {
       setCargandoHistorial(false)
@@ -631,7 +625,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
 
     // Timeout de seguridad: fuerza el estado a 'cargado' después de 2 segundos
     const timeoutSeguridad = setTimeout(() => {
-      console.log('⏱️ Timeout de seguridad: Sistema listo para guardar (forzado)')
       setDatosCargados(true)
     }, 2000)
 
@@ -651,19 +644,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         clearTimeout(timeoutSeguridad)
 
         if (error) {
-          console.error('❌ Error cargando datos:', error)
           // Liberar guardado incluso con error (usará valores por defecto)
           setDatosCargados(true)
-          console.log('✅ Sistema listo para guardar (con valores por defecto)')
           return
         }
 
         // Carga Blindada: Solo actualizar si los datos son válidos
         if (!data) {
-          console.warn('⚠️ No se recibieron datos válidos de Supabase')
           // Liberar guardado incluso sin datos (usará valores por defecto)
           setDatosCargados(true)
-          console.log('✅ Sistema listo para guardar (con valores por defecto)')
           return
         }
 
@@ -687,7 +676,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         }
 
         // DEBUG: Log de datos cargados
-        console.log('Estado cargado desde DB:', datosCargados)
         
         // Carga Blindada: Solo establecer formData si los datos son válidos
         setFormData(datosCargados)
@@ -695,14 +683,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         
         // Liberar guardado: Marcar como cargado para permitir guardados
         setDatosCargados(true)
-        console.log('✅ Sistema listo para guardar')
       } catch (err) {
         // Limpiar timeout en caso de error
         clearTimeout(timeoutSeguridad)
-        console.error('❌ Error inesperado cargando datos:', err)
         // Liberar guardado incluso con error (usará valores por defecto)
         setDatosCargados(true)
-        console.log('✅ Sistema listo para guardar (con valores por defecto)')
       }
     }
 
@@ -1038,7 +1023,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .eq('id', expediente.id)
 
       if (error) {
-        console.error('Error guardando cierre:', error)
         alert('Error al guardar el cierre: ' + (error.message || 'Revisa que la columna cierre_grupo exista en expedientes.'))
         return
       }
@@ -1047,7 +1031,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       if (onUpdate) onUpdate({ ...expediente, cierre_grupo: payload })
       alert('Cierre guardado correctamente.')
     } catch (err) {
-      console.error('Error inesperado guardando cierre:', err)
       alert('Error inesperado al guardar el cierre.')
     } finally {
       setGuardandoCierre(false)
@@ -1128,7 +1111,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
           // Logo aprox. 45mm de ancho (ajustado a proporción)
           doc.addImage(logoImg, 'PNG', 12, 6, 50, 20)
         } catch (e) {
-          console.warn('No se pudo dibujar el logo en el PDF:', e)
         }
       } else {
         // Fallback: reserva de espacio en blanco
@@ -1215,19 +1197,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
     // Intentar primero con el nombre de archivo original arrastrado
     logo.src = '/Logo tabora 2023.png'
     logo.onload = () => {
-      console.log('✅ Logo Tabora cargado correctamente para el recibo PDF')
       crearDocumento(logo)
     }
     logo.onerror = () => {
-      console.warn('No se pudo cargar el logo desde "/Logo tabora 2023.png". Probando "/tabora-logo.png"...')
       const fallbackLogo = new Image()
       fallbackLogo.src = '/tabora-logo.png'
       fallbackLogo.onload = () => {
-        console.log('✅ Logo Tabora cargado desde fallback "/tabora-logo.png"')
         crearDocumento(fallbackLogo)
       }
       fallbackLogo.onerror = (e) => {
-        console.warn('❗ No se pudo cargar ningún logo para el recibo PDF:', e)
         crearDocumento(null)
       }
     }
@@ -1248,7 +1226,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .order('fecha', { ascending: false })
       
       if (error) {
-        console.error('Error cargando cobros:', error)
         setCobros([])
         return
       }
@@ -1256,7 +1233,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       // Actualizar estado inmediatamente para refrescar la UI
       setCobros(data || [])
     } catch (error) {
-      console.error('Error fatal cargando cobros:', error)
       setCobros([])
     }
   }
@@ -1289,16 +1265,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .order('fecha_creacion', { ascending: false })
       
       if (error) {
-        console.error('Error cargando versiones de factura:', error)
         setVersionesFactura([])
         return
       }
       
       // Si se borraron facturas, el historial se actualiza automáticamente
       setVersionesFactura(data || [])
-      console.log(`📋 Historial de versiones cargado: ${data?.length || 0} versiones`)
     } catch (error) {
-      console.error('Error fatal cargando versiones de factura:', error)
       setVersionesFactura([])
     } finally {
       setCargandoVersiones(false)
@@ -1357,7 +1330,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .eq('id', versionId)
       
       if (error) {
-        console.error('Error borrando versión:', error)
         alert(`❌ Error borrando versión: ${error.message}`)
         return
       }
@@ -1366,7 +1338,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       await cargarVersionesFactura()
       alert('✅ Versión histórica eliminada correctamente')
     } catch (error) {
-      console.error('Error inesperado borrando versión:', error)
       alert(`❌ Error inesperado: ${error.message}`)
     }
   }
@@ -1394,14 +1365,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .order('created_at', { ascending: false })
       
       if (error) {
-        console.error('Error cargando facturas emitidas:', error)
         setFacturasEmitidas([])
         return
       }
       
       setFacturasEmitidas(data || [])
     } catch (error) {
-      console.error('Error fatal cargando facturas emitidas:', error)
       setFacturasEmitidas([])
     } finally {
       setCargandoFacturasEmitidas(false)
@@ -1499,7 +1468,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
           doc.rect(20, 15, 40, 15, 'F')
           doc.addImage(logoImg, 'PNG', 20, 15, 40, 15)
         } catch (e) {
-          console.warn('Error añadiendo logo a factura:', e)
         }
       }
       
@@ -1667,14 +1635,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .order('fecha_registro', { ascending: false })
       
       if (error) {
-        console.error('Error cargando logs financieros:', error)
         setLogsFinancieros([])
         return
       }
       
       setLogsFinancieros(data || [])
     } catch (error) {
-      console.error('Error fatal cargando logs financieros:', error)
       setLogsFinancieros([])
     }
   }
@@ -1774,11 +1740,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
               usuario: 'Admin'
             }])
           if (logError) {
-            console.error("Error guardando log:", logError)
           } else {
             // Refrescar historial inmediatamente
             await cargarLogsFinancieros()
-            console.log("✅ Historial actualizado")
           }
         }
       } else {
@@ -1801,17 +1765,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
               usuario: 'Admin'
             }])
           if (logError) {
-            console.error("Error guardando log:", logError)
           } else {
             // Refrescar historial inmediatamente
             await cargarLogsFinancieros()
-            console.log("✅ Historial actualizado")
           }
         }
       }
 
       if (errorOperacion) {
-        console.error('Error guardando cobro:', errorOperacion)
         alert(`❌ Error guardando cobro:\n\n${errorOperacion.message || JSON.stringify(errorOperacion)}`)
         return
       }
@@ -1829,7 +1790,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       setCobroEnEdicionId(null)
       setShowModalCobro(false)
     } catch (error) {
-      console.error('Error inesperado guardando cobro:', error)
       alert(`❌ Error inesperado:\n\n${error.message || JSON.stringify(error)}`)
     }
   }
@@ -2100,12 +2060,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
             .eq('id', servicio.id)
           
           if (error) {
-            console.error('❌ Error eliminando servicio de Supabase:', error)
             alert('Error eliminando servicio de la base de datos')
             return
           }
         } catch (err) {
-          console.error('❌ Error inesperado eliminando servicio:', err)
         }
       }
       
@@ -2215,7 +2173,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         release_pagado: !!servicio?.releasePagado,
         tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
         proveedor_id_int: proveedorIdLimpio,
-        nombre_proveedor_manual: servicio?.proveedorNombreTemporal || null,
+        nombre_proveedor_manual: (servicio?.proveedorNombreTemporal && String(servicio.proveedorNombreTemporal).trim()) || null,
         mayorista_id: (() => {
           const v = servicio?.mayorista_id
           if (v == null || v === '' || v === undefined) return null
@@ -2417,21 +2375,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
     const baseServicios = totalServiciosConIVA / 1.21
 
     // Consola de QA: desglose de cálculos
-    console.log('🧾 [MODO PRUEBA] Desglose Factura', {
-      precioVentaPax,
-      bonificacion,
-      precioNetoPax,
-      paxPago,
-      totalServiciosConIVA,
-      baseServicios,
-      suplementosHabitacion: parseFloat(suplementos.totalSupHabitacion || 0) || 0,
-      suplementosSeguro: parseFloat(suplementos.totalSupSeguro || 0) || 0,
-      totalSuplementos,
-      totalFactura,
-      baseImponible,
-      iva,
-    })
-
     return {
       precioVentaPax: precioVentaPax.toFixed(2),
       bonificacion: bonificacion.toFixed(2),
@@ -2465,13 +2408,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       const { data: dataGlobal, error: errorGlobal } = globalRes || {}
       const { data: dataExpedientes, error: errorExpedientes } = expedientesRes || {}
 
-      if (errorGlobal) {
-        console.error('Error obteniendo facturas de facturas_emitidas_global:', errorGlobal)
-      }
-      if (errorExpedientes) {
-        console.error('Error obteniendo facturas de facturas:', errorExpedientes)
-      }
-
       // 2) Unificar y encontrar el máximo número entre ambas tablas
       const todasLasFacturas = [
         ...(Array.isArray(dataGlobal) ? dataGlobal : []),
@@ -2503,7 +2439,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       const siguienteNum = maxNumero + 1
       return `${año}-${String(siguienteNum).padStart(4, '0')}`
     } catch (err) {
-      console.error('Error inesperado generando numero_factura:', err)
       // Fallback seguro: devolver el primer número del año actual
       return `${año}-0001`
     }
@@ -2547,7 +2482,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
           doc.rect(20, 15, 40, 15, 'F')
           doc.addImage(logoImg, 'PNG', 20, 15, 40, 15)
         } catch (e) {
-          console.warn('Error añadiendo logo a factura:', e)
         }
       }
 
@@ -2849,15 +2783,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
           .insert([datosVersion])
         
         if (versionError) {
-          console.error("❌ Error en versión:", versionError)
         } else {
-          console.log("✅ Nueva versión de factura guardada")
-          console.log("🚀 VERSIÓN GUARDADA EN BD")
           // Recargar versiones para actualizar la vista
           await cargarVersionesFactura()
         }
       } catch (err) {
-        console.error("Error inesperado guardando versión:", err)
         // No bloqueamos el flujo si falla el versionado
       }
 
@@ -2915,19 +2845,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         estado: 'emitida',
       }
 
-      // AUDITORÍA: Interceptador de datos antes del insert
-      console.log('OBJETO A ENVIAR A FACTURAS:', datosFactura)
-      console.log('Columnas del objeto:', Object.keys(datosFactura))
-      
-      // LOG DE SEGURIDAD: Confirmar que NO se modifica el expediente
-      console.log('🔒 [SEGURIDAD] ============ EMITIR FACTURA ============')
-      console.log('🔒 [SEGURIDAD] Expediente ID:', expediente.id)
-      console.log('🔒 [SEGURIDAD] Pestaña actual: Facturación')
-      console.log('🔒 [SEGURIDAD] Operación: INSERT en tabla "facturas"')
-      console.log('🔒 [SEGURIDAD] NO se actualiza el expediente (solo lectura)')
-      console.log('🔒 [SEGURIDAD] Campos del expediente: INTACTOS (no modificados)')
-      console.log('🔒 [SEGURIDAD] ==========================================')
-      
       // Actualización de esquema: base_imponible y direccion_receptor confirmados
       // Guardar en Supabase - SOLO INSERT, NO UPDATE del expediente
       const { error } = await supabase
@@ -2935,7 +2852,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
         .insert([datosFactura])
 
       if (error) {
-        console.error('❌ [SEGURIDAD] Error guardando factura:', error)
         alert(`❌ Error guardando factura: ${error.message}`)
           return
       }
@@ -2987,10 +2903,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
           }])
         
         if (errorEmitida) {
-          console.error('❌ Error guardando en facturas_emitidas:', errorEmitida)
           // No bloqueamos el flujo si falla
         } else {
-          console.log('✅ Factura registrada en facturas_emitidas')
         }
 
         // INSERT EN facturas_emitidas_global (sincronización total) - OBLIGATORIO
@@ -3007,31 +2921,53 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
           }])
         
         if (errorGlobal) {
-          console.error('FALLO CRÍTICO EN CIERRES:', errorGlobal)
-          console.error('❌ Error guardando en facturas_emitidas_global:', JSON.stringify(errorGlobal, null, 2))
           // No bloqueamos el flujo si falla
         } else {
-          console.log('✅ Factura registrada en facturas_emitidas_global')
         }
       } catch (err) {
-        console.error('❌ Error inesperado guardando en facturas_emitidas:', err)
         // No bloqueamos el flujo si falla
       }
 
-      console.log('✅ [SEGURIDAD] Factura guardada correctamente. Expediente NO modificado.')
       alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente.`)
       
       // Recargar historial de versiones para reflejar la nueva factura emitida
       await cargarVersionesFactura()
     } catch (error) {
-      console.error('Error emitiendo factura:', error)
       alert(`❌ Error emitiendo factura: ${error.message}`)
     }
   }
 
+  // ============ RECARGAR DATOS FINANCIEROS DESDE SUPABASE ============
+  const recargarDatosFinancieros = async () => {
+    const expedienteId = expediente?.id
+    if (!expedienteId) return
+    try {
+      const { data, error } = await supabase
+        .from('expedientes')
+        .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total')
+        .eq('id', expedienteId)
+        .single()
+      if (error || !data) return
+      const convertirANumero = (v, d) => (v == null ? d : (isNaN(Number(v)) ? d : Number(v)))
+      const datos = {
+        total_pax: convertirANumero(data.total_pax, 1),
+        gratuidades: convertirANumero(data.gratuidades, 0),
+        precio_venta_cliente: convertirANumero(data.precio_venta_cliente, 0),
+        bonificacion_pax: convertirANumero(data.bonificacion_pax, 0),
+        sup_individual_pax: convertirANumero(data.sup_individual_pax, 0),
+        sup_individual_precio_dia: convertirANumero(data.sup_individual_precio_dia, 0),
+        sup_seguro_pax: convertirANumero(data.sup_seguro_pax, 0),
+        sup_seguro_precio_total: convertirANumero(data.sup_seguro_precio_total, 0),
+      }
+      setFormData(datos)
+      lastSavedFormDataRef.current = { ...datos }
+    } catch {
+    }
+  }
+
   // ============ FUNCIÓN ÚNICA DE PERSISTENCIA ============
-  // persistirCambios: Guarda formData en Supabase usando nombres reales de la DB
-  // BLOQUEADO si la carga inicial no ha terminado
+  // persistirCambios: Guarda formData en Supabase usando nombres exactos de columna
+  // Campos financieros: total_pax, gratuidades, bonificacion_pax, precio_venta_cliente
   const persistirCambios = async () => {
     const extraerMensajeError = (err) => {
       if (!err) return 'Error desconocido'
@@ -3066,6 +3002,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
       if (error) return { ok: false, error: extraerMensajeError(error) }
 
       onUpdate({ ...expediente, ...datosParaGuardar })
+      await recargarDatosFinancieros()
+      if (typeof onRefresh === 'function') onRefresh()
       return { ok: true }
     } catch (error) {
       return { ok: false, error: extraerMensajeError(error) }
@@ -5987,14 +5925,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
                               .delete()
                               .ilike('numero_factura', 'TEST-%')
                             if (error) {
-                              console.error('Error borrando facturas de prueba:', error)
                               alert(`❌ Error borrando facturas de prueba: ${error.message}`)
                             } else {
-                              console.log('✅ Facturas de prueba eliminadas correctamente')
                               alert('✅ Facturas de prueba eliminadas correctamente.')
                             }
                           } catch (e) {
-                            console.error('Error inesperado borrando facturas de prueba:', e)
                             alert(`❌ Error inesperado borrando facturas de prueba: ${e.message}`)
                           }
                         }}
@@ -6366,7 +6301,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [], initi
     )
   } catch (error) {
     // ⚠️ CAPTURA DE ERRORES GLOBAL
-    console.error('Error al renderizar ExpedienteDetalle:', error)
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md">
