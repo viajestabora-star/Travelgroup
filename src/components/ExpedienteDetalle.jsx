@@ -3956,6 +3956,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         value={formData?.total_pax || ''}
                         onChange={(e) => setFormData({ ...formData, total_pax: e.target.value })}
                         onFocus={(e) => {
+                          e.target.select()
                           handleFocus(e)
                           e.target.style.borderColor = '#3b82f6'
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
@@ -3978,6 +3979,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         value={formData?.gratuidades || ''}
                         onChange={(e) => setFormData({ ...formData, gratuidades: e.target.value })}
                         onFocus={(e) => {
+                          e.target.select()
                           handleFocus(e)
                           e.target.style.borderColor = '#3b82f6'
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
@@ -4014,6 +4016,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           }
                         }}
                         onFocus={(e) => {
+                          e.target.select()
                           handleFocus(e)
                           e.target.style.borderColor = '#3b82f6'
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
@@ -4059,6 +4062,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           }
                         }}
                         onFocus={(e) => {
+                          e.target.select()
                           handleFocus(e)
                           e.target.style.borderColor = '#3b82f6'
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
@@ -4256,6 +4260,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   : '1px solid #e2e8f0',
                             }}
                         onFocus={(e) => {
+                          e.target.select()
                           e.target.style.borderColor = '#3b82f6'
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                         }}
@@ -4301,6 +4306,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   : '1px solid #e2e8f0',
                             }}
                             onFocus={(e) => {
+                              e.target.select()
                               e.target.style.borderColor = '#3b82f6'
                               e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                             }}
@@ -4612,6 +4618,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                     }}
                                     onWheel={handleWheel}
                                     onFocus={(e) => {
+                                      e.target.select()
                                       handleFocus(e)
                                       e.target.style.borderColor = '#3b82f6'
                                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
@@ -4643,6 +4650,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       actualizarServicio(servicio.id, 'cantidad', valorNumerico, { immediate: true })
                                     }}
                                     onFocus={(e) => {
+                                      e.target.select()
                                       handleFocus(e)
                                       e.target.style.borderColor = '#3b82f6'
                                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
@@ -4683,6 +4691,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                     }
                                   }}
                                   onFocus={(e) => {
+                                    e.target.select()
                                     handleFocus(e)
                                     e.target.style.borderColor = '#3b82f6'
                                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
@@ -4899,15 +4908,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           <div className="grid grid-cols-2 gap-3">
                             <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Cantidad</span>
                               {servicio.tipo === 'Hotel' ? (
-                                <input type="number" value={servicio.noches || 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'noches', Math.max(1, valorNumerico)); }} onWheel={handleWheel} onFocus={(e) => { handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
+                                <input type="number" value={servicio.noches || 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'noches', Math.max(1, valorNumerico)); }} onWheel={handleWheel} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
                               ) : servicio.tipo === 'Guía' ? (
-                                <input type="number" value={servicio.cantidad ?? servicio.dias_guia ?? 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'cantidad', Math.max(1, valorNumerico)); }} onWheel={handleWheel} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const valor = e.target.value; const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1); actualizarServicio(servicio.id, 'cantidad', valorNumerico, { immediate: true }); }} onFocus={(e) => { handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
+                                <input type="number" value={servicio.cantidad ?? servicio.dias_guia ?? 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'cantidad', Math.max(1, valorNumerico)); }} onWheel={handleWheel} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const valor = e.target.value; const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1); actualizarServicio(servicio.id, 'cantidad', valorNumerico, { immediate: true }); }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
                               ) : (
                                 <span className="text-gray-600 text-xs font-medium block py-2">1</span>
                               )}
                             </div>
                             <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Precio</span>
-                              <input type="number" step="0.01" value={servicio.coste_unitario === '' || servicio.coste_unitario == null ? '' : servicio.coste_unitario} onWheel={handleWheel} onChange={(e) => { const valorInput = e.target.value; if (valorInput === '' || valorInput === '-') { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: '', total_servicio_manual: '' } : { coste_unitario: '' }); return; } const valorLimpio = valorInput.replace(/,/g, '.'); const valorNumerico = parseFloat(valorLimpio); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } else { actualizarServicio(servicio.id, 'coste_unitario', valorLimpio); } }} onFocus={(e) => { handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { const valor = e.target.value; if (valor !== '' && valor !== '-') { const valorNumerico = parseFloat(valor.replace(/,/g, '.')); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } } else { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: 0, total_servicio_manual: 0 } : { coste_unitario: 0 }); } e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }} className="input-field text-xs text-right w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} placeholder="0.00" min="0" />
+                              <input type="number" step="0.01" value={servicio.coste_unitario === '' || servicio.coste_unitario == null ? '' : servicio.coste_unitario} onWheel={handleWheel} onChange={(e) => { const valorInput = e.target.value; if (valorInput === '' || valorInput === '-') { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: '', total_servicio_manual: '' } : { coste_unitario: '' }); return; } const valorLimpio = valorInput.replace(/,/g, '.'); const valorNumerico = parseFloat(valorLimpio); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } else { actualizarServicio(servicio.id, 'coste_unitario', valorLimpio); } }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { const valor = e.target.value; if (valor !== '' && valor !== '-') { const valorNumerico = parseFloat(valor.replace(/,/g, '.')); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } } else { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: 0, total_servicio_manual: 0 } : { coste_unitario: 0 }); } e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }} className="input-field text-xs text-right w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} placeholder="0.00" min="0" />
                             </div>
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Modo</span>

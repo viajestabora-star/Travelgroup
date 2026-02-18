@@ -1576,6 +1576,7 @@ const Expedientes = () => {
                     type="number"
                     value={clienteForm.nSocios}
                     onChange={(e) => setClienteForm({ ...clienteForm, nSocios: e.target.value })}
+                    onFocus={(e) => e.target.select()}
                     className="input-field bg-white text-black border-gray-200"
                     style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   />
