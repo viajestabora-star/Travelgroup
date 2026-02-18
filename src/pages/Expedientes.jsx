@@ -932,8 +932,8 @@ const Expedientes = () => {
     setShowExportModal(false)
   }
 
-  // ============ VALIDACIÓN FORMULARIO NUEVO EXPEDIENTE (Regla: evitar expedientes sin fechas) ============
-  // El botón Guardar debe estar deshabilitado hasta que Nombre, Cliente, Fecha Inicio y Fecha Fin estén rellenos
+  // ============ BLOQUEO DE FANTASMAS (Regla: evitar expedientes sin fechas) ============
+  // El botón Guardar está deshabilitado si Fecha Inicio o Fecha Fin están vacíos (+ Nombre/Cliente)
   const isFormValid = React.useMemo(() => {
     const nombreCompleto = (clienteInputValue || expedienteForm.clienteNombre || '').trim()
     const fechaInicioValida = (expedienteForm.fechaInicio || '').trim() !== ''

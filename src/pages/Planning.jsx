@@ -39,6 +39,7 @@ const Planning = () => {
   const [showModal, setShowModal] = useState(false)
   const [showDetalleModal, setShowDetalleModal] = useState(false)
   const [expedienteActual, setExpedienteActual] = useState(null)
+  const [confirmarBorrado, setConfirmarBorrado] = useState(null) // Regla 1.14
   const [formData, setFormData] = useState({
     nombre_grupo: '',
     cliente_responsable: '',
@@ -181,17 +182,19 @@ const Planning = () => {
     loadExpedientes()
   }
 
-  // ============ ELIMINAR EXPEDIENTE ============
-  const handleDelete = (id) => {
-    const expediente = expedientes.find(e => e.id === id)
+  // ============ ELIMINAR EXPEDIENTE (Regla 1.14: Modal confirmación) ============
+  const solicitarBorrado = (expediente) => {
     const nombre = expediente?.nombre_grupo || expediente?.destino || 'este expediente'
-    
-    if (window.confirm(`¿Está seguro de que desea eliminar el viaje "${nombre}"?\n\nEsta acción no se puede deshacer.`)) {
-      const allExpedientes = storage.get('expedientes') || []
-      const updated = allExpedientes.filter(exp => exp.id !== id)
-      storage.set('expedientes', updated)
-      loadExpedientes()
-    }
+    setConfirmarBorrado({ id: expediente?.id, nombre })
+  }
+
+  const ejecutarBorrado = () => {
+    if (!confirmarBorrado?.id) return
+    const allExpedientes = storage.get('expedientes') || []
+    const updated = allExpedientes.filter(exp => exp.id !== confirmarBorrado.id)
+    storage.set('expedientes', updated)
+    loadExpedientes()
+    setConfirmarBorrado(null)
   }
 
   const openModal = () => {
@@ -278,7 +281,7 @@ const Planning = () => {
           <button
             onClick={(e) => {
               e.stopPropagation()
-              handleDelete(expediente.id)
+              solicitarBorrado(expediente)
             }}
             className="text-red-600 hover:text-red-900 p-2"
           >
@@ -563,6 +566,33 @@ const Planning = () => {
           onUpdate={actualizarExpediente}
           clientes={[]} // Planning no necesita lista de clientes para el modal
         />
+      )}
+
+      {/* Modal Confirmación Borrado (Regla 1.14) */}
+      {confirmarBorrado && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <h2 className="text-xl font-bold text-navy-900 mb-2">Confirmar eliminación</h2>
+            <p className="text-gray-600 mb-4">
+              ¿Está seguro de que desea eliminar el viaje <strong>"{confirmarBorrado.nombre}"</strong>?
+            </p>
+            <p className="text-sm text-red-600 mb-6">Esta acción no se puede deshacer.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={ejecutarBorrado}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
+              >
+                Eliminar
+              </button>
+              <button
+                onClick={() => setConfirmarBorrado(null)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

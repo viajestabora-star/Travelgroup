@@ -12,6 +12,7 @@ const Proveedores = () => {
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [cargando, setCargando] = useState(true)
+  const [confirmarBorrado, setConfirmarBorrado] = useState(null) // { id, nombre } - Modal Regla 1.14
   
   const [formData, setFormData] = useState({
     nombre_comercial: '', servicio: 'hotel', ciudad: '', codigo_postal: '', cif: '', persona_contacto: '',
@@ -47,7 +48,8 @@ const Proveedores = () => {
       const { data, error } = await supabase
         .from('proveedores')
         .select('*')
-        .order('nombre_comercial', { ascending: true })
+        .order('tipo', { ascending: true })
+        .order('nombre_comercial', { ascending: true }) // Regla 1.14: por Servicio, luego A-Z
       
       if (error) {
         setProveedores([])
@@ -109,11 +111,14 @@ const Proveedores = () => {
     else { alert("Error: " + error.message) }
   }
 
-  const deleteProveedor = async (id, nombre) => {
-    if (window.confirm(`¿Seguro que quieres eliminar a ${nombre}?`)) {
-      await supabase.from('proveedores').delete().eq('id', id)
-      fetchProveedores()
-    }
+  // Regla 1.14: Modal de confirmación antes de borrar
+  const solicitarBorradoProveedor = (id, nombre) => setConfirmarBorrado({ id, nombre })
+
+  const ejecutarBorradoProveedor = async () => {
+    if (!confirmarBorrado?.id) return
+    await supabase.from('proveedores').delete().eq('id', confirmarBorrado.id)
+    fetchProveedores()
+    setConfirmarBorrado(null)
   }
 
   const openModal = (p = null) => {
@@ -293,7 +298,7 @@ const Proveedores = () => {
                             <button onClick={() => openModal(p)} className="p-3 text-slate-900 bg-slate-100 rounded-xl hover:bg-slate-900 hover:text-white transition-all" title="Editar">
                               <Edit2 size={18}/>
                             </button>
-                            <button onClick={() => deleteProveedor(p.id, p.nombre_comercial)} className="p-3 text-red-600 bg-red-50 rounded-xl hover:bg-red-600 hover:text-white transition-all" title="Eliminar">
+                            <button onClick={() => solicitarBorradoProveedor(p.id, p.nombre_comercial)} className="p-3 text-red-600 bg-red-50 rounded-xl hover:bg-red-600 hover:text-white transition-all" title="Eliminar">
                               <Trash2 size={18}/>
                             </button>
                           </div>
@@ -510,6 +515,33 @@ const Proveedores = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Confirmación Borrado (Regla 1.14) */}
+      {confirmarBorrado && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Confirmar eliminación</h2>
+            <p className="text-gray-600 mb-4">
+              ¿Está seguro de que desea eliminar al proveedor <strong>"{confirmarBorrado.nombre}"</strong>?
+            </p>
+            <p className="text-sm text-red-600 mb-6">Esta acción no se puede deshacer.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={ejecutarBorradoProveedor}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
+              >
+                Eliminar
+              </button>
+              <button
+                onClick={() => setConfirmarBorrado(null)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}
