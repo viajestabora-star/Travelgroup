@@ -87,16 +87,23 @@ const generarFacturaPDFUnificado = async (factura) => {
       }
     }
     
-    // Número de factura (arriba a la derecha)
+    // Nº Expediente (prominente, parte superior, cerca de la fecha)
+    const numeroExpedienteFactura = factura?.numero_expediente || factura?.expediente_numero_expediente || factura?.datos_factura?.numero_expediente || factura?.datos_json?.numero_expediente || '—'
+    doc.setFontSize(10)
+    doc.setTextColor(80, 80, 80)
+    doc.setFont(undefined, 'normal')
+    doc.text(`Expediente: ${numeroExpedienteFactura}`, pageWidth - 20, 22, { align: 'right' })
+    
+    // Número de factura
     doc.setFontSize(20)
     doc.setTextColor(33, 150, 243)
     doc.setFont(undefined, 'bold')
-    doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
+    doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 30, { align: 'right' })
     
     // Fecha
     doc.setFontSize(10)
     doc.setTextColor(100, 100, 100)
-    doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 35, { align: 'right' })
+    doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 40, { align: 'right' })
     
     // Datos del emisor
     let yPos = 50

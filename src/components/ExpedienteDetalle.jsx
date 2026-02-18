@@ -1129,24 +1129,41 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         doc.rect(10, 5, 55, 22, 'F')
       }
       
-      // Título "RECIBO"
+      // Nº Expediente (prominente, parte superior)
+      const numeroExpediente = expediente?.numero_expediente || expediente?.numeroExpediente || '—'
+      doc.setFontSize(10)
+      doc.setTextColor(80, 80, 80)
+      doc.setFont('helvetica', 'normal')
+      doc.text(`Expediente: ${numeroExpediente}`, pageWidth - 60, 15)
+      
+      // Título "RECIBO" + Nº Recibo
+      const numeroRecibo = cobro.numero_recibo || '—'
       doc.setTextColor(0, 0, 0)
       doc.setFontSize(24)
       doc.setFont('helvetica', 'bold')
-      doc.text('RECIBO', pageWidth - 60, 20)
+      doc.text('RECIBO', pageWidth - 60, 22)
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'normal')
+      doc.text(numeroRecibo, pageWidth - 60, 28)
       
       // Importe entre almohadillas (arriba a la derecha)
       doc.setFontSize(18)
       doc.setFont('helvetica', 'bold')
-      doc.text(`# ${importe.toFixed(2)}€ #`, pageWidth - 60, 35)
+      doc.text(`# ${importe.toFixed(2)}€ #`, pageWidth - 60, 38)
       
       // Línea separadora
       doc.setDrawColor(...colorAzul)
       doc.setLineWidth(0.5)
-      doc.line(10, 45, pageWidth - 10, 45)
+      doc.line(10, 48, pageWidth - 10, 48)
+      
+      // Texto técnico: Recibo oficial correspondiente al Expediente [Nº]
+      doc.setFontSize(10)
+      doc.setTextColor(60, 60, 60)
+      doc.setFont('helvetica', 'italic')
+      doc.text(`Recibo oficial correspondiente al Expediente ${numeroExpediente}`, 20, 58)
       
       // Contenido principal (ligeramente más abajo para no chocar con el logo)
-      let yPos = 70
+      let yPos = 75
       
       // "Se recibió de"
       doc.setFontSize(12)
@@ -1174,6 +1191,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       // Fecha
       doc.setFont('helvetica', 'normal')
       doc.text(`Fecha: ${fechaFormateada}`, 20, yPos)
+      yPos += 6
+      doc.text(`Nº Recibo: ${numeroRecibo}`, 20, yPos)
       yPos += 20
       
       // Método de pago
@@ -1197,8 +1216,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.text('Licencia: CVMm303V', 20, footerY + 16)
       doc.text('Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)', 20, footerY + 24)
       
-      // Nombre del archivo
-      const nombreArchivo = `Recibo_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}_${fechaCobro.toISOString().split('T')[0]}.pdf`
+      // Nombre del archivo (incluye nº recibo si existe)
+      const nombreArchivo = numeroRecibo !== '—'
+        ? `Recibo_${numeroRecibo}_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
+        : `Recibo_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}_${fechaCobro.toISOString().split('T')[0]}.pdf`
       
       // Descargar PDF
       doc.save(nombreArchivo)
@@ -1219,6 +1240,32 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       fallbackLogo.onerror = (e) => {
         crearDocumento(null)
       }
+    }
+  }
+
+  // ============ OBTENER SIGUIENTE NÚMERO DE RECIBO (REC-YYYY-000X) ============
+  const obtenerSiguienteNumeroRecibo = async () => {
+    const año = new Date().getFullYear()
+    const prefijo = `REC-${año}-`
+    try {
+      const { data, error } = await supabase
+        .from('cobros_expediente')
+        .select('numero_recibo')
+        .ilike('numero_recibo', `${prefijo}%`)
+        .order('numero_recibo', { ascending: false })
+        .limit(1)
+      if (error) return `${prefijo}0001`
+      let siguiente = 1
+      if (Array.isArray(data) && data.length > 0 && data[0]?.numero_recibo) {
+        const match = String(data[0].numero_recibo).match(/REC-\d{4}-(\d+)/)
+        if (match) {
+          const num = parseInt(match[1], 10)
+          if (!isNaN(num) && num >= 0) siguiente = num + 1
+        }
+      }
+      return `${prefijo}${String(siguiente).padStart(4, '0')}`
+    } catch {
+      return `${prefijo}0001`
     }
   }
 
@@ -1402,6 +1449,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       ...facturaEmitida,
       datos_factura: facturaEmitida.datos_factura || facturaEmitida.datos_json,
       numero_factura: facturaEmitida.numero_factura || facturaEmitida.datos_factura?.numero_factura,
+      numero_expediente: facturaEmitida.datos_factura?.numero_expediente || expediente?.numero_expediente || expediente?.numeroExpediente || '',
       cliente_nombre: facturaEmitida.cliente_nombre || facturaEmitida.nombre_receptor || facturaEmitida.datos_factura?.receptor?.nombre,
       cliente_documento: facturaEmitida.cliente_documento || facturaEmitida.cif_receptor || facturaEmitida.datos_factura?.receptor?.cif_nif,
       importe_total: facturaEmitida.importe_total || facturaEmitida.total_factura || facturaEmitida.datos_factura?.calcularBaseFactura?.totalFactura,
@@ -1482,16 +1530,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         }
       }
       
+      // Nº Expediente (prominente, parte superior, cerca de la fecha)
+      const numeroExpedienteFactura = factura?.numero_expediente || factura?.datos_factura?.numero_expediente || factura?.datos_json?.numero_expediente || expediente?.numero_expediente || expediente?.numeroExpediente || '—'
+      doc.setFontSize(10)
+      doc.setTextColor(80, 80, 80)
+      doc.setFont(undefined, 'normal')
+      doc.text(`Expediente: ${numeroExpedienteFactura}`, pageWidth - 20, 22, { align: 'right' })
+      
       // Número de factura
       doc.setFontSize(20)
       doc.setTextColor(33, 150, 243)
       doc.setFont(undefined, 'bold')
-      doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
+      doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 30, { align: 'right' })
       
       // Fecha
       doc.setFontSize(10)
       doc.setTextColor(100, 100, 100)
-      doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 35, { align: 'right' })
+      doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 40, { align: 'right' })
       
       // Datos del emisor
       let yPos = 50
@@ -1656,6 +1711,33 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }
 
+  // ============ ELIMINAR COBRO ============
+  // Recibos con numero_recibo requieren confirmación doble de seguridad
+  const eliminarCobro = async (cobro) => {
+    const esReciboEmitido = !!cobro?.numero_recibo
+    const mensaje1 = esReciboEmitido
+      ? `Este recibo (${cobro.numero_recibo}) ya está emitido. ¿Deseas eliminarlo?`
+      : '¿Estás seguro de eliminar este cobro?'
+    if (!window.confirm(mensaje1)) return
+    if (esReciboEmitido) {
+      const mensaje2 = 'Confirmación de seguridad: Este recibo ya tiene número asignado. ¿Confirmas que deseas eliminarlo definitivamente?'
+      if (!window.confirm(mensaje2)) return
+    }
+    try {
+      const { error } = await supabase
+        .from('cobros_expediente')
+        .delete()
+        .eq('id', cobro.id)
+      if (error) {
+        alert(`❌ Error eliminando cobro: ${error.message}`)
+        return
+      }
+      await cargarCobros()
+    } catch (err) {
+      alert(`❌ Error inesperado: ${err.message}`)
+    }
+  }
+
   // ============ GUARDAR COBRO ============
   const guardarCobro = async () => {
     if (!expediente?.id) {
@@ -1757,10 +1839,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           }
         }
       } else {
-        // INSERT: Crear nuevo cobro
+        // INSERT: Crear nuevo cobro con número de recibo inmutable (REC-YYYY-000X)
+        const numeroRecibo = await obtenerSiguienteNumeroRecibo()
+        const datosCobroConRecibo = { ...datosCobro, numero_recibo: numeroRecibo }
         const { error } = await supabase
           .from('cobros_expediente')
-          .insert([datosCobro])
+          .insert([datosCobroConRecibo])
         errorOperacion = error
         
         if (!error) {
@@ -2502,26 +2586,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const pageWidth = doc.internal.pageSize.getWidth()
       const pageHeight = doc.internal.pageSize.getHeight()
 
-      // Marca de agua en modo prueba
-      if (MODO_PRUEBA_FACTURACION) {
-        doc.saveGraphicsState && doc.saveGraphicsState()
-        doc.setTextColor(220, 220, 220)
-        doc.setFontSize(50)
-        // jsPDF admite ángulo en las opciones de text en versiones recientes
-        try {
-          doc.text('BORRADOR / PRUEBA', pageWidth / 2, pageHeight / 2, {
-            align: 'center',
-            angle: -30,
-          })
-        } catch (e) {
-          // Fallback sin ángulo
-          doc.text('BORRADOR / PRUEBA', pageWidth / 2, pageHeight / 2, {
-            align: 'center',
-          })
-        }
-        doc.restoreGraphicsState && doc.restoreGraphicsState()
-      }
-
       // Colores corporativos
       const colorAmarillo = [255, 193, 7] // #FFC107
       const colorAzul = [33, 150, 243] // #2196F3
@@ -2536,11 +2600,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         }
       }
 
+      // Nº Expediente (prominente, parte superior, cerca de la fecha)
+      const numeroExp = expediente?.numero_expediente || expediente?.numeroExpediente || '—'
+      doc.setFontSize(10)
+      doc.setTextColor(80, 80, 80)
+      doc.setFont(undefined, 'normal')
+      doc.text(`Expediente: ${numeroExp}`, pageWidth - 20, 22, { align: 'right' })
+
       // Número de factura (arriba a la derecha)
       doc.setFontSize(20)
       doc.setTextColor(...colorAzul)
       doc.setFont(undefined, 'bold')
-      doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
+      doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 30, { align: 'right' })
 
       // Fecha
       const fechaActual = new Date()
@@ -2551,7 +2622,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       })
       doc.setFontSize(10)
       doc.setTextColor(100, 100, 100)
-      doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 35, { align: 'right' })
+      doc.text(`Fecha: ${fechaFormateada}`, pageWidth - 20, 40, { align: 'right' })
 
       // Datos del emisor (Valservice Incoming S.L.) - FIJOS
       let yPos = 50
@@ -2919,9 +2990,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               grupo?.nombre || 
                               'Sin nombre'
         
-        // Preparar datos_factura (JSON completo)
+        // Preparar datos_factura (JSON completo) — incluye numero_expediente para plantillas
         const datosFacturaCompletos = {
           ...datosFactura,
+          numero_expediente: expediente?.numero_expediente || expediente?.numeroExpediente || '',
           formFactura: { ...formFactura },
           calcularBaseFactura: {
             precioVentaPax: calcularBaseFactura.precioVentaPax,
@@ -5470,6 +5542,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Nº Recibo</th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fecha</th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Importe</th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Método de Pago</th>
@@ -5481,7 +5554,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <tbody>
                         {cobros.length === 0 ? (
                           <tr>
-                            <td colSpan="6" className="text-center py-8 text-gray-500">
+                            <td colSpan="7" className="text-center py-8 text-gray-500">
                               No hay cobros registrados para este expediente
                             </td>
                           </tr>
@@ -5498,6 +5571,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             
                             return (
                               <tr key={cobro.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                <td className="py-3 px-4 text-sm font-mono text-gray-600">{cobro.numero_recibo || '—'}</td>
                                 <td className="py-3 px-4 text-sm">{fechaFormateada}</td>
                                 <td className="py-3 px-4 text-sm font-semibold text-navy-900">
                                   {Number(cobro.importe || 0).toFixed(2)}€
@@ -5532,6 +5606,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       <FileText size={18} />
                                       <span className="text-xs">PDF</span>
                                     </button>
+                                    <button
+                                      onClick={() => eliminarCobro(cobro)}
+                                      className="text-red-600 hover:text-red-800 transition-colors flex items-center gap-1"
+                                      title="Eliminar cobro"
+                                    >
+                                      <Trash2 size={16} />
+                                      <span className="text-xs">Borrar</span>
+                                    </button>
                                   </div>
                                 </td>
                               </tr>
@@ -5548,7 +5630,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             <td className="py-3 px-4 text-sm font-bold text-navy-900 text-lg">
                               {cobros.reduce((sum, c) => sum + Number(c.importe || 0), 0).toFixed(2)}€
                             </td>
-                            <td colSpan="4"></td>
+                            <td colSpan="5"></td>
                           </tr>
                         </tfoot>
                       )}
