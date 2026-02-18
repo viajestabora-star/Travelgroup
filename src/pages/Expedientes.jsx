@@ -164,6 +164,7 @@ const Expedientes = () => {
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [searchTermExpedientes, setSearchTermExpedientes] = useState('')
   const [isSubmittingExpediente, setIsSubmittingExpediente] = useState(false) // Estado de loading para submit
+  const [confirmarBorrado, setConfirmarBorrado] = useState(null) // { id, nombre, destino } - Modal confirmación (Regla 1.14)
 
   const [expedienteForm, setExpedienteForm] = useState({
     responsable: '',
@@ -668,35 +669,37 @@ const Expedientes = () => {
     }
   }
 
-  const handleDeleteExpediente = async (id) => {
-    const expediente = expedientes.find(exp => exp.id === id)
-    const nombreExpediente = expediente?.responsable || expediente?.destino || 'este expediente'
+  // Regla 1.14: Confirmación de borrado - evita pérdidas accidentales
+  const solicitarBorradoExpediente = (expediente) => {
+    const nombre = expediente?.cliente_nombre || expediente?.clienteNombre || expediente?.responsable || expediente?.destino || 'este expediente'
     const destino = expediente?.destino ? ` - ${expediente.destino}` : ''
-    if (window.confirm(`¿Está seguro de que desea eliminar el expediente "${nombreExpediente}${destino}"?\n\nEsta acción no se puede deshacer.`)) {
-      try {
-        // Eliminar de Supabase
-        const { error } = await supabase
-          .from('expedientes')
-          .delete()
-          .eq('id', id)
-        
-        if (error) {
-          const errorInfo = manejarErrorSupabase(error, 'eliminar expediente');
-          if (errorInfo) {
-            alert(errorInfo.mensaje);
-            return;
-          }
-          throw error;
+    setConfirmarBorrado({ id: expediente?.id, nombre, destino })
+  }
+
+  const handleDeleteExpediente = async (id) => {
+    if (!id) return
+    try {
+      const { error } = await supabase
+        .from('expedientes')
+        .delete()
+        .eq('id', id)
+
+      if (error) {
+        const errorInfo = manejarErrorSupabase(error, 'eliminar expediente');
+        if (errorInfo) {
+          alert(errorInfo.mensaje);
+          return;
         }
-        
-        // Actualizar estado local
-        const nuevosExpedientes = expedientes.filter(exp => exp.id !== id)
-        setExpedientes(nuevosExpedientes)
-        storage.set('expedientes', nuevosExpedientes)
-        alert('✅ Expediente eliminado correctamente')
-      } catch (err) {
-        alert('⚠️ Error eliminando expediente. Revisa tu conexión.')
+        throw error;
       }
+
+      const nuevosExpedientes = expedientes.filter(exp => exp.id !== id)
+      setExpedientes(nuevosExpedientes)
+      storage.set('expedientes', nuevosExpedientes)
+      setConfirmarBorrado(null)
+      alert('✅ Expediente eliminado correctamente')
+    } catch (err) {
+      alert('⚠️ Error eliminando expediente. Revisa tu conexión.')
     }
   }
 
@@ -929,12 +932,22 @@ const Expedientes = () => {
     setShowExportModal(false)
   }
 
+  // ============ VALIDACIÓN FORMULARIO NUEVO EXPEDIENTE (Regla: evitar expedientes sin fechas) ============
+  // El botón Guardar debe estar deshabilitado hasta que Nombre, Cliente, Fecha Inicio y Fecha Fin estén rellenos
+  const isFormValid = React.useMemo(() => {
+    const nombreCompleto = (clienteInputValue || expedienteForm.clienteNombre || '').trim()
+    const fechaInicioValida = (expedienteForm.fechaInicio || '').trim() !== ''
+    const fechaFinValida = (expedienteForm.fechaFin || '').trim() !== ''
+    return nombreCompleto !== '' && fechaInicioValida && fechaFinValida
+  }, [clienteInputValue, expedienteForm.clienteNombre, expedienteForm.fechaInicio, expedienteForm.fechaFin])
+
   // Tab: Pendientes | Confirmados | Finalizados | Cancelados
   const [tabExpedientes, setTabExpedientes] = useState('pendientes')
 
   // Filtrar expedientes por ejercicio y búsqueda (base común)
+  // IMPORTANTE: Expedientes sin fecha se mantienen en BD pero no se muestran (se arreglan manualmente)
   const expedientesFiltradosPorEjercicioYBusqueda = expedientes.filter(exp => {
-    // Filtro por ejercicio
+    // Filtro por ejercicio (expedientes sin fecha no aparecen en el listado por ejercicio)
     const fechaInicio = exp.fecha_inicio || exp.fechaInicio
     if (!fechaInicio) return false
     const añoExpediente = extraerAño(fechaInicio)
@@ -1115,13 +1128,18 @@ const Expedientes = () => {
             .slice()
             .sort((a, b) => {
               try {
+                // Regla 1.14: Ordenación A-Z por cliente
+                const nombreA = (a.cliente_nombre || a.clienteNombre || '').toLowerCase().trim()
+                const nombreB = (b.cliente_nombre || b.clienteNombre || '').toLowerCase().trim()
+                const cmpCliente = nombreA.localeCompare(nombreB, 'es')
+                if (cmpCliente !== 0) return cmpCliente
+                // Desempate: por fecha de inicio
                 const fechaInicioA = a.fecha_inicio || a.fechaInicio
                 const fechaInicioB = b.fecha_inicio || b.fechaInicio
                 const fechaObjA = parsearFecha(fechaInicioA)
                 const fechaObjB = parsearFecha(fechaInicioB)
                 if (!fechaObjA) return 1
                 if (!fechaObjB) return -1
-                // Finalizados y Cancelados: más recientes primero; resto: por fecha ascendente
                 const esArchivo = tabExpedientes === 'finalizado' || tabExpedientes === 'cancelado'
                 return esArchivo ? fechaObjB - fechaObjA : fechaObjA - fechaObjB
               } catch (error) {
@@ -1162,7 +1180,7 @@ const Expedientes = () => {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleDeleteExpediente(expediente?.id)
+                          solicitarBorradoExpediente(expediente)
                         }}
                         className="text-red-600 hover:text-red-900 p-2"
                         style={{ cursor: 'pointer' }}
@@ -1216,7 +1234,7 @@ const Expedientes = () => {
                         {expediente?.destino || expediente?.cliente_nombre || 'Expediente con datos incompletos'}
                       </p>
                       <button
-                        onClick={() => handleDeleteExpediente(expediente?.id)}
+                        onClick={() => solicitarBorradoExpediente(expediente)}
                         className="btn-secondary text-xs mt-2"
                       >
                         Eliminar expediente corrupto
@@ -1226,6 +1244,33 @@ const Expedientes = () => {
                 )
               }
             })}
+        </div>
+      )}
+
+      {/* Modal Confirmación Borrado (Regla 1.14) */}
+      {confirmarBorrado && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <h2 className="text-xl font-bold text-navy-900 mb-2">Confirmar eliminación</h2>
+            <p className="text-gray-600 mb-4">
+              ¿Está seguro de que desea eliminar el expediente <strong>"{confirmarBorrado.nombre}{confirmarBorrado.destino}"</strong>?
+            </p>
+            <p className="text-sm text-red-600 mb-6">Esta acción no se puede deshacer.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleDeleteExpediente(confirmarBorrado.id)}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
+              >
+                Eliminar
+              </button>
+              <button
+                onClick={() => setConfirmarBorrado(null)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1471,10 +1516,15 @@ const Expedientes = () => {
               <div className="flex gap-3 mt-6">
                 <button 
                   type="submit" 
-                  className="btn-primary flex-1"
-                  disabled={isSubmittingExpediente}
+                  className={`flex-1 flex items-center justify-center gap-2 font-semibold rounded-lg transition-colors ${
+                    !isFormValid || isSubmittingExpediente
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'btn-primary'
+                  }`}
+                  disabled={!isFormValid || isSubmittingExpediente}
+                  title={!isFormValid ? 'Completa Nombre, Cliente, Fecha Inicio y Fecha Fin para guardar' : ''}
                 >
-                  {isSubmittingExpediente ? 'Guardando...' : 'Crear Expediente'}
+                  {isSubmittingExpediente ? 'Guardando...' : 'Guardar'}
                 </button>
                 <button type="button" onClick={() => { setShowExpedienteModal(false); resetExpedienteForm(); }} className="btn-secondary flex-1">
                   Cancelar

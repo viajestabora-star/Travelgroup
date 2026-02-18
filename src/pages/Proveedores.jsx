@@ -190,17 +190,15 @@ const Proveedores = () => {
     return acc
   }, {})
 
-  // Ordenar alfabéticamente dentro de cada grupo
+  // Ordenar alfabéticamente dentro de cada grupo (Regla 1.14)
   Object.keys(proveedoresAgrupados).forEach(servicio => {
-    proveedoresAgrupados[servicio].sort((a, b) => 
-      (a.nombre_comercial || '').localeCompare(b.nombre_comercial || '')
+    proveedoresAgrupados[servicio].sort((a, b) =>
+      (a.nombre_comercial || '').localeCompare(b.nombre_comercial || '', 'es')
     )
   })
 
-  // Ordenar servicios según el orden definido (usar labels para mostrar)
-  const serviciosOrdenados = servicios.map(s => s.label).filter(label => proveedoresAgrupados[label])
-  const otrosServicios = Object.keys(proveedoresAgrupados).filter(s => !serviciosOrdenados.includes(s))
-  const ordenFinal = [...serviciosOrdenados, ...otrosServicios.sort()]
+  // Regla 1.14: Ordenación A-Z por Servicio de proveedores
+  const ordenFinal = Object.keys(proveedoresAgrupados).sort((a, b) => a.localeCompare(b, 'es'))
 
   return (
     <div className="p-10 max-w-[1700px] mx-auto bg-white min-h-screen text-left">
