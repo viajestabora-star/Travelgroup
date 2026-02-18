@@ -24,6 +24,7 @@ const Proveedores = () => {
   // Servicios normalizados (minúsculas, sin tildes) para coincidir con la base de datos
   const servicios = [
     { value: 'hotel', label: 'Hotel', icon: '🏨' },
+    { value: 'mayorista', label: 'Mayorista', icon: '🏢' },
     { value: 'guia', label: 'Guía', icon: '👤' },
     { value: 'restaurante', label: 'Restaurante', icon: '🍽️' },
     { value: 'autobus', label: 'Autobús', icon: '🚌' },

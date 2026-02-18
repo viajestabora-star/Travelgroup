@@ -448,7 +448,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const { data, error } = await supabase
         .from('proveedores')
         .select('*')
-        .order('nombre_comercial', { ascending: true });
+        .order('tipo', { ascending: true })
+        .order('nombre_comercial', { ascending: true }); // Regla 1.14: por Servicio, luego A-Z
       
       if (error) {
         // Fallback: intentar cargar desde storage (sesión anterior)
@@ -1992,6 +1993,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     // Primero intentar mapeo directo para mantener compatibilidad
     const mapa = {
       'Hotel': 'hotel',
+      'Mayorista': 'mayorista',
       'Restaurante': 'restaurante',
       'Autobús': 'autobus',
       'Transporte': 'transporte',
@@ -2027,12 +2029,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return proveedores.find(p => p.id === id)
   }
 
-  // Lista de proveedores marcados como mayoristas (para selector Vínculo con Mayorista)
-  // Solo incluir proveedores con id válido (UUID o number) para el select
-  const mayoristas = useMemo(() => {
-    return (proveedores || []).filter(p => p && p.id != null && (p.es_mayorista === true || p.es_mayorista === 'true'))
-  }, [proveedores])
-  
   // ============ FUNCIONES DE SERVICIOS ============
   
   const añadirServicio = () => {
@@ -2047,6 +2043,32 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     // Guardar automáticamente en Supabase
     if (expediente?.id) {
       guardarServicioEnSupabase(nuevoServicio)
+    }
+  }
+
+  // Al seleccionar un Mayorista: actualizar proveedorId y crear fila Hotel debajo con mayorista_id
+  const seleccionarMayoristaYCrearHotel = (servicioId, proveedorId, nombreProveedor) => {
+    const idx = servicios.findIndex(s => s.id === servicioId)
+    if (idx < 0) return
+    const servicioActual = servicios.find(s => s.id === servicioId)
+    const nuevoHotel = {
+      ...DEFAULT_SERVICE_VALUES,
+      id: generarUUID(),
+      tipo: 'Hotel',
+      mayorista_id: proveedorId,
+      tipo_calculo: 'porPersona',
+    }
+    setServicios(prev => {
+      const idx2 = prev.findIndex(s => s.id === servicioId)
+      if (idx2 < 0) return prev
+      const actualizado = prev.map(s => s.id === servicioId ? { ...s, proveedorId } : s)
+      return [...actualizado.slice(0, idx2 + 1), nuevoHotel, ...actualizado.slice(idx2 + 1)]
+    })
+    setBusquedaProveedor(prev => ({ ...prev, [servicioId]: nombreProveedor }))
+    setMostrarSugerencias(prev => ({ ...prev, [servicioId]: false }))
+    if (expediente?.id) {
+      guardarServicioEnSupabase({ ...servicioActual, proveedorId })
+      guardarServicioEnSupabase(nuevoHotel)
     }
   }
 
@@ -4392,7 +4414,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Total (€)</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Release</th>
                             <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Acciones</th>
-                            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Vínculo con Mayorista</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -4437,6 +4458,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   }}
                                 >
                                   <option>Hotel</option>
+                                  <option>Mayorista</option>
                                   <option>Restaurante</option>
                                   <option>Autobús</option>
                                   <option>Transporte</option>
@@ -4448,11 +4470,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 </select>
                               </td>
                               
-                              {/* COLUMNA 2: PROVEEDOR CON BÚSQUEDA */}
+                              {/* COLUMNA 2: PROVEEDOR + DETALLE (flex-row, misma línea) */}
                               <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                                 <div className="relative" data-provider-combobox>
-                                <div className="flex gap-1 items-center">
-                                  <div className="relative flex-1">
+                                <div className="flex flex-row gap-2 items-center">
+                                  <div className="relative flex-shrink-0" style={{ minWidth: '100px', maxWidth: '160px' }}>
                                     {/* Input de búsqueda - SOLO búsqueda, NO crea nada */}
                                     <input
                                       type="text"
@@ -4507,7 +4529,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       </button>
                                     )}
                                   </div>
-                                  
+                                  {/* Detalle/Especificación: ocupa todo el ancho disponible a la derecha */}
+                                  <div className="flex flex-row items-center gap-1 min-w-0 flex-1">
+                                    {(servicio.tipo === 'Guía Local' || servicio.tipo === 'Entradas/Tickets') && (
+                                      <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap">de </span>
+                                    )}
+                                    <input
+                                      type="text"
+                                      value={servicio.especificacion_destino || ''}
+                                      onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
+                                      onFocus={(e) => e.target.select()}
+                                      placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
+                                      className="input-field text-[10px] flex-1 min-w-0 py-1 px-2"
+                                      style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                    />
+                                  </div>
                                   {/* Botón '+' independiente para abrir modal completo */}
                                   <button
                                     type="button"
@@ -4525,23 +4561,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                     <Plus size={16} />
                                   </button>
                                 </div>
-                                {/* Especificación destino: solo Guía Local, Entradas/Tickets, Otros */}
-                                {['Guía Local', 'Entradas/Tickets', 'Otros'].includes(servicio.tipo) && (
-                                  <div className="mt-1.5 flex items-center gap-1">
-                                    <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap">
-                                      {servicio.tipo === 'Guía Local' ? 'Guía local de ' : servicio.tipo === 'Entradas/Tickets' ? 'Entradas de ' : 'Destino: '}
-                                    </span>
-                                    <input
-                                      type="text"
-                                      value={servicio.especificacion_destino || ''}
-                                      onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
-                                      onFocus={(e) => e.target.select()}
-                                      placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'ej. Museo'}
-                                      className="input-field text-[10px] flex-1 min-w-0 py-1 px-2"
-                                      style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                                    />
-                                  </div>
-                                )}
                                   
                                   {/* Lista de sugerencias - POSICIONAMIENTO ABSOLUTO CORRECTO */}
                                   {mostrarSugerencias[servicio.id] && (
@@ -4569,7 +4588,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                             const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda)
                                             return coincideTipo && coincideNombre
                                           })
-                                          .sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || ''))
+                                          .sort((a, b) => {
+                                            // Regla 1.14: por servicio (tipo), luego alfabético
+                                            const ta = normalizarText(a.tipo || '');
+                                            const tb = normalizarText(b.tipo || '');
+                                            if (ta !== tb) return ta.localeCompare(tb);
+                                            return (a.nombreComercial || '').localeCompare(b.nombreComercial || '');
+                                          })
 
                                         return (
                                           <>
@@ -4607,9 +4632,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                                 onMouseDown={(e) => {
                                                   e.preventDefault()
                                                   e.stopPropagation()
-                                                  actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
-                                                  setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
-                                                  setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                                  if (servicio.tipo === 'Mayorista') {
+                                                    seleccionarMayoristaYCrearHotel(servicio.id, proveedor.id, proveedor.nombreComercial)
+                                                  } else {
+                                                    actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
+                                                    setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
+                                                    setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                                  }
                                                 }}
                                                     className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
                                               >
@@ -4830,32 +4859,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 </button>
                               </td>
                               
-                              {/* COLUMNA 9: VÍNCULO CON MAYORISTA */}
-                              <td className="px-2 py-2">
-                                <select
-                                  value={servicio.mayorista_id != null && servicio.mayorista_id !== '' ? String(servicio.mayorista_id) : ''}
-                                  onChange={(e) => {
-                                    const val = e.target.value
-                                    const mayoristaId = val === '' ? null : val
-                                    actualizarServicio(servicio.id, 'mayorista_id', mayoristaId)
-                                  }}
-                                  className="input-field text-xs w-full transition-all"
-                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: '140px' }}
-                                  onFocus={(e) => {
-                                    e.target.style.borderColor = '#3b82f6'
-                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
-                                  }}
-                                  onBlur={(e) => {
-                                    e.target.style.borderColor = '#e2e8f0'
-                                    e.target.style.boxShadow = 'none'
-                                  }}
-                                >
-                                  <option value="">— Sin mayorista</option>
-                                  {mayoristas.map(m => (
-                                    <option key={m.id} value={String(m.id)}>{m.nombreComercial || m.nombreFiscal || `Proveedor ${m.id}`}</option>
-                                  ))}
-                                </select>
-                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -4872,13 +4875,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           </div>
                           <div>
                             <select value={servicio.tipo} onClick={(e) => e.stopPropagation()} onChange={(e) => { e.stopPropagation(); const nuevoTipo = e.target.value; const updates = { tipo: nuevoTipo }; if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') { updates.tipo_calculo = 'porGrupo'; if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario); } if (servicio.proveedorId) { const proveedorActual = obtenerProveedorPorId(servicio.proveedorId); const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || ''); const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo); if (tipoProveedorActual !== nuevoTipoProveedor) { updates.proveedorId = null; setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' })); } } actualizarServicio(servicio.id, updates); setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true })); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
-                              <option>Hotel</option><option>Restaurante</option><option>Autobús</option><option>Transporte</option><option>Guía</option><option>Guía Local</option><option>Entradas/Tickets</option><option>Seguro</option><option>Otros</option>
+                              <option>Hotel</option><option>Mayorista</option><option>Restaurante</option><option>Autobús</option><option>Transporte</option><option>Guía</option><option>Guía Local</option><option>Entradas/Tickets</option><option>Seguro</option><option>Otros</option>
                             </select>
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Proveedor</span>
                           <div className="relative" data-provider-combobox onClick={(e) => e.stopPropagation()}>
-                            <div className="flex gap-1 items-center">
-                              <div className="relative flex-1">
+                            <div className="flex flex-row gap-2 items-center flex-nowrap">
+                              <div className="relative flex-shrink-0 min-w-0" style={{ minWidth: '100px', maxWidth: '160px' }}>
                                 <input
                                   type="text"
                                   value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')}
@@ -4902,6 +4905,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   <button onClick={() => { setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' }); actualizarServicio(servicio.id, 'proveedorId', null); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10" title="Limpiar"><X size={14} /></button>
                                 )}
                               </div>
+                              <div className="flex flex-row items-center gap-1 min-w-0 flex-1">
+                                {(servicio.tipo === 'Guía Local' || servicio.tipo === 'Entradas/Tickets') && (
+                                  <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap">de </span>
+                                )}
+                                <input
+                                  type="text"
+                                  value={servicio.especificacion_destino || ''}
+                                  onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
+                                  onFocus={(e) => e.target.select()}
+                                  placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
+                                  className="input-field text-[10px] flex-1 min-w-0 py-1 px-2"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                />
+                              </div>
                               <button type="button" onClick={() => abrirModalProveedor(busquedaProveedor[servicio.id] || '', servicio.tipo, servicio.id)} className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors" title="Añadir nuevo proveedor"><Plus size={16} /></button>
                             </div>
                             {mostrarSugerencias[servicio.id] && (
@@ -4909,7 +4926,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 {(() => {
                                   const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
                                   const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase().trim()
-                                  const proveedoresFiltrados = proveedores.filter(p => { const tipoProveedorNormalizado = normalizarText(p.tipo || ''); const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado || ''); const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado; if (!textoBusqueda) return coincideTipo; const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda); return coincideTipo && coincideNombre; }).sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || ''))
+                                  const proveedoresFiltrados = proveedores.filter(p => { const tipoProveedorNormalizado = normalizarText(p.tipo || ''); const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado || ''); const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado; if (!textoBusqueda) return coincideTipo; const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda); return coincideTipo && coincideNombre; }).sort((a, b) => { const ta = normalizarText(a.tipo || ''); const tb = normalizarText(b.tipo || ''); if (ta !== tb) return ta.localeCompare(tb); return (a.nombreComercial || '').localeCompare(b.nombreComercial || ''); })
                                   return (
                                     <>
                                       {proveedoresFiltrados.length === 0 && !textoBusqueda && <div className="px-3 py-3 text-xs text-center"><p className="text-gray-600 mb-2">No hay proveedores de <strong>{servicio.tipo}</strong></p><p className="text-green-600 font-medium">💡 Usa el botón + para añadir uno nuevo</p></div>}
@@ -4917,7 +4934,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       {proveedoresFiltrados.length > 0 && (
                                         <div className="py-1">
                                           {proveedoresFiltrados.map(proveedor => (
-                                            <button key={proveedor.id} type="button" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); actualizarServicio(servicio.id, 'proveedorId', proveedor.id); setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); }} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
+                                            <button key={proveedor.id} type="button" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (servicio.tipo === 'Mayorista') { seleccionarMayoristaYCrearHotel(servicio.id, proveedor.id, proveedor.nombreComercial); } else { actualizarServicio(servicio.id, 'proveedorId', proveedor.id); setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); } }} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
                                             ><span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>{proveedor.telefono && <span className="text-gray-500">· {proveedor.telefono}</span>}</button>
                                           ))}
                                         </div>
@@ -4928,22 +4945,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               </div>
                             )}
                           </div>
-                            {['Guía Local', 'Entradas/Tickets', 'Otros'].includes(servicio.tipo) && (
-                              <div className="mt-2 flex items-center gap-1">
-                                <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap">
-                                  {servicio.tipo === 'Guía Local' ? 'Guía local de ' : servicio.tipo === 'Entradas/Tickets' ? 'Entradas de ' : 'Destino: '}
-                                </span>
-                                <input
-                                  type="text"
-                                  value={servicio.especificacion_destino || ''}
-                                  onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
-                                  onFocus={(e) => e.target.select()}
-                                  placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'ej. Museo'}
-                                  className="input-field text-[10px] flex-1 min-w-0 py-1 px-2"
-                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                                />
-                              </div>
-                            )}
                           </div>
                           <div className="grid grid-cols-2 gap-3">
                             <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Cantidad</span>
@@ -4981,14 +4982,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             {servicio.releasePagado && (
                               <span className="mt-2 text-green-600 font-semibold flex items-center gap-1" style={{ fontSize: '16px' }}><CheckCircle size={14} /> Pagado</span>
                             )}
-                          </div>
-                          <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Vínculo con Mayorista</span>
-                            <select value={servicio.mayorista_id != null && servicio.mayorista_id !== '' ? String(servicio.mayorista_id) : ''} onChange={(e) => { const val = e.target.value; actualizarServicio(servicio.id, 'mayorista_id', val === '' ? null : val); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}>
-                              <option value="">— Sin mayorista</option>
-                              {mayoristas.map(m => (
-                                <option key={m.id} value={String(m.id)}>{m.nombreComercial || `Proveedor ${m.id}`}</option>
-                              ))}
-                            </select>
                           </div>
                         </div>
                       ))}
