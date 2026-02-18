@@ -4403,24 +4403,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     <>
                     {/* DESKTOP: Tabla tradicional - oculta en móvil */}
                     <div className="hidden md:block overflow-x-auto">
-                      <table className="w-full">
+                      <table className="w-full whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '960px' }}>
+                        <colgroup>
+                          <col style={{ width: '160px', minWidth: '160px', maxWidth: '160px' }} />
+                          <col style={{ width: '348px', minWidth: '348px', maxWidth: '348px' }} />
+                          <col style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }} />
+                          <col style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }} />
+                          <col style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }} />
+                          <col style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }} />
+                          <col style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }} />
+                          <col style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }} />
+                        </colgroup>
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Servicio</th>
-                            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-700">Proveedor</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Cantidad</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Precio</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Modo</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Total (€)</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Release</th>
-                            <th className="px-2 py-2 text-center text-xs font-semibold text-gray-700">Acciones</th>
+                            <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '160px' }}>Servicio</th>
+                            <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '348px' }}>Proveedor</th>
+                            <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '50px' }}>Cant.</th>
+                            <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '70px' }}>Precio</th>
+                            <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '120px' }}>Modo</th>
+                            <th className="px-1 py-2 text-right text-xs font-semibold text-gray-700" style={{ width: '90px' }}>Total</th>
+                            <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '120px' }}>Release</th>
+                            <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '40px' }}></th>
                           </tr>
                         </thead>
                         <tbody>
                           {servicios.map(servicio => (
-                            <tr key={servicio.id} className="border-t border-gray-200 hover:bg-gray-50">
-                              {/* COLUMNA 1: SERVICIO (TIPO) */}
-                              <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                            <tr key={servicio.id} className="border-t border-gray-200 hover:bg-gray-50 whitespace-nowrap">
+                              {/* COLUMNA 1: SERVICIO — 160px exactos */}
+                              <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '160px', minWidth: '160px', maxWidth: '160px' }}>
                                 <select
                                   value={servicio.tipo}
                                   onClick={(e) => e.stopPropagation()}
@@ -4446,8 +4456,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                     actualizarServicio(servicio.id, updates)
                                     setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true }))
                                   }}
-                                  className="input-field text-xs w-full transition-all"
-                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                  className="input-field text-xs transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '158px', minWidth: '158px', maxWidth: '158px' }}
                                   onFocus={(e) => {
                                     e.target.style.borderColor = '#3b82f6'
                                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
@@ -4470,11 +4480,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 </select>
                               </td>
                               
-                              {/* COLUMNA 2: PROVEEDOR + DETALLE (flex-row, misma línea) */}
-                              <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                              {/* COLUMNA 2: PROVEEDOR (170px) + DETALLE (130px) + gap + botón — medidas exactas */}
+                              <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '348px', minWidth: '348px', maxWidth: '348px' }}>
                                 <div className="relative" data-provider-combobox>
-                                <div className="flex flex-row gap-2 items-center">
-                                  <div className="relative flex-shrink-0" style={{ minWidth: '100px', maxWidth: '160px' }}>
+                                <div className="flex flex-row gap-2 items-center flex-nowrap" style={{ width: '348px' }}>
+                                  <div className="relative flex-shrink-0" style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }}>
                                     {/* Input de búsqueda - SOLO búsqueda, NO crea nada */}
                                     <input
                                       type="text"
@@ -4529,10 +4539,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       </button>
                                     )}
                                   </div>
-                                  {/* Detalle/Especificación: ocupa todo el ancho disponible a la derecha */}
-                                  <div className="flex flex-row items-center gap-1 min-w-0 flex-1">
+                                  {/* Detalle (especificacion_destino): 130px exactos */}
+                                  <div className="flex flex-row items-center gap-1 flex-shrink-0 overflow-hidden" style={{ width: '130px', minWidth: '130px', maxWidth: '130px' }}>
                                     {(servicio.tipo === 'Guía Local' || servicio.tipo === 'Entradas/Tickets') && (
-                                      <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap">de </span>
+                                      <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap flex-shrink-0">de </span>
                                     )}
                                     <input
                                       type="text"
@@ -4540,8 +4550,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
                                       onFocus={(e) => e.target.select()}
                                       placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
-                                      className="input-field text-[10px] flex-1 min-w-0 py-1 px-2"
-                                      style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                      className="input-field text-xs py-1.5 px-2 flex-1 min-w-0"
+                                      style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', flex: '1 1 0', minWidth: 0 }}
                                     />
                                   </div>
                                   {/* Botón '+' independiente para abrir modal completo */}
@@ -4556,6 +4566,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       )
                                     }}
                                     className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
+                                    style={{ width: '32px', minWidth: '32px', flexShrink: 0 }}
                                     title="Añadir nuevo proveedor"
                                   >
                                     <Plus size={16} />
@@ -4658,8 +4669,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 </div>
                               </td>
                               
-                              {/* COLUMNA 3: CANTIDAD (Noches para Hotel, cantidad manual para Guía, 1 para otros) */}
-                              <td className="px-2 py-2 text-center">
+                              {/* COLUMNA 3: CANTIDAD — 50px exactos */}
+                              <td className="px-1 py-2 align-middle" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>
+                                <div className="flex justify-center">
                                 {servicio.tipo === 'Hotel' ? (
                                 <input
                                     type="number"
@@ -4680,8 +4692,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       e.target.style.borderColor = '#e2e8f0'
                                       e.target.style.boxShadow = 'none'
                                     }}
-                                    className="input-field text-xs text-center w-20 transition-all"
-                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                    className="input-field text-xs text-center transition-all"
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '50px', minWidth: '50px', maxWidth: '50px' }}
                                     min="1"
                                     placeholder="1"
                                   />
@@ -4708,18 +4720,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       e.target.style.borderColor = '#3b82f6'
                                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                                     }}
-                                    className="input-field text-xs text-center w-20 transition-all"
-                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                    className="input-field text-xs text-center transition-all"
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '50px', minWidth: '50px', maxWidth: '50px' }}
                                     min="1"
                                     placeholder="1"
                                   />
                                 ) : (
                                   <span className="text-gray-600 text-xs font-medium">1</span>
                                 )}
+                                </div>
                               </td>
                               
-                              {/* COLUMNA 4: PRECIO */}
-                              <td className="px-2 py-2">
+                              {/* COLUMNA 4: PRECIO — 70px exactos */}
+                              <td className="px-1 py-2 align-middle" style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}>
+                                <div className="flex justify-end">
                                 <input
                                   type="number"
                                   step="0.01"
@@ -4766,15 +4780,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                     e.target.style.borderColor = '#e2e8f0'
                                     e.target.style.boxShadow = 'none'
                                   }}
-                                  className="input-field text-xs text-right w-28 transition-all"
-                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                  className="input-field text-xs text-right w-full transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '70px', minWidth: '70px', maxWidth: '70px' }}
                                   placeholder="0.00"
                                   min="0"
                                 />
+                                </div>
                               </td>
 
-                              {/* COLUMNA 5: MODO (Autobús/Transporte fijo: Total ÷ pax; resto: selector) */}
-                              <td className="px-2 py-2 text-center">
+                              {/* COLUMNA 5: MODO — 120px exactos */}
+                              <td className="px-1 py-2 text-center align-middle" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>
                                 {(servicio.tipo === 'Autobús' || servicio.tipo === 'Transporte') ? (
                                   <span className="text-xs font-medium text-slate-600" title="Autobús/Transporte siempre divide el total entre pasajeros de pago">
                                     Total ÷ pax
@@ -4792,8 +4807,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       }
                                       actualizarServicio(servicio.id, updates);
                                     }}
-                                    className="input-field text-[10px] w-full transition-all"
-                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                    className="input-field text-[10px] transition-all"
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '120px', minWidth: '120px', maxWidth: '120px' }}
                                     onFocus={(e) => {
                                       e.target.style.borderColor = '#3b82f6'
                                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
@@ -4809,15 +4824,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 )}
                               </td>
                               
-                              {/* COLUMNA 6: TOTAL (Calculado con función clara) */}
-                              <td className="px-2 py-2 text-center">
-                                <span className="text-gray-900 text-sm font-semibold">
+                              {/* COLUMNA 6: TOTAL — 90px exactos, alineado a la derecha */}
+                              <td className="px-1 py-2 align-middle text-right" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                                <span className="text-gray-900 text-xs font-semibold whitespace-nowrap">
                                   {calcularTotalFilaUI(servicio).toFixed(2)}€
                                 </span>
                               </td>
                               
-{/* COLUMNA 7: RELEASE (fecha + Marcar como Pagado) */}
-                              <td className="px-2 py-2 text-center">
+{/* COLUMNA 7: RELEASE — 120px exactos */}
+                              <td className="px-1 py-2 text-center align-middle" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>
                                 <div className="flex flex-col items-center gap-1">
                                   <input
                                     type="date"
@@ -4827,6 +4842,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       actualizarServicio(servicio.id, 'fechaRelease', fechaValue)
                                     }}
                                     onFocus={(e) => {
+                                      e.target.select()
                                       e.target.style.borderColor = '#3b82f6'
                                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                                     }}
@@ -4837,7 +4853,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       guardarFechaReleaseServicio(servicio.id, fechaValue)
                                     }}
                                     className="input-field text-center transition-all"
-                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '6px 8px', width: '100%', maxWidth: '140px', fontSize: '16px' }}
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '4px 4px', width: '120px', minWidth: '120px', maxWidth: '120px', fontSize: '11px' }}
                                   />
                                   {!servicio.releasePagado && servicio.fechaRelease && (
                                     <button type="button" onClick={() => marcarReleaseComoPagadoServicio(servicio.id)} className="flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-semibold" style={{ fontSize: '16px' }} title="Marcar como pagado"><CheckCircle size={12} /> Pagado</button>
@@ -4848,8 +4864,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 </div>
                               </td>
                               
-                              {/* COLUMNA 8: ACCIONES */}
-                              <td className="px-2 py-2 text-center">
+                              {/* COLUMNA 8: ACCIONES — 40px exactos */}
+                              <td className="px-1 py-2 text-center align-middle" style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }}>
                                 <button
                                   onClick={() => eliminarServicio(servicio.id)}
                                   className="text-red-600 hover:text-red-900 p-1"
@@ -4881,7 +4897,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Proveedor</span>
                           <div className="relative" data-provider-combobox onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-row gap-2 items-center flex-nowrap">
-                              <div className="relative flex-shrink-0 min-w-0" style={{ minWidth: '100px', maxWidth: '160px' }}>
+                              <div className="relative flex-shrink-0 min-w-0" style={{ minWidth: '80px', maxWidth: '120px' }}>
                                 <input
                                   type="text"
                                   value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')}
@@ -4915,7 +4931,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
                                   onFocus={(e) => e.target.select()}
                                   placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
-                                  className="input-field text-[10px] flex-1 min-w-0 py-1 px-2"
+                                  className="input-field text-xs flex-1 min-w-0 py-1.5 px-2"
                                   style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
                                 />
                               </div>
