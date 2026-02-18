@@ -712,6 +712,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return !formDataCotizacionIgual(formData, last)
   }, [formData])
 
+  // Validación: algún servicio tiene release (fecha) vacío → no permitir guardar
+  const hasReleaseFaltante = useMemo(() => {
+    if (!servicios?.length) return false
+    return servicios.some(s => !s.fechaRelease || String(s.fechaRelease || '').trim() === '')
+  }, [servicios])
+
   // ============ CARGA DE SERVICIOS (separada, depende de proveedores) ============
   // Cargar servicios cuando hay expediente; proveedores puede estar vacío inicialmente
   // (se cargarán en paralelo; si proveedores llega después, el mapeo se hace con lo disponible)
@@ -2076,30 +2082,47 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const servicio = servicios.find(s => s.id === id)
     const nombre = servicio?.descripcion || servicio?.tipo || 'este servicio'
     
-    if (window.confirm(`¿Está seguro que desea eliminar el servicio "${nombre}"?\n\nEsta acción no se puede deshacer.`)) {
-      // Eliminar de Supabase si tiene ID de Supabase
-      if (servicio.id && typeof servicio.id === 'string' && servicio.id.length > 10 && expediente?.id) {
-        try {
-          const { error } = await supabase
-            .from('servicios_cotizacion')
-            .delete()
-            .eq('id', servicio.id)
-          
-          if (error) {
-            alert('Error eliminando servicio de la base de datos')
-            return
+    // Regla 1.14: Mensaje específico para Mayorista (elimina también Hotel vinculado)
+    const esMayorista = servicio?.tipo === 'Mayorista'
+    const mensajeConfirm = esMayorista
+      ? '¿Estás seguro? Esto eliminará también el Hotel vinculado a este mayorista.'
+      : `¿Está seguro que desea eliminar el servicio "${nombre}"?\n\nEsta acción no se puede deshacer.`
+    
+    if (!window.confirm(mensajeConfirm)) return
+    
+    // Si es Mayorista: eliminar primero el Hotel vinculado (mayorista_id apunta al proveedor del mayorista)
+    const idsAEliminar = [id]
+    if (esMayorista && servicio?.proveedorId) {
+      const hotelesVinculados = servicios.filter(s => s.tipo === 'Hotel' && s.mayorista_id != null && String(s.mayorista_id) === String(servicio.proveedorId))
+      hotelesVinculados.forEach(h => idsAEliminar.push(h.id))
+    }
+    
+    // Eliminar de Supabase cada servicio
+    if (expediente?.id) {
+      for (const idElim of idsAEliminar) {
+        const srv = servicios.find(s => s.id === idElim)
+        if (srv?.id && typeof srv.id === 'string' && srv.id.length > 10) {
+          try {
+            const { error } = await supabase
+              .from('servicios_cotizacion')
+              .delete()
+              .eq('id', srv.id)
+            if (error) {
+              alert('Error eliminando servicio de la base de datos')
+              return
+            }
+          } catch (err) {
           }
-        } catch (err) {
         }
       }
-      
-      // Eliminar del estado local
-      setServicios(servicios.filter(s => s.id !== id))
-      // Limpiar búsqueda de proveedor asociada
-      const busquedaActualizada = { ...busquedaProveedor }
-      delete busquedaActualizada[id]
-      setBusquedaProveedor(busquedaActualizada)
     }
+    
+    // Eliminar del estado local
+    setServicios(servicios.filter(s => !idsAEliminar.includes(s.id)))
+    // Limpiar búsqueda de proveedor asociada
+    const busquedaActualizada = { ...busquedaProveedor }
+    idsAEliminar.forEach(idElim => delete busquedaActualizada[idElim])
+    setBusquedaProveedor(busquedaActualizada)
   }
 
   const calcularTotalFilaUI = (servicio) => {
@@ -3954,10 +3977,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 {/* Botón Guardar Cotización + feedback éxito */}
                 {hasCotizacionSinGuardar && (
                   <div className="sticky top-0 z-10 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 bg-amber-50/95 backdrop-blur border-b border-amber-200 flex items-center justify-between gap-4">
-                    <span className="text-sm text-amber-800">Cambios sin guardar</span>
+                    <span className="text-sm text-amber-800">
+                      {hasReleaseFaltante ? 'Completa la fecha Release en todos los servicios para poder guardar' : 'Cambios sin guardar'}
+                    </span>
                     <button
                       onClick={guardarCotizacion}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition-colors"
+                      disabled={hasReleaseFaltante}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Save size={18} />
                       Guardar Cotización
@@ -5260,9 +5286,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   </div>
                   
                   <div className="mt-6">
+                    {hasReleaseFaltante && (
+                      <p className="text-xs text-amber-700 mb-2">Completa la fecha Release en todos los servicios para poder guardar.</p>
+                    )}
                     <button
                       onClick={async () => {
-                        if (isSaving) return
+                        if (isSaving || hasReleaseFaltante) return
                         setIsSaving(true)
                         try {
                           const resultado = await persistirCambios()
@@ -5277,7 +5306,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           setIsSaving(false)
                         }
                       }}
-                      disabled={isSaving}
+                      disabled={isSaving || hasReleaseFaltante}
                       className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       <Save size={20} />
