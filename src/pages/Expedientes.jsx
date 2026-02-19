@@ -1210,9 +1210,9 @@ const Expedientes = () => {
                       )}
                       <p className="text-gray-600" style={{ fontSize: '14px' }}>
                         Cierre: {expediente?.cierre_grupo ? 'Cerrado' : 'Abierto'}
-                        {typeof expediente?.cierre_grupo === 'object' && typeof (expediente.cierre_grupo?.beneficio ?? expediente.cierre_grupo?.beneficio_neto) === 'number' && (
+                        {typeof expediente?.cierre_grupo === 'object' && typeof (expediente.cierre_grupo?.beneficio_limpio ?? expediente.cierre_grupo?.beneficio ?? expediente.cierre_grupo?.beneficio_neto) === 'number' && (
                           <span className="ml-1 font-semibold">
-                            ({(expediente.cierre_grupo?.beneficio ?? expediente.cierre_grupo?.beneficio_neto ?? 0).toFixed(2)} €)
+                            ({(expediente.cierre_grupo?.beneficio_limpio ?? expediente.cierre_grupo?.beneficio ?? expediente.cierre_grupo?.beneficio_neto ?? 0).toFixed(2)} €)
                           </span>
                         )}
                       </p>

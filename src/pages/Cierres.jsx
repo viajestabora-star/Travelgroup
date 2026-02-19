@@ -1299,15 +1299,15 @@ const Cierres = () => {
                         {exp.destino && (
                           <span className="text-[11px] text-slate-500">{exp.destino}</span>
                         )}
-                        {(typeof exp.liquidacion_final_beneficio === 'number' || (exp?.cierre_grupo && typeof (exp.cierre_grupo?.beneficio ?? exp.cierre_grupo?.beneficio_neto) === 'number')) && (
+                        {(typeof exp.liquidacion_final_beneficio === 'number' || (exp?.cierre_grupo && typeof (exp.cierre_grupo?.beneficio_limpio ?? exp.cierre_grupo?.beneficio ?? exp.cierre_grupo?.beneficio_neto) === 'number')) && (
                           <span
                             className={`text-[11px] font-semibold ${
-                              (exp.liquidacion_final_beneficio ?? exp?.cierre_grupo?.beneficio ?? exp?.cierre_grupo?.beneficio_neto ?? 0) >= 0
+                              (exp.liquidacion_final_beneficio ?? exp?.cierre_grupo?.beneficio_limpio ?? exp?.cierre_grupo?.beneficio ?? exp?.cierre_grupo?.beneficio_neto ?? 0) >= 0
                                 ? 'text-emerald-600'
                                 : 'text-red-600'
                             }`}
                           >
-                            Beneficio: {(exp.liquidacion_final_beneficio ?? exp?.cierre_grupo?.beneficio ?? exp?.cierre_grupo?.beneficio_neto ?? 0).toFixed(2)} €
+                            Beneficio: {(exp.liquidacion_final_beneficio ?? exp?.cierre_grupo?.beneficio_limpio ?? exp?.cierre_grupo?.beneficio ?? exp?.cierre_grupo?.beneficio_neto ?? 0).toFixed(2)} €
                           </span>
                         )}
                       </button>
