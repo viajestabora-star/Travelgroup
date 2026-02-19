@@ -1172,6 +1172,31 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     (expediente.cierre_grupo.ingresos_totales != null || expediente.cierre_grupo.total_ingresos != null || expediente.cierre_grupo.beneficio_limpio != null || expediente.cierre_grupo.beneficio != null)
   )
 
+  // Pax por asociación (opcional, para cierre)
+  const [paxPorAsociacion, setPaxPorAsociacion] = useState([])
+  useEffect(() => {
+    const guardado = expediente?.cierre_grupo?.pax_por_asociacion
+    if (Array.isArray(guardado) && guardado.length > 0) {
+      setPaxPorAsociacion(guardado)
+    } else if (expedienteClientes.length > 0) {
+      setPaxPorAsociacion(prev => {
+        const idsPrev = new Set(prev.map(p => String(p.cliente_id)))
+        const nuevos = expedienteClientes.filter(ec => !idsPrev.has(String(ec.cliente_id))).map(ec => ({ cliente_id: ec.cliente_id, cliente_nombre: ec.cliente_nombre, pax: null }))
+        return prev.length > 0 ? [...prev, ...nuevos] : expedienteClientes.map(ec => ({ cliente_id: ec.cliente_id, cliente_nombre: ec.cliente_nombre, pax: null }))
+      })
+    } else if (clienteIdPrincipal) {
+      const nombrePrincipal = grupo?.nombre || expediente?.cliente_nombre || expediente?.nombre_grupo || '—'
+      setPaxPorAsociacion(prev => prev.length > 0 ? prev : [{ cliente_id: clienteIdPrincipal, cliente_nombre: nombrePrincipal, pax: null }])
+    }
+  }, [expediente?.id, expediente?.cierre_grupo?.pax_por_asociacion, expedienteClientes, clienteIdPrincipal, grupo?.nombre])
+  const actualizarPaxAsociacion = (clienteId, pax) => {
+    setPaxPorAsociacion(prev => {
+      const existe = prev.find(p => String(p.cliente_id) === String(clienteId))
+      if (existe) return prev.map(p => String(p.cliente_id) === String(clienteId) ? { ...p, pax: pax === '' ? null : Number(pax) || 0 } : p)
+      return [...prev, { cliente_id: clienteId, cliente_nombre: expedienteClientes.find(ec => String(ec.cliente_id) === String(clienteId))?.cliente_nombre || '—', pax: pax === '' ? null : Number(pax) || 0 }]
+    })
+  }
+
   // ============ GUARDAR CIERRE (sin machacar cotización) ============
   const [guardandoCierre, setGuardandoCierre] = useState(false)
   const handleGuardarCierre = async () => {
@@ -1190,6 +1215,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         ingresos: informeLiquidacion.ingresos,
         costesReales: informeLiquidacion.costesReales || [],
         gastosImprevistos: informeLiquidacion.gastosImprevistos || [],
+        pax_por_asociacion: paxPorAsociacion.filter(p => p.cliente_id),
       }
       const datosCierre = JSON.parse(JSON.stringify(payload))
 
@@ -2141,8 +2167,37 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [logsFinancieros, setLogsFinancieros] = useState([])
   const [showModalLogs, setShowModalLogs] = useState(false)
   
-  // Cliente editable
-  const grupo = clientes.find(c => c.id === expediente?.clienteId) || {
+  // Asociaciones vinculadas (multi-cliente)
+  const [expedienteClientes, setExpedienteClientes] = useState([])
+  const [cargandoAsociaciones, setCargandoAsociaciones] = useState(false)
+  useEffect(() => {
+    if (!expediente?.id) return
+    const cargar = async () => {
+      setCargandoAsociaciones(true)
+      try {
+        const { data, error } = await supabase
+          .from('expediente_clientes')
+          .select('id, cliente_id, pax')
+          .eq('expediente_id', expediente.id)
+        if (error) throw error
+        const rows = data || []
+        const conNombre = rows.map(r => ({
+          ...r,
+          cliente_nombre: (clientes.find(c => String(c.id) === String(r.cliente_id))?.nombre || '—'),
+        }))
+        setExpedienteClientes(conNombre)
+      } catch (_) {
+        setExpedienteClientes([])
+      } finally {
+        setCargandoAsociaciones(false)
+      }
+    }
+    cargar()
+  }, [expediente?.id, clientes])
+
+  // Cliente editable (principal: compatibilidad con cliente_id)
+  const clienteIdPrincipal = expediente?.clienteId ?? expediente?.cliente_id
+  const grupo = clientes.find(c => String(c.id) === String(clienteIdPrincipal)) || {
     id: null,
     nombre: expediente?.nombre_grupo || expediente?.clienteNombre || 'Sin nombre',
     responsable: expediente?.cliente_responsable || expediente?.responsable || 'Sin responsable',
@@ -3449,6 +3504,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     setClienteEditado(grupo)
   }
 
+  // ============ ASOCIACIONES VINCULADAS (MULTI-CLIENTE) ============
+  const agregarAsociacion = async (clienteId) => {
+    if (!expediente?.id || !clienteId) return
+    try {
+      const { data, error } = await supabase
+        .from('expediente_clientes')
+        .insert({ expediente_id: expediente.id, cliente_id: clienteId })
+        .select('id, cliente_id, pax')
+        .single()
+      if (error) throw error
+      const cliente = clientes.find(c => String(c.id) === String(clienteId))
+      setExpedienteClientes(prev => [...prev, { ...data, cliente_nombre: cliente?.nombre || '—' }])
+    } catch (err) {
+      alert('Error al vincular asociación: ' + (err?.message || err))
+    }
+  }
+  const quitarAsociacion = async (ecId) => {
+    if (!ecId) return
+    try {
+      const { error } = await supabase.from('expediente_clientes').delete().eq('id', ecId)
+      if (error) throw error
+      setExpedienteClientes(prev => prev.filter(e => e.id !== ecId))
+    } catch (err) {
+      alert('Error al desvincular: ' + (err?.message || err))
+    }
+  }
+  const clientesDisponiblesParaVincular = clientes.filter(
+    c => !expedienteClientes.some(ec => String(ec.cliente_id) === String(c.id))
+  )
+
   // ============ DOCUMENTOS ============
   
   const handleFileUpload = (e) => {
@@ -4033,6 +4118,46 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       )}
                     </div>
                     </div>
+
+                  {/* Asociaciones vinculadas (multi-asociación) */}
+                  <div className="mt-8 pt-6 border-t" style={{ borderColor: '#f1f5f9' }}>
+                    <h4 className="text-lg font-bold text-slate-900 mb-4">🔗 Asociaciones vinculadas</h4>
+                    <p className="text-sm text-slate-500 mb-4">Puedes vincular varias asociaciones a este expediente. El cliente principal se mantiene para compatibilidad.</p>
+                    {cargandoAsociaciones ? (
+                      <p className="text-sm text-slate-500">Cargando...</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {expedienteClientes.map((ec) => (
+                          <div key={ec.id || ec.cliente_id} className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                            <span className="font-medium text-slate-900">{ec.cliente_nombre || '—'}</span>
+                            <button type="button" onClick={() => quitarAsociacion(ec.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Desvincular">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        ))}
+                        {clientesDisponiblesParaVincular.length > 0 && (
+                          <div className="flex gap-2 items-center flex-wrap">
+                            <select
+                              className="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                              defaultValue=""
+                              onChange={(e) => {
+                                const v = e.target.value
+                                if (v) { agregarAsociacion(v); e.target.value = '' }
+                              }}
+                            >
+                              <option value="">+ Añadir asociación</option>
+                              {clientesDisponiblesParaVincular.map((c) => (
+                                <option key={c.id} value={c.id}>{c.nombre || 'Sin nombre'}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {expedienteClientes.length === 0 && clientesDisponiblesParaVincular.length === 0 && (
+                          <p className="text-sm text-slate-500 italic">Todas las asociaciones disponibles ya están vinculadas.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Historial de Expedientes - Compacto */}
                   <div className="mt-8 pt-6 border-t" style={{ borderColor: '#f1f5f9' }}>
@@ -6587,6 +6712,37 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       </div>
                     )}
                   </section>
+
+                  {/* Pax por asociación (opcional) */}
+                  {(expedienteClientes.length > 0 || paxPorAsociacion.length > 0) && (
+                    <section className="mb-6">
+                      <h2 className="text-base font-bold text-slate-800 uppercase mb-3 border-b border-slate-300 pb-1">Pax por asociación</h2>
+                      <p className="text-sm text-slate-500 mb-3">Opcional: anota cuántas personas vienen de cada asociación vinculada.</p>
+                      <div className="space-y-2">
+                        {(expedienteClientes.length > 0 ? expedienteClientes : paxPorAsociacion.map(p => ({ cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre }))).map((item) => {
+                          const clienteId = item.cliente_id
+                          const nombre = item.cliente_nombre || expedienteClientes.find(ec => String(ec.cliente_id) === String(clienteId))?.cliente_nombre || '—'
+                          const paxVal = paxPorAsociacion.find(p => String(p.cliente_id) === String(clienteId))?.pax ?? ''
+                          return (
+                            <div key={clienteId} className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg">
+                              <span className="flex-1 font-medium text-slate-800">{nombre}</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={paxVal}
+                                onChange={(e) => actualizarPaxAsociacion(clienteId, e.target.value)}
+                                disabled={isCierreGuardado}
+                                className="w-20 border border-slate-300 rounded-lg px-2 py-1 text-right"
+                                placeholder="0"
+                              />
+                              <span className="text-slate-500 text-sm">pax</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  )}
 
                   {/* Tabla de resultados: Beneficio Bruto, IVA (21%), Beneficio Neto */}
                   {(() => {
