@@ -884,83 +884,242 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }))
   }
 
+  const categorizarPago = (concepto) => {
+    const c = String(concepto || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    if (/bus|autobus|transporte/.test(c)) return 'Bus'
+    if (/restaurante/.test(c)) return 'Restaurante'
+    if (/guia|guía/.test(c)) return 'Guía'
+    return 'Otros'
+  }
+
   const generarInformeLiquidacionPDF = () => {
-    const { ingresosTotales: cobroTotal, gastosTotales: sumaGastos, beneficioLimpio: beneficioNetoReal, ivaPagado: ivaSobreBeneficio, beneficioBruto } = calcularCierreFinanciero()
+    if (!expediente?.cierre_grupo || typeof expediente.cierre_grupo !== 'object') return
+    const cg = expediente.cierre_grupo
+    const ingresosTotales = Number(cg.ingresos_totales ?? cg.total_ingresos ?? 0)
+    const gastosTotales = Number(cg.gastos_totales ?? cg.total_gastos ?? 0)
+    const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? 0)
+    const ivaPagado = Number(cg.iva_pagado ?? 0)
+    const costesReales = Array.isArray(cg.costesReales) ? cg.costesReales : []
+    const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
     const viaje = expediente?.destino || 'Sin destino'
+
+    const porCategoria = { Bus: [], Restaurante: [], Guía: [], Otros: [] }
+    costesReales.forEach(c => {
+      const cat = categorizarPago(c.concepto)
+      porCategoria[cat].push(c)
+    })
+
     const doc = new jsPDF()
-    let y = 20
-    doc.setFontSize(16)
+    const pageW = doc.internal.pageSize.getWidth()
+    let y = 24
+
+    doc.setFontSize(18)
     doc.setFont('helvetica', 'bold')
-    doc.text('INFORME DE LIQUIDACIÓN DE BENEFICIOS', 20, y)
-    y += 10
+    doc.setTextColor(30, 41, 59)
+    doc.text('INFORME DE CIERRE FINANCIERO', pageW / 2, y, { align: 'center' })
+    y += 14
+
     doc.setFontSize(10)
     doc.setFont('helvetica', 'normal')
-    doc.text(`GRUPO: ${grupo}`, 20, y)
+    doc.setTextColor(71, 85, 105)
+    doc.text(`Grupo: ${grupo}`, 20, y)
     y += 6
-    doc.text(`VIAJE: ${viaje}`, 20, y)
+    doc.text(`Viaje: ${viaje}`, 20, y)
     y += 12
+
     doc.setFont('helvetica', 'bold')
-    doc.text('Ingresos (Cobros)', 20, y)
-    y += 6
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Total Cobrado: ${cobroTotal.toFixed(2)} €`, 25, y)
-    y += 12
-    doc.setFont('helvetica', 'bold')
-    doc.text('Costes Reales (por servicio)', 20, y)
-    y += 6
-    ;(informeLiquidacion.costesReales || []).forEach(c => {
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(9)
-      doc.text(`${c.concepto || '—'} | ${c.proveedor || '—'} | ${Number(c.coste_real || 0).toFixed(2)} €`, 25, y)
-      y += 5
-    })
-    ;(informeLiquidacion.gastosImprevistos || []).forEach(g => {
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(9)
-      doc.text(`[Imprevisto] ${g.concepto || '—'} | ${Number(g.importe || 0).toFixed(2)} €`, 25, y)
-      y += 5
-    })
-    y += 4
-    doc.setFont('helvetica', 'bold')
-    doc.text(`TOTAL GASTOS: ${sumaGastos.toFixed(2)} €`, 25, y)
+    doc.setFontSize(11)
+    doc.setTextColor(30, 41, 59)
+    doc.text('TOTAL INGRESOS', 20, y)
+    doc.text(`${ingresosTotales.toFixed(2)} €`, pageW - 20, y, { align: 'right' })
     y += 10
+
     doc.setFont('helvetica', 'bold')
-    doc.text(`Beneficio Bruto: ${beneficioBruto.toFixed(2)} €`, 20, y)
+    doc.setFontSize(10)
+    doc.text('Desglose de pagos a proveedores', 20, y)
+    y += 8
+
+    const categoriasOrden = ['Bus', 'Restaurante', 'Guía', 'Otros']
+    categoriasOrden.forEach(cat => {
+      const items = porCategoria[cat]
+      if (items.length === 0) return
+      const subtotal = items.reduce((s, c) => s + Number(c.coste_real || 0), 0)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.setTextColor(51, 65, 85)
+      doc.text(`${cat}`, 25, y)
+      doc.text(`${subtotal.toFixed(2)} €`, pageW - 25, y, { align: 'right' })
+      y += 5
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(100, 116, 139)
+      items.forEach(c => {
+        if (y > 270) { doc.addPage(); y = 20 }
+        doc.text(`  ${(c.concepto || '—').substring(0, 50)} | ${(c.proveedor || '—').substring(0, 25)}`, 25, y)
+        doc.text(`${Number(c.coste_real || 0).toFixed(2)} €`, pageW - 25, y, { align: 'right' })
+        y += 4
+      })
+      y += 2
+    })
+
+    if (gastosImprevistos.length > 0) {
+      if (y > 260) { doc.addPage(); y = 20 }
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.text('Gastos imprevistos', 25, y)
+      y += 5
+      const totalImp = gastosImprevistos.reduce((s, g) => s + Number(g.importe || 0), 0)
+      doc.text(`${totalImp.toFixed(2)} €`, pageW - 25, y - 5, { align: 'right' })
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      gastosImprevistos.forEach(g => {
+        doc.text(`  ${(g.concepto || '—').substring(0, 60)}`, 25, y)
+        doc.text(`${Number(g.importe || 0).toFixed(2)} €`, pageW - 25, y, { align: 'right' })
+        y += 4
+      })
+      y += 4
+    }
+
     y += 6
+    doc.setDrawColor(226, 232, 240)
+    doc.setLineWidth(0.5)
+    doc.line(20, y, pageW - 20, y)
+    y += 10
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text('TOTAL GASTOS', 20, y)
+    doc.text(`${gastosTotales.toFixed(2)} €`, pageW - 20, y, { align: 'right' })
+    y += 10
+
     doc.setFont('helvetica', 'normal')
-    doc.text(`IVA sobre Beneficio (21%): -${ivaSobreBeneficio.toFixed(2)} €`, 20, y)
-    y += 6
+    doc.setFontSize(9)
+    doc.text('IVA pagado (21% sobre beneficio)', 20, y)
+    doc.text(`− ${ivaPagado.toFixed(2)} €`, pageW - 20, y, { align: 'right' })
+    y += 12
+
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(12)
-    doc.text(`BENEFICIO NETO REAL: ${beneficioNetoReal.toFixed(2)} €`, 20, y)
-    doc.save(`Informe_Liquidacion_${grupo.replace(/\s+/g, '_')}_${viaje.replace(/\s+/g, '_')}.pdf`)
+    doc.setFontSize(14)
+    doc.setTextColor(16, 185, 129)
+    doc.text('BENEFICIO NETO FINAL', 20, y)
+    doc.text(`${beneficioLimpio.toFixed(2)} €`, pageW - 20, y, { align: 'right' })
+    doc.setTextColor(0, 0, 0)
+
+    doc.save(`Informe_Cierre_${grupo.replace(/\s+/g, '_')}_${viaje.replace(/\s+/g, '_')}.pdf`)
+  }
+
+  const imprimirInformeCierre = () => {
+    if (!expediente?.cierre_grupo || typeof expediente.cierre_grupo !== 'object') return
+    const ventana = window.open('', '_blank', 'width=800,height=600')
+    if (!ventana) { alert('Permite ventanas emergentes para imprimir.'); return }
+    const cg = expediente.cierre_grupo
+    const ingresosTotales = Number(cg.ingresos_totales ?? cg.total_ingresos ?? 0)
+    const gastosTotales = Number(cg.gastos_totales ?? cg.total_gastos ?? 0)
+    const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? 0)
+    const ivaPagado = Number(cg.iva_pagado ?? 0)
+    const costesReales = Array.isArray(cg.costesReales) ? cg.costesReales : []
+    const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
+    const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
+    const viaje = expediente?.destino || 'Sin destino'
+
+    const porCategoria = { Bus: [], Restaurante: [], Guía: [], Otros: [] }
+    costesReales.forEach(c => {
+      const cat = categorizarPago(c.concepto)
+      porCategoria[cat].push(c)
+    })
+
+    const filasPagos = []
+    ;['Bus', 'Restaurante', 'Guía', 'Otros'].forEach(cat => {
+      porCategoria[cat].forEach(c => {
+        filasPagos.push(`<tr><td>${cat}</td><td>${(c.concepto || '—').replace(/</g, '&lt;')}</td><td>${(c.proveedor || '—').replace(/</g, '&lt;')}</td><td class="num">${Number(c.coste_real || 0).toFixed(2)} €</td></tr>`)
+      })
+    })
+    gastosImprevistos.forEach(g => {
+      filasPagos.push(`<tr><td>Imprevisto</td><td colspan="2">${(g.concepto || '—').replace(/</g, '&lt;')}</td><td class="num">${Number(g.importe || 0).toFixed(2)} €</td></tr>`)
+    })
+
+    ventana.document.write(`
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Informe de Cierre - ${grupo}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; color: #1e293b; padding: 40px; max-width: 700px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-bottom: 24px; letter-spacing: 0.02em; }
+    .meta { font-size: 0.9rem; color: #64748b; margin-bottom: 24px; }
+    .section { margin-bottom: 20px; }
+    .section-title { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+    th { font-weight: 600; color: #475569; font-size: 0.75rem; text-transform: uppercase; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .total-row { font-weight: 600; background: #f8fafc; }
+    .beneficio { font-size: 1.25rem; font-weight: 700; color: #059669; margin-top: 16px; padding-top: 16px; border-top: 2px solid #e2e8f0; }
+    @media print { body { padding: 20px; } }
+  </style>
+</head>
+<body>
+  <h1>Informe de Cierre Financiero</h1>
+  <div class="meta">
+    <p><strong>Grupo:</strong> ${grupo.replace(/</g, '&lt;')}</p>
+    <p><strong>Viaje:</strong> ${viaje.replace(/</g, '&lt;')}</p>
+  </div>
+  <div class="section">
+    <div class="section-title">Total Ingresos</div>
+    <p style="font-size: 1.1rem; font-weight: 600;">${ingresosTotales.toFixed(2)} €</p>
+  </div>
+  <div class="section">
+    <div class="section-title">Desglose de pagos a proveedores</div>
+    <table>
+      <thead><tr><th>Categoría</th><th>Concepto</th><th>Proveedor</th><th class="num">Importe</th></tr></thead>
+      <tbody>${filasPagos.join('')}</tbody>
+      <tfoot><tr class="total-row"><td colspan="3">Total Gastos</td><td class="num">${gastosTotales.toFixed(2)} €</td></tr></tfoot>
+    </table>
+  </div>
+  <div class="section">
+    <p style="font-size: 0.85rem; color: #64748b;">IVA pagado (21%): − ${ivaPagado.toFixed(2)} €</p>
+    <p class="beneficio">Beneficio Neto Final: ${beneficioLimpio.toFixed(2)} €</p>
+  </div>
+</body>
+</html>`)
+    ventana.document.close()
+    ventana.focus()
+    setTimeout(() => { ventana.print(); ventana.close() }, 300)
   }
 
   const exportarInformeGestoria = () => {
-    const { ingresosTotales: cobroTotal, gastosTotales: sumaGastos, beneficioLimpio: beneficioNetoReal, ivaPagado: ivaSobreBeneficio, beneficioBruto } = calcularCierreFinanciero()
+    if (!expediente?.cierre_grupo || typeof expediente.cierre_grupo !== 'object') return
+    const cg = expediente.cierre_grupo
+    const ingresosTotales = Number(cg.ingresos_totales ?? cg.total_ingresos ?? 0)
+    const gastosTotales = Number(cg.gastos_totales ?? cg.total_gastos ?? 0)
+    const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? 0)
+    const ivaPagado = Number(cg.iva_pagado ?? 0)
+    const costesReales = Array.isArray(cg.costesReales) ? cg.costesReales : []
+    const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
     const viaje = expediente?.destino || 'Sin destino'
     const lineas = [
-      'INFORME DE LIQUIDACIÓN DE BENEFICIOS',
+      'INFORME DE CIERRE FINANCIERO',
       `GRUPO,${grupo}`,
       `VIAJE,${viaje}`,
       '',
-      'Ingresos (Cobros)',
-      `Total Cobrado,${cobroTotal.toFixed(2)}`,
+      'Total Ingresos',
+      `Importe,${ingresosTotales.toFixed(2)}`,
       '',
-      'Costes Reales',
-      'Concepto,Proveedor,Coste Real',
-      ...(informeLiquidacion.costesReales || []).map(c => `"${(c.concepto || '').replace(/"/g, '""')}","${(c.proveedor || '').replace(/"/g, '""')}",${Number(c.coste_real || 0).toFixed(2)}`),
+      'Desglose Pagos a Proveedores',
+      'Categoría,Concepto,Proveedor,Importe',
+      ...costesReales.map(c => `"${categorizarPago(c.concepto)}","${(c.concepto || '').replace(/"/g, '""')}","${(c.proveedor || '').replace(/"/g, '""')}",${Number(c.coste_real || 0).toFixed(2)}`),
       '',
       'Gastos Imprevistos',
       'Concepto,Importe',
-      ...(informeLiquidacion.gastosImprevistos || []).map(g => `"${(g.concepto || '').replace(/"/g, '""')}",${Number(g.importe || 0).toFixed(2)}`),
-      `TOTAL GASTOS,${sumaGastos.toFixed(2)}`,
+      ...gastosImprevistos.map(g => `"${(g.concepto || '').replace(/"/g, '""')}",${Number(g.importe || 0).toFixed(2)}`),
+      `TOTAL GASTOS,${gastosTotales.toFixed(2)}`,
       '',
-      `Beneficio Bruto,${beneficioBruto.toFixed(2)}`,
-      `IVA sobre Beneficio (21%),-${ivaSobreBeneficio.toFixed(2)}`,
-      `BENEFICIO NETO REAL,${beneficioNetoReal.toFixed(2)}`
+      `IVA pagado,-${ivaPagado.toFixed(2)}`,
+      `BENEFICIO NETO FINAL,${beneficioLimpio.toFixed(2)}`
     ]
     const blob = new Blob(['\ufeff' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -6435,10 +6594,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <Save size={18} /> {guardandoCierre ? 'Guardando…' : 'Guardar Cierre'}
                     </button>
                     )}
-                    <button type="button" onClick={generarInformeLiquidacionPDF} className="flex items-center gap-2 px-4 py-2 border-2 border-slate-800 rounded-lg bg-white text-slate-900 font-semibold hover:bg-slate-100">
+                    <button type="button" onClick={imprimirInformeCierre} disabled={!isCierreGuardado} title={!isCierreGuardado ? 'Guarda el cierre antes de imprimir' : 'Imprimir informe'} className={`flex items-center gap-2 px-4 py-2 border-2 rounded-lg font-semibold ${isCierreGuardado ? 'border-slate-800 bg-white text-slate-900 hover:bg-slate-100' : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'}`}>
                       <Printer size={18} /> Imprimir
                     </button>
-                    <button type="button" onClick={exportarInformeGestoria} className="flex items-center gap-2 px-4 py-2 border-2 border-slate-800 rounded-lg bg-white text-slate-900 font-semibold hover:bg-slate-100">
+                    <button type="button" onClick={generarInformeLiquidacionPDF} disabled={!isCierreGuardado} title={!isCierreGuardado ? 'Guarda el cierre antes de descargar PDF' : 'Descargar PDF'} className={`flex items-center gap-2 px-4 py-2 border-2 rounded-lg font-semibold ${isCierreGuardado ? 'border-slate-800 bg-white text-slate-900 hover:bg-slate-100' : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'}`}>
+                      <FileDown size={18} /> Descargar PDF
+                    </button>
+                    <button type="button" onClick={exportarInformeGestoria} disabled={!isCierreGuardado} title={!isCierreGuardado ? 'Guarda el cierre antes de exportar' : 'Exportar CSV'} className={`flex items-center gap-2 px-4 py-2 border-2 rounded-lg font-semibold ${isCierreGuardado ? 'border-slate-800 bg-white text-slate-900 hover:bg-slate-100' : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'}`}>
                       <FileDown size={18} /> Exportar CSV
                     </button>
                   </div>
