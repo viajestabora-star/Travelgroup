@@ -2403,26 +2403,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, clientes = [] }) => 
       const pageWidth = doc.internal.pageSize.getWidth()
       const pageHeight = doc.internal.pageSize.getHeight()
 
-      // Marca de agua en modo prueba
-      if (MODO_PRUEBA_FACTURACION) {
-        doc.saveGraphicsState && doc.saveGraphicsState()
-        doc.setTextColor(220, 220, 220)
-        doc.setFontSize(50)
-        // jsPDF admite ángulo en las opciones de text en versiones recientes
-        try {
-          doc.text('BORRADOR / PRUEBA', pageWidth / 2, pageHeight / 2, {
-            align: 'center',
-            angle: -30,
-          })
-        } catch (e) {
-          // Fallback sin ángulo
-          doc.text('BORRADOR / PRUEBA', pageWidth / 2, pageHeight / 2, {
-            align: 'center',
-          })
-        }
-        doc.restoreGraphicsState && doc.restoreGraphicsState()
-      }
-
       // Colores corporativos
       const colorAmarillo = [255, 193, 7] // #FFC107
       const colorAzul = [33, 150, 243] // #2196F3
