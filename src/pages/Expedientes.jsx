@@ -256,14 +256,7 @@ const Expedientes = () => {
         .order('id', { ascending: false })
 
       if (error) {
-        // MODO SEGURO: no romper, fallback a localStorage
-        const errorInfo = manejarErrorSupabase(error, 'cargar expedientes');
-        if (errorInfo) console.warn(errorInfo.mensaje);
-        const localData = (storage.get('expedientes') || []).map(exp => ({
-          ...exp, itinerario: exp.itinerario || '', observaciones: exp.observaciones || '',
-          total_pax: exp.total_pax || null, pax_pago: exp.pax_pago || null, cotizacion: undefined
-        }))
-        setExpedientes(normalizarExpedientes(localData))
+        setExpedientes([])
         setIsLoading(false)
         return
       }
@@ -331,16 +324,7 @@ const Expedientes = () => {
       // Cargar clientes de Supabase
       fetchClientesFromSupabase()
     } catch (error) {
-      // MODO SEGURO: Fallback a localStorage si hay error - no romper
-      const localData = (storage.get('expedientes') || []).map(exp => ({
-        ...exp,
-        itinerario: exp.itinerario || '',
-        observaciones: exp.observaciones || '',
-        total_pax: exp.total_pax || null,
-        pax_pago: exp.pax_pago || null,
-        cotizacion: undefined
-      }))
-      setExpedientes(normalizarExpedientes(localData))
+      setExpedientes([])
     } finally {
       setIsLoading(false)
     }
@@ -1226,6 +1210,11 @@ const Expedientes = () => {
                       )}
                       <p className="text-gray-600" style={{ fontSize: '14px' }}>
                         Cierre: {expediente?.cierre_grupo ? 'Cerrado' : 'Abierto'}
+                        {typeof expediente?.cierre_grupo === 'object' && typeof (expediente.cierre_grupo?.beneficio ?? expediente.cierre_grupo?.beneficio_neto) === 'number' && (
+                          <span className="ml-1 font-semibold">
+                            ({(expediente.cierre_grupo?.beneficio ?? expediente.cierre_grupo?.beneficio_neto ?? 0).toFixed(2)} €)
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-3 mt-4">
@@ -1522,8 +1511,6 @@ const Expedientes = () => {
                     ))}
                   </select>
                 </div>
-                {expedienteForm && (
-                <>
                 <div>
                   <label className="label">Tipo Colectivo</label>
                   <select
@@ -1552,8 +1539,6 @@ const Expedientes = () => {
                     <option value="Gran viaje">Gran viaje</option>
                   </select>
                 </div>
-                </>
-                )}
                 <div className="md:col-span-2">
                   <label className="label">Observaciones</label>
                   <textarea

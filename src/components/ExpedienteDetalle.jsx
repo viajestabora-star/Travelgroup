@@ -369,10 +369,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [initialTab])
 
-  // Restaurar cierre_grupo guardado - solo si es objeto (JSONB), sin parsear
+  // Restaurar cierre_grupo guardado (JSONB: total_ingresos, total_gastos, beneficio, fecha + detalle)
   useEffect(() => {
     const cg = expediente?.cierre_grupo
-    if (typeof cg === 'object' && cg !== null && (cg.resumen || cg.ingresos || Array.isArray(cg.costesReales) || Array.isArray(cg.gastosImprevistos))) {
+    if (typeof cg !== 'object' || cg === null) return
+    if (cg.ingresos || Array.isArray(cg.costesReales) || Array.isArray(cg.gastosImprevistos)) {
       setInformeLiquidacion(prev => ({
         ...prev,
         ingresos: cg.ingresos || prev.ingresos,
@@ -1008,7 +1009,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const ivaSobreBeneficio = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
       const beneficioNeto = beneficioBruto - ivaSobreBeneficio
 
+      const fecha = new Date().toISOString()
       const payload = {
+        total_ingresos: ingresosTotales,
+        total_gastos: gastosReales + totalImprevistos,
+        beneficio: beneficioNeto,
+        fecha,
+        // Detalle completo para compatibilidad
         ingresos: informeLiquidacion.ingresos,
         costesReales: informeLiquidacion.costesReales || [],
         gastosImprevistos: informeLiquidacion.gastosImprevistos || [],
@@ -1019,7 +1026,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           beneficio_bruto: beneficioBruto,
           iva_sobre_beneficio: ivaSobreBeneficio,
           beneficio_neto: beneficioNeto,
-          updated_at: new Date().toISOString(),
+          updated_at: fecha,
         },
       }
 
