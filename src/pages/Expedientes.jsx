@@ -208,9 +208,21 @@ const Expedientes = () => {
   }
 
   useEffect(() => {
-    loadData()
-    sincronizarConPlanning()
-    fetchClientesFromSupabase()
+    const init = async () => {
+      try {
+        await loadData()
+      } catch (_) {
+        setExpedientes([])
+        setIsLoading(false)
+      }
+    }
+    init()
+    try {
+      sincronizarConPlanning()
+      fetchClientesFromSupabase()
+    } catch (_) {
+      setIsLoading(false)
+    }
     // eslint-disable-next-line
   }, [])
 
@@ -257,7 +269,6 @@ const Expedientes = () => {
 
       if (error) {
         setExpedientes([])
-        setIsLoading(false)
         return
       }
 
@@ -318,11 +329,15 @@ const Expedientes = () => {
       
       // También guardar en localStorage como backup (estructura limpia sin cotizacion JSON)
       if (expedientesParseados && expedientesParseados.length > 0) {
-        storage.set('expedientes', expedientesParseados)
+        try {
+          storage.set('expedientes', expedientesParseados)
+        } catch (_) { /* no bloquear por localStorage */ }
       }
-      
-      // Cargar clientes de Supabase
-      fetchClientesFromSupabase()
+
+      // Cargar clientes de Supabase (no bloquear si falla)
+      try {
+        await fetchClientesFromSupabase()
+      } catch (_) { /* expedientes ya cargados, no bloquear */ }
     } catch (error) {
       setExpedientes([])
     } finally {

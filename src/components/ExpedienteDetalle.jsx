@@ -3558,14 +3558,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const totalPasajerosHabitaciones = ((habitaciones.dobles || 0) * 2) + ((habitaciones.doblesTwin || 0) * 2) + (habitaciones.individuales || 0)
 
   // ============ RENDER PRINCIPAL (CON TRY/CATCH) ============
-  if (!expediente) {
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-xl shadow-xl px-8 py-6 text-center">
-          <p className="text-gray-600">Cargando datos del expediente...</p>
-        </div>
-      </div>
-    )
+  // Si expediente es null/undefined: retornar null para no bloquear el renderizado del padre
+  if (!expediente || !expediente.id) {
+    return null
   }
 
   try {
