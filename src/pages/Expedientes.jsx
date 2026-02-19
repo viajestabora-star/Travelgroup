@@ -679,8 +679,13 @@ const Expedientes = () => {
     setConfirmarBorrado({ id: expediente?.id, nombre, destino })
   }
 
+  // Regla 1.14: Confirmación doble antes de borrar documento oficial
   const handleDeleteExpediente = async (id) => {
     if (!id) return
+    if (!window.confirm('Confirmación de seguridad: Esta acción elimina un expediente y sus datos asociados. ¿Confirmas que deseas eliminarlo definitivamente?')) {
+      setConfirmarBorrado(null)
+      return
+    }
     try {
       const { error } = await supabase
         .from('expedientes')

@@ -87,12 +87,13 @@ const generarFacturaPDFUnificado = async (factura) => {
       }
     }
     
-    // Nº Expediente (prominente, parte superior, cerca de la fecha)
-    const numeroExpedienteFactura = factura?.numero_expediente || factura?.expediente_numero_expediente || factura?.datos_factura?.numero_expediente || factura?.datos_json?.numero_expediente || '—'
-    doc.setFontSize(10)
-    doc.setTextColor(80, 80, 80)
-    doc.setFont(undefined, 'normal')
-    doc.text(`Expediente: ${numeroExpedienteFactura}`, pageWidth - 20, 22, { align: 'right' })
+    // Nº Expediente (EXP-XXXX) — prominente en cabecera de Factura oficial
+    const numExp = factura?.numero_expediente || factura?.expediente_numero_expediente || factura?.datos_factura?.numero_expediente || factura?.datos_json?.numero_expediente || ''
+    const numeroExpedienteFactura = numExp ? `EXP-${numExp}` : '—'
+    doc.setFontSize(12)
+    doc.setTextColor(0, 0, 0)
+    doc.setFont(undefined, 'bold')
+    doc.text(numeroExpedienteFactura, pageWidth - 20, 22, { align: 'right' })
     
     // Número de factura
     doc.setFontSize(20)

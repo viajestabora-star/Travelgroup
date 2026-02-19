@@ -115,8 +115,10 @@ const Proveedores = () => {
   // Regla 1.14: Modal de confirmación antes de borrar
   const solicitarBorradoProveedor = (id, nombre) => setConfirmarBorrado({ id, nombre })
 
+  // Regla 1.14: Confirmación doble antes de borrar
   const ejecutarBorradoProveedor = async () => {
     if (!confirmarBorrado?.id) return
+    if (!window.confirm('Confirmación de seguridad: ¿Confirmas que deseas eliminarlo definitivamente?')) return
     await supabase.from('proveedores').delete().eq('id', confirmarBorrado.id)
     fetchProveedores()
     setConfirmarBorrado(null)

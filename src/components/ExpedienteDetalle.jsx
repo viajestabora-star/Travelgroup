@@ -1129,12 +1129,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         doc.rect(10, 5, 55, 22, 'F')
       }
       
-      // Nº Expediente (prominente, parte superior)
-      const numeroExpediente = expediente?.numero_expediente || expediente?.numeroExpediente || '—'
-      doc.setFontSize(10)
-      doc.setTextColor(80, 80, 80)
-      doc.setFont('helvetica', 'normal')
-      doc.text(`Expediente: ${numeroExpediente}`, pageWidth - 60, 15)
+      // Nº Expediente (EXP-XXXX) — prominente en cabecera de Recibo oficial
+      const numExp = expediente?.numero_expediente || expediente?.numeroExpediente || ''
+      const numeroExpedienteDisplay = numExp ? `EXP-${numExp}` : '—'
+      doc.setFontSize(12)
+      doc.setTextColor(0, 0, 0)
+      doc.setFont('helvetica', 'bold')
+      doc.text(numeroExpedienteDisplay, pageWidth - 60, 15)
       
       // Título "RECIBO" + Nº Recibo
       const numeroRecibo = cobro.numero_recibo || '—'
@@ -1156,11 +1157,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.setLineWidth(0.5)
       doc.line(10, 48, pageWidth - 10, 48)
       
-      // Texto técnico: Recibo oficial correspondiente al Expediente [Nº]
+      // Texto técnico: Recibo oficial correspondiente al Expediente [EXP-XXXX]
       doc.setFontSize(10)
       doc.setTextColor(60, 60, 60)
       doc.setFont('helvetica', 'italic')
-      doc.text(`Recibo oficial correspondiente al Expediente ${numeroExpediente}`, 20, 58)
+      doc.text(`Recibo oficial correspondiente al Expediente ${numeroExpedienteDisplay}`, 20, 58)
       
       // Contenido principal (ligeramente más abajo para no chocar con el logo)
       let yPos = 75
@@ -1376,8 +1377,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   // ============ BORRAR VERSIÓN DE FACTURA ============
+  // Regla 1.14: Confirmación doble antes de borrar documento oficial
   const borrarVersionFactura = async (versionId, numeroFactura) => {
-    if (!window.confirm('¿Estás seguro de que quieres eliminar esta versión histórica?')) {
+    if (!window.confirm('¿Estás seguro de que quieres eliminar esta versión histórica de factura?')) {
+      return
+    }
+    if (!window.confirm('Confirmación de seguridad: Esta acción elimina un documento oficial. ¿Confirmas que deseas eliminarlo definitivamente?')) {
       return
     }
     
@@ -1530,12 +1535,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         }
       }
       
-      // Nº Expediente (prominente, parte superior, cerca de la fecha)
-      const numeroExpedienteFactura = factura?.numero_expediente || factura?.datos_factura?.numero_expediente || factura?.datos_json?.numero_expediente || expediente?.numero_expediente || expediente?.numeroExpediente || '—'
-      doc.setFontSize(10)
-      doc.setTextColor(80, 80, 80)
-      doc.setFont(undefined, 'normal')
-      doc.text(`Expediente: ${numeroExpedienteFactura}`, pageWidth - 20, 22, { align: 'right' })
+      // Nº Expediente (EXP-XXXX) — prominente en cabecera de Factura oficial
+      const numExpFact = factura?.numero_expediente || factura?.datos_factura?.numero_expediente || factura?.datos_json?.numero_expediente || expediente?.numero_expediente || expediente?.numeroExpediente || ''
+      const numeroExpedienteFactura = numExpFact ? `EXP-${numExpFact}` : '—'
+      doc.setFontSize(12)
+      doc.setTextColor(0, 0, 0)
+      doc.setFont(undefined, 'bold')
+      doc.text(numeroExpedienteFactura, pageWidth - 20, 22, { align: 'right' })
       
       // Número de factura
       doc.setFontSize(20)
@@ -2600,12 +2606,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         }
       }
 
-      // Nº Expediente (prominente, parte superior, cerca de la fecha)
-      const numeroExp = expediente?.numero_expediente || expediente?.numeroExpediente || '—'
-      doc.setFontSize(10)
-      doc.setTextColor(80, 80, 80)
-      doc.setFont(undefined, 'normal')
-      doc.text(`Expediente: ${numeroExp}`, pageWidth - 20, 22, { align: 'right' })
+      // Nº Expediente (EXP-XXXX) — prominente en cabecera de Factura
+      const numExp = expediente?.numero_expediente || expediente?.numeroExpediente || ''
+      const numeroExp = numExp ? `EXP-${numExp}` : '—'
+      doc.setFontSize(12)
+      doc.setTextColor(0, 0, 0)
+      doc.setFont(undefined, 'bold')
+      doc.text(numeroExp, pageWidth - 20, 22, { align: 'right' })
 
       // Número de factura (arriba a la derecha)
       doc.setFontSize(20)
@@ -3247,11 +3254,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }
 
+  // Regla 1.14: Confirmación doble antes de borrar documento oficial
   const eliminarDocumento = (id) => {
     const doc = documentos.find(d => d.id === id)
-    if (window.confirm(`¿Está seguro de que desea eliminar "${doc?.nombre || 'este documento'}"?\n\nEsta acción no se puede deshacer.`)) {
-      setDocumentos(documentos.filter(d => d.id !== id))
-    }
+    if (!window.confirm(`¿Está seguro de que desea eliminar "${doc?.nombre || 'este documento'}"?\n\nEsta acción no se puede deshacer.`)) return
+    if (!window.confirm('Confirmación de seguridad: ¿Confirmas que deseas eliminarlo definitivamente?')) return
+    setDocumentos(documentos.filter(d => d.id !== id))
   }
 
   // ============ CALCULAR TOTALES DE HABITACIONES ============
@@ -3277,10 +3285,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 <h1 className="text-3xl font-black text-navy-900 uppercase mb-1">
                   {expediente.nombre_grupo || expediente.clienteNombre || grupo.nombre || 'SIN NOMBRE DE GRUPO'}
                 </h1>
-                {/* Número de expediente en solo lectura */}
+                {/* Número de expediente (EXP-XXXX) — prominente en cabecera */}
                 {expediente.numero_expediente && (
-                  <p className="text-xs font-mono text-gray-500 mb-1">
-                    Nº Expediente: {expediente.numero_expediente}
+                  <p className="text-sm font-bold font-mono text-blue-700 mb-1">
+                    EXP-{expediente.numero_expediente}
                   </p>
                 )}
                 {/* REGLA: Responsable = PEQUEÑO DEBAJO */}
@@ -4500,11 +4508,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     <>
                     {/* DESKTOP: Tabla tradicional - oculta en móvil */}
                     <div className="hidden md:block overflow-x-auto">
-                      {/* Interfaz final: anchos fijos persistentes (160, 348=170+130, 50, 70, 120, 90, 120, 40) */}
-                      <table className="w-full whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '960px' }}>
+                      {/* Blinda anchos exactos: Servicio 160, Proveedor 170, Detalle 130, Cant 50, Precio 70, Modo 120, Total 90, Release 120 */}
+                      <table className="w-full whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '950px' }}>
                         <colgroup>
                           <col style={{ width: '160px', minWidth: '160px', maxWidth: '160px' }} />
-                          <col style={{ width: '348px', minWidth: '348px', maxWidth: '348px' }} />
+                          <col style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }} />
+                          <col style={{ width: '130px', minWidth: '130px', maxWidth: '130px' }} />
                           <col style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }} />
                           <col style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }} />
                           <col style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }} />
@@ -4515,7 +4524,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         <thead className="bg-gray-50">
                           <tr>
                             <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '160px' }}>Servicio</th>
-                            <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '348px' }}>Proveedor</th>
+                            <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '170px' }}>Proveedor</th>
+                            <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '130px' }}>Detalle</th>
                             <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '50px' }}>Cant.</th>
                             <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '70px' }}>Precio</th>
                             <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '120px' }}>Modo</th>
@@ -4578,11 +4588,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 </select>
                               </td>
                               
-                              {/* COLUMNA 2: PROVEEDOR (170px) + DETALLE (130px) + gap + botón — medidas exactas */}
-                              <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '348px', minWidth: '348px', maxWidth: '348px' }}>
+                              {/* COLUMNA 2: PROVEEDOR — 170px exactos */}
+                              <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }}>
                                 <div className="relative" data-provider-combobox>
-                                <div className="flex flex-row gap-2 items-center flex-nowrap" style={{ width: '348px' }}>
-                                  <div className="relative flex-shrink-0" style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }}>
+                                <div className="flex flex-row gap-1 items-center flex-nowrap" style={{ width: '170px' }}>
+                                  <div className="relative flex-shrink-0 flex-1 min-w-0" style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }}>
                                     {/* Input de búsqueda - SOLO búsqueda, NO crea nada */}
                                     <input
                                       type="text"
@@ -4637,38 +4647,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       </button>
                                     )}
                                   </div>
-                                  {/* Detalle (especificacion_destino): 130px exactos */}
-                                  <div className="flex flex-row items-center gap-1 flex-shrink-0 overflow-hidden" style={{ width: '130px', minWidth: '130px', maxWidth: '130px' }}>
-                                    {(servicio.tipo === 'Guía Local' || servicio.tipo === 'Entradas/Tickets') && (
-                                      <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap flex-shrink-0">de </span>
-                                    )}
-                                    <input
-                                      type="text"
-                                      value={servicio.especificacion_destino || ''}
-                                      onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
-                                      onFocus={(e) => e.target.select()}
-                                      placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
-                                      className="input-field text-xs py-1.5 px-2 flex-1 min-w-0"
-                                      style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', flex: '1 1 0', minWidth: 0 }}
-                                    />
-                                  </div>
-                                  {/* Botón '+' independiente para abrir modal completo */}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      // Abrir modal completo - NO crea nada, solo abre el modal
-                                      abrirModalProveedor(
-                                        busquedaProveedor[servicio.id] || '',
-                                        servicio.tipo,
-                                        servicio.id
-                                      )
-                                    }}
-                                    className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
-                                    style={{ width: '32px', minWidth: '32px', flexShrink: 0 }}
-                                    title="Añadir nuevo proveedor"
-                                  >
-                                    <Plus size={16} />
-                                  </button>
                                 </div>
                                   
                                   {/* Lista de sugerencias - POSICIONAMIENTO ABSOLUTO CORRECTO */}
@@ -4761,7 +4739,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 </div>
                               </td>
                               
-                              {/* COLUMNA 3: CANTIDAD — 50px exactos */}
+                              {/* COLUMNA 3: DETALLE — 130px exactos */}
+                              <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '130px', minWidth: '130px', maxWidth: '130px' }}>
+                                <div className="flex flex-row items-center gap-1 flex-nowrap" style={{ width: '130px' }}>
+                                  {(servicio.tipo === 'Guía Local' || servicio.tipo === 'Entradas/Tickets') && (
+                                    <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap flex-shrink-0">de </span>
+                                  )}
+                                  <input
+                                    type="text"
+                                    value={servicio.especificacion_destino || ''}
+                                    onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
+                                    onFocus={(e) => e.target.select()}
+                                    placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
+                                    className="input-field text-xs py-1.5 px-2 flex-1 min-w-0"
+                                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', flex: '1 1 0', minWidth: 0 }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => abrirModalProveedor(busquedaProveedor[servicio.id] || '', servicio.tipo, servicio.id)}
+                                    className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
+                                    style={{ width: '32px', minWidth: '32px' }}
+                                    title="Añadir nuevo proveedor"
+                                  >
+                                    <Plus size={16} />
+                                  </button>
+                                </div>
+                              </td>
+                              
+                              {/* COLUMNA 4: CANTIDAD — 50px exactos */}
                               <td className="px-1 py-2 align-middle" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>
                                 <div className="flex justify-center">
                                 {servicio.tipo === 'Hotel' ? (
@@ -5680,6 +5685,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 </div>
 
                 <div className="space-y-4">
+                  {/* Nº Recibo (solo lectura cuando se edita — inmutable) */}
+                  {cobroEnEdicionId && (() => {
+                    const cobroEdit = cobros.find(c => c.id === cobroEnEdicionId)
+                    const nr = cobroEdit?.numero_recibo
+                    if (!nr) return null
+                    return (
+                      <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Nº Recibo (inmutable)</label>
+                        <p className="text-sm font-mono font-bold text-navy-900">{nr}</p>
+                      </div>
+                    )
+                  })()}
                   {/* Importe */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
