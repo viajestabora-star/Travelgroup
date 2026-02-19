@@ -2641,19 +2641,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Helper: noches del expediente (prioriza campo en BD, si no, calcula por fechas)
   // Regla: noches = días - 1 (mismo día = 1 día = 0 noches; 4 días = 3 noches)
+  // Columnas expedientes: fecha_inicio, fecha_final (o fechaInicio, fechaFin, fecha_viaje)
   const calcularNochesExpediente = () => {
     const n = toNum(expediente?.noches)
     if (n > 0) return n
 
-    if (expediente?.fechaInicio && expediente?.fechaFin) {
-      const inicio = parsearFechaADate(expediente.fechaInicio)
-      const fin = parsearFechaADate(expediente.fechaFin)
-      if (inicio && fin && fin.getTime() >= inicio.getTime()) {
-        const diffMs = fin.getTime() - inicio.getTime()
-        const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1
-        const noches = Math.max(0, dias - 1)
-        return Math.max(1, noches) // Mínimo 1 noche para cálculos de cotización
-      }
+    const fechaInicioRaw = expediente?.fecha_inicio || expediente?.fechaInicio || expediente?.fecha_viaje || ''
+    const fechaFinRaw = expediente?.fecha_final || expediente?.fecha_fin || expediente?.fechaFin || ''
+    if (fechaInicioRaw && fechaFinRaw) {
+      try {
+        const inicio = parsearFechaADate(fechaInicioRaw)
+        const fin = parsearFechaADate(fechaFinRaw)
+        if (inicio && fin && !isNaN(inicio.getTime()) && !isNaN(fin.getTime()) && fin.getTime() >= inicio.getTime()) {
+          const diffMs = fin.getTime() - inicio.getTime()
+          const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1
+          const noches = Math.max(0, dias - 1)
+          return Math.max(1, noches) // Mínimo 1 noche para cálculos de cotización
+        }
+      } catch (_) { /* fallback a 1 */ }
     }
 
     return 1
@@ -2685,7 +2690,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       totalSupSeguro: totalSupSeguro.toFixed(2),
       totalSuplementos: totalSuplementos.toFixed(2),
     }
-  }, [formData?.sup_individual_pax, formData?.sup_individual_precio_dia, formData?.sup_seguro_pax, formData?.sup_seguro_precio_total, expediente?.noches, expediente?.fechaInicio, expediente?.fechaFin])
+  }, [formData?.sup_individual_pax, formData?.sup_individual_precio_dia, formData?.sup_seguro_pax, formData?.sup_seguro_precio_total, expediente?.noches, expediente?.fecha_inicio, expediente?.fechaInicio, expediente?.fecha_final, expediente?.fecha_fin, expediente?.fechaFin])
 
   // ============ INICIALIZAR DATOS DEL RECEPTOR DE FACTURA ============
   // Dependencias estables (primitivas) para evitar bucle infinito con objeto grupo
@@ -4210,7 +4215,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>📅 Fecha de Inicio *</label>
                       <input
                         type="date"
-                        value={convertirEspañolAISO(expediente.fechaInicio) || ''}
+                        value={convertirEspañolAISO(expediente.fecha_inicio || expediente.fechaInicio) || ''}
                         onChange={(e) => {
                           // Input type="date" devuelve YYYY-MM-DD
                           const fechaISO = e.target.value
@@ -4238,9 +4243,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <p className="text-xs text-gray-500 mt-1">
                         ⚡ Esta fecha determina el orden y el ejercicio (año) del expediente
                       </p>
-                      {expediente.fechaInicio && (
+                      {(expediente.fecha_inicio || expediente.fechaInicio) && (
                         <p className="text-xs text-blue-600 mt-1">
-                          📅 Guardada como: {expediente.fechaInicio}
+                          📅 Guardada como: {expediente.fecha_inicio || expediente.fechaInicio}
                         </p>
                       )}
                     </div>
@@ -4249,7 +4254,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <label className="block text-xs mb-2" style={{ color: '#6B7280' }}>📅 Fecha de Fin</label>
                       <input
                         type="date"
-                        value={convertirEspañolAISO(expediente.fechaFin) || ''}
+                        value={convertirEspañolAISO(expediente.fecha_final || expediente.fecha_fin || expediente.fechaFin) || ''}
                         onChange={(e) => {
                           // Input type="date" devuelve YYYY-MM-DD
                           const fechaISO = e.target.value
@@ -4277,25 +4282,31 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <p className="text-xs text-gray-500 mt-1">
                         📆 Fecha de regreso o finalización del viaje
                       </p>
-                      {expediente.fechaFin && (
+                      {(expediente.fecha_final || expediente.fecha_fin || expediente.fechaFin) && (
                         <p className="text-xs text-blue-600 mt-1">
-                          📅 Guardada como: {expediente.fechaFin}
+                          📅 Guardada como: {expediente.fecha_final || expediente.fecha_fin || expediente.fechaFin}
                         </p>
                       )}
                     </div>
                   </div>
                   
-                  {expediente.fechaInicio && (
+                  {(expediente.fechaInicio || expediente.fecha_inicio || expediente.fechaFin || expediente.fecha_final || expediente.fecha_fin) && (
                     <div className="mt-4 p-4 bg-white rounded-lg border border-blue-200">
                       <p className="text-sm text-gray-700">
                         <strong className="text-navy-900">Duración calculada:</strong>{' '}
-                        {expediente.fechaFin && expediente.fechaInicio ? (
-                          (() => {
-                            const inicio = parsearFechaADate(expediente.fechaInicio)
-                            const fin = parsearFechaADate(expediente.fechaFin)
-                            if (!inicio || !fin) return <span className="text-red-600">Error en fechas</span>
+                        {(() => {
+                          const fechaInicioRaw = expediente.fecha_inicio || expediente.fechaInicio || ''
+                          const fechaFinRaw = expediente.fecha_final || expediente.fecha_fin || expediente.fechaFin || ''
+                          if (!fechaInicioRaw && !fechaFinRaw) return <span>—</span>
+                          if (!fechaInicioRaw) return <span>{fechaFinRaw || '—'}</span>
+                          if (!fechaFinRaw) return <span>{fechaInicioRaw} — Falta fecha fin</span>
+                          try {
+                            const inicio = parsearFechaADate(fechaInicioRaw)
+                            const fin = parsearFechaADate(fechaFinRaw)
+                            if (!inicio || isNaN(inicio.getTime())) return <span>{fechaInicioRaw} — {fechaFinRaw}</span>
+                            if (!fin || isNaN(fin.getTime())) return <span>{fechaInicioRaw} — {fechaFinRaw}</span>
                             const diffMs = fin.getTime() - inicio.getTime()
-                            if (diffMs < 0) return <span className="text-red-600 font-medium">Error en fechas</span>
+                            if (diffMs < 0) return <span>{fechaInicioRaw} — {fechaFinRaw}</span>
                             const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1
                             const noches = Math.max(0, dias - 1)
                             return (
@@ -4303,10 +4314,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 {dias} día{dias !== 1 ? 's' : ''} / {noches} noche{noches !== 1 ? 's' : ''}
                               </span>
                             )
-                          })()
-                        ) : (
-                          'Falta fecha de fin'
-                        )}
+                          } catch (_) {
+                            return <span>{fechaInicioRaw} — {fechaFinRaw}</span>
+                          }
+                        })()}
                       </p>
                     </div>
                   )}
