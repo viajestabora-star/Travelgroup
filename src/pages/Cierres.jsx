@@ -223,7 +223,7 @@ const generarFacturaPDFUnificado = async (factura) => {
   }
 }
 
-const Cierres = () => {
+const Cierres = ({ user, onClose }) => {
   const [tabActiva, setTabActiva] = useState('facturas')
 
   // Facturas ya emitidas (lectura unificada desde facturas_emitidas_global)
@@ -569,18 +569,8 @@ const Cierres = () => {
         return
       }
 
-      const expedienteActualizado = {
-        ...expedienteSeleccionado,
-        informe_gastos_hacienda: payloadInforme,
-        total_gastos_reales: totalGastosReales,
-        liquidacion_final_beneficio: beneficio,
-      }
-      setExpedienteSeleccionado(expedienteActualizado)
-      setExpedientesCierre((prev) =>
-        prev.map((e) =>
-          e.id === expedienteSeleccionado.id ? expedienteActualizado : e
-        )
-      )
+      console.log('Guardado con éxito')
+      if (typeof onClose === 'function') onClose()
       alert('Éxito. Informe para Hacienda guardado correctamente.')
     } catch (err) {
       const detalle = err?.message || err?.toString?.() || JSON.stringify(err)
