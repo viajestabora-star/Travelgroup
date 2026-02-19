@@ -640,15 +640,6 @@ const Dashboard = ({ user = null }) => {
       <div className="mt-8 card min-h-[200px]">
         {/* Placeholder: Espacio reservado para métricas y estados */}
       </div>
-
-      {/* Info Banner */}
-      <div className="mt-8 card bg-gradient-to-r from-navy-700 to-navy-900 text-white">
-        <h3 className="text-xl font-bold mb-2">Viajes Tabora ERP - Sistema Completo</h3>
-        <p className="text-navy-100">
-          Gestiona tus clientes, cotiza viajes, planifica itinerarios y realiza seguimiento de visitas. 
-          Todos los datos se guardan automáticamente en tu navegador.
-        </p>
-      </div>
     </div>
   )
 }
