@@ -5769,6 +5769,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 onUpdate={onUpdate}
                 cobros={cobros}
                 onCobrosReload={cargarCobros}
+                onExpedienteRefresh={async () => {
+                  if (!expediente?.id || !onUpdate) return
+                  const { data } = await supabase.from('expedientes').select('presupuesto_total, total_cobrado').eq('id', expediente.id).single()
+                  if (data) onUpdate({ ...expediente, presupuesto_total: data.presupuesto_total, total_cobrado: data.total_cobrado })
+                }}
                 servicios={servicios}
                 formData={formData}
                 suplementos={suplementos}
@@ -5788,6 +5793,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 onUpdate={onUpdate}
                 cobros={cobros}
                 onCobrosReload={cargarCobros}
+                onExpedienteRefresh={async () => {
+                  if (!expediente?.id || !onUpdate) return
+                  const { data } = await supabase.from('expedientes').select('presupuesto_total, total_cobrado').eq('id', expediente.id).single()
+                  if (data) onUpdate({ ...expediente, presupuesto_total: data.presupuesto_total, total_cobrado: data.total_cobrado })
+                }}
                 servicios={servicios}
                 formData={formData}
                 suplementos={suplementos}

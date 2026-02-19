@@ -68,6 +68,7 @@ const ExpedienteFinanzas = ({
   onUpdate,
   cobros = [],
   onCobrosReload,
+  onExpedienteRefresh,
   servicios = [],
   formData = {},
   suplementos = {},
@@ -83,6 +84,21 @@ const ExpedienteFinanzas = ({
   // paxPago and totalPax computed from expediente/formData
   const paxPago = Math.max(0, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
   const totalPax = Math.max(0, toNum(expediente?.total_pax) || toNum(formData?.total_pax))
+
+  // presupuesto_total y total_cobrado: confiar en Supabase (trigger DB actualiza total_cobrado)
+  // No recalcular total_cobrado en frontend; fallback de presupuesto si no existe columna
+  const presupuestoTotal = expediente?.presupuesto_total != null
+    ? toNum(expediente.presupuesto_total)
+    : (() => {
+        const pP = Math.max(1, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
+        const precioVenta = pP * toNum(expediente?.precio_venta_cliente ?? formData?.precio_venta_cliente ?? 0)
+        const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0) || 0
+        const bonificaciones = toNum(expediente?.bonificacion_pax ?? formData?.bonificacion_pax ?? 0) * pP
+        const gratuidadesVal = toNum(expediente?.gratuidades_monetario ?? 0)
+        return (precioVenta + suplementosVal) - (bonificaciones + gratuidadesVal)
+      })()
+  const totalCobrado = toNum(expediente?.total_cobrado)
+  const pendiente = presupuestoTotal - totalCobrado
 
   // State
   const [formCobro, setFormCobro] = useState({
@@ -303,6 +319,7 @@ const ExpedienteFinanzas = ({
       }
 
       await cargarCobros()
+      await onExpedienteRefresh?.()
       alert('✅ Cobro guardado correctamente.')
 
       setFormCobro({
@@ -339,6 +356,7 @@ const ExpedienteFinanzas = ({
         return
       }
       await cargarCobros()
+      await onExpedienteRefresh?.()
     } catch (err) {
       alert(`❌ Error inesperado al eliminar: ${err.message}`)
     }
@@ -912,8 +930,21 @@ const ExpedienteFinanzas = ({
       {/* TAB: Cobros */}
       {activeTab === 'cobros' && (
         <div className="max-w-6xl mx-auto space-y-6">
+          {/* Banner Estado Financiero: Presupuesto - Cobrado = Pendiente (total_cobrado desde Supabase/trigger) */}
+          <div className={`p-4 rounded-xl border-2 ${pendiente > 0 ? 'bg-red-50 text-red-800 border-red-200' : 'bg-green-50 text-green-800 border-green-200'}`}>
+            <p className="font-bold text-lg">
+              Estado Financiero: {pendiente > 0
+                ? `Pendiente de cobro: ${pendiente.toFixed(2)}€`
+                : 'Pagado totalmente'}
+            </p>
+            <p className="text-sm mt-1 opacity-90">
+              Presupuesto: {presupuestoTotal.toFixed(2)}€ — Cobrado: {totalCobrado.toFixed(2)}€
+            </p>
+          </div>
+
           <div className="flex items-center justify-between">
             <h3 className="text-2xl font-bold text-navy-900">Gestión de Cobros</h3>
+            {/* Botón siempre activo: permite añadir cobros incluso tras cierre (cobros_expediente sin restricción) */}
             <button
               onClick={() => {
                 setCobroEnEdicionId(null)
@@ -928,38 +959,36 @@ const ExpedienteFinanzas = ({
               className="btn-primary flex items-center gap-2"
             >
               <Plus size={20} />
-              Registrar Nuevo Cobro
+              Añadir Cobro (Incluso tras cierre)
             </button>
           </div>
 
-          {cobrosSeguros.length > 0 && (
-            <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl shadow-md p-6 border border-blue-200">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="text-center">
-                  <p className="text-sm text-gray-600 mb-1">Total Cobrado</p>
-                  <p className="text-3xl font-bold text-navy-900">
-                    {cobrosSeguros.reduce((sum, c) => sum + Number(c.importe || 0), 0).toFixed(2)}€
-                  </p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm text-gray-600 mb-1">Número de Cobros</p>
-                  <p className="text-3xl font-bold text-blue-600">{cobrosSeguros.length}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm text-gray-600 mb-1">Último Cobro</p>
-                  <p className="text-lg font-semibold text-gray-800">
-                    {cobrosSeguros[0]?.fecha
-                      ? new Date(cobrosSeguros[0].fecha).toLocaleDateString('es-ES', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: 'numeric'
-                        })
-                      : '-'}
-                  </p>
-                </div>
+          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl shadow-md p-6 border border-blue-200">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="text-center">
+                <p className="text-sm text-gray-600 mb-1">Total Cobrado</p>
+                <p className="text-3xl font-bold text-navy-900">
+                  {totalCobrado.toFixed(2)}€
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-sm text-gray-600 mb-1">Número de Cobros</p>
+                <p className="text-3xl font-bold text-blue-600">{cobrosSeguros.length}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-sm text-gray-600 mb-1">Último Cobro</p>
+                <p className="text-lg font-semibold text-gray-800">
+                  {cobrosSeguros[0]?.fecha
+                    ? new Date(cobrosSeguros[0].fecha).toLocaleDateString('es-ES', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric'
+                      })
+                    : '-'}
+                </p>
               </div>
             </div>
-          )}
+          </div>
 
           <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
@@ -1045,19 +1074,17 @@ const ExpedienteFinanzas = ({
                     })
                   )}
                 </tbody>
-                {cobrosSeguros.length > 0 && (
-                  <tfoot className="bg-gray-50 border-t-2 border-gray-300">
-                    <tr>
-                      <td colSpan="1" className="py-3 px-4 text-sm font-bold text-gray-700">
-                        Total Cobrado:
-                      </td>
-                      <td className="py-3 px-4 text-sm font-bold text-navy-900 text-lg">
-                        {cobrosSeguros.reduce((sum, c) => sum + Number(c.importe || 0), 0).toFixed(2)}€
-                      </td>
-                      <td colSpan="5"></td>
-                    </tr>
-                  </tfoot>
-                )}
+                <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                  <tr>
+                    <td colSpan="1" className="py-3 px-4 text-sm font-bold text-gray-700">
+                      Total Cobrado:
+                    </td>
+                    <td className="py-3 px-4 text-sm font-bold text-navy-900 text-lg">
+                      {totalCobrado.toFixed(2)}€
+                    </td>
+                    <td colSpan="5"></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
 
