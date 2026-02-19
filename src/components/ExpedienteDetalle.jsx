@@ -422,8 +422,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Asociaciones vinculadas (multi-cliente) - DEBE estar antes de paxPorAsociacion/cierre
   const [expedienteClientes, setExpedienteClientes] = useState([])
   const [cargandoAsociaciones, setCargandoAsociaciones] = useState(false)
+  const expedienteClientesTableMissingRef = useRef(false)
   useEffect(() => {
     if (!expediente?.id) return
+    const fallbackPrincipal = () => {
+      const mainId = expediente?.cliente_id || expediente?.clienteId
+      if (mainId) {
+        const c = clientes.find(x => String(x.id) === String(mainId))
+        return c ? [{ id: mainId, cliente_id: mainId, cliente_nombre: c.nombre || '—' }] : []
+      }
+      return []
+    }
+    if (expedienteClientesTableMissingRef.current) {
+      setExpedienteClientes(fallbackPrincipal())
+      return
+    }
+    let cancelled = false
     const cargar = async () => {
       setCargandoAsociaciones(true)
       try {
@@ -431,21 +445,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           .from('expediente_clientes')
           .select('id, cliente_id, pax')
           .eq('expediente_id', expediente.id)
+        if (cancelled) return
         if (error) throw error
-        const rows = data || []
-        const conNombre = rows.map(r => ({
+        const conNombre = (data || []).map(r => ({
           ...r,
           cliente_nombre: (clientes.find(c => String(c.id) === String(r.cliente_id))?.nombre || '—'),
         }))
         setExpedienteClientes(conNombre)
       } catch (_) {
-        setExpedienteClientes([])
+        if (cancelled) return
+        expedienteClientesTableMissingRef.current = true
+        setExpedienteClientes(fallbackPrincipal())
       } finally {
-        setCargandoAsociaciones(false)
+        if (!cancelled) setCargandoAsociaciones(false)
       }
     }
     cargar()
-  }, [expediente?.id, clientes])
+    return () => { cancelled = true }
+  }, [expediente?.id, expediente?.cliente_id, expediente?.clienteId, clientes])
 
   // Cliente principal y grupo (derivados) - usados por paxPorAsociacion y cierre
   const clienteIdPrincipal = expediente?.clienteId ?? expediente?.cliente_id
@@ -3512,7 +3529,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const cliente = clientes.find(c => String(c.id) === String(clienteId))
       setExpedienteClientes(prev => [...prev, { ...data, cliente_nombre: cliente?.nombre || '—' }])
     } catch (err) {
-      alert('Error al vincular asociación: ' + (err?.message || err))
+      const msg = err?.message || ''
+      if (msg.includes('404') || msg.includes('does not exist') || msg.includes('relation')) {
+        alert('La tabla de asociaciones no está disponible. Ejecuta la migración add-expediente-clientes.sql en Supabase.')
+      } else {
+        alert('Error al vincular asociación: ' + msg)
+      }
     }
   }
   const quitarAsociacion = async (ecId) => {
@@ -3522,7 +3544,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (error) throw error
       setExpedienteClientes(prev => prev.filter(e => e.id !== ecId))
     } catch (err) {
-      alert('Error al desvincular: ' + (err?.message || err))
+      const msg = err?.message || ''
+      if (msg.includes('404') || msg.includes('does not exist') || msg.includes('relation')) {
+        setExpedienteClientes(prev => prev.filter(e => e.id !== ecId))
+      } else {
+        alert('Error al desvincular: ' + msg)
+      }
     }
   }
   const clientesDisponiblesParaVincular = clientes.filter(

@@ -569,7 +569,6 @@ const Cierres = ({ user, onClose }) => {
         return
       }
 
-      console.log('Guardado con éxito')
       if (typeof onClose === 'function') onClose()
       alert('Éxito. Informe para Hacienda guardado correctamente.')
     } catch (err) {
