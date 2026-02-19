@@ -5,6 +5,7 @@ import { storage } from '../utils/storage'
 import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { extraerAño } from '../utils/dateNormalizer'
+import DashboardMetrics from '../components/DashboardMetrics'
 
 const Dashboard = ({ user = null }) => {
   const navigate = useNavigate()
@@ -639,6 +640,7 @@ const Dashboard = ({ user = null }) => {
 
       <div className="mt-8 card min-h-[200px]">
         {/* Placeholder: Espacio reservado para métricas y estados */}
+        <DashboardMetrics user={user} />
       </div>
     </div>
   )
