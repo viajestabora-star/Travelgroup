@@ -419,50 +419,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [expedientesHistorial, setExpedientesHistorial] = useState([])
   const [cargandoHistorial, setCargandoHistorial] = useState(false)
 
-  // Asociaciones vinculadas (multi-cliente) - DEBE estar antes de paxPorAsociacion/cierre
-  const [expedienteClientes, setExpedienteClientes] = useState([])
-  const [cargandoAsociaciones, setCargandoAsociaciones] = useState(false)
-  const expedienteClientesTableMissingRef = useRef(false)
-  useEffect(() => {
-    if (!expediente?.id) return
-    const fallbackPrincipal = () => {
-      const mainId = expediente?.cliente_id || expediente?.clienteId
-      if (mainId) {
-        const c = clientes.find(x => String(x.id) === String(mainId))
-        return c ? [{ id: mainId, cliente_id: mainId, cliente_nombre: c.nombre || '—' }] : []
-      }
-      return []
-    }
-    if (expedienteClientesTableMissingRef.current) {
-      setExpedienteClientes(fallbackPrincipal())
-      return
-    }
-    let cancelled = false
-    const cargar = async () => {
-      setCargandoAsociaciones(true)
-      try {
-        const { data, error } = await supabase
-          .from('expediente_clientes')
-          .select('id, cliente_id, pax')
-          .eq('expediente_id', expediente.id)
-        if (cancelled) return
-        if (error) throw error
-        const conNombre = (data || []).map(r => ({
-          ...r,
-          cliente_nombre: (clientes.find(c => String(c.id) === String(r.cliente_id))?.nombre || '—'),
-        }))
-        setExpedienteClientes(conNombre)
-      } catch (_) {
-        if (cancelled) return
-        expedienteClientesTableMissingRef.current = true
-        setExpedienteClientes(fallbackPrincipal())
-      } finally {
-        if (!cancelled) setCargandoAsociaciones(false)
-      }
-    }
-    cargar()
-    return () => { cancelled = true }
-  }, [expediente?.id, expediente?.cliente_id, expediente?.clienteId, clientes])
+  // Cliente(s) del expediente: relación directa expedientes.cliente_id → clientes (tabla expediente_clientes NO existe)
+  const expedienteClientes = useMemo(() => {
+    const mainId = expediente?.cliente_id || expediente?.clienteId
+    if (!mainId) return []
+    const c = clientes.find(x => String(x.id) === String(mainId))
+    const nombre = c?.nombre || expediente?.cliente_nombre || expediente?.clienteNombre || '—'
+    return [{ id: mainId, cliente_id: mainId, cliente_nombre: nombre }]
+  }, [expediente?.cliente_id, expediente?.clienteId, expediente?.cliente_nombre, expediente?.clienteNombre, clientes])
 
   // Cliente principal y grupo (derivados) - usados por paxPorAsociacion y cierre
   const clienteIdPrincipal = expediente?.clienteId ?? expediente?.cliente_id
@@ -3516,45 +3480,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     setClienteEditado(grupo)
   }
 
-  // ============ ASOCIACIONES VINCULADAS (MULTI-CLIENTE) ============
-  const agregarAsociacion = async (clienteId) => {
-    if (!expediente?.id || !clienteId) return
-    try {
-      const { data, error } = await supabase
-        .from('expediente_clientes')
-        .insert({ expediente_id: expediente.id, cliente_id: clienteId })
-        .select('id, cliente_id, pax')
-        .single()
-      if (error) throw error
-      const cliente = clientes.find(c => String(c.id) === String(clienteId))
-      setExpedienteClientes(prev => [...prev, { ...data, cliente_nombre: cliente?.nombre || '—' }])
-    } catch (err) {
-      const msg = err?.message || ''
-      if (msg.includes('404') || msg.includes('does not exist') || msg.includes('relation')) {
-        alert('La tabla de asociaciones no está disponible. Ejecuta la migración add-expediente-clientes.sql en Supabase.')
-      } else {
-        alert('Error al vincular asociación: ' + msg)
-      }
-    }
-  }
-  const quitarAsociacion = async (ecId) => {
-    if (!ecId) return
-    try {
-      const { error } = await supabase.from('expediente_clientes').delete().eq('id', ecId)
-      if (error) throw error
-      setExpedienteClientes(prev => prev.filter(e => e.id !== ecId))
-    } catch (err) {
-      const msg = err?.message || ''
-      if (msg.includes('404') || msg.includes('does not exist') || msg.includes('relation')) {
-        setExpedienteClientes(prev => prev.filter(e => e.id !== ecId))
-      } else {
-        alert('Error al desvincular: ' + msg)
-      }
-    }
-  }
-  const clientesDisponiblesParaVincular = clientes.filter(
-    c => !expedienteClientes.some(ec => String(ec.cliente_id) === String(c.id))
-  )
+  // Asociaciones: solo cliente principal (expedientes.cliente_id). Tabla expediente_clientes no existe.
 
   // ============ DOCUMENTOS ============
   
@@ -4145,44 +4071,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     </div>
                     </div>
 
-                  {/* Asociaciones vinculadas (multi-asociación) */}
+                  {/* Cliente del expediente (expedientes.cliente_id → clientes) */}
                   <div className="mt-8 pt-6 border-t" style={{ borderColor: '#f1f5f9' }}>
-                    <h4 className="text-lg font-bold text-slate-900 mb-4">🔗 Asociaciones vinculadas</h4>
-                    <p className="text-sm text-slate-500 mb-4">Puedes vincular varias asociaciones a este expediente. El cliente principal se mantiene para compatibilidad.</p>
-                    {cargandoAsociaciones ? (
-                      <p className="text-sm text-slate-500">Cargando...</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {expedienteClientes.map((ec, idx) => (
+                    <h4 className="text-lg font-bold text-slate-900 mb-4">🔗 Cliente del expediente</h4>
+                    <p className="text-sm text-slate-500 mb-4">Cliente principal vinculado desde la tabla expedientes.</p>
+                    <div className="space-y-3">
+                      {expedienteClientes.length === 0 ? (
+                        <p className="text-sm text-slate-500 italic">Sin cliente asignado.</p>
+                      ) : (
+                        expedienteClientes.map((ec, idx) => (
                           <div key={ec.id || ec.cliente_id || `ec-${idx}`} className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
                             <span className="font-medium text-slate-900">{ec.cliente_nombre || '—'}</span>
-                            <button type="button" onClick={() => quitarAsociacion(ec.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Desvincular">
-                              <Trash2 size={16} />
-                            </button>
                           </div>
-                        ))}
-                        {clientesDisponiblesParaVincular.length > 0 && (
-                          <div className="flex gap-2 items-center flex-wrap">
-                            <select
-                              className="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
-                              defaultValue=""
-                              onChange={(e) => {
-                                const v = e.target.value
-                                if (v) { agregarAsociacion(v); e.target.value = '' }
-                              }}
-                            >
-                              <option value="">+ Añadir asociación</option>
-                              {clientesDisponiblesParaVincular.map((c) => (
-                                <option key={c.id} value={c.id}>{c.nombre || 'Sin nombre'}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                        {expedienteClientes.length === 0 && clientesDisponiblesParaVincular.length === 0 && (
-                          <p className="text-sm text-slate-500 italic">Todas las asociaciones disponibles ya están vinculadas.</p>
-                        )}
-                      </div>
-                    )}
+                        ))
+                      )}
+                    </div>
                   </div>
 
                   {/* Historial de Expedientes - Compacto */}
