@@ -569,22 +569,22 @@ const Cierres = () => {
         return
       }
 
-      alert('Informe para Hacienda guardado correctamente.')
-      // Actualizar en memoria el expediente seleccionado
+      const expedienteActualizado = {
+        ...expedienteSeleccionado,
+        informe_gastos_hacienda: payloadInforme,
+        total_gastos_reales: totalGastosReales,
+        liquidacion_final_beneficio: beneficio,
+      }
+      setExpedienteSeleccionado(expedienteActualizado)
       setExpedientesCierre((prev) =>
         prev.map((e) =>
-          e.id === expedienteSeleccionado.id
-            ? {
-                ...e,
-                informe_gastos_hacienda: payloadInforme,
-                total_gastos_reales: totalGastosReales,
-                liquidacion_final_beneficio: beneficio,
-              }
-            : e
+          e.id === expedienteSeleccionado.id ? expedienteActualizado : e
         )
       )
+      alert('Éxito. Informe para Hacienda guardado correctamente.')
     } catch (err) {
-      alert('Error inesperado guardando Informe Hacienda.')
+      const detalle = err?.message || err?.toString?.() || JSON.stringify(err)
+      alert('Error guardando Informe Hacienda:\n\n' + detalle)
     } finally {
       setGuardandoInforme(false)
     }
