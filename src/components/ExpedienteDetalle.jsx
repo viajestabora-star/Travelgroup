@@ -5867,6 +5867,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               />
           )}
 
+          {/* TAB: Facturación */}
+          {tab === 'facturacion' && (
               <div className="max-w-6xl mx-auto space-y-6">
                 <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
                   <h3 className="text-2xl font-bold text-navy-900 mb-6">Emisión de Factura</h3>
