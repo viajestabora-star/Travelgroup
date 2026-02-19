@@ -1717,6 +1717,7 @@ const Expedientes = () => {
         </div>
       )}
 
+      {/* Orquestador: lista de globos → al hacer clic abre ExpedienteDetalle (ficha) que a su vez usa ExpedienteFinanzas para cobros y cierre */}
       {showDetalleModal && expedienteActual && (
         <ExpedienteDetalle
           expediente={expedienteActual}
