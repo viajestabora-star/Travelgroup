@@ -1187,15 +1187,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         iva_pagado: ivaPagado,
         beneficio_limpio: beneficioLimpio,
         fecha: new Date().toISOString(),
-        // Detalle para compatibilidad
         ingresos: informeLiquidacion.ingresos,
         costesReales: informeLiquidacion.costesReales || [],
         gastosImprevistos: informeLiquidacion.gastosImprevistos || [],
       }
+      const datosCierre = JSON.parse(JSON.stringify(payload))
 
       const { error } = await supabase
         .from('expedientes')
-        .update({ cierre_grupo: payload })
+        .update({ cierre_grupo: datosCierre })
         .eq('id', expediente.id)
 
       if (error) {
@@ -1203,11 +1203,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         return
       }
 
-      setExpediente(prev => prev ? { ...prev, cierre_grupo: payload } : prev)
-      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: payload })
+      setExpediente(prev => prev ? { ...prev, cierre_grupo: datosCierre } : prev)
+      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: datosCierre })
       alert('Cierre guardado correctamente.')
     } catch (err) {
-      alert('Error inesperado al guardar el cierre.')
+      const detalle = err?.message || err?.toString?.() || JSON.stringify(err)
+      alert('Error al guardar el cierre:\n\n' + detalle + (err?.code ? '\n\nCódigo: ' + err.code : ''))
     } finally {
       setGuardandoCierre(false)
     }
