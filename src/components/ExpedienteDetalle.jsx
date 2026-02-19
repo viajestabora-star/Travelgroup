@@ -1239,25 +1239,38 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   // ============ OBTENER SIGUIENTE NÚMERO DE RECIBO (REC-YYYY-000X) ============
+  // Fuente de verdad: recibos_oficiales (si existe), fallback cobros_expediente
   const obtenerSiguienteNumeroRecibo = async () => {
     const año = new Date().getFullYear()
     const prefijo = `REC-${año}-`
+    const parsearSiguiente = (data, tabla) => {
+      if (!Array.isArray(data) || data.length === 0 || !data[0]?.numero_recibo) return 1
+      const match = String(data[0].numero_recibo).match(/REC-\d{4}-(\d+)/)
+      if (!match) return 1
+      const num = parseInt(match[1], 10)
+      return isNaN(num) || num < 0 ? 1 : num + 1
+    }
     try {
-      const { data, error } = await supabase
+      // Prioridad 1: recibos_oficiales (tabla oficial)
+      const { data: dataRecibos, error: errRecibos } = await supabase
+        .from('recibos_oficiales')
+        .select('numero_recibo')
+        .ilike('numero_recibo', `${prefijo}%`)
+        .order('numero_recibo', { ascending: false })
+        .limit(1)
+      if (!errRecibos && dataRecibos?.length > 0) {
+        const siguiente = parsearSiguiente(dataRecibos, 'recibos_oficiales')
+        return `${prefijo}${String(siguiente).padStart(4, '0')}`
+      }
+      // Prioridad 2: cobros_expediente (fallback)
+      const { data: dataCobros, error: errCobros } = await supabase
         .from('cobros_expediente')
         .select('numero_recibo')
         .ilike('numero_recibo', `${prefijo}%`)
         .order('numero_recibo', { ascending: false })
         .limit(1)
-      if (error) return `${prefijo}0001`
-      let siguiente = 1
-      if (Array.isArray(data) && data.length > 0 && data[0]?.numero_recibo) {
-        const match = String(data[0].numero_recibo).match(/REC-\d{4}-(\d+)/)
-        if (match) {
-          const num = parseInt(match[1], 10)
-          if (!isNaN(num) && num >= 0) siguiente = num + 1
-        }
-      }
+      if (errCobros) return `${prefijo}0001`
+      const siguiente = parsearSiguiente(dataCobros, 'cobros_expediente')
       return `${prefijo}${String(siguiente).padStart(4, '0')}`
     } catch {
       return `${prefijo}0001`
@@ -1842,13 +1855,33 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         // INSERT: Crear nuevo cobro con número de recibo inmutable (REC-YYYY-000X)
         const numeroRecibo = await obtenerSiguienteNumeroRecibo()
         const datosCobroConRecibo = { ...datosCobro, numero_recibo: numeroRecibo }
-        const { error } = await supabase
+        const { data: cobroInsertado, error } = await supabase
           .from('cobros_expediente')
           .insert([datosCobroConRecibo])
+          .select('id')
         errorOperacion = error
         
-        if (!error) {
+        if (!error && cobroInsertado?.[0]?.id) {
           operacionExitosa = true
+          // VINCULACIÓN: Insertar en recibos_oficiales (registro oficial inmutable)
+          const numeroExp = expediente?.numero_expediente || expediente?.numeroExpediente || ''
+          const { error: errRecibo } = await supabase
+            .from('recibos_oficiales')
+            .insert([{
+              cobro_id: cobroInsertado[0].id,
+              numero_recibo: numeroRecibo,
+              expediente_id: expediente.id,
+              numero_expediente: numeroExp || null,
+              cliente_id: clienteId,
+              importe: importeLimpio,
+              concepto: formCobro.concepto.trim(),
+              metodo_pago: formCobro.metodo_pago,
+              cuenta_destino: formCobro.cuenta_destino,
+              fecha: new Date().toISOString()
+            }])
+          if (errRecibo) {
+            console.warn('⚠️ Recibo no registrado en recibos_oficiales:', errRecibo.message)
+          }
           // INSERT EN LOGS INMEDIATAMENTE DESPUÉS DEL INSERT EXITOSO
           const { error: logError } = await supabase
             .from('logs_financieros')
@@ -1861,7 +1894,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             }])
           if (logError) {
           } else {
-            // Refrescar historial inmediatamente
             await cargarLogsFinancieros()
           }
         }

@@ -1,0 +1,26 @@
+-- ============================================================================
+-- Tabla recibos_oficiales — Registro oficial de recibos (vinculado a cobros)
+-- ============================================================================
+-- El cliente ya creó la tabla. Esta migración es REFERENCIA para alinear esquema.
+-- Si tu tabla tiene columnas distintas, ajusta el INSERT en ExpedienteDetalle.jsx.
+--
+-- Columnas que usa la app al insertar:
+--   cobro_id, numero_recibo, expediente_id, numero_expediente, cliente_id,
+--   importe, concepto, metodo_pago, cuenta_destino, fecha
+--
+-- Ejemplo de creación (solo si necesitas recrear o alinear):
+-- CREATE TABLE recibos_oficiales (
+--   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   cobro_id UUID REFERENCES cobros_expediente(id),
+--   numero_recibo TEXT NOT NULL UNIQUE,
+--   expediente_id UUID NOT NULL,
+--   numero_expediente TEXT,
+--   cliente_id UUID,
+--   importe NUMERIC NOT NULL,
+--   concepto TEXT,
+--   metodo_pago TEXT,
+--   cuenta_destino TEXT,
+--   fecha TIMESTAMPTZ DEFAULT now(),
+--   created_at TIMESTAMPTZ DEFAULT now()
+-- );
+-- ============================================================================
