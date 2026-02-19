@@ -340,20 +340,8 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
 };
 
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes = [], initialTab }) => {
-  // ⚠️ BLINDAJE NIVEL 1: Verificar que expediente existe
-  if (!expediente) {
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md">
-          <h3 className="text-xl font-bold text-blue-600 mb-4">⏳ Cargando...</h3>
-          <p className="text-gray-700">Cargando datos del expediente...</p>
-          <button onClick={onClose} className="btn-primary mt-4 w-full">
-            Cerrar
-          </button>
-        </div>
-      </div>
-    )
-  }
+  console.log('Datos del expediente:', expediente)
+  const cierreGrupo = expediente?.cierre_grupo || {}
 
   // Modo de prueba temporal para facturación
   const MODO_PRUEBA_FACTURACION = true
@@ -893,8 +881,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   const generarInformeLiquidacionPDF = () => {
-    if (!expediente?.cierre_grupo || typeof expediente.cierre_grupo !== 'object') return
-    const cg = expediente.cierre_grupo
+    if (!expediente?.cierre_grupo || typeof expediente?.cierre_grupo !== 'object') return
+    const cg = expediente?.cierre_grupo
     const ingresosTotales = Number(cg.ingresos_totales ?? cg.total_ingresos ?? 0)
     const gastosTotales = Number(cg.gastos_totales ?? cg.total_gastos ?? 0)
     const beneficioBruto = Number(cg.beneficio_bruto ?? (cg.beneficio_limpio ?? cg.beneficio ?? 0) + (cg.iva_pagado ?? 0))
@@ -1103,8 +1091,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   const exportarInformeGestoria = () => {
-    if (!expediente?.cierre_grupo || typeof expediente.cierre_grupo !== 'object') return
-    const cg = expediente.cierre_grupo
+    if (!expediente?.cierre_grupo || typeof expediente?.cierre_grupo !== 'object') return
+    const cg = expediente?.cierre_grupo
     const ingresosTotales = Number(cg.ingresos_totales ?? cg.total_ingresos ?? 0)
     const gastosTotales = Number(cg.gastos_totales ?? cg.total_gastos ?? 0)
     const beneficioBruto = Number(cg.beneficio_bruto ?? (cg.beneficio_limpio ?? cg.beneficio ?? 0) + (cg.iva_pagado ?? 0))
@@ -1167,15 +1155,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   const isCierreGuardado = Boolean(
-    expediente?.cierre_grupo &&
-    typeof expediente.cierre_grupo === 'object' &&
-    (expediente.cierre_grupo.ingresos_totales != null || expediente.cierre_grupo.total_ingresos != null || expediente.cierre_grupo.beneficio_limpio != null || expediente.cierre_grupo.beneficio != null)
+    cierreGrupo &&
+    typeof cierreGrupo === 'object' &&
+    (cierreGrupo.ingresos_totales != null || cierreGrupo.total_ingresos != null || cierreGrupo.beneficio_limpio != null || cierreGrupo.beneficio != null)
   )
 
   // Pax por asociación (opcional, para cierre)
   const [paxPorAsociacion, setPaxPorAsociacion] = useState([])
   useEffect(() => {
-    const guardado = expediente?.cierre_grupo?.pax_por_asociacion
+    const guardado = cierreGrupo?.pax_por_asociacion
     if (Array.isArray(guardado) && guardado.length > 0) {
       setPaxPorAsociacion(guardado)
     } else if (expedienteClientes.length > 0) {
@@ -1229,7 +1217,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         return
       }
 
-      setExpediente(prev => prev ? { ...prev, cierre_grupo: datosCierre } : prev)
       if (onUpdate) onUpdate({ ...expediente, cierre_grupo: datosCierre })
       alert('Cierre guardado correctamente.')
     } catch (err) {
@@ -3561,7 +3548,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const totalPasajerosHabitaciones = ((habitaciones.dobles || 0) * 2) + ((habitaciones.doblesTwin || 0) * 2) + (habitaciones.individuales || 0)
 
   // ============ RENDER PRINCIPAL (CON TRY/CATCH) ============
-  
+  if (!expediente) return <p className="p-4 text-gray-600">Cargando datos...</p>
+
   try {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]">
@@ -6587,10 +6575,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     value={expediente?.drive_link || ''}
                     onChange={(e) => {
                       const value = e.target.value
-                      setExpediente((prev) => ({
-                        ...prev,
-                        drive_link: value,
-                      }))
+                      if (onUpdate) onUpdate({ ...expediente, drive_link: value })
                     }}
                     placeholder="Pega aquí el enlace a la carpeta de Google Drive (https://drive.google.com/...)"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-navy-500 focus:border-transparent text-sm"
@@ -6720,7 +6705,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <h2 className="text-base font-bold text-slate-800 uppercase mb-3 border-b border-slate-300 pb-1">Pax por asociación</h2>
                       <p className="text-sm text-slate-500 mb-3">Opcional: anota cuántas personas vienen de cada asociación vinculada.</p>
                       <div className="space-y-2">
-                        {(expedienteClientes.length > 0 ? expedienteClientes : paxPorAsociacion.map(p => ({ cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre }))).map((item) => {
+                        {(expedienteClientes.length > 0 ? expedienteClientes : (paxPorAsociacion || []).map(p => ({ cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre }))).map((item) => {
                           const clienteId = item.cliente_id
                           const nombre = item.cliente_nombre || expedienteClientes.find(ec => String(ec.cliente_id) === String(clienteId))?.cliente_nombre || '—'
                           const paxVal = paxPorAsociacion.find(p => String(p.cliente_id) === String(clienteId))?.pax ?? ''

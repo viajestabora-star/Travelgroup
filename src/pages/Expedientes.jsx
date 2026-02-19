@@ -768,6 +768,9 @@ const Expedientes = () => {
       )
       setExpedientes(updated)
       storage.set('expedientes', updated)
+      if (expedienteActual?.id === expedienteActualizado.id) {
+        setExpedienteActual(expedienteActualizado)
+      }
     } catch (err) {
       alert('⚠️ Error actualizando expediente. Revisa tu conexión.')
     }
