@@ -1239,38 +1239,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   // ============ OBTENER SIGUIENTE NÚMERO DE RECIBO (REC-YYYY-000X) ============
-  // Fuente de verdad: recibos_oficiales (si existe), fallback cobros_expediente
+  // Fuente de verdad: recibos_oficiales (numero_recibo NO se guarda en cobros_expediente)
   const obtenerSiguienteNumeroRecibo = async () => {
     const año = new Date().getFullYear()
     const prefijo = `REC-${año}-`
-    const parsearSiguiente = (data, tabla) => {
-      if (!Array.isArray(data) || data.length === 0 || !data[0]?.numero_recibo) return 1
-      const match = String(data[0].numero_recibo).match(/REC-\d{4}-(\d+)/)
-      if (!match) return 1
-      const num = parseInt(match[1], 10)
-      return isNaN(num) || num < 0 ? 1 : num + 1
-    }
     try {
-      // Prioridad 1: recibos_oficiales (tabla oficial)
-      const { data: dataRecibos, error: errRecibos } = await supabase
+      const { data, error } = await supabase
         .from('recibos_oficiales')
         .select('numero_recibo')
         .ilike('numero_recibo', `${prefijo}%`)
         .order('numero_recibo', { ascending: false })
         .limit(1)
-      if (!errRecibos && dataRecibos?.length > 0) {
-        const siguiente = parsearSiguiente(dataRecibos, 'recibos_oficiales')
-        return `${prefijo}${String(siguiente).padStart(4, '0')}`
+      if (error || !Array.isArray(data) || data.length === 0 || !data[0]?.numero_recibo) {
+        return `${prefijo}0001`
       }
-      // Prioridad 2: cobros_expediente (fallback)
-      const { data: dataCobros, error: errCobros } = await supabase
-        .from('cobros_expediente')
-        .select('numero_recibo')
-        .ilike('numero_recibo', `${prefijo}%`)
-        .order('numero_recibo', { ascending: false })
-        .limit(1)
-      if (errCobros) return `${prefijo}0001`
-      const siguiente = parsearSiguiente(dataCobros, 'cobros_expediente')
+      const match = String(data[0].numero_recibo).match(/REC-\d{4}-(\d+)/)
+      if (!match) return `${prefijo}0001`
+      const num = parseInt(match[1], 10)
+      const siguiente = isNaN(num) || num < 0 ? 1 : num + 1
       return `${prefijo}${String(siguiente).padStart(4, '0')}`
     } catch {
       return `${prefijo}0001`
@@ -1278,6 +1264,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   // ============ CARGAR COBROS DEL EXPEDIENTE ============
+  // numero_recibo viene de recibos_oficiales (no de cobros_expediente)
   const cargarCobros = async () => {
     if (!expediente?.id) {
       setCobros([])
@@ -1285,7 +1272,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
     
     try {
-      const { data, error } = await supabase
+      const { data: cobrosData, error } = await supabase
         .from('cobros_expediente')
         .select('*')
         .eq('expediente_id', expediente.id)
@@ -1296,8 +1283,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         return
       }
       
-      // Actualizar estado inmediatamente para refrescar la UI
-      setCobros(data || [])
+      const cobrosList = cobrosData || []
+      if (cobrosList.length === 0) {
+        setCobros([])
+        return
+      }
+      
+      // Obtener numero_recibo desde recibos_oficiales (por cobro_id)
+      const { data: recibosData } = await supabase
+        .from('recibos_oficiales')
+        .select('cobro_id, numero_recibo')
+        .in('cobro_id', cobrosList.map(c => c.id))
+      
+      const mapRecibo = {}
+      if (Array.isArray(recibosData)) {
+        recibosData.forEach(r => { mapRecibo[r.cobro_id] = r.numero_recibo })
+      }
+      
+      const cobrosConRecibo = cobrosList.map(c => ({
+        ...c,
+        numero_recibo: mapRecibo[c.id] || null
+      }))
+      
+      setCobros(cobrosConRecibo)
     } catch (error) {
       setCobros([])
     }
@@ -1737,17 +1745,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (!window.confirm(mensaje2)) return
     }
     try {
+      // Primero eliminar el recibo oficial (si existe) para evitar violación de FK
+      await supabase.from('recibos_oficiales').delete().eq('cobro_id', cobro.id)
       const { error } = await supabase
         .from('cobros_expediente')
         .delete()
         .eq('id', cobro.id)
       if (error) {
-        alert(`❌ Error eliminando cobro: ${error.message}`)
+        alert(`❌ Error al eliminar el cobro: ${error.message}`)
         return
       }
       await cargarCobros()
     } catch (err) {
-      alert(`❌ Error inesperado: ${err.message}`)
+      alert(`❌ Error inesperado al eliminar: ${err.message}`)
     }
   }
 
@@ -1852,18 +1862,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           }
         }
       } else {
-        // INSERT: Crear nuevo cobro con número de recibo inmutable (REC-YYYY-000X)
-        const numeroRecibo = await obtenerSiguienteNumeroRecibo()
-        const datosCobroConRecibo = { ...datosCobro, numero_recibo: numeroRecibo }
+        // INSERT: Crear nuevo cobro en cobros_expediente (sin numero_recibo)
         const { data: cobroInsertado, error } = await supabase
           .from('cobros_expediente')
-          .insert([datosCobroConRecibo])
+          .insert([datosCobro])
           .select('id')
         errorOperacion = error
         
         if (!error && cobroInsertado?.[0]?.id) {
           operacionExitosa = true
-          // VINCULACIÓN: Insertar en recibos_oficiales (registro oficial inmutable)
+          // CREAR registro en recibos_oficiales con formato REC-2026-XXXX
+          const numeroRecibo = await obtenerSiguienteNumeroRecibo()
           const numeroExp = expediente?.numero_expediente || expediente?.numeroExpediente || ''
           const { error: errRecibo } = await supabase
             .from('recibos_oficiales')
@@ -1880,7 +1889,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               fecha: new Date().toISOString()
             }])
           if (errRecibo) {
-            console.warn('⚠️ Recibo no registrado en recibos_oficiales:', errRecibo.message)
+            alert(`⚠️ El cobro se guardó pero no se pudo crear el recibo oficial (REC-2026-XXXX):\n\n${errRecibo.message}`)
           }
           // INSERT EN LOGS INMEDIATAMENTE DESPUÉS DEL INSERT EXITOSO
           const { error: logError } = await supabase
@@ -1900,12 +1909,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       }
 
       if (errorOperacion) {
-        alert(`❌ Error guardando cobro:\n\n${errorOperacion.message || JSON.stringify(errorOperacion)}`)
+        alert(`❌ Error al guardar el cobro:\n\n${errorOperacion.message || JSON.stringify(errorOperacion)}`)
         return
       }
 
       // Recargar lista de cobros inmediatamente para refrescar la UI
       await cargarCobros()
+
+      alert('✅ Cobro guardado correctamente.')
 
       // Resetear formulario y cerrar modal
       setFormCobro({
@@ -1917,7 +1928,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       setCobroEnEdicionId(null)
       setShowModalCobro(false)
     } catch (error) {
-      alert(`❌ Error inesperado:\n\n${error.message || JSON.stringify(error)}`)
+      alert(`❌ Error inesperado al guardar el cobro:\n\n${error.message || JSON.stringify(error)}`)
     }
   }
 
