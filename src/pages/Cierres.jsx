@@ -418,7 +418,7 @@ const Cierres = () => {
         return
       }
 
-      setExpedientesCierre(data || [])
+      setExpedientesCierre(Array.isArray(data) ? data : [])
     } catch (err) {
       setExpedientesCierre([])
     } finally {
@@ -1280,7 +1280,7 @@ const Cierres = () => {
                 </p>
               ) : (
                 <div className="h-[420px] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80">
-                  {expedientesCierre.map((exp) => {
+                  {(expedientesCierre || []).map((exp) => {
                     const nombreGrupo =
                       exp.nombre_grupo || exp.cliente_nombre || exp.destino || 'Sin nombre'
                     const seleccionado = expedienteSeleccionado?.id === exp.id

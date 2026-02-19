@@ -313,7 +313,7 @@ const Composer = () => {
                   defaultValue=""
                 >
                   <option value="">Selecciona un expediente...</option>
-                  {expedientes && expedientes.length > 0 && expedientes.map((exp) => (
+                  {(expedientes || []).map((exp) => (
                     <option key={exp.id} value={exp.id}>
                       {exp.cliente_nombre || 'Sin Nombre'}
                     </option>

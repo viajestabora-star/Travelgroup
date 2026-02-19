@@ -157,6 +157,7 @@ const Expedientes = () => {
   const [searchTermExpedientes, setSearchTermExpedientes] = useState('')
   const [isSubmittingExpediente, setIsSubmittingExpediente] = useState(false) // Estado de loading para submit
   const [confirmarBorrado, setConfirmarBorrado] = useState(null) // { id, nombre, destino } - Modal confirmación (Regla 1.14)
+  const [isLoading, setIsLoading] = useState(true) // MODO SEGURO: mostrar "Cargando..." en lugar de romperse
 
   const [expedienteForm, setExpedienteForm] = useState({
     responsable: '',
@@ -246,6 +247,7 @@ const Expedientes = () => {
 
   // Cargar expedientes desde Supabase
   const loadData = async () => {
+    setIsLoading(true)
     try {
       // Lee expedientes de Supabase - usar select('*') para evitar errores de columnas
       const { data: cloudData, error } = await supabase
@@ -254,13 +256,16 @@ const Expedientes = () => {
         .order('id', { ascending: false })
 
       if (error) {
+        // MODO SEGURO: no romper, fallback a localStorage
         const errorInfo = manejarErrorSupabase(error, 'cargar expedientes');
-        if (errorInfo) {
-          alert(errorInfo.mensaje);
-        } else {
-          alert('⚠️ Error cargando expedientes desde la nube. Revisa tu conexión.');
-        }
-        return;
+        if (errorInfo) console.warn(errorInfo.mensaje);
+        const localData = (storage.get('expedientes') || []).map(exp => ({
+          ...exp, itinerario: exp.itinerario || '', observaciones: exp.observaciones || '',
+          total_pax: exp.total_pax || null, pax_pago: exp.pax_pago || null, cotizacion: undefined
+        }))
+        setExpedientes(normalizarExpedientes(localData))
+        setIsLoading(false)
+        return
       }
 
       // Parsear campos de Supabase
@@ -304,7 +309,14 @@ const Expedientes = () => {
           bonificacion_pax: exp.bonificacion_pax ?? 0,
 
           // Cierre de Grupo (liquidación real, no machaca cotización)
-          cierre_grupo: exp.cierre_grupo || null,
+          // PROTECCIÓN: si viene como string (JSON), parsear; si es objeto, usar tal cual
+          cierre_grupo: (() => {
+            const r = exp?.cierre_grupo
+            if (r == null) return null
+            if (typeof r === 'object') return r
+            if (typeof r === 'string') { try { return JSON.parse(r) } catch { return null } }
+            return null
+          })(),
 
           // Campos por defecto para compatibilidad
           pasajeros: [],
@@ -326,18 +338,18 @@ const Expedientes = () => {
       // Cargar clientes de Supabase
       fetchClientesFromSupabase()
     } catch (error) {
-      // Fallback a localStorage si hay error - limpiar estructura antigua si existe
+      // MODO SEGURO: Fallback a localStorage si hay error - no romper
       const localData = (storage.get('expedientes') || []).map(exp => ({
         ...exp,
-        // Asegurar que tenga los campos necesarios y limpiar cotizacion JSON antigua
         itinerario: exp.itinerario || '',
         observaciones: exp.observaciones || '',
         total_pax: exp.total_pax || null,
         pax_pago: exp.pax_pago || null,
-        // Eliminar cualquier referencia a cotizacion JSON antigua
         cotizacion: undefined
       }))
       setExpedientes(normalizarExpedientes(localData))
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -989,6 +1001,14 @@ const Expedientes = () => {
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-xl text-gray-600 font-medium">Cargando...</p>
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -1133,7 +1153,7 @@ const Expedientes = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {expedientesFiltradosPorEjercicio
+          {(expedientesFiltradosPorEjercicio || [])
             .slice()
             .sort((a, b) => {
               try {
@@ -1204,6 +1224,12 @@ const Expedientes = () => {
                           📅 {formatearFecha(fechaInicio)}
                           {fechaFin && ` - ${formatearFecha(fechaFin)}`}
                         </p>
+                      )}
+                      {expediente && expediente.tipo_colectivo && (
+                        <p className="text-gray-600" style={{ fontSize: '14px' }}>Tipo: {expediente.tipo_colectivo}</p>
+                      )}
+                      {expediente && expediente.duracion_viaje && (
+                        <p className="text-gray-600" style={{ fontSize: '14px' }}>Duración: {expediente.duracion_viaje}</p>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-3 mt-4">
@@ -1500,6 +1526,8 @@ const Expedientes = () => {
                     ))}
                   </select>
                 </div>
+                {expedienteForm && (
+                <>
                 <div>
                   <label className="label">Tipo Colectivo</label>
                   <select
@@ -1528,6 +1556,8 @@ const Expedientes = () => {
                     <option value="Gran viaje">Gran viaje</option>
                   </select>
                 </div>
+                </>
+                )}
                 <div className="md:col-span-2">
                   <label className="label">Observaciones</label>
                   <textarea
