@@ -49,8 +49,8 @@ const Clientes = () => {
 
   // Regla 1.14: Confirmación doble antes de borrar (evita pérdidas accidentales)
   const deleteCliente = async (id, nombre) => {
-    if (!window.confirm(`¿Está seguro de que desea eliminar al cliente "${nombre}"?\n\nEsta acción no se puede deshacer.`)) return
-    if (!window.confirm('Confirmación de seguridad: ¿Confirmas que deseas eliminarlo definitivamente?')) return
+    if (!window.confirm(`¿Estás seguro de que quieres borrar al cliente "${nombre}"?\n\nEsta acción no se puede deshacer.`)) return
+    if (!window.confirm('¿Estás seguro de que quieres borrar este registro definitivamente?')) return
     const { error } = await supabase.from('clientes').delete().eq('id', id)
     if (!error) fetchClientes()
   }

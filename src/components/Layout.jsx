@@ -33,7 +33,7 @@ const Layout = () => {
 
   // Recalcular menuItems cuando cambie el ejercicio
   const menuItems = useMemo(() => [
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/dashboard', icon: LayoutDashboard, label: 'Panel de Control' },
     { path: '/clientes', icon: Users, label: 'Clientes' },
     { path: '/notas', icon: Briefcase, label: 'NOTAS DE TRABAJO' },
     { path: '/expedientes', icon: FileText, label: `Expedientes ${ejercicioActual}` },

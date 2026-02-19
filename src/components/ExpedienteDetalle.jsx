@@ -1386,10 +1386,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // ============ BORRAR VERSIÓN DE FACTURA ============
   // Regla 1.14: Confirmación doble antes de borrar documento oficial
   const borrarVersionFactura = async (versionId, numeroFactura) => {
-    if (!window.confirm('¿Estás seguro de que quieres eliminar esta versión histórica de factura?')) {
+    if (!window.confirm('¿Estás seguro de que quieres borrar esta versión histórica de factura?')) {
       return
     }
-    if (!window.confirm('Confirmación de seguridad: Esta acción elimina un documento oficial. ¿Confirmas que deseas eliminarlo definitivamente?')) {
+    if (!window.confirm('¿Estás seguro de que quieres borrar este documento oficial definitivamente?')) {
       return
     }
     
@@ -1729,11 +1729,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const eliminarCobro = async (cobro) => {
     const esReciboEmitido = !!cobro?.numero_recibo
     const mensaje1 = esReciboEmitido
-      ? `Este recibo (${cobro.numero_recibo}) ya está emitido. ¿Deseas eliminarlo?`
-      : '¿Estás seguro de eliminar este cobro?'
+      ? `¿Estás seguro de que quieres borrar este recibo (${cobro.numero_recibo})?`
+      : '¿Estás seguro de que quieres borrar este cobro?'
     if (!window.confirm(mensaje1)) return
     if (esReciboEmitido) {
-      const mensaje2 = 'Confirmación de seguridad: Este recibo ya tiene número asignado. ¿Confirmas que deseas eliminarlo definitivamente?'
+      const mensaje2 = '¿Estás seguro de que quieres borrar este recibo definitivamente?'
       if (!window.confirm(mensaje2)) return
     }
     try {
@@ -2200,8 +2200,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     // Regla 1.14: Mensaje específico para Mayorista (elimina también Hotel vinculado)
     const esMayorista = servicio?.tipo === 'Mayorista'
     const mensajeConfirm = esMayorista
-      ? '¿Estás seguro? Esto eliminará también el Hotel vinculado a este mayorista.'
-      : `¿Está seguro que desea eliminar el servicio "${nombre}"?\n\nEsta acción no se puede deshacer.`
+      ? '¿Estás seguro de que quieres borrar este servicio? También se eliminará el Hotel vinculado a este mayorista.'
+      : `¿Estás seguro de que quieres borrar el servicio "${nombre}"?\n\nEsta acción no se puede deshacer.`
     
     if (!window.confirm(mensajeConfirm)) return
     
@@ -2417,7 +2417,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   const marcarReleaseComoPagadoServicio = async (servicioId) => {
     if (!servicioId) return
-    if (!window.confirm('¿Estás seguro de marcar este release como pagado?')) return
+    if (!window.confirm('¿Estás seguro de que quieres marcar este release como pagado?')) return
     try {
       const { error } = await supabase
         .from('servicios_cotizacion')
@@ -3182,7 +3182,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Interceptar cambio de pestaña: aviso si hay cotización sin guardar
   const handleTabChange = (nuevoTab) => {
     if (tab === 'cotizacion' && hasCotizacionSinGuardar) {
-      const salir = window.confirm('Tienes cambios sin guardar. ¿Deseas salir?')
+      const salir = window.confirm('Tienes cambios sin guardar. ¿Quieres salir?')
       if (salir) {
         guardarCotizacion().then((r) => { if (r?.ok) setTab(nuevoTab) })
       }
@@ -3195,7 +3195,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Interceptar cierre: aviso si hay cotización sin guardar
   const handleClose = () => {
     if (tab === 'cotizacion' && hasCotizacionSinGuardar) {
-      const salir = window.confirm('Tienes cambios sin guardar. ¿Deseas salir?')
+      const salir = window.confirm('Tienes cambios sin guardar. ¿Quieres salir?')
       if (salir) {
         guardarCotizacion().then((r) => { if (r?.ok) onClose() })
       }
@@ -3208,7 +3208,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // ============ GUARDAR HABITACIONES ============
   
   const guardarHabitaciones = () => {
-    if (!window.confirm('¿Desea guardar los cambios en el rooming list?')) {
+    if (!window.confirm('¿Quieres guardar los cambios en el rooming list?')) {
       return
     }
     
@@ -3235,7 +3235,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   const guardarCambiosCliente = () => {
-    if (!window.confirm('¿Desea guardar los cambios del cliente?')) {
+    if (!window.confirm('¿Quieres guardar los cambios del cliente?')) {
       return
     }
     
@@ -3283,8 +3283,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Regla 1.14: Confirmación doble antes de borrar documento oficial
   const eliminarDocumento = (id) => {
     const doc = documentos.find(d => d.id === id)
-    if (!window.confirm(`¿Está seguro de que desea eliminar "${doc?.nombre || 'este documento'}"?\n\nEsta acción no se puede deshacer.`)) return
-    if (!window.confirm('Confirmación de seguridad: ¿Confirmas que deseas eliminarlo definitivamente?')) return
+    if (!window.confirm(`¿Estás seguro de que quieres borrar "${doc?.nombre || 'este documento'}"?\n\nEsta acción no se puede deshacer.`)) return
+    if (!window.confirm('¿Estás seguro de que quieres borrar este registro definitivamente?')) return
     setDocumentos(documentos.filter(d => d.id !== id))
   }
 
@@ -6139,7 +6139,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     {MODO_PRUEBA_FACTURACION && (
                       <button
                         onClick={async () => {
-                          if (!window.confirm('¿Seguro que quieres borrar TODAS las facturas de prueba (TEST-XXX)?')) {
+                          if (!window.confirm('¿Estás seguro de que quieres borrar TODAS las facturas de prueba (TEST-XXX)?')) {
                             return
                           }
                           try {

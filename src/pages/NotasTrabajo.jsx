@@ -142,7 +142,7 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   };
 
   const eliminarNota = async (id) => {
-    if (!window.confirm('¿Deseas eliminar permanentemente esta nota?')) {
+    if (!window.confirm('¿Estás seguro de que quieres borrar esta nota permanentemente?')) {
       return;
     }
 

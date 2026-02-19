@@ -521,7 +521,7 @@ const Cierres = () => {
 
   const guardarInformeHacienda = async () => {
     if (!expedienteSeleccionado) return
-    if (!window.confirm('¿Confirmas que los importes reales coinciden con las facturas de proveedores?')) return
+    if (!window.confirm('¿Estás seguro de que los importes reales coinciden con las facturas de proveedores?')) return
 
     setGuardandoInforme(true)
     try {

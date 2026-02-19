@@ -244,7 +244,7 @@ const Dashboard = () => {
 
   const marcarReleaseComoPagado = async (releaseId, e) => {
     e?.stopPropagation?.()
-    if (!window.confirm('¿Estás seguro de marcar este release como pagado?')) return
+    if (!window.confirm('¿Estás seguro de que quieres marcar este release como pagado?')) return
     try {
       const { error } = await supabase
         .from('servicios_cotizacion')
@@ -310,7 +310,7 @@ const Dashboard = () => {
       link: '/expedientes'
     },
     { 
-      title: 'Planning', 
+      title: 'Planificación', 
       value: null, 
       icon: Calendar, 
       color: 'bg-purple-500',
@@ -329,7 +329,7 @@ const Dashboard = () => {
     <div>
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-navy-900 mb-2">Dashboard</h1>
+        <h1 className="text-3xl font-bold text-navy-900 mb-2">Panel de Control</h1>
         <p className="text-gray-600">Bienvenido a Viajes Tabora ERP</p>
       </div>
 

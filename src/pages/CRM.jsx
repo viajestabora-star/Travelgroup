@@ -495,7 +495,7 @@ const CRM = () => {
   // Borrar prospecto
   const borrarProspecto = async () => {
     if (!prospectoSelected?.id) return
-    if (!window.confirm('¿Estás seguro de borrar este prospecto? Esta acción no se puede deshacer.')) return
+    if (!window.confirm('¿Estás seguro de que quieres borrar este prospecto? Esta acción no se puede deshacer.')) return
 
     const { error } = await supabase
       .from('prospectos')

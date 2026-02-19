@@ -674,7 +674,7 @@ const Expedientes = () => {
   // Regla 1.14: Confirmación doble antes de borrar documento oficial
   const handleDeleteExpediente = async (id) => {
     if (!id) return
-    if (!window.confirm('Confirmación de seguridad: Esta acción elimina un expediente y sus datos asociados. ¿Confirmas que deseas eliminarlo definitivamente?')) {
+    if (!window.confirm('¿Estás seguro de que quieres borrar este expediente y sus datos asociados?')) {
       setConfirmarBorrado(null)
       return
     }
@@ -1253,7 +1253,7 @@ const Expedientes = () => {
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
             <h2 className="text-xl font-bold text-navy-900 mb-2">Confirmar eliminación</h2>
             <p className="text-gray-600 mb-4">
-              ¿Está seguro de que desea eliminar el expediente <strong>"{confirmarBorrado.nombre}{confirmarBorrado.destino}"</strong>?
+              ¿Estás seguro de que quieres borrar el expediente <strong>"{confirmarBorrado.nombre}{confirmarBorrado.destino}"</strong>?
             </p>
             <p className="text-sm text-red-600 mb-6">Esta acción no se puede deshacer.</p>
             <div className="flex gap-3">
@@ -1261,7 +1261,7 @@ const Expedientes = () => {
                 onClick={() => handleDeleteExpediente(confirmarBorrado.id)}
                 className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
               >
-                Eliminar
+                Confirmar
               </button>
               <button
                 onClick={() => setConfirmarBorrado(null)}
