@@ -1463,48 +1463,45 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // ============ CARGAR COBROS DEL EXPEDIENTE ============
   // numero_recibo viene de recibos_oficiales (no de cobros_expediente)
+  // Blindeado: try/catch + fallback si recibos falla o está vacía
   const cargarCobros = async () => {
     if (!expediente?.id) {
       setCobros([])
       return
     }
-    
     try {
-      const { data: cobrosData, error } = await supabase
+      const { data: cobrosData, error: errorCobros } = await supabase
         .from('cobros_expediente')
         .select('*')
         .eq('expediente_id', expediente.id)
         .order('fecha', { ascending: false })
-      
-      if (error) {
+      if (errorCobros) {
         setCobros([])
         return
       }
-      
-      const cobrosList = cobrosData || []
+      const cobrosList = Array.isArray(cobrosData) ? cobrosData : []
       if (cobrosList.length === 0) {
         setCobros([])
         return
       }
-      
-      // Obtener numero_recibo desde recibos_oficiales (por cobro_id)
-      const { data: recibosData } = await supabase
-        .from('recibos_oficiales')
-        .select('cobro_id, numero_recibo')
-        .in('cobro_id', cobrosList.map(c => c.id))
-      
-      const mapRecibo = {}
-      if (Array.isArray(recibosData)) {
-        recibosData.forEach(r => { mapRecibo[r.cobro_id] = r.numero_recibo })
+      try {
+        const { data: recibosData, error: errorRecibos } = await supabase
+          .from('recibos_oficiales')
+          .select('cobro_id, numero_recibo')
+          .in('cobro_id', cobrosList.map(c => c.id))
+        const mapRecibo = {}
+        if (!errorRecibos && Array.isArray(recibosData)) {
+          recibosData.forEach(r => { mapRecibo[r.cobro_id] = r.numero_recibo })
+        }
+        const cobrosConRecibo = cobrosList.map(c => ({
+          ...c,
+          numero_recibo: mapRecibo[c.id] || null
+        }))
+        setCobros(cobrosConRecibo)
+      } catch (_) {
+        setCobros(cobrosList.map(c => ({ ...c, numero_recibo: null })))
       }
-      
-      const cobrosConRecibo = cobrosList.map(c => ({
-        ...c,
-        numero_recibo: mapRecibo[c.id] || null
-      }))
-      
-      setCobros(cobrosConRecibo)
-    } catch (error) {
+    } catch (_) {
       setCobros([])
     }
   }
@@ -2080,6 +2077,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               expediente_id: expediente.id,
               numero_expediente: numeroExp || null,
               cliente_id: clienteId,
+              importe_total: importeLimpio,
               importe: importeLimpio,
               concepto: formCobro.concepto.trim(),
               metodo_pago: formCobro.metodo_pago,
@@ -5825,8 +5823,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             </div>
           )}
 
-            {/* TAB: Cobros y Pagos */}
-          {tab === 'cobros' && (
+            {/* TAB: Cobros y Pagos (blindeado: fallback si carga falla) */}
+          {tab === 'cobros' && (() => {
+              const cobrosSeguros = Array.isArray(cobros) ? cobros : []
+              return (
               <div className="max-w-6xl mx-auto space-y-6">
                 {/* Header con botón de registro */}
                 <div className="flex items-center justify-between">
@@ -5850,23 +5850,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 </div>
 
                 {/* Resumen de Totales */}
-                {cobros.length > 0 && (
+                {cobrosSeguros.length > 0 && (
                   <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl shadow-md p-6 border border-blue-200">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="text-center">
                         <p className="text-sm text-gray-600 mb-1">Total Cobrado</p>
                         <p className="text-3xl font-bold text-navy-900">
-                          {cobros.reduce((sum, c) => sum + Number(c.importe || 0), 0).toFixed(2)}€
+                          {cobrosSeguros.reduce((sum, c) => sum + Number(c.importe || 0), 0).toFixed(2)}€
                         </p>
                       </div>
                       <div className="text-center">
                         <p className="text-sm text-gray-600 mb-1">Número de Cobros</p>
-                        <p className="text-3xl font-bold text-blue-600">{cobros.length}</p>
+                        <p className="text-3xl font-bold text-blue-600">{cobrosSeguros.length}</p>
                       </div>
                       <div className="text-center">
                         <p className="text-sm text-gray-600 mb-1">Último Cobro</p>
                         <p className="text-lg font-semibold text-gray-800">
-                          {cobros[0]?.fecha 
+                          {cobrosSeguros[0]?.fecha 
                             ? new Date(cobros[0].fecha).toLocaleDateString('es-ES', { 
                                 day: '2-digit', 
                                 month: '2-digit', 
@@ -5895,14 +5895,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         </tr>
                       </thead>
                       <tbody>
-                        {cobros.length === 0 ? (
+                        {cobrosSeguros.length === 0 ? (
                           <tr>
                             <td colSpan="7" className="text-center py-8 text-gray-500">
-                              No hay cobros registrados para este expediente
+                              No hay recibos registrados
                             </td>
                           </tr>
                         ) : (
-                          cobros.map((cobro) => {
+                          cobrosSeguros.map((cobro) => {
                             const fechaCobro = cobro.fecha ? new Date(cobro.fecha) : null
                             const fechaFormateada = fechaCobro 
                               ? fechaCobro.toLocaleDateString('es-ES', { 
@@ -5964,14 +5964,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           })
                         )}
                       </tbody>
-                      {cobros.length > 0 && (
+                      {cobrosSeguros.length > 0 && (
                         <tfoot className="bg-gray-50 border-t-2 border-gray-300">
                           <tr>
                             <td colSpan="1" className="py-3 px-4 text-sm font-bold text-gray-700">
                               Total Cobrado:
                             </td>
                             <td className="py-3 px-4 text-sm font-bold text-navy-900 text-lg">
-                              {cobros.reduce((sum, c) => sum + Number(c.importe || 0), 0).toFixed(2)}€
+                              {cobrosSeguros.reduce((sum, c) => sum + Number(c.importe || 0), 0).toFixed(2)}€
                             </td>
                             <td colSpan="5"></td>
                           </tr>
@@ -5995,7 +5995,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   </div>
                 </div>
               </div>
-          )}
+              )
+            })()}
 
           {/* Modal de Registro de Cobro */}
           {showModalCobro && (
