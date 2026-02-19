@@ -168,6 +168,8 @@ const Expedientes = () => {
     telefono: '',
     email: '',
     estado: 'peticion',
+    tipo_colectivo: '',
+    duracion_viaje: '',
     observaciones: '',
     itinerario: '',
     total_pax: '',
@@ -286,6 +288,8 @@ const Expedientes = () => {
           email: exp.email || '',
           responsable: exp.responsable || '',
           estado: exp.estado || 'peticion',
+          tipo_colectivo: exp.tipo_colectivo || '',
+          duracion_viaje: exp.duracion_viaje || '',
           observaciones: exp.observaciones || '',
           itinerario: exp.itinerario || '',
 
@@ -405,6 +409,8 @@ const Expedientes = () => {
           email: String(expediente.email || ''),
           responsable: String(expediente.responsable || ''),
           estado: String(expediente.estado || 'peticion'),
+          tipo_colectivo: (expediente.tipo_colectivo || '').trim() || null,
+          duracion_viaje: (expediente.duracion_viaje || '').trim() || null,
           observaciones: String(expediente.observaciones || ''),
           itinerario: String(expediente.itinerario || ''),
           total_pax: (expediente.total_pax !== undefined && expediente.total_pax !== null) ? String(expediente.total_pax) : null,
@@ -549,6 +555,8 @@ const Expedientes = () => {
         email: String(expedienteForm.email || '').trim() || null,
         responsable: String(expedienteForm.responsable || '').trim() || null,
         estado: String(expedienteForm.estado || 'peticion').trim(), // Siempre tiene valor por defecto
+        tipo_colectivo: (expedienteForm.tipo_colectivo || '').trim() || null,
+        duracion_viaje: (expedienteForm.duracion_viaje || '').trim() || null,
         observaciones: String(expedienteForm.observaciones || '').trim() || null,
         itinerario: String(expedienteForm.itinerario || '').trim() || null,
         total_pax: totalPaxSanitizado || null,
@@ -674,10 +682,7 @@ const Expedientes = () => {
   // Regla 1.14: Confirmación doble antes de borrar documento oficial
   const handleDeleteExpediente = async (id) => {
     if (!id) return
-    if (!window.confirm('¿Estás seguro de que quieres borrar este expediente y sus datos asociados?')) {
-      setConfirmarBorrado(null)
-      return
-    }
+    // La confirmación se muestra en el modal (confirmarBorrado)
     try {
       const { error } = await supabase
         .from('expedientes')
@@ -743,6 +748,8 @@ const Expedientes = () => {
         email: String(expedienteActualizado.email || ''),
         responsable: String(expedienteActualizado.responsable || ''),
         estado: String(expedienteActualizado.estado || 'peticion'),
+        tipo_colectivo: (expedienteActualizado.tipo_colectivo || '').trim() || null,
+        duracion_viaje: (expedienteActualizado.duracion_viaje || '').trim() || null,
         observaciones: String(expedienteActualizado.observaciones || ''),
         itinerario: String(expedienteActualizado.itinerario || ''),
         total_pax: String(totalPaxTexto),
@@ -889,6 +896,8 @@ const Expedientes = () => {
       telefono: '',
       email: '',
       estado: 'peticion',
+      tipo_colectivo: '',
+      duracion_viaje: '',
       observaciones: '',
       itinerario: '',
       total_pax: '',
@@ -1489,6 +1498,34 @@ const Expedientes = () => {
                     {ESTADOS_UI.map((key) => (
                       <option key={key} value={key}>{ESTADOS[key].label}</option>
                     ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Tipo Colectivo</label>
+                  <select
+                    value={expedienteForm.tipo_colectivo}
+                    onChange={(e) => setExpedienteForm({ ...expedienteForm, tipo_colectivo: e.target.value })}
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                  >
+                    <option value="">— Seleccionar —</option>
+                    <option value="Jubilados">Jubilados</option>
+                    <option value="Amas de Casa">Amas de Casa</option>
+                    <option value="Otros">Otros</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Duración del Viaje</label>
+                  <select
+                    value={expedienteForm.duracion_viaje}
+                    onChange={(e) => setExpedienteForm({ ...expedienteForm, duracion_viaje: e.target.value })}
+                    className="input-field bg-white text-black border-gray-200"
+                    style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                  >
+                    <option value="">— Seleccionar —</option>
+                    <option value="Día completo">Día completo</option>
+                    <option value="Finde">Finde</option>
+                    <option value="Gran viaje">Gran viaje</option>
                   </select>
                 </div>
                 <div className="md:col-span-2">

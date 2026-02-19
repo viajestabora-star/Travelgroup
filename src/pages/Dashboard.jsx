@@ -6,7 +6,7 @@ import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { extraerAño } from '../utils/dateNormalizer'
 
-const Dashboard = () => {
+const Dashboard = ({ user }) => {
   const navigate = useNavigate()
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [stats, setStats] = useState({
@@ -17,6 +17,8 @@ const Dashboard = () => {
   const [alertasRelease, setAlertasRelease] = useState([])
   const [proximasVisitas, setProximasVisitas] = useState([])
   const [proximosReleases, setProximosReleases] = useState([])
+  const [esAdmin, setEsAdmin] = useState(false)
+  const [beneficioNetoTotal, setBeneficioNetoTotal] = useState(null)
 
   // Sincronizar con cambios globales del ejercicio
   useEffect(() => {
@@ -25,6 +27,81 @@ const Dashboard = () => {
     })
     return unsubscribe
   }, [])
+
+  // Verificar si el usuario es ADMIN (roles_usuarios o fallback a sesión)
+  useEffect(() => {
+    const verificarAdmin = async () => {
+      const email = user?.email?.toLowerCase?.()
+      if (!email) {
+        setEsAdmin(user?.rol === 'ADMIN')
+        return
+      }
+      try {
+        const { data, error } = await supabase
+          .from('roles_usuarios')
+          .select('rol')
+          .eq('email', email)
+          .eq('rol', 'ADMIN')
+          .maybeSingle()
+        if (!error && data?.rol === 'ADMIN') {
+          setEsAdmin(true)
+        } else {
+          setEsAdmin(user?.rol === 'ADMIN')
+        }
+      } catch {
+        setEsAdmin(user?.rol === 'ADMIN')
+      }
+    }
+    verificarAdmin()
+  }, [user?.email, user?.rol])
+
+  // Calcular beneficio neto del año (solo para ADMIN)
+  const cargarBeneficioNeto = async (año) => {
+    try {
+      const inicioAño = `${año}-01-01`
+      const finAño = `${año}-12-31`
+      const { data: expedientesData, error: errExp } = await supabase
+        .from('expedientes')
+        .select('id, precio_venta_cliente, pax_pago, total_pax, gratuidades')
+        .gte('fecha_inicio', inicioAño)
+        .lte('fecha_inicio', finAño)
+      if (errExp || !expedientesData?.length) {
+        setBeneficioNetoTotal(0)
+        return
+      }
+      const ids = expedientesData.map(e => e.id)
+      const { data: serviciosData, error: errServ } = await supabase
+        .from('servicios_cotizacion')
+        .select('id_expediente, total_servicio, coste_real_proveedor')
+        .in('id_expediente', ids)
+      if (errServ) {
+        setBeneficioNetoTotal(0)
+        return
+      }
+      let ingresosTotal = 0
+      let costesTotal = 0
+      expedientesData.forEach(exp => {
+        const paxPago = Math.max(1, Number(exp.pax_pago) || (Number(exp.total_pax) || 1) - (Number(exp.gratuidades) || 0))
+        ingresosTotal += paxPago * (Number(exp.precio_venta_cliente) || 0)
+      })
+      const porExpediente = {}
+      ;(serviciosData || []).forEach(s => {
+        const idExp = s.id_expediente
+        if (!porExpediente[idExp]) porExpediente[idExp] = 0
+        const coste = s.coste_real_proveedor != null && Number(s.coste_real_proveedor) > 0
+          ? Number(s.coste_real_proveedor)
+          : Number(s.total_servicio) || 0
+        porExpediente[idExp] += coste
+      })
+      Object.values(porExpediente).forEach(c => { costesTotal += c })
+      const beneficioBruto = ingresosTotal - costesTotal
+      const iva = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
+      const beneficioNeto = beneficioBruto - iva
+      setBeneficioNetoTotal(beneficioNeto)
+    } catch {
+      setBeneficioNetoTotal(0)
+    }
+  }
 
   // Cargar clientes desde Supabase
   const cargarClientes = async () => {
@@ -229,6 +306,12 @@ const Dashboard = () => {
       setProximasVisitas(visitasPend)
       setProximosReleases(releases)
 
+      if (esAdmin) {
+        cargarBeneficioNeto(ejercicioActual)
+      } else {
+        setBeneficioNetoTotal(null)
+      }
+
       // Calcular alertas de release (solo del año seleccionado) - mantener para compatibilidad
       const expedientesDelAño = expedientes.filter(exp => {
         const fechaInicio = exp.fecha_inicio || exp.fechaInicio
@@ -240,7 +323,7 @@ const Dashboard = () => {
     }
 
     cargarDatos()
-  }, [ejercicioActual]) // Recargar cuando cambie el ejercicio
+  }, [ejercicioActual, esAdmin]) // Recargar cuando cambie el ejercicio o el rol
 
   const marcarReleaseComoPagado = async (releaseId, e) => {
     e?.stopPropagation?.()
@@ -385,6 +468,28 @@ const Dashboard = () => {
                   </div>
                 )
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Beneficio Neto (solo visible para ADMIN) */}
+      {esAdmin && beneficioNetoTotal !== null && (
+        <div className="mb-8">
+          <div
+            className="card border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50"
+            style={{ cursor: 'default' }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm mb-1">Beneficio Neto ({ejercicioActual})</p>
+                <h3 className={`text-3xl font-bold ${beneficioNetoTotal >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                  {beneficioNetoTotal >= 0 ? '+' : ''}{beneficioNetoTotal.toFixed(2)} €
+                </h3>
+              </div>
+              <div className="p-3 bg-emerald-500 rounded-lg">
+                <TrendingUp className="text-white" size={24} />
+              </div>
             </div>
           </div>
         </div>

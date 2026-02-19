@@ -778,6 +778,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
               releasePagado: !!row.release_pagado,
               mayorista_id: (row.mayorista_id != null && row.mayorista_id !== '') ? (typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-') ? row.mayorista_id : String(row.mayorista_id)) : null,
+              coste_real_proveedor: row.coste_real_proveedor != null ? toNum(row.coste_real_proveedor) : null,
             }
           })
 
@@ -2351,6 +2352,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
         proveedor_id_int: proveedorIdLimpio,
         nombre_proveedor_manual: (servicio?.proveedorNombreTemporal && String(servicio.proveedorNombreTemporal).trim()) || null,
+        coste_real_proveedor: servicio?.coste_real_proveedor != null && servicio.coste_real_proveedor !== '' ? toNum(servicio.coste_real_proveedor) : null,
         // Relación Mayorista-Hotel (servicio_vinculado_id en esquema alternativo)
         mayorista_id: (() => {
           const v = servicio?.mayorista_id
@@ -5108,6 +5110,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             </div>
                             <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Precio</span>
                               <input type="number" step="0.01" value={servicio.coste_unitario === '' || servicio.coste_unitario == null ? '' : servicio.coste_unitario} onWheel={handleWheel} onChange={(e) => { const valorInput = e.target.value; if (valorInput === '' || valorInput === '-') { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: '', total_servicio_manual: '' } : { coste_unitario: '' }); return; } const valorLimpio = valorInput.replace(/,/g, '.'); const valorNumerico = parseFloat(valorLimpio); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } else { actualizarServicio(servicio.id, 'coste_unitario', valorLimpio); } }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { const valor = e.target.value; if (valor !== '' && valor !== '-') { const valorNumerico = parseFloat(valor.replace(/,/g, '.')); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } } else { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: 0, total_servicio_manual: 0 } : { coste_unitario: 0 }); } e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }} className="input-field text-xs text-right w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} placeholder="0.00" min="0" />
+                            </div>
+                            <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Coste real proveedor</span>
+                              <input type="number" step="0.01" value={servicio.coste_real_proveedor === '' || servicio.coste_real_proveedor == null ? '' : servicio.coste_real_proveedor} onWheel={handleWheel} onChange={(e) => { const v = e.target.value; if (v === '' || v === '-') { actualizarServicio(servicio.id, 'coste_real_proveedor', null); return; } const n = parseFloat(v.replace(/,/g, '.')); if (!isNaN(n)) actualizarServicio(servicio.id, 'coste_real_proveedor', n); }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const v = e.target.value; if (v === '' || v === '-') actualizarServicio(servicio.id, 'coste_real_proveedor', null); else { const n = parseFloat(v.replace(/,/g, '.')); if (!isNaN(n)) actualizarServicio(servicio.id, 'coste_real_proveedor', n); } }} className="input-field text-xs text-right w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} placeholder="—" min="0" />
                             </div>
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Modo</span>
