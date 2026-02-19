@@ -409,7 +409,7 @@ const Cierres = () => {
       const { data, error } = await supabase
         .from('expedientes')
         .select(
-          'id, numero_expediente, nombre_grupo, cliente_nombre, destino, precio_venta_cliente, pax_pago, total_pax, informe_gastos_hacienda, total_gastos_reales, liquidacion_final_beneficio, cierre_grupo'
+          'id, numero_expediente, nombre_grupo, cliente_nombre, destino, precio_venta_cliente, pax_pago, total_pax, gratuidades, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total, noches, informe_gastos_hacienda, total_gastos_reales, liquidacion_final_beneficio, cierre_grupo'
         )
         .order('id', { ascending: false })
 
@@ -426,20 +426,33 @@ const Cierres = () => {
     }
   }
 
+  // Lógica unificada: ingresosTotales = (precio_venta + suplementos) - (bonificaciones + gratuidades)
+  // Beneficio Bruto = ingresosTotales - totalGastosReales | IVA (21%) | Beneficio Neto = Bruto - IVA
   const calcularTotalesInforme = useMemo(() => {
     const totalGastosReales = lineasInforme.reduce((acc, l) => acc + (parseFloat(l.importe_real) || 0), 0)
 
-    const precioVentaPax = parseFloat(expedienteSeleccionado?.precio_venta_cliente || 0) || 0
-    const paxPago =
-      parseInt(expedienteSeleccionado?.pax_pago || expedienteSeleccionado?.total_pax || 0, 10) || 0
-    const totalFacturadoClientes = precioVentaPax * paxPago
+    const exp = expedienteSeleccionado
+    const paxPago = Math.max(1, parseInt(exp?.pax_pago || exp?.total_pax || 0, 10) || 0)
+    const precioVenta = paxPago * (parseFloat(exp?.precio_venta_cliente || 0) || 0)
+    const noches = Math.max(1, Number(exp?.noches) || 1)
+    const totalSupHabitacion = (parseFloat(exp?.sup_individual_pax || 0) || 0) * (parseFloat(exp?.sup_individual_precio_dia || 0) || 0) * noches
+    const totalSupSeguro = (parseFloat(exp?.sup_seguro_pax || 0) || 0) * (parseFloat(exp?.sup_seguro_precio_total || 0) || 0)
+    const suplementosVal = totalSupHabitacion + totalSupSeguro
+    const bonificaciones = (parseFloat(exp?.bonificacion_pax || 0) || 0) * paxPago
+    const gratuidadesVal = 0
+    const ingresosTotales = (precioVenta + suplementosVal) - (bonificaciones + gratuidadesVal)
 
-    const beneficio = totalFacturadoClientes - totalGastosReales
+    const beneficioBruto = ingresosTotales - totalGastosReales
+    const ivaPagado = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
+    const beneficioNeto = beneficioBruto - ivaPagado
 
     return {
       totalGastosReales,
-      totalFacturadoClientes,
-      beneficio,
+      ingresosTotales,
+      totalFacturadoClientes: ingresosTotales,
+      beneficioBruto,
+      ivaPagado,
+      beneficio: beneficioNeto,
     }
   }, [lineasInforme, expedienteSeleccionado])
 
@@ -525,19 +538,16 @@ const Cierres = () => {
 
     setGuardandoInforme(true)
     try {
-      const { totalGastosReales, totalFacturadoClientes, beneficio } = calcularTotalesInforme
-      const beneficioBruto = beneficio
-      const ivaSobreBeneficio = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
-      const beneficioNetoReal = beneficioBruto - ivaSobreBeneficio
+      const { totalGastosReales, ingresosTotales, beneficioBruto, ivaPagado, beneficio } = calcularTotalesInforme
 
       const payloadInforme = {
         lineas: lineasInforme,
         resumen: {
           total_gastos_reales: totalGastosReales,
-          total_facturado_clientes: totalFacturadoClientes,
+          ingresos_totales: ingresosTotales,
           liquidacion_final_beneficio: beneficioBruto,
-          iva_sobre_beneficio: ivaSobreBeneficio,
-          beneficio_neto_real: beneficioNetoReal,
+          iva_sobre_beneficio: ivaPagado,
+          beneficio_neto_real: beneficio,
           updated_at: new Date().toISOString(),
         },
       }
@@ -586,7 +596,7 @@ const Cierres = () => {
       return
     }
 
-    const { totalGastosReales, totalFacturadoClientes, beneficio } = calcularTotalesInforme
+    const { totalGastosReales } = calcularTotalesInforme
 
     const doc = new jsPDF()
     const pageWidth = doc.internal.pageSize.getWidth()
@@ -657,12 +667,12 @@ const Cierres = () => {
     doc.text(`${totalGastosReales.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
     y += 6
 
-    doc.text('Total Facturado a Clientes:', 20, y)
-    doc.text(`${totalFacturadoClientes.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
+    doc.text('Ingresos Totales (cotización):', 20, y)
+    doc.text(`${calcularTotalesInforme.ingresosTotales.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
     y += 6
 
     doc.text('Beneficio Neto Final del Grupo:', 20, y)
-    doc.text(`${beneficio.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
+    doc.text(`${calcularTotalesInforme.beneficio.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
 
     const nombreArchivo = `Informe_Hacienda_${expedienteSeleccionado.numero_expediente || nombreGrupo}.pdf`
     doc.save(nombreArchivo.replace(/[^a-zA-Z0-9_.-]/g, '_'))
@@ -1321,8 +1331,8 @@ const Cierres = () => {
                     Resumen del expediente seleccionado:
                   </p>
                   <p className="text-slate-600">
-                    <span className="font-semibold">Total Facturado Clientes:</span>{' '}
-                    {calcularTotalesInforme.totalFacturadoClientes.toFixed(2)} €
+                    <span className="font-semibold">Ingresos Totales:</span>{' '}
+                    {calcularTotalesInforme.ingresosTotales.toFixed(2)} €
                   </p>
                   <p className="text-slate-600">
                     <span className="font-semibold">Total Gastos Reales:</span>{' '}

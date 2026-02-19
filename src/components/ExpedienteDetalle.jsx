@@ -1146,9 +1146,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   // ============ CÁLCULO CIERRE FINANCIERO ============
-  // Suma cobros (Ingresos) y resta pagos a proveedores (Gastos Reales)
+  // Lógica de cotización: ingresosTotales = (precio_venta + suplementos) - (bonificaciones + gratuidades)
+  // Beneficio Bruto = ingresosTotales - totalGastosReales | IVA (21%) = Beneficio Bruto * 0.21 | Beneficio Neto = Bruto - IVA
   const calcularCierreFinanciero = () => {
-    const ingresosTotales = (cobros || []).reduce((sum, c) => sum + (Number(c.importe || 0) || 0), 0)
+    const paxPago = Math.max(1, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
+    const precioVenta = paxPago * toNum(expediente?.precio_venta_cliente ?? formData?.precio_venta_cliente ?? 0)
+    const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0) || 0
+    const bonificaciones = toNum(expediente?.bonificacion_pax ?? formData?.bonificacion_pax ?? 0) * paxPago
+    // gratuidades: valor monetario de plazas gratis (precio_venta ya usa pax_pago, así que 0 si no hay campo monetario)
+    const gratuidadesVal = toNum(expediente?.gratuidades_monetario ?? 0)
+    const ingresosTotales = (precioVenta + suplementosVal) - (bonificaciones + gratuidadesVal)
+
     const gastosReales = (informeLiquidacion.costesReales || []).reduce((a, c) => a + toNum(c.coste_real), 0)
     const gastosImprevistos = (informeLiquidacion.gastosImprevistos || []).reduce((a, g) => a + toNum(g.importe), 0)
     const gastosTotales = gastosReales + gastosImprevistos
@@ -1474,11 +1482,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }
 
-  // Cargar cobros cuando se abre Cobros, Cotización o Cierre (para cálculo financiero)
+  // Cargar cobros cuando se abre Cobros o Cotización (Cierre ya no usa cobros)
   useEffect(() => {
-    if ((tab === 'cobros' || tab === 'cotizacion' || tab === 'cierre') && expediente?.id) {
+    if ((tab === 'cobros' || tab === 'cotizacion') && expediente?.id) {
       cargarCobros()
-    } else if (!['cobros', 'cotizacion', 'cierre'].includes(tab)) {
+    } else if (!['cobros', 'cotizacion'].includes(tab)) {
       setCobros([])
     }
   }, [tab, expediente?.id])
@@ -6494,13 +6502,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     </div>
                   </div>
 
-                  {/* Ingresos: suma de cobros (desde cobros_expediente) */}
+                  {/* Ingresos: lógica de cotización (precio_venta + suplementos) - (bonificaciones + gratuidades) */}
                   <section className="mb-6">
-                    <h2 className="text-base font-bold text-slate-800 uppercase mb-3 border-b border-slate-300 pb-1">Ingresos Totales (Cobros)</h2>
+                    <h2 className="text-base font-bold text-slate-800 uppercase mb-3 border-b border-slate-300 pb-1">Ingresos Totales</h2>
                     <div className="space-y-2 text-sm">
-                      <p className="text-slate-600">Suma de todos los cobros registrados en Cobros y Pagos.</p>
+                      <p className="text-slate-600">(Precio venta × pax pago) + suplementos − bonificaciones − gratuidades</p>
                       <div className="flex justify-between pt-2 border-t-2 border-slate-200 font-bold text-slate-900">
-                        <span>Total Cobrado</span>
+                        <span>Total Ingresos</span>
                         <span>{calcularCierreFinanciero().ingresosTotales.toFixed(2)} €</span>
                       </div>
                     </div>
