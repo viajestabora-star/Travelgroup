@@ -369,14 +369,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [initialTab])
 
-  // Restaurar cierre_grupo guardado al cargar expediente
-  // PROTECCIÓN DE DATOS: cierre_grupo puede venir como objeto (JSON) o string desde Supabase
+  // Restaurar cierre_grupo guardado - solo si es objeto (JSONB), sin parsear
   useEffect(() => {
-    const raw = expediente?.cierre_grupo
-    const cg = typeof raw === 'object' && raw !== null
-      ? raw
-      : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return null } })() : null)
-    if (cg?.resumen || cg?.ingresos || cg?.costesReales || cg?.gastosImprevistos) {
+    const cg = expediente?.cierre_grupo
+    if (typeof cg === 'object' && cg !== null && (cg.resumen || cg.ingresos || Array.isArray(cg.costesReales) || Array.isArray(cg.gastosImprevistos))) {
       setInformeLiquidacion(prev => ({
         ...prev,
         ingresos: cg.ingresos || prev.ingresos,

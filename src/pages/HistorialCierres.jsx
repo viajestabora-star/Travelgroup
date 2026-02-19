@@ -121,7 +121,7 @@ const HistorialCierres = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {cierres.map((c) => (
+                {(cierres || []).map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3 font-semibold text-slate-800">
                       {c.cliente_nombre || c.nombre_grupo || '—'}

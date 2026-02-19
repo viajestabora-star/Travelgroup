@@ -308,15 +308,8 @@ const Expedientes = () => {
           precio_venta_cliente: exp.precio_venta_cliente ?? 0,
           bonificacion_pax: exp.bonificacion_pax ?? 0,
 
-          // Cierre de Grupo (liquidación real, no machaca cotización)
-          // PROTECCIÓN: si viene como string (JSON), parsear; si es objeto, usar tal cual
-          cierre_grupo: (() => {
-            const r = exp?.cierre_grupo
-            if (r == null) return null
-            if (typeof r === 'object') return r
-            if (typeof r === 'string') { try { return JSON.parse(r) } catch { return null } }
-            return null
-          })(),
+          // Cierre de Grupo - pasar tal cual, sin parsear (JSONB en Supabase)
+          cierre_grupo: exp?.cierre_grupo ?? null,
 
           // Campos por defecto para compatibilidad
           pasajeros: [],
@@ -786,7 +779,7 @@ const Expedientes = () => {
       }
       
       // Actualizar estado local
-      const updated = expedientes.map(exp =>
+      const updated = (expedientes || []).map(exp =>
         exp.id === expedienteActualizado.id ? expedienteActualizado : exp
       )
       setExpedientes(updated)
@@ -814,7 +807,7 @@ const Expedientes = () => {
       }
       
       // Actualizar estado local
-      const updated = expedientes.map(exp =>
+      const updated = (expedientes || []).map(exp =>
         exp.id === id ? { ...exp, estado: nuevoEstado } : exp
       )
       setExpedientes(updated)
@@ -823,7 +816,7 @@ const Expedientes = () => {
       const expediente = updated.find(exp => exp.id === id)
       if (expediente && expediente.planningId) {
         const planning = storage.getPlanning()
-        const updatedPlanning = planning.map(p =>
+        const updatedPlanning = (planning || []).map(p =>
           p.id === expediente.planningId
             ? { ...p, estado: nuevoEstado }
             : p
@@ -1231,6 +1224,9 @@ const Expedientes = () => {
                       {expediente && expediente.duracion_viaje && (
                         <p className="text-gray-600" style={{ fontSize: '14px' }}>Duración: {expediente.duracion_viaje}</p>
                       )}
+                      <p className="text-gray-600" style={{ fontSize: '14px' }}>
+                        Cierre: {expediente?.cierre_grupo ? 'Cerrado' : 'Abierto'}
+                      </p>
                     </div>
                     <div className="flex flex-wrap gap-3 mt-4">
                       <button
@@ -1385,7 +1381,7 @@ const Expedientes = () => {
                   {showSuggestions && (
                     <div className="mt-2 max-h-48 overflow-y-auto border-2 border-navy-300 rounded-lg shadow-lg bg-white">
                       {clientesFiltrados.length > 0 ? (
-                        clientesFiltrados.map(cliente => (
+                        (clientesFiltrados || []).map(cliente => (
                           <div
                             key={cliente.id}
                             onClick={() => seleccionarCliente(cliente)}

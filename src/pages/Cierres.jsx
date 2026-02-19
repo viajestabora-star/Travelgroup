@@ -1007,7 +1007,7 @@ const Cierres = () => {
                 )}
                 {clienteSearch && clientesFiltrados.length > 0 && (
                   <div className="mt-2 max-h-52 overflow-y-auto border border-slate-200 rounded-lg shadow-sm bg-white text-sm">
-                    {clientesFiltrados.map((c) => (
+                    {(clientesFiltrados || []).map((c) => (
                       <button
                         key={c.id}
                         type="button"
@@ -1149,7 +1149,7 @@ const Cierres = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {facturas.map((factura) => (
+                  {(facturas || []).map((factura) => (
                     <tr key={factura.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-3 text-slate-700">
                         {factura.fecha_emision 
@@ -1420,7 +1420,7 @@ const Cierres = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                      {lineasInforme.map((l, index) => (
+                      {(lineasInforme || []).map((l, index) => (
                         <tr key={index} className="hover:bg-slate-50">
                           <td className="px-4 py-3 align-top">
                             <div className="font-semibold text-slate-900">{l.concepto}</div>
