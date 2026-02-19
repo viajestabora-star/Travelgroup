@@ -15,7 +15,6 @@ const Dashboard = ({ user = null }) => {
     visitasPendientes: 0,
   })
   const [alertasRelease, setAlertasRelease] = useState([])
-  const [proximasVisitas, setProximasVisitas] = useState([])
   const [proximosReleases, setProximosReleases] = useState([])
   const [esAdmin, setEsAdmin] = useState(false)
   const [beneficioNetoTotal, setBeneficioNetoTotal] = useState(null)
@@ -150,39 +149,21 @@ const Dashboard = ({ user = null }) => {
   }
 
 
-  // Cargar próximas visitas (expedientes con estado 'peticion' del año seleccionado)
-  const cargarProximasVisitas = async (año) => {
+  // Contador de visitas pendientes (expedientes estado 'peticion') para la card
+  const cargarVisitasPendientesCount = async (año) => {
     try {
-      // Calcular rango de fechas para el año seleccionado
       const inicioAño = `${año}-01-01`
       const finAño = `${año}-12-31`
-      
-      // ARQUITECTURA UUID: usar id (UUID) generado por Supabase
-      const { data, error } = await supabase
+      const { count, error } = await supabase
         .from('expedientes')
-        .select('id, fecha_inicio, cliente_nombre, destino, estado, responsable, telefono, email') // ARQUITECTURA UUID: usar id (UUID)
+        .select('*', { count: 'exact', head: true })
         .eq('estado', 'peticion')
         .gte('fecha_inicio', inicioAño)
         .lte('fecha_inicio', finAño)
-        .order('fecha_inicio', { ascending: true })
-        .limit(10)
-      
-      if (error) {
-        return []
-      }
-      
-      return (data || []).map(exp => ({
-        id: exp.id, // ARQUITECTURA UUID: usar id (UUID)
-        fechaInicio: exp.fecha_inicio,
-        clienteNombre: exp.cliente_nombre,
-        destino: exp.destino,
-        estado: exp.estado,
-        responsable: exp.responsable,
-        telefono: exp.telefono,
-        email: exp.email
-      }))
-    } catch (error) {
-      return []
+      if (error) return 0
+      return count ?? 0
+    } catch {
+      return 0
     }
   }
 
@@ -277,21 +258,19 @@ const Dashboard = ({ user = null }) => {
         
         // Cargar expedientes desde localStorage como fallback para alertas
         const expedientes = storage.get('expedientes') || []
-        const visitas = storage.getVisitas()
 
-        // Cargar próximas visitas desde Supabase
-        const visitasPend = await cargarProximasVisitas(ejercicioActual)
-        
+        // Contador de visitas pendientes (solo count, sin datos de tabla)
+        const visitasPendientesCount = await cargarVisitasPendientesCount(ejercicioActual)
+
         // Cargar próximos releases desde servicios_cotizacion
         const releases = await cargarProximosReleases()
 
         setStats({
           totalClientes,
           totalCotizaciones: totalExpedientes,
-          visitasPendientes: visitasPend.length,
+          visitasPendientes: visitasPendientesCount,
         })
 
-        setProximasVisitas(visitasPend)
         setProximosReleases(releases)
 
         if (esAdmin) {
@@ -658,40 +637,8 @@ const Dashboard = ({ user = null }) => {
         </div>
       </div>
 
-      {/* Próximas Visitas */}
-      <div className="mt-8 card">
-        <h2 className="text-xl font-bold text-navy-900 mb-4 flex items-center gap-2">
-          <Briefcase size={24} />
-          Próximas Visitas
-        </h2>
-        {proximasVisitas.length === 0 ? (
-          <p className="text-gray-500 text-center py-8">No hay visitas pendientes</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Cliente</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Destino</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Responsable</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Teléfono</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Email</th>
-                </tr>
-              </thead>
-              <tbody>
-                {proximasVisitas.map((visita) => (
-                  <tr key={visita.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-3 px-4 text-sm font-medium">{visita.clienteNombre || '-'}</td>
-                    <td className="py-3 px-4 text-sm">{visita.destino || '-'}</td>
-                    <td className="py-3 px-4 text-sm">{visita.responsable || '-'}</td>
-                    <td className="py-3 px-4 text-sm">{visita.telefono || '-'}</td>
-                    <td className="py-3 px-4 text-sm">{visita.email || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <div className="mt-8 card min-h-[200px]">
+        {/* Placeholder: Espacio reservado para métricas y estados */}
       </div>
 
       {/* Info Banner */}
