@@ -3548,7 +3548,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const totalPasajerosHabitaciones = ((habitaciones.dobles || 0) * 2) + ((habitaciones.doblesTwin || 0) * 2) + (habitaciones.individuales || 0)
 
   // ============ RENDER PRINCIPAL (CON TRY/CATCH) ============
-  if (!expediente) return <p className="p-4 text-gray-600">Cargando datos...</p>
+  if (!expediente) return null
 
   try {
   return (
@@ -6854,19 +6854,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         
       </div>
     )
-  } catch (error) {
-    // ⚠️ CAPTURA DE ERRORES GLOBAL
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md">
-          <h3 className="text-xl font-bold text-red-600 mb-4">❌ Error</h3>
-          <p className="text-gray-700 mb-4">Error al cargar la tabla: {error.message}</p>
-          <button onClick={onClose} className="btn-primary w-full">
-            Cerrar
-          </button>
-      </div>
-    </div>
-  )
+  } catch (e) {
+    return <div className="p-4 text-red-600">Error al cargar esta sección</div>
   }
 }
 
