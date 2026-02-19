@@ -515,7 +515,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         .from('expedientes')
         .select('*')
         .ilike('cliente_nombre', nombreNormalizado)
-        .order('fecha_viaje', { ascending: false })
+        .order('fecha_inicio', { ascending: false, nullsFirst: false })
 
 
       if (error) {
@@ -1449,8 +1449,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   // ============ CARGAR COBROS DEL EXPEDIENTE ============
-  // numero_recibo viene de recibos_oficiales (no de cobros_expediente)
-  // Blindeado: try/catch + fallback si recibos falla o está vacía
+  // Lee de cobros_expediente; numero_recibo viene de recibos_oficiales
+  // Blindeado: try/catch + fallback; vacío → "Sin cobros" (no bloquea)
   const cargarCobros = async () => {
     if (!expediente?.id) {
       setCobros([])
@@ -4194,9 +4194,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 <tr key={exp.id} className="hover:bg-green-50/30 transition-all">
                                   <td className="px-4 py-3">
                                     <div className="font-bold text-slate-900 text-sm">{exp.cliente_nombre || 'Sin nombre'}</div>
-                                    {exp.fecha_viaje && (
+                                    {(exp.fecha_inicio || exp.fecha_viaje) && (
                                       <div className="text-xs text-slate-500 mt-1">
-                                        {new Date(exp.fecha_viaje).toLocaleDateString('es-ES')}
+                                        {new Date(exp.fecha_inicio || exp.fecha_viaje).toLocaleDateString('es-ES')}
                                       </div>
                                     )}
                                   </td>
@@ -5903,7 +5903,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         {cobrosSeguros.length === 0 ? (
                           <tr>
                             <td colSpan="7" className="text-center py-8 text-gray-500">
-                              No hay recibos registrados
+                              Sin cobros
                             </td>
                           </tr>
                         ) : (
