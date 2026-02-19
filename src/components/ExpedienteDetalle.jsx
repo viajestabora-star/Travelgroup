@@ -419,6 +419,49 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Estados para Historial de Expedientes
   const [expedientesHistorial, setExpedientesHistorial] = useState([])
   const [cargandoHistorial, setCargandoHistorial] = useState(false)
+
+  // Asociaciones vinculadas (multi-cliente) - DEBE estar antes de paxPorAsociacion/cierre
+  const [expedienteClientes, setExpedienteClientes] = useState([])
+  const [cargandoAsociaciones, setCargandoAsociaciones] = useState(false)
+  useEffect(() => {
+    if (!expediente?.id) return
+    const cargar = async () => {
+      setCargandoAsociaciones(true)
+      try {
+        const { data, error } = await supabase
+          .from('expediente_clientes')
+          .select('id, cliente_id, pax')
+          .eq('expediente_id', expediente.id)
+        if (error) throw error
+        const rows = data || []
+        const conNombre = rows.map(r => ({
+          ...r,
+          cliente_nombre: (clientes.find(c => String(c.id) === String(r.cliente_id))?.nombre || '—'),
+        }))
+        setExpedienteClientes(conNombre)
+      } catch (_) {
+        setExpedienteClientes([])
+      } finally {
+        setCargandoAsociaciones(false)
+      }
+    }
+    cargar()
+  }, [expediente?.id, clientes])
+
+  // Cliente principal y grupo (derivados) - usados por paxPorAsociacion y cierre
+  const clienteIdPrincipal = expediente?.clienteId ?? expediente?.cliente_id
+  const grupo = clientes.find(c => String(c.id) === String(clienteIdPrincipal)) || {
+    id: null,
+    nombre: expediente?.nombre_grupo || expediente?.clienteNombre || 'Sin nombre',
+    responsable: expediente?.cliente_responsable || expediente?.responsable || 'Sin responsable',
+    cif: '',
+    movilResponsable: '',
+    email: '',
+    nSocios: '',
+    poblacion: '',
+    provincia: '',
+    direccion: '',
+  }
   
   // Estado para Modal de Nuevo Proveedor (reutiliza ProveedorForm)
   const [showModal, setShowModal] = useState(false)
@@ -2153,49 +2196,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [logsFinancieros, setLogsFinancieros] = useState([])
   const [showModalLogs, setShowModalLogs] = useState(false)
   
-  // Asociaciones vinculadas (multi-cliente)
-  const [expedienteClientes, setExpedienteClientes] = useState([])
-  const [cargandoAsociaciones, setCargandoAsociaciones] = useState(false)
-  useEffect(() => {
-    if (!expediente?.id) return
-    const cargar = async () => {
-      setCargandoAsociaciones(true)
-      try {
-        const { data, error } = await supabase
-          .from('expediente_clientes')
-          .select('id, cliente_id, pax')
-          .eq('expediente_id', expediente.id)
-        if (error) throw error
-        const rows = data || []
-        const conNombre = rows.map(r => ({
-          ...r,
-          cliente_nombre: (clientes.find(c => String(c.id) === String(r.cliente_id))?.nombre || '—'),
-        }))
-        setExpedienteClientes(conNombre)
-      } catch (_) {
-        setExpedienteClientes([])
-      } finally {
-        setCargandoAsociaciones(false)
-      }
-    }
-    cargar()
-  }, [expediente?.id, clientes])
-
-  // Cliente editable (principal: compatibilidad con cliente_id)
-  const clienteIdPrincipal = expediente?.clienteId ?? expediente?.cliente_id
-  const grupo = clientes.find(c => String(c.id) === String(clienteIdPrincipal)) || {
-    id: null,
-    nombre: expediente?.nombre_grupo || expediente?.clienteNombre || 'Sin nombre',
-    responsable: expediente?.cliente_responsable || expediente?.responsable || 'Sin responsable',
-    cif: '',
-    movilResponsable: '',
-    email: '',
-    nSocios: '',
-    poblacion: '',
-    provincia: '',
-    direccion: '',
-  }
-  
+  // Cliente editable (usa grupo declarado arriba)
   const [clienteEditado, setClienteEditado] = useState(grupo)
 
   // ============ SISTEMA DE AVISOS DE INTEGRIDAD DE DATOS ============
