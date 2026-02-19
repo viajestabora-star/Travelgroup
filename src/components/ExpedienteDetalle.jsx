@@ -897,8 +897,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const cg = expediente.cierre_grupo
     const ingresosTotales = Number(cg.ingresos_totales ?? cg.total_ingresos ?? 0)
     const gastosTotales = Number(cg.gastos_totales ?? cg.total_gastos ?? 0)
-    const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? 0)
+    const beneficioBruto = Number(cg.beneficio_bruto ?? (cg.beneficio_limpio ?? cg.beneficio ?? 0) + (cg.iva_pagado ?? 0))
     const ivaPagado = Number(cg.iva_pagado ?? 0)
+    const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? beneficioBruto - ivaPagado)
     const costesReales = Array.isArray(cg.costesReales) ? cg.costesReales : []
     const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
@@ -993,16 +994,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     doc.text(`${gastosTotales.toFixed(2)} €`, pageW - 20, y, { align: 'right' })
     y += 10
 
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.text('Beneficio Bruto', 20, y)
+    doc.text(`${beneficioBruto.toFixed(2)} €`, pageW - 20, y, { align: 'right' })
+    y += 8
+
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
-    doc.text('IVA pagado (21% sobre beneficio)', 20, y)
+    doc.text('IVA (21%): impuesto restado', 20, y)
     doc.text(`− ${ivaPagado.toFixed(2)} €`, pageW - 20, y, { align: 'right' })
-    y += 12
+    y += 10
 
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(14)
     doc.setTextColor(16, 185, 129)
-    doc.text('BENEFICIO NETO FINAL', 20, y)
+    doc.text('BENEFICIO NETO', 20, y)
     doc.text(`${beneficioLimpio.toFixed(2)} €`, pageW - 20, y, { align: 'right' })
     doc.setTextColor(0, 0, 0)
 
@@ -1016,8 +1023,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const cg = expediente.cierre_grupo
     const ingresosTotales = Number(cg.ingresos_totales ?? cg.total_ingresos ?? 0)
     const gastosTotales = Number(cg.gastos_totales ?? cg.total_gastos ?? 0)
-    const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? 0)
+    const beneficioBruto = Number(cg.beneficio_bruto ?? (cg.beneficio_limpio ?? cg.beneficio ?? 0) + (cg.iva_pagado ?? 0))
     const ivaPagado = Number(cg.iva_pagado ?? 0)
+    const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? beneficioBruto - ivaPagado)
     const costesReales = Array.isArray(cg.costesReales) ? cg.costesReales : []
     const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
@@ -1080,8 +1088,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     </table>
   </div>
   <div class="section">
-    <p style="font-size: 0.85rem; color: #64748b;">IVA pagado (21%): − ${ivaPagado.toFixed(2)} €</p>
-    <p class="beneficio">Beneficio Neto Final: ${beneficioLimpio.toFixed(2)} €</p>
+    <div class="section-title">Resumen de resultados</div>
+    <table style="width:100%; border-collapse: collapse;">
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0;">Beneficio Bruto</td><td style="text-align:right; font-weight: 600;">${beneficioBruto.toFixed(2)} €</td></tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0;">IVA (21%): impuesto restado</td><td style="text-align:right; font-weight: 600; color: #b45309;">− ${ivaPagado.toFixed(2)} €</td></tr>
+      <tr style="background: #f0fdf4;"><td style="padding: 12px 0; font-weight: 700;">BENEFICIO NETO</td><td style="text-align:right; font-size: 1.25rem; font-weight: 700; color: #059669;">${beneficioLimpio.toFixed(2)} €</td></tr>
+    </table>
   </div>
 </body>
 </html>`)
@@ -1095,8 +1107,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const cg = expediente.cierre_grupo
     const ingresosTotales = Number(cg.ingresos_totales ?? cg.total_ingresos ?? 0)
     const gastosTotales = Number(cg.gastos_totales ?? cg.total_gastos ?? 0)
-    const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? 0)
+    const beneficioBruto = Number(cg.beneficio_bruto ?? (cg.beneficio_limpio ?? cg.beneficio ?? 0) + (cg.iva_pagado ?? 0))
     const ivaPagado = Number(cg.iva_pagado ?? 0)
+    const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? beneficioBruto - ivaPagado)
     const costesReales = Array.isArray(cg.costesReales) ? cg.costesReales : []
     const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
@@ -1118,7 +1131,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       ...gastosImprevistos.map(g => `"${(g.concepto || '').replace(/"/g, '""')}",${Number(g.importe || 0).toFixed(2)}`),
       `TOTAL GASTOS,${gastosTotales.toFixed(2)}`,
       '',
-      `IVA pagado,-${ivaPagado.toFixed(2)}`,
+      'Resumen de resultados',
+      `Beneficio Bruto,${beneficioBruto.toFixed(2)}`,
+      `IVA (21%): impuesto restado,-${ivaPagado.toFixed(2)}`,
       `BENEFICIO NETO FINAL,${beneficioLimpio.toFixed(2)}`
     ]
     const blob = new Blob(['\ufeff' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' })
@@ -1155,13 +1170,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (!expediente?.id) return
     setGuardandoCierre(true)
     try {
-      const { ingresosTotales, gastosTotales, beneficioLimpio, ivaPagado } = calcularCierreFinanciero()
+      const { ingresosTotales, gastosTotales, beneficioBruto, ivaPagado, beneficioLimpio } = calcularCierreFinanciero()
 
       const payload = {
         ingresos_totales: ingresosTotales,
         gastos_totales: gastosTotales,
-        beneficio_limpio: beneficioLimpio,
+        beneficio_bruto: beneficioBruto,
         iva_pagado: ivaPagado,
+        beneficio_limpio: beneficioLimpio,
         fecha: new Date().toISOString(),
         // Detalle para compatibilidad
         ingresos: informeLiquidacion.ingresos,
@@ -6563,26 +6579,31 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     )}
                   </section>
 
-                  {/* Resumen visual grande (iPhone-friendly) - usa calcularCierreFinanciero */}
+                  {/* Tabla de resultados: Beneficio Bruto, IVA (21%), Beneficio Neto */}
                   {(() => {
-                    const { ingresosTotales: ingresoTotal, gastosTotales: gastosTotales, beneficioLimpio: beneficioNeto, ivaPagado: ivaSobreBeneficio, beneficioBruto } = calcularCierreFinanciero()
+                    const { ingresosTotales: ingresoTotal, gastosTotales: gastosTotales, beneficioBruto, ivaPagado: ivaSobreBeneficio, beneficioLimpio: beneficioNeto } = calcularCierreFinanciero()
                     return (
                       <section className="border-t-2 border-slate-200 pt-6 pb-6">
-                        <div className="bg-slate-900 text-white rounded-2xl p-6 space-y-4">
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-300 text-sm sm:text-base">Beneficio Bruto</span>
-                            <span className={`text-xl sm:text-2xl font-bold ${beneficioBruto >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{beneficioBruto.toFixed(2)} €</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-300 text-sm sm:text-base">IVA sobre Beneficio (21%)</span>
-                            <span className="text-amber-400 text-lg sm:text-xl font-semibold">− {ivaSobreBeneficio.toFixed(2)} €</span>
-                          </div>
-                          <div className="flex justify-between items-center pt-4 border-t border-slate-600">
-                            <span className="text-white font-bold text-base sm:text-lg">Beneficio Neto</span>
-                            <span className={`text-2xl sm:text-3xl font-extrabold ${beneficioNeto >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{beneficioNeto.toFixed(2)} €</span>
-                          </div>
-                          <p className="text-slate-400 text-xs">Ingresos − (Gastos Reales + Imprevistos) − IVA</p>
+                        <h2 className="text-base font-bold text-slate-800 uppercase mb-4 border-b border-slate-300 pb-1">Resumen de resultados</h2>
+                        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                          <table className="w-full text-sm">
+                            <tbody>
+                              <tr className="border-b border-slate-100">
+                                <td className="px-4 py-3 text-slate-600">Beneficio Bruto</td>
+                                <td className="px-4 py-3 text-right font-semibold text-slate-900">{beneficioBruto.toFixed(2)} €</td>
+                              </tr>
+                              <tr className="border-b border-slate-100">
+                                <td className="px-4 py-3 text-slate-600">IVA (21%)</td>
+                                <td className="px-4 py-3 text-right font-semibold text-amber-700">− {ivaSobreBeneficio.toFixed(2)} €</td>
+                              </tr>
+                              <tr className="bg-emerald-50">
+                                <td className="px-4 py-4 text-slate-800 font-bold">BENEFICIO NETO</td>
+                                <td className={`px-4 py-4 text-right text-xl font-extrabold ${beneficioNeto >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{beneficioNeto.toFixed(2)} €</td>
+                              </tr>
+                            </tbody>
+                          </table>
                         </div>
+                        <p className="text-slate-400 text-xs mt-2">Ingresos − (Gastos Reales + Imprevistos) − IVA</p>
                       </section>
                     )
                   })()}
