@@ -1986,7 +1986,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (cobroEnEdicionId) {
         // UPDATE: Modificar cobro existente
         // Obtener cobro original para comparación
-        const cobroOriginal = cobros.find(c => c.id === cobroEnEdicionId)
+        const cobroOriginal = (cobros || []).find(c => c.id === cobroEnEdicionId)
         
         // Comparar valores y generar descripción inteligente
         const cambios = []
@@ -3548,7 +3548,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const totalPasajerosHabitaciones = ((habitaciones.dobles || 0) * 2) + ((habitaciones.doblesTwin || 0) * 2) + (habitaciones.individuales || 0)
 
   // ============ RENDER PRINCIPAL (CON TRY/CATCH) ============
-  if (!expediente) return null
+  if (!expediente) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-xl shadow-xl px-8 py-6 text-center">
+          <p className="text-gray-600">Cargando datos del expediente...</p>
+        </div>
+      </div>
+    )
+  }
 
   try {
   return (
@@ -5854,8 +5862,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <div className="text-center">
                         <p className="text-sm text-gray-600 mb-1">Último Cobro</p>
                         <p className="text-lg font-semibold text-gray-800">
-                          {cobrosSeguros[0]?.fecha 
-                            ? new Date(cobros[0].fecha).toLocaleDateString('es-ES', { 
+                          {cobrosSeguros[0]?.fecha
+                            ? new Date(cobrosSeguros[0].fecha).toLocaleDateString('es-ES', { 
                                 day: '2-digit', 
                                 month: '2-digit', 
                                 year: 'numeric' 
@@ -6014,7 +6022,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 <div className="space-y-4">
                   {/* Nº Recibo (solo lectura cuando se edita — inmutable) */}
                   {cobroEnEdicionId && (() => {
-                    const cobroEdit = cobros.find(c => c.id === cobroEnEdicionId)
+                    const cobroEdit = (cobros || []).find(c => c.id === cobroEnEdicionId)
                     const nr = cobroEdit?.numero_recibo
                     if (!nr) return null
                     return (
