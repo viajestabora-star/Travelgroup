@@ -6,7 +6,7 @@ import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { extraerAño } from '../utils/dateNormalizer'
 
-const Dashboard = ({ user }) => {
+const Dashboard = ({ user = null }) => {
   const navigate = useNavigate()
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [stats, setStats] = useState({
@@ -28,32 +28,19 @@ const Dashboard = ({ user }) => {
     return unsubscribe
   }, [])
 
-  // Verificar si el usuario es ADMIN (roles_usuarios o fallback a sesión)
-  useEffect(() => {
-    const verificarAdmin = async () => {
-      const email = user?.email?.toLowerCase?.()
-      if (!email) {
-        setEsAdmin(user?.rol === 'ADMIN')
-        return
-      }
-      try {
-        const { data, error } = await supabase
-          .from('roles_usuarios')
-          .select('rol')
-          .eq('email', email)
-          .eq('rol', 'ADMIN')
-          .maybeSingle()
-        if (!error && data?.rol === 'ADMIN') {
-          setEsAdmin(true)
-        } else {
-          setEsAdmin(user?.rol === 'ADMIN')
-        }
-      } catch {
-        setEsAdmin(user?.rol === 'ADMIN')
-      }
-    }
-    verificarAdmin()
-  }, [user?.email, user?.rol])
+  // DISABLED: roles_usuarios - deshabilitado temporalmente para evitar pantalla blanca
+  // useEffect(() => {
+  //   const verificarAdmin = async () => {
+  //     const email = user?.email?.toLowerCase?.()
+  //     if (!email) { setEsAdmin(user?.rol === 'ADMIN'); return }
+  //     try {
+  //       const { data, error } = await supabase.from('roles_usuarios').select('rol').eq('email', email).eq('rol', 'ADMIN').maybeSingle()
+  //       if (!error && data?.rol === 'ADMIN') setEsAdmin(true)
+  //       else setEsAdmin(user?.rol === 'ADMIN')
+  //     } catch { setEsAdmin(user?.rol === 'ADMIN') }
+  //   }
+  //   verificarAdmin()
+  // }, [user?.email, user?.rol])
 
   // Calcular beneficio neto del año (solo para ADMIN)
   const cargarBeneficioNeto = async (año) => {
@@ -281,45 +268,49 @@ const Dashboard = ({ user }) => {
 
   useEffect(() => {
     const cargarDatos = async () => {
-      // Cargar contador de clientes desde Supabase (sin filtro de año - total acumulado)
-      const totalClientes = await cargarClientes()
-      
-      // Cargar contador de expedientes del año seleccionado
-      const totalExpedientes = await cargarExpedientesDelAño(ejercicioActual)
-      
-      // Cargar expedientes desde localStorage como fallback para alertas
-      const expedientes = storage.get('expedientes') || []
-      const visitas = storage.getVisitas()
+      try {
+        // Cargar contador de clientes desde Supabase (sin filtro de año - total acumulado)
+        const totalClientes = await cargarClientes()
+        
+        // Cargar contador de expedientes del año seleccionado
+        const totalExpedientes = await cargarExpedientesDelAño(ejercicioActual)
+        
+        // Cargar expedientes desde localStorage como fallback para alertas
+        const expedientes = storage.get('expedientes') || []
+        const visitas = storage.getVisitas()
 
-      // Cargar próximas visitas desde Supabase
-      const visitasPend = await cargarProximasVisitas(ejercicioActual)
-      
-      // Cargar próximos releases desde servicios_cotizacion
-      const releases = await cargarProximosReleases()
+        // Cargar próximas visitas desde Supabase
+        const visitasPend = await cargarProximasVisitas(ejercicioActual)
+        
+        // Cargar próximos releases desde servicios_cotizacion
+        const releases = await cargarProximosReleases()
 
-      setStats({
-        totalClientes,
-        totalCotizaciones: totalExpedientes,
-        visitasPendientes: visitasPend.length,
-      })
+        setStats({
+          totalClientes,
+          totalCotizaciones: totalExpedientes,
+          visitasPendientes: visitasPend.length,
+        })
 
-      setProximasVisitas(visitasPend)
-      setProximosReleases(releases)
+        setProximasVisitas(visitasPend)
+        setProximosReleases(releases)
 
-      if (esAdmin) {
-        cargarBeneficioNeto(ejercicioActual)
-      } else {
-        setBeneficioNetoTotal(null)
+        if (esAdmin) {
+          cargarBeneficioNeto(ejercicioActual)
+        } else {
+          setBeneficioNetoTotal(null)
+        }
+
+        // Calcular alertas de release (solo del año seleccionado) - mantener para compatibilidad
+        const expedientesDelAño = expedientes.filter(exp => {
+          const fechaInicio = exp?.fecha_inicio || exp?.fechaInicio
+          if (!fechaInicio) return false
+          const añoExpediente = extraerAño(fechaInicio)
+          return añoExpediente === ejercicioActual
+        })
+        calcularAlertasRelease(expedientesDelAño)
+      } catch {
+        // Fallback: no bloquear la pantalla; mantener estado previo o valores por defecto
       }
-
-      // Calcular alertas de release (solo del año seleccionado) - mantener para compatibilidad
-      const expedientesDelAño = expedientes.filter(exp => {
-        const fechaInicio = exp.fecha_inicio || exp.fechaInicio
-        if (!fechaInicio) return false
-        const añoExpediente = extraerAño(fechaInicio)
-        return añoExpediente === ejercicioActual
-      })
-      calcularAlertasRelease(expedientesDelAño)
     }
 
     cargarDatos()
@@ -474,7 +465,8 @@ const Dashboard = ({ user }) => {
       )}
 
       {/* Beneficio Neto (solo visible para ADMIN) */}
-      {esAdmin && beneficioNetoTotal !== null && (
+      {/* DISABLED: Beneficio neto (dependía de roles_usuarios) */}
+      {false && esAdmin && beneficioNetoTotal != null && typeof beneficioNetoTotal === 'number' && (
         <div className="mb-8">
           <div
             className="card border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50"
@@ -482,9 +474,9 @@ const Dashboard = ({ user }) => {
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm mb-1">Beneficio Neto ({ejercicioActual})</p>
+                <p className="text-gray-600 text-sm mb-1">Beneficio Neto ({ejercicioActual ?? ''})</p>
                 <h3 className={`text-3xl font-bold ${beneficioNetoTotal >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
-                  {beneficioNetoTotal >= 0 ? '+' : ''}{beneficioNetoTotal.toFixed(2)} €
+                  {beneficioNetoTotal >= 0 ? '+' : ''}{Number(beneficioNetoTotal).toFixed(2)} €
                 </h3>
               </div>
               <div className="p-3 bg-emerald-500 rounded-lg">

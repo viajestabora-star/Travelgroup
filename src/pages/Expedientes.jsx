@@ -288,8 +288,8 @@ const Expedientes = () => {
           email: exp.email || '',
           responsable: exp.responsable || '',
           estado: exp.estado || 'peticion',
-          tipo_colectivo: exp.tipo_colectivo || '',
-          duracion_viaje: exp.duracion_viaje || '',
+          tipo_colectivo: (exp?.tipo_colectivo || ''),
+          duracion_viaje: (exp?.duracion_viaje || ''),
           observaciones: exp.observaciones || '',
           itinerario: exp.itinerario || '',
 
@@ -409,8 +409,8 @@ const Expedientes = () => {
           email: String(expediente.email || ''),
           responsable: String(expediente.responsable || ''),
           estado: String(expediente.estado || 'peticion'),
-          tipo_colectivo: (expediente.tipo_colectivo || '').trim() || null,
-          duracion_viaje: (expediente.duracion_viaje || '').trim() || null,
+          tipo_colectivo: ((expediente?.tipo_colectivo || '').trim()) || null,
+          duracion_viaje: ((expediente?.duracion_viaje || '').trim()) || null,
           observaciones: String(expediente.observaciones || ''),
           itinerario: String(expediente.itinerario || ''),
           total_pax: (expediente.total_pax !== undefined && expediente.total_pax !== null) ? String(expediente.total_pax) : null,
@@ -555,8 +555,8 @@ const Expedientes = () => {
         email: String(expedienteForm.email || '').trim() || null,
         responsable: String(expedienteForm.responsable || '').trim() || null,
         estado: String(expedienteForm.estado || 'peticion').trim(), // Siempre tiene valor por defecto
-        tipo_colectivo: (expedienteForm.tipo_colectivo || '').trim() || null,
-        duracion_viaje: (expedienteForm.duracion_viaje || '').trim() || null,
+        tipo_colectivo: ((expedienteForm?.tipo_colectivo || '').trim()) || null,
+        duracion_viaje: ((expedienteForm?.duracion_viaje || '').trim()) || null,
         observaciones: String(expedienteForm.observaciones || '').trim() || null,
         itinerario: String(expedienteForm.itinerario || '').trim() || null,
         total_pax: totalPaxSanitizado || null,
@@ -748,8 +748,8 @@ const Expedientes = () => {
         email: String(expedienteActualizado.email || ''),
         responsable: String(expedienteActualizado.responsable || ''),
         estado: String(expedienteActualizado.estado || 'peticion'),
-        tipo_colectivo: (expedienteActualizado.tipo_colectivo || '').trim() || null,
-        duracion_viaje: (expedienteActualizado.duracion_viaje || '').trim() || null,
+        tipo_colectivo: ((expedienteActualizado?.tipo_colectivo || '').trim()) || null,
+        duracion_viaje: ((expedienteActualizado?.duracion_viaje || '').trim()) || null,
         observaciones: String(expedienteActualizado.observaciones || ''),
         itinerario: String(expedienteActualizado.itinerario || ''),
         total_pax: String(totalPaxTexto),
@@ -1503,7 +1503,7 @@ const Expedientes = () => {
                 <div>
                   <label className="label">Tipo Colectivo</label>
                   <select
-                    value={expedienteForm.tipo_colectivo}
+                    value={(expedienteForm?.tipo_colectivo || '')}
                     onChange={(e) => setExpedienteForm({ ...expedienteForm, tipo_colectivo: e.target.value })}
                     className="input-field bg-white text-black border-gray-200"
                     style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
@@ -1517,7 +1517,7 @@ const Expedientes = () => {
                 <div>
                   <label className="label">Duración del Viaje</label>
                   <select
-                    value={expedienteForm.duracion_viaje}
+                    value={(expedienteForm?.duracion_viaje || '')}
                     onChange={(e) => setExpedienteForm({ ...expedienteForm, duracion_viaje: e.target.value })}
                     className="input-field bg-white text-black border-gray-200"
                     style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
