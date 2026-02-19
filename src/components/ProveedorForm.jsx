@@ -1,11 +1,6 @@
 import React, { useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../supabase'
 import { Building2 } from 'lucide-react'
-
-// Cliente de Supabase (mismo proyecto que el resto de la app)
-const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
-const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 // Función helper para normalizar tipos: minúsculas + sin tildes
 // Ejemplo: 'Autobús' -> 'autobus', 'Restaurante' -> 'restaurante'

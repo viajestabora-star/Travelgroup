@@ -1,11 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../supabase';
 import { useLocation } from 'react-router-dom';
 import { CheckCircle2 } from 'lucide-react';
-
-const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e';
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const NotasTrabajo = ({ user, expedienteId = null }) => {
   const location = useLocation();

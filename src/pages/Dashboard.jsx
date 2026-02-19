@@ -2,15 +2,9 @@ import React, { useEffect, useState } from 'react'
 import { Users, Calculator, Calendar, TrendingUp, Briefcase, FileText, AlertTriangle, Clock, CheckCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { storage } from '../utils/storage'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { extraerAño } from '../utils/dateNormalizer'
-
-// Cliente de Supabase
-const supabase = createClient(
-  'https://gtwyqxfkpdwpakmgrkbu.supabase.co',
-  'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
-)
 
 const Dashboard = () => {
   const navigate = useNavigate()

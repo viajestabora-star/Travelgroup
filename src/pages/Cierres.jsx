@@ -9,13 +9,8 @@ import {
   Euro,
   CheckCircle2
 } from 'lucide-react'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
-
-const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
-const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 // ===================== FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF =====================
 // Función compartida para generar PDFs de facturas con diseño profesional unificado

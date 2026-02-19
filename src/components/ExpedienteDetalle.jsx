@@ -2,15 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown, CheckCircle } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
 import jsPDF from 'jspdf'
-
-// Cliente de Supabase para cargar proveedores
-const supabase = createClient(
-  'https://gtwyqxfkpdwpakmgrkbu.supabase.co',
-  'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
-)
 
 // Función helper para normalizar tipos: minúsculas + sin tildes
 // Ejemplo: 'Autobús' -> 'autobus', 'Restaurante' -> 'restaurante'

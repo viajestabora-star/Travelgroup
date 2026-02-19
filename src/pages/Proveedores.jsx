@@ -1,10 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../supabase'
 import { Edit2, Trash2, X, Search, MapPin, Phone, Mail } from 'lucide-react'
-
-const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
-const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 const Proveedores = () => {
   const [proveedores, setProveedores] = useState([])

@@ -5,15 +5,7 @@ import { storage } from '../utils/storage'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 import { getEjercicioActual, subscribeToEjercicioChanges, setEjercicioActual as guardarEjercicioGlobal, getAñosDisponibles } from '../utils/ejercicioGlobal'
-import { createClient } from '@supabase/supabase-js'
-
-// Cliente de Supabase usando anon_key (publishable key)
-// NOTA: Esta key requiere políticas RLS (Row Level Security) configuradas en Supabase
-// Si recibes errores 403 o "Permission Denied", verifica las políticas RLS en la tabla
-const supabase = createClient(
-  'https://gtwyqxfkpdwpakmgrkbu.supabase.co',
-  'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
-)
+import { supabase } from '../supabase'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase

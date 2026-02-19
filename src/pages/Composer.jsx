@@ -1,10 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { FileText, Save, Printer, X } from 'lucide-react'
-import { createClient } from '@supabase/supabase-js'
-
-const SUPABASE_URL = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
-const SUPABASE_KEY = 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+import { supabase } from '../supabase'
 
 // Logo Tabora - URL oficial
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"

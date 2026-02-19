@@ -1,12 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileText, Eye, TrendingUp } from 'lucide-react'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  'https://gtwyqxfkpdwpakmgrkbu.supabase.co',
-  'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
-)
+import { supabase } from '../supabase'
 
 const HistorialCierres = () => {
   const navigate = useNavigate()
