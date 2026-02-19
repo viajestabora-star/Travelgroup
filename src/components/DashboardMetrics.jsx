@@ -1,152 +1,106 @@
 import React, { useEffect, useState } from 'react'
+import { TrendingUp, Wallet, AlertCircle } from 'lucide-react'
 import { supabase } from '../supabase'
-import { TrendingUp, Banknote, AlertTriangle } from 'lucide-react'
+import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
 /**
- * DashboardMetrics - Métricas financieras mensuales
- * Seguridad: Acceso exclusivo para Germán y Administrador. Marisa retorna null.
- * Datos: vista_estadisticas_mensuales (Supabase)
+ * DashboardMetrics - Widgets con suma real de expedientes.
+ * Volumen Bruto = sum(presupuesto_total), Ingresos Reales = sum(total_cobrado), Riesgo = Volumen - Ingresos.
+ * Filtro temporal: created_at (ejercicio = año).
  */
-const DashboardMetrics = ({ user = null }) => {
-  const [metrics, setMetrics] = useState({
-    volumenBruto: 0,
-    ingresosReales: 0,
-    pendiente: 0,
-  })
+const DashboardMetrics = () => {
+  const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
+  const [volumenVentas, setVolumenVentas] = useState(0)
+  const [totalIngresado, setTotalIngresado] = useState(0)
+  const [deudaPendiente, setDeudaPendiente] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // Validación de acceso: Marisa sin acceso; Germán y Admin sí
-  const tieneAcceso = () => {
-    if (!user) return false
-    const nombre = (user.nombre || user.name || '').trim()
-    const rol = (user.rol || '').toUpperCase()
-    if (nombre === 'Marisa') return false
-    if (nombre === 'Germán' || nombre === 'German') return true
-    if (rol === 'ADMIN') return true
-    return false
-  }
+  useEffect(() => {
+    const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
+      setEjercicioActual(nuevoEjercicio)
+    })
+    return unsubscribe
+  }, [])
 
   useEffect(() => {
-    if (!tieneAcceso()) {
-      setLoading(false)
-      return
-    }
-
-    const cargarMetricas = async () => {
+    const cargar = async () => {
       setLoading(true)
       setError(null)
       try {
-        const hoy = new Date()
-        const mesActual = hoy.getMonth() + 1
-        const añoActual = hoy.getFullYear()
-
+        const inicio = `${ejercicioActual}-01-01T00:00:00`
+        const fin = `${ejercicioActual + 1}-01-01T00:00:00`
         const { data, error: err } = await supabase
-          .from('vista_estadisticas_mensuales')
-          .select('mes, año, volumen_bruto, ingresos_reales, pendiente')
-          .eq('mes', mesActual)
-          .eq('año', añoActual)
-          .maybeSingle()
+          .from('expedientes')
+          .select('presupuesto_total, total_cobrado')
+          .gte('created_at', inicio)
+          .lt('created_at', fin)
 
         if (err) {
           setError(err.message)
-          setMetrics({ volumenBruto: 0, ingresosReales: 0, pendiente: 0 })
+          setVolumenVentas(0)
+          setTotalIngresado(0)
+          setDeudaPendiente(0)
           return
         }
 
-        const v = data || {}
-        setMetrics({
-          volumenBruto: Number(v.volumen_bruto) || 0,
-          ingresosReales: Number(v.ingresos_reales) || 0,
-          pendiente: Number(v.pendiente) ?? (Number(v.volumen_bruto) || 0) - (Number(v.ingresos_reales) || 0),
+        let vol = 0
+        let ing = 0
+        ;(data || []).forEach((e) => {
+          vol += Number(e.presupuesto_total) || 0
+          ing += Number(e.total_cobrado) || 0
         })
-      } catch (err) {
-        setError(err?.message || 'Error al cargar métricas')
-        setMetrics({ volumenBruto: 0, ingresosReales: 0, pendiente: 0 })
+        setVolumenVentas(vol)
+        setTotalIngresado(ing)
+        setDeudaPendiente(vol - ing)
+      } catch (e) {
+        setError(e?.message || 'Error cargando métricas')
+        setVolumenVentas(0)
+        setTotalIngresado(0)
+        setDeudaPendiente(0)
       } finally {
         setLoading(false)
       }
     }
 
-    cargarMetricas()
-  }, [user?.nombre, user?.rol])
+    cargar()
+  }, [ejercicioActual])
 
-  if (!tieneAcceso()) return null
+  const formatEuro = (n) => (Number(n) || 0).toFixed(2)
 
-  const formatearEuro = (valor) => {
-    return new Intl.NumberFormat('es-ES', {
-      style: 'currency',
-      currency: 'EUR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(valor)
-  }
+  const widgets = [
+    { title: 'Volumen Bruto', value: volumenVentas, icon: TrendingUp, color: 'bg-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+    { title: 'Ingresos Reales', value: totalIngresado, icon: Wallet, color: 'bg-blue-500', bg: 'bg-blue-50', border: 'border-blue-200' },
+    { title: 'Riesgo de Cobro', value: deudaPendiente, icon: AlertCircle, color: 'bg-amber-500', bg: 'bg-amber-50', border: 'border-amber-200' },
+  ]
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      {/* KPI 1: Volumen Bruto (Ventas) */}
-      <div className="card bg-gradient-to-br from-slate-50 to-white border border-slate-200">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-slate-600 text-sm font-medium mb-1">Volumen Bruto (Ventas)</p>
-            {loading ? (
-              <p className="text-slate-400 text-lg">Cargando…</p>
-            ) : (
-              <h3 className="text-2xl font-bold text-navy-900">{formatearEuro(metrics.volumenBruto)}</h3>
-            )}
-            <p className="text-xs text-slate-500 mt-1">Suma presupuestos del mes actual</p>
-          </div>
-          <div className="p-3 bg-blue-500 rounded-lg">
-            <TrendingUp className="text-white" size={24} />
-          </div>
-        </div>
-      </div>
-
-      {/* KPI 2: Ingresos Reales (Cobrado) */}
-      <div className="card bg-gradient-to-br from-slate-50 to-white border border-slate-200">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-slate-600 text-sm font-medium mb-1">Ingresos Reales (Cobrado)</p>
-            {loading ? (
-              <p className="text-slate-400 text-lg">Cargando…</p>
-            ) : (
-              <h3 className="text-2xl font-bold text-navy-900">{formatearEuro(metrics.ingresosReales)}</h3>
-            )}
-            <p className="text-xs text-slate-500 mt-1">Total dinero ya ingresado</p>
-          </div>
-          <div className="p-3 bg-emerald-500 rounded-lg">
-            <Banknote className="text-white" size={24} />
-          </div>
-        </div>
-      </div>
-
-      {/* KPI 3: Riesgo de Cobro (Pendiente) - Rojo neón si > 0 */}
-      <div className={`card border-2 transition-colors ${
-        metrics.pendiente > 0
-          ? 'bg-red-50 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)]'
-          : 'bg-gradient-to-br from-slate-50 to-white border-slate-200'
-      }`}>
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-slate-600 text-sm font-medium mb-1">Riesgo de Cobro (Pendiente)</p>
-            {loading ? (
-              <p className="text-slate-400 text-lg">Cargando…</p>
-            ) : (
-              <h3 className={`text-2xl font-bold ${metrics.pendiente > 0 ? 'text-red-600' : 'text-navy-900'}`}>
-                {formatearEuro(metrics.pendiente)}
-              </h3>
-            )}
-            <p className="text-xs text-slate-500 mt-1">Deuda pendiente global</p>
-          </div>
-          <div className={`p-3 rounded-lg ${metrics.pendiente > 0 ? 'bg-red-500' : 'bg-slate-400'}`}>
-            <AlertTriangle className="text-white" size={24} />
-          </div>
-        </div>
-      </div>
-
+    <div className="space-y-4">
+      <h2 className="text-xl font-bold text-navy-900">Métricas en Vivo ({ejercicioActual})</h2>
       {error && (
-        <div className="col-span-full p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
-          {error}
+        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>
+      )}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-24 bg-gray-100 rounded-xl animate-pulse" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {widgets.map((w) => (
+            <div key={w.title} className={`card border-2 ${w.border} ${w.bg}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-600 text-sm mb-1">{w.title}</p>
+                  <p className="text-2xl font-bold text-navy-900">{formatEuro(w.value)} €</p>
+                </div>
+                <div className={`p-3 rounded-lg ${w.color}`}>
+                  <w.icon className="text-white" size={24} />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
