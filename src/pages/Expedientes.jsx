@@ -713,7 +713,19 @@ const Expedientes = () => {
   }
 
   const actualizarExpediente = async (expedienteActualizado) => {
+    const prevExpedientes = expedientes
+    const prevExpedienteActual = expedienteActual
     try {
+      // Actualización optimista: actualizar UI al instante antes de Supabase
+      const updated = (expedientes || []).map(exp =>
+        exp.id === expedienteActualizado.id ? expedienteActualizado : exp
+      )
+      setExpedientes(updated)
+      storage.set('expedientes', updated)
+      if (expedienteActual?.id === expedienteActualizado.id) {
+        setExpedienteActual(expedienteActualizado)
+      }
+
       // Extraer total_pax desde el propio expediente (modelo plano, sin JSON cotizacion)
       let totalPaxTexto = ''
       if (expedienteActualizado.total_pax !== undefined && expedienteActualizado.total_pax !== null) {
@@ -772,22 +784,21 @@ const Expedientes = () => {
         const errorInfo = manejarErrorSupabase(error, 'actualizar expediente');
         if (errorInfo) {
           alert(errorInfo.mensaje);
-          return;
         }
-        throw error;
-      }
-      
-      // Actualizar estado local
-      const updated = (expedientes || []).map(exp =>
-        exp.id === expedienteActualizado.id ? expedienteActualizado : exp
-      )
-      setExpedientes(updated)
-      storage.set('expedientes', updated)
-      if (expedienteActual?.id === expedienteActualizado.id) {
-        setExpedienteActual(expedienteActualizado)
+        setExpedientes(prevExpedientes)
+        storage.set('expedientes', prevExpedientes)
+        if (prevExpedienteActual?.id === expedienteActualizado.id) {
+          setExpedienteActual(prevExpedienteActual)
+        }
+        return;
       }
     } catch (err) {
       alert('⚠️ Error actualizando expediente. Revisa tu conexión.')
+      setExpedientes(prevExpedientes)
+      storage.set('expedientes', prevExpedientes)
+      if (prevExpedienteActual?.id === expedienteActualizado.id) {
+        setExpedienteActual(prevExpedienteActual)
+      }
     }
   }
 

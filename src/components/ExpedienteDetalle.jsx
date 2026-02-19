@@ -4219,13 +4219,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         onChange={(e) => {
                           // Input type="date" devuelve YYYY-MM-DD
                           const fechaISO = e.target.value
-                          
-                          // Convertir a formato español DD/MM/AAAA para guardar
                           const fechaEspañola = convertirISOAEspañol(fechaISO)
-                          
-                          const expedienteActualizado = { 
-                            ...expediente, 
-                            fechaInicio: fechaEspañola // Guardar en formato español
+                          const expedienteActualizado = {
+                            ...expediente,
+                            fechaInicio: fechaEspañola,
+                            fecha_inicio: fechaISO, // Sobrescribir para que la UI y Duración se actualicen al instante
                           }
                           onUpdate(expedienteActualizado)
                         }}
@@ -4258,13 +4256,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         onChange={(e) => {
                           // Input type="date" devuelve YYYY-MM-DD
                           const fechaISO = e.target.value
-                          
-                          // Convertir a formato español DD/MM/AAAA para guardar
                           const fechaEspañola = convertirISOAEspañol(fechaISO)
-                          
-                          const expedienteActualizado = { 
-                            ...expediente, 
-                            fechaFin: fechaEspañola // Guardar en formato español
+                          const expedienteActualizado = {
+                            ...expediente,
+                            fechaFin: fechaEspañola,
+                            fecha_final: fechaISO, // Sobrescribir para que la UI y Duración se actualicen al instante
                           }
                           onUpdate(expedienteActualizado)
                         }}
