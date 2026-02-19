@@ -2703,21 +2703,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       totalSupSeguro: totalSupSeguro.toFixed(2),
       totalSuplementos: totalSuplementos.toFixed(2),
     }
-  }, [formData?.sup_individual_pax, formData?.sup_individual_precio_dia, formData?.sup_seguro_pax, formData?.sup_seguro_precio_total, expediente])
+  }, [formData?.sup_individual_pax, formData?.sup_individual_precio_dia, formData?.sup_seguro_pax, formData?.sup_seguro_precio_total, expediente?.noches, expediente?.fechaInicio, expediente?.fechaFin])
 
   // ============ INICIALIZAR DATOS DEL RECEPTOR DE FACTURA ============
+  // Dependencias estables (primitivas) para evitar bucle infinito con objeto grupo
   useEffect(() => {
-    if (grupo && grupo.nombre) {
+    const g = clientes.find(c => String(c.id) === String(clienteIdPrincipal)) || {
+      nombre: expediente?.nombre_grupo || expediente?.clienteNombre || 'Sin nombre',
+      cif: expediente?.cif || '',
+      direccion: expediente?.direccion || '',
+      poblacion: expediente?.poblacion || '',
+      provincia: expediente?.provincia || '',
+      codigo_postal: expediente?.cp || expediente?.codigo_postal || '',
+    }
+    if (g && g.nombre) {
       setFormFactura({
-        receptorNombre: grupo.nombre || '',
-        receptorCIF: grupo.cif || grupo.cif_nif || '',
-        receptorDireccion: grupo.direccion || '',
-        receptorPoblacion: grupo.poblacion || '',
-        receptorProvincia: grupo.provincia || '',
-        receptorCP: grupo.codigo_postal || grupo.cp || '',
+        receptorNombre: g.nombre || '',
+        receptorCIF: g.cif || g.cif_nif || '',
+        receptorDireccion: g.direccion || '',
+        receptorPoblacion: g.poblacion || '',
+        receptorProvincia: g.provincia || '',
+        receptorCP: g.codigo_postal || g.cp || '',
       })
     }
-  }, [grupo])
+  }, [clienteIdPrincipal, expediente?.id, expediente?.nombre_grupo, expediente?.clienteNombre, clientes])
 
   // ============ DATOS DEL EMISOR (FIJOS) ============
   const datosEmisor = {
