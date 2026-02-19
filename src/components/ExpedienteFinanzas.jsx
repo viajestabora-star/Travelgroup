@@ -983,7 +983,7 @@ const ExpedienteFinanzas = ({
                       </td>
                     </tr>
                   ) : (
-                    cobrosSeguros.map((cobro) => {
+                    cobrosSeguros.map((cobro, idx) => {
                       const fechaCobro = cobro.fecha ? new Date(cobro.fecha) : null
                       const fechaFormateada = fechaCobro
                         ? fechaCobro.toLocaleDateString('es-ES', {
@@ -994,7 +994,7 @@ const ExpedienteFinanzas = ({
                         : '-'
 
                       return (
-                        <tr key={cobro.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                        <tr key={cobro.id || `cobro-${idx}`} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                           <td className="py-3 px-4 text-sm font-mono text-gray-600">{cobro.numero_recibo || '—'}</td>
                           <td className="py-3 px-4 text-sm">{fechaFormateada}</td>
                           <td className="py-3 px-4 text-sm font-semibold text-navy-900">
@@ -1138,8 +1138,8 @@ const ExpedienteFinanzas = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {(informeLiquidacion.costesReales || []).map((c) => (
-                        <tr key={c.id_servicio} className="border-b border-slate-100 hover:bg-slate-50">
+                      {(informeLiquidacion.costesReales || []).map((c, idx) => (
+                        <tr key={c.id_servicio || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
                           <td className="px-3 py-2 font-medium text-slate-800">{c.concepto || '—'}</td>
                           <td className="px-3 py-2 text-slate-600 hidden sm:table-cell">{c.proveedor || '—'}</td>
                           <td className="px-3 py-2 text-right text-slate-500">{Number(c.coste_cotizado || 0).toFixed(2)} €</td>
@@ -1170,8 +1170,8 @@ const ExpedienteFinanzas = ({
                 <p className="text-sm text-slate-500 py-2">Taxis, propinas, reparaciones… Pulsa «Añadir Gasto Extra».</p>
               ) : (
                 <div className="space-y-2">
-                  {(informeLiquidacion.gastosImprevistos || []).map((g) => (
-                    <div key={g.id} className="flex gap-2 items-center">
+                  {(informeLiquidacion.gastosImprevistos || []).map((g, idx) => (
+                    <div key={g.id || `gi-${idx}`} className="flex gap-2 items-center">
                       <input type="text" value={g.concepto || ''} onChange={(e) => actualizarGastoImprevisto(g.id, 'concepto', e.target.value)} placeholder="Concepto" disabled={isCierreGuardado} readOnly={isCierreGuardado} className={`flex-1 border rounded-lg px-2 py-1.5 text-sm ${isCierreGuardado ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300'}`} />
                       <input type="number" step="0.01" value={g.importe ?? ''} onChange={(e) => actualizarGastoImprevisto(g.id, 'importe', e.target.value)} placeholder="0" disabled={isCierreGuardado} readOnly={isCierreGuardado} className={`w-24 border rounded-lg px-2 py-1.5 text-right text-sm ${isCierreGuardado ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300'}`} />
                       {!isCierreGuardado && <button type="button" onClick={() => eliminarGastoImprevisto(g.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button>}
@@ -1189,12 +1189,12 @@ const ExpedienteFinanzas = ({
                 <h2 className="text-base font-bold text-slate-800 uppercase mb-3 border-b border-slate-300 pb-1">Pax por asociación</h2>
                 <p className="text-sm text-slate-500 mb-3">Opcional: anota cuántas personas vienen de cada asociación vinculada.</p>
                 <div className="space-y-2">
-                  {(expedienteClientes.length > 0 ? expedienteClientes : (paxPorAsociacion || []).map(p => ({ cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre }))).map((item) => {
+                  {(expedienteClientes.length > 0 ? expedienteClientes : (paxPorAsociacion || []).map(p => ({ cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre }))).map((item, idx) => {
                     const clienteId = item.cliente_id
                     const nombre = item.cliente_nombre || expedienteClientes.find(ec => String(ec.cliente_id) === String(clienteId))?.cliente_nombre || '—'
                     const paxVal = paxPorAsociacion.find(p => String(p.cliente_id) === String(clienteId))?.pax ?? ''
                     return (
-                      <div key={clienteId} className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg">
+                      <div key={clienteId || `pax-${idx}`} className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg">
                         <span className="flex-1 font-medium text-slate-800">{nombre}</span>
                         <input
                           type="number"
@@ -1432,8 +1432,8 @@ const ExpedienteFinanzas = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {logsFinancieros.map((log) => (
-                      <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                    {logsFinancieros.map((log, idx) => (
+                      <tr key={log.id || `log-${idx}`} className="hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3 text-sm">
                           {log.fecha_registro
                             ? new Date(log.fecha_registro).toLocaleDateString('es-ES', {

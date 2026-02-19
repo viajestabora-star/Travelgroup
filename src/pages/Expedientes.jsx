@@ -1170,7 +1170,7 @@ const Expedientes = () => {
                 return 0
               }
             })
-            .map(expediente => {
+            .map((expediente, idx) => {
               try {
                 if (!expediente || !expediente.id) return null
                 const estado = ESTADOS[expediente.estado || 'peticion'] || ESTADOS.peticion
@@ -1183,7 +1183,7 @@ const Expedientes = () => {
 
                 const esCancelado = (expediente.estado || '') === 'cancelado'
                 return (
-                  <div key={expediente?.id || Math.random()} className={`card border-l-4 ${estado.badge.replace('bg-', 'border-')} hover:shadow-xl transition-shadow cursor-pointer ${esCancelado ? 'bg-red-50/50 border-red-200' : ''}`}
+                  <div key={expediente.id} className={`card border-l-4 ${estado.badge.replace('bg-', 'border-')} hover:shadow-xl transition-shadow cursor-pointer ${esCancelado ? 'bg-red-50/50 border-red-200' : ''}`}
                        onClick={() => abrirDetalle(expediente)}>
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex-1">
@@ -1265,7 +1265,7 @@ const Expedientes = () => {
                 )
               } catch (error) {
                 return (
-                  <div key={expediente?.id || Math.random()} className="card border-l-4 border-red-500 bg-red-50">
+                  <div key={expediente?.id || `err-${idx}`} className="card border-l-4 border-red-500 bg-red-50">
                     <div className="p-4">
                       <p className="text-red-800 font-bold">⚠️ Error en expediente</p>
                       <p className="text-red-600 text-sm mt-1">

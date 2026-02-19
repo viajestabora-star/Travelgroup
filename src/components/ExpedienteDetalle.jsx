@@ -341,7 +341,6 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
 };
 
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes = [], initialTab }) => {
-  console.log('Datos del expediente:', expediente)
   const cierreGrupo = expediente?.cierre_grupo || {}
 
   // Modo de prueba temporal para facturación
@@ -4127,8 +4126,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <p className="text-sm text-slate-500">Cargando...</p>
                     ) : (
                       <div className="space-y-3">
-                        {expedienteClientes.map((ec) => (
-                          <div key={ec.id || ec.cliente_id} className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                        {expedienteClientes.map((ec, idx) => (
+                          <div key={ec.id || ec.cliente_id || `ec-${idx}`} className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
                             <span className="font-medium text-slate-900">{ec.cliente_nombre || '—'}</span>
                             <button type="button" onClick={() => quitarAsociacion(ec.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Desvincular">
                               <Trash2 size={16} />
@@ -4183,12 +4182,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {expedientesHistorial.map((exp) => {
+                            {expedientesHistorial.map((exp, idx) => {
                               // Calcular destino con fallback seguro
                               const destinoMostrar = exp.poblacion_destino || exp.destino || 'Sin destino'
                               
                               return (
-                                <tr key={exp.id} className="hover:bg-green-50/30 transition-all">
+                                <tr key={exp.id || `hist-${idx}`} className="hover:bg-green-50/30 transition-all">
                                   <td className="px-4 py-3">
                                     <div className="font-bold text-slate-900 text-sm">{exp.cliente_nombre || 'Sin nombre'}</div>
                                     {(exp.fecha_inicio || exp.fecha_viaje) && (
@@ -4870,8 +4869,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           </tr>
                         </thead>
                         <tbody>
-                          {servicios.map(servicio => (
-                            <tr key={servicio.id} className="border-t border-gray-200 hover:bg-gray-50 whitespace-nowrap">
+                          {servicios.map((servicio, idx) => (
+                            <tr key={servicio.id || `svc-${idx}`} className="border-t border-gray-200 hover:bg-gray-50 whitespace-nowrap">
                               {/* COLUMNA 1: SERVICIO — 160px exactos */}
                               <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '160px', minWidth: '160px', maxWidth: '160px' }}>
                                 <select
@@ -5041,9 +5040,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                             {/* Lista de proveedores existentes - SOLO selección, NO creación */}
                                             {proveedoresFiltrados.length > 0 && (
                                               <div className="py-1">
-                                            {proveedoresFiltrados.map(proveedor => (
+                                            {proveedoresFiltrados.map((proveedor, pidx) => (
                                               <button
-                                                key={proveedor.id}
+                                                key={proveedor.id || `prov-${pidx}`}
                                                     type="button"
                                                 onMouseDown={(e) => {
                                                   e.preventDefault()
@@ -5315,8 +5314,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
                     {/* MÓVIL: Cards apiladas - ocultas en desktop */}
                     <div className="md:hidden space-y-4">
-                      {servicios.map(servicio => (
-                        <div key={servicio.id} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 shadow-sm">
+                      {servicios.map((servicio, idx) => (
+                        <div key={servicio.id || `svc-${idx}`} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 shadow-sm">
                           <div className="flex justify-between items-start">
                             <span className="text-xs font-semibold text-gray-500 uppercase">Servicio</span>
                             <button onClick={() => eliminarServicio(servicio.id)} className="text-red-600 hover:text-red-900 p-1" title="Eliminar"><Trash2 size={16} /></button>
@@ -5381,8 +5380,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       {proveedoresFiltrados.length === 0 && textoBusqueda && <div className="px-3 py-3 text-xs text-center"><p className="text-gray-600 mb-2">No se encontró "{busquedaProveedor[servicio.id]}" en {servicio.tipo}</p><p className="text-green-600 font-medium">➕ Usa el botón + para crear nuevo proveedor</p></div>}
                                       {proveedoresFiltrados.length > 0 && (
                                         <div className="py-1">
-                                          {proveedoresFiltrados.map(proveedor => (
-                                            <button key={proveedor.id} type="button" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (servicio.tipo === 'Mayorista') { seleccionarMayoristaYCrearHotel(servicio.id, proveedor.id, proveedor.nombreComercial); } else { actualizarServicio(servicio.id, 'proveedorId', proveedor.id); setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); } }} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
+                                          {proveedoresFiltrados.map((proveedor, pidx) => (
+                                            <button key={proveedor.id || `prov-${pidx}`} type="button" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (servicio.tipo === 'Mayorista') { seleccionarMayoristaYCrearHotel(servicio.id, proveedor.id, proveedor.nombreComercial); } else { actualizarServicio(servicio.id, 'proveedorId', proveedor.id); setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); } }} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
                                             ><span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>{proveedor.telefono && <span className="text-gray-500">· {proveedor.telefono}</span>}</button>
                                           ))}
                                         </div>
@@ -5797,8 +5796,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     <p className="text-center text-gray-500 py-8">No hay documentos adjuntos</p>
                   ) : (
                     <div className="space-y-2">
-                      {documentos.map(doc => (
-                        <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      {documentos.map((doc, idx) => (
+                        <div key={doc.id || `doc-${idx}`} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                           <div className="flex items-center gap-3">
                             <FileUp className="text-blue-600" size={20} />
                             <div>
@@ -6164,7 +6163,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           </thead>
                           <tbody className="divide-y divide-gray-100">
                             {versionesFactura.map((version, index) => (
-                              <tr key={version.id} className="hover:bg-gray-50 transition-colors">
+                              <tr key={version.id || `ver-${index}`} className="hover:bg-gray-50 transition-colors">
                                 <td className="px-4 py-3 text-sm font-semibold text-gray-900">
                                   Versión {versionesFactura.length - index}
                                   {version.numero_factura && (
