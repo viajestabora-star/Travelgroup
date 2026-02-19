@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { FileText, Plus, Trash2, X, Search, UserPlus, Download, Calendar, MapPin } from 'lucide-react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
@@ -143,6 +143,7 @@ const formatearFecha = formatearFechaVisual  // Devuelve DD/MM/AAAA para mostrar
 const Expedientes = () => {
   const location = useLocation()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [expedientes, setExpedientes] = useState([])
   const [clientes, setClientes] = useState([])
   const [showExpedienteModal, setShowExpedienteModal] = useState(false)
@@ -968,8 +969,16 @@ const Expedientes = () => {
     return nombreCompleto !== '' && fechaInicioValida && fechaFinValida
   }, [clienteInputValue, expedienteForm.clienteNombre, expedienteForm.fechaInicio, expedienteForm.fechaFin])
 
-  // Tab: Pendientes | Confirmados | Finalizados | Cancelados
-  const [tabExpedientes, setTabExpedientes] = useState('pendientes')
+  // Tab: Pendientes | Confirmados | Finalizados | Cancelados (soporta ?tab= desde URL)
+  const tabParam = searchParams.get('tab')
+  const tabInicial = ['pendientes', 'confirmados', 'finalizado', 'cancelado'].includes(tabParam || '') ? tabParam : 'pendientes'
+  const [tabExpedientes, setTabExpedientes] = useState(tabInicial)
+
+  useEffect(() => {
+    if (tabParam && ['pendientes', 'confirmados', 'finalizado', 'cancelado'].includes(tabParam)) {
+      setTabExpedientes(tabParam)
+    }
+  }, [tabParam])
 
   // Filtrar expedientes por ejercicio y búsqueda (base común)
   // IMPORTANTE: Expedientes sin fecha se mantienen en BD pero no se muestran (se arreglan manualmente)

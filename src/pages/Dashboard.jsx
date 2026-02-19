@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { Users, Calculator, Calendar, Briefcase, FileText, AlertTriangle, Clock, CheckCircle, Globe, X } from 'lucide-react'
+import { Users, Calculator, Calendar, Briefcase, AlertTriangle, Clock, CheckCircle, Globe, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import CentralDeInteligencia from '../components/CentralDeInteligencia'
+import ResumenPipeline from '../components/ResumenPipeline'
 
 const Dashboard = ({ user = null }) => {
   const navigate = useNavigate()
@@ -305,44 +306,7 @@ const Dashboard = ({ user = null }) => {
         </div>
 
         <div className="card">
-          <h2 className="text-xl font-bold text-navy-900 mb-4">Acciones Rápidas</h2>
-          <div className="space-y-3">
-            <a href="/expedientes" className="flex items-center gap-3 p-4 bg-navy-50 hover:bg-navy-100 rounded-lg transition-colors">
-              <Calculator className="text-navy-700" size={20} />
-              <span className="font-medium text-navy-900">Nuevo Expediente</span>
-            </a>
-            <a href="/clientes" className="flex items-center gap-3 p-4 bg-navy-50 hover:bg-navy-100 rounded-lg transition-colors">
-              <Users className="text-navy-700" size={20} />
-              <span className="font-medium text-navy-900">Gestionar Clientes</span>
-            </a>
-            <a href="/planning" className="flex items-center gap-3 p-4 bg-navy-50 hover:bg-navy-100 rounded-lg transition-colors">
-              <Calendar className="text-navy-700" size={20} />
-              <span className="font-medium text-navy-900">Ver Planning 2026</span>
-            </a>
-            <a href="/cierres" className="flex items-center gap-3 p-4 bg-navy-50 hover:bg-navy-100 rounded-lg transition-colors">
-              <FileText className="text-navy-700" size={20} />
-              <span className="font-medium text-navy-900">Cierre de Grupo</span>
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-8 card">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-navy-900 mb-2 flex items-center gap-2">
-              <Calendar size={24} />
-              Planning
-            </h2>
-            <p className="text-gray-600 text-sm">Gestiona el calendario completo de viajes y expedientes</p>
-          </div>
-          <button
-            onClick={() => navigate('/planning')}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors shadow-md flex items-center gap-2"
-          >
-            <Calendar size={20} />
-            Gestionar Calendario Completo
-          </button>
+          <ResumenPipeline />
         </div>
       </div>
 
