@@ -38,6 +38,22 @@ const Clientes = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+
+    // Detección de duplicados por CIF antes de guardar
+    const cifValor = (formData.cif_nif || '').trim()
+    if (cifValor) {
+      const { data: isDuplicate, error: dupError } = await supabase.rpc('check_for_duplicate', {
+        table_name: 'clientes',
+        column_name: 'cif_nif',
+        value: cifValor,
+        record_id: editingId || null
+      })
+      if (!dupError && isDuplicate === true) {
+        const userConfirmed = window.confirm('⚠️ Ya existe un cliente con este CIF. ¿Desea guardarlo de todas formas?')
+        if (!userConfirmed) return
+      }
+    }
+
     const action = editingId 
       ? supabase.from('clientes').update(formData).eq('id', editingId)
       : supabase.from('clientes').insert([formData])
