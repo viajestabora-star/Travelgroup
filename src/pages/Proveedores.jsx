@@ -38,6 +38,18 @@ const Proveedores = () => {
       .trim()
   }
 
+  /** Devuelve los nombres legibles de los campos clave que faltan en un proveedor.
+   *  Teléfono solo se añade si ambos telefono_fijo y telefono_movil están vacíos. */
+  const getMissingProviderFields = (proveedor) => {
+    if (!proveedor) return []
+    const vacio = (v) => v == null || v === '' || String(v).trim() === ''
+    const faltantes = []
+    if (vacio(proveedor.persona_contacto)) faltantes.push('Persona de Contacto')
+    if (vacio(proveedor.telefono_fijo) && vacio(proveedor.telefono_movil)) faltantes.push('Teléfono')
+    if (vacio(proveedor.email)) faltantes.push('Email')
+    return faltantes
+  }
+
   // Búsqueda mediante RPC buscar_proveedores (nombre, provincia, poblacion, ciudad)
   const buscarProveedores = async (termino) => {
     setCargando(true)
@@ -267,7 +279,15 @@ const Proveedores = () => {
                     {proveedoresDelServicio.map(p => (
                       <tr key={p.id} className="hover:bg-slate-50 transition-all group">
                         <td className="px-8 py-6">
-                          <div className="font-black text-slate-900 text-lg uppercase italic">{p.nombre_comercial}</div>
+                          <div className="font-black text-slate-900 text-lg uppercase italic flex items-center gap-2">
+                            {p.nombre_comercial}
+                            {(() => {
+                              const faltantes = getMissingProviderFields(p)
+                              return faltantes.length > 0 && (
+                                <span className="text-amber-600" title={`Faltan: ${faltantes.join(', ')}`}>⚠️</span>
+                              )
+                            })()}
+                          </div>
                           {p.ciudad && (
                             <div className="text-[10px] font-bold text-blue-600 flex items-center gap-1 uppercase tracking-widest mt-1">
                               <MapPin size={10} className="text-blue-400"/> {p.ciudad}
@@ -324,6 +344,18 @@ const Proveedores = () => {
                 <X size={32}/>
               </button>
             </div>
+
+            {/* Aviso de datos faltantes (igual que en Clientes) */}
+            {(() => {
+              const camposFaltantes = getMissingProviderFields(formData)
+              return camposFaltantes.length > 0 && (
+                <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm font-medium text-amber-800">
+                    ⚠️ Faltan datos: {camposFaltantes.join(', ')}
+                  </p>
+                </div>
+              )
+            })()}
             
             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-8 text-base" style={{ fontSize: '16px' }}>
               <div className="md:col-span-2 space-y-2">
