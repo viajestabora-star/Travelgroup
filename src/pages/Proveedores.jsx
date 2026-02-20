@@ -8,6 +8,7 @@ const Proveedores = () => {
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [cargando, setCargando] = useState(true)
+  const [errorBusqueda, setErrorBusqueda] = useState(null)
   const [confirmarBorrado, setConfirmarBorrado] = useState(null) // { id, nombre } - Modal Regla 1.14
   
   const [formData, setFormData] = useState({
@@ -37,30 +38,32 @@ const Proveedores = () => {
       .trim()
   }
 
-  useEffect(() => { fetchProveedores() }, [])
-
-  const fetchProveedores = async () => {
+  // Búsqueda mediante RPC buscar_proveedores (nombre, provincia, poblacion, ciudad)
+  const buscarProveedores = async (termino) => {
+    setCargando(true)
+    setErrorBusqueda(null)
     try {
-      setCargando(true)
-      const { data, error } = await supabase
-        .from('proveedores')
-        .select('*')
-        .order('nombre_comercial', { ascending: true }) // Regla 1.14: siempre A-Z alfabético
-      
+      const { data, error } = await supabase.rpc('buscar_proveedores', {
+        termino_busqueda: termino || ''
+      })
       if (error) {
         setProveedores([])
+        setErrorBusqueda(error.message)
         setCargando(false)
         return
       }
-      
-      // Control de errores: asegurar que siempre sea un array
       setProveedores(Array.isArray(data) ? data : [])
-      setCargando(false)
     } catch (err) {
       setProveedores([])
+      setErrorBusqueda(err?.message || 'Error al buscar proveedores')
+    } finally {
       setCargando(false)
     }
   }
+
+  useEffect(() => {
+    buscarProveedores(searchTerm)
+  }, [searchTerm])
 
   // Sanitizar valores a texto para evitar errores uuid vs bigint en Supabase
   const sanitizarTexto = (v) => (v == null || v === '') ? '' : String(v).trim()
@@ -104,7 +107,7 @@ const Proveedores = () => {
       : supabase.from('proveedores').insert([datosParaGuardar])
     
     const { error } = await action
-    if (!error) { closeModal(); fetchProveedores(); }
+    if (!error) { closeModal(); buscarProveedores(searchTerm); }
     else { alert("Error: " + error.message) }
   }
 
@@ -116,7 +119,7 @@ const Proveedores = () => {
     if (!confirmarBorrado?.id) return
     if (!window.confirm('¿Estás seguro de que quieres borrar este registro definitivamente?')) return
     await supabase.from('proveedores').delete().eq('id', confirmarBorrado.id)
-    fetchProveedores()
+    buscarProveedores(searchTerm)
     setConfirmarBorrado(null)
   }
 
@@ -164,20 +167,10 @@ const Proveedores = () => {
   // Control de errores: asegurar que proveedores sea siempre un array
   const proveedoresSeguros = Array.isArray(proveedores) ? proveedores : []
 
-  // Filtrar proveedores por búsqueda (nombre comercial o ciudad)
-  const filtered = proveedoresSeguros.filter(p => {
-    if (!p) return false // Filtrar elementos null/undefined
-    if (!searchTerm) return true
-    const term = searchTerm.toLowerCase()
-    return (
-      (p.nombre_comercial && p.nombre_comercial.toLowerCase().includes(term)) ||
-      (p.ciudad && p.ciudad.toLowerCase().includes(term))
-    )
-  })
-
+  // La búsqueda se realiza en Supabase via RPC buscar_proveedores (nombre, provincia, poblacion, ciudad)
   // Agrupar proveedores por tipo (servicio) y ordenar alfabéticamente dentro de cada grupo
   // IMPORTANTE: Usar 'tipo' de la BD, normalizado para comparación
-  const proveedoresAgrupados = filtered.reduce((acc, proveedor) => {
+  const proveedoresAgrupados = proveedoresSeguros.reduce((acc, proveedor) => {
     if (!proveedor) return acc // Saltar si el proveedor es null/undefined
     
     // Leer 'tipo' de la BD (o 'servicio' como fallback para compatibilidad)
@@ -221,7 +214,7 @@ const Proveedores = () => {
         <div className="flex-1 relative">
           <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={24} />
           <input 
-            placeholder="Buscar por nombre comercial o ciudad..." 
+            placeholder="Buscar por nombre, provincia, población o ciudad..." 
             className="w-full bg-slate-50 p-6 pl-16 rounded-2xl font-bold text-lg border-none outline-none focus:ring-4 focus:ring-slate-100" 
             value={searchTerm} 
             onChange={e => setSearchTerm(e.target.value)} 
@@ -230,7 +223,11 @@ const Proveedores = () => {
       </div>
 
       {/* Renderizado agrupado por servicio */}
-      {cargando ? (
+      {errorBusqueda ? (
+        <div className="bg-white rounded-[2.5rem] shadow-sm border border-red-200 p-12 text-center">
+          <p className="text-red-600 font-bold text-lg">Error en la búsqueda: {errorBusqueda}</p>
+        </div>
+      ) : cargando ? (
         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-12 text-center">
           <p className="text-slate-400 font-bold text-lg">Cargando proveedores...</p>
         </div>
