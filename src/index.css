@@ -98,3 +98,15 @@
     @apply block text-sm font-medium text-gray-700 mb-2;
   }
 }
+
+/* === TEXT TRANSFORM UTILITIES === */
+/* Aplica mayúsculas para consistencia visual en elementos de UI clave.
+   Mejora jerarquía e identidad de marca. No se aplica a body, p o span
+   para preservar datos de usuario y mantener la legibilidad. */
+
+button,
+.section-title,
+h1, h2, h3,
+th {
+  text-transform: uppercase;
+}
