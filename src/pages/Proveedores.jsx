@@ -38,6 +38,7 @@ const Proveedores = () => {
       .trim()
   }
 
+
   /** Devuelve los nombres legibles de los campos clave que faltan en un proveedor.
    *  Teléfono solo se añade si ambos telefono_fijo y telefono_movil están vacíos. */
   const getMissingProviderFields = (proveedor) => {
@@ -49,7 +50,6 @@ const Proveedores = () => {
     if (vacio(proveedor.email)) faltantes.push('Email')
     return faltantes
   }
-
   // Búsqueda mediante RPC buscar_proveedores (nombre, provincia, poblacion, ciudad)
   const buscarProveedores = async (termino) => {
     setCargando(true)
@@ -112,6 +112,21 @@ const Proveedores = () => {
       swift_bic: sanitizarTexto(formData.swift_bic),
       es_mayorista: Boolean(formData.es_mayorista),
       observaciones: sanitizarTexto(formData.observaciones)
+    }
+
+    // Detección de duplicados por CIF antes de guardar
+    const cifValor = (formData.cif || '').trim()
+    if (cifValor) {
+      const { data: isDuplicate, error: dupError } = await supabase.rpc('check_for_duplicate', {
+        table_name: 'proveedores',
+        column_name: 'cif',
+        value: cifValor,
+        record_id: editingId || null
+      })
+      if (!dupError && isDuplicate === true) {
+        const userConfirmed = window.confirm('⚠️ Ya existe un proveedor con este CIF. ¿Desea guardarlo de todas formas?')
+        if (!userConfirmed) return
+      }
     }
     
     const action = editingId 
