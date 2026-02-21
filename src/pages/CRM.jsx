@@ -38,7 +38,8 @@ const CRM = () => {
   const [formProspecto, setFormProspecto] = useState({
     grupo: '',
     cif: '',
-    contacto_persona: '',
+    responsable: '',
+    email: '',
     telefono: '',
     poblacion: '',
     provincia: '',
@@ -150,7 +151,8 @@ const CRM = () => {
         .insert({
           grupo: formProspecto.grupo || null,
           cif: formProspecto.cif || null,
-          contacto_persona: formProspecto.contacto_persona || null,
+          responsable: formProspecto.responsable || null,
+          email: formProspecto.email || null,
           telefono: formProspecto.telefono || null,
           poblacion: formProspecto.poblacion || null,
           provincia: formProspecto.provincia || null,
@@ -177,7 +179,7 @@ const CRM = () => {
   }
 
   const resetFormProspecto = () => ({
-    grupo: '', cif: '', contacto_persona: '', telefono: '', poblacion: '', provincia: '', direccion: '',
+    grupo: '', cif: '', responsable: '', email: '', telefono: '', poblacion: '', provincia: '', direccion: '',
     interes: '', nivel_interes: '', proxima_visita: '', status: '', notas_comerciales: ''
   })
 
@@ -276,6 +278,40 @@ const CRM = () => {
     setProspectoSelected(prev => prev ? { ...prev, [field]: value } : prev)
   }
 
+  // Recalcular puntuación lead (cálculo en frontend)
+  const recalcularPuntuacionLead = async (prospectoId) => {
+    if (!prospectoId) return
+
+    const { data: visitasData } = await supabase.from('visitas').select('*').eq('prospecto_id', prospectoId)
+    const visitas = visitasData || []
+
+    const { data: prospectoData } = await supabase.from('prospectos').select('estado_comercial').eq('id', prospectoId).single()
+    const estado = (prospectoData?.estado_comercial || '').trim()
+
+    let puntuacion = visitas.length * 10
+    if (estado === 'Propuesta') puntuacion += 20
+    if (estado === 'Negociación') puntuacion += 30
+    if (visitas.length > 1) {
+      const visitasOrdenadas = [...visitas].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
+      const ultimaFecha = visitasOrdenadas[0]?.fecha
+      if (ultimaFecha) {
+        const fechaUltima = new Date(ultimaFecha)
+        const hace30Dias = new Date()
+        hace30Dias.setDate(hace30Dias.getDate() - 30)
+        if (fechaUltima < hace30Dias) puntuacion -= 15
+      }
+    }
+    puntuacion = Math.max(0, puntuacion)
+
+    await supabase.from('prospectos').update({ puntuacion_lead: puntuacion }).eq('id', prospectoId)
+
+    await fetchData()
+    if (prospectoSelected?.id === prospectoId) {
+      const { data } = await supabase.from('prospectos').select('*').eq('id', prospectoId).single()
+      if (data) setProspectoSelected({ ...data, programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : [] })
+    }
+  }
+
   // Actualizar estado_comercial en Supabase inmediatamente (para el selector del panel)
   const actualizarEstadoComercial = async (nuevoEstado) => {
     if (!prospectoSelected?.id) return
@@ -286,6 +322,7 @@ const CRM = () => {
     if (!error) {
       setProspectoSelected(prev => prev ? { ...prev, estado_comercial: nuevoEstado } : prev)
       setProspectos(prev => prev.map(p => p.id === prospectoSelected.id ? { ...p, estado_comercial: nuevoEstado } : p))
+      await recalcularPuntuacionLead(prospectoSelected.id)
     } else {
       alert('Error al actualizar estado: ' + error.message)
     }
@@ -303,11 +340,11 @@ const CRM = () => {
       fecha: nuevaVisita.fecha,
       comentario: nuevaVisita.comentario
     })
+    await recalcularPuntuacionLead(prospectoSelected.id)
 
       if (error) {
       alert('Error al registrar visita: ' + error.message)
     } else {
-      await fetchData()
       const { data } = await supabase
         .from('visitas')
         .select('*')
@@ -405,6 +442,7 @@ const CRM = () => {
       fecha: fechaSeleccionada,
       comentario: agendaComentario
     })
+    await recalcularPuntuacionLead(prospectoIdFinal)
 
     if (error) {
       alert('Error al agendar visita: ' + error.message)
@@ -413,8 +451,6 @@ const CRM = () => {
         .from('prospectos')
         .update({ proxima_visita: fechaSeleccionada })
         .eq('id', prospectoIdFinal)
-
-      await fetchData()
       setShowAgendaModal(false)
       setAgendaProspectoId('')
       setAgendaComentario('')
@@ -713,7 +749,12 @@ const CRM = () => {
                           onClick={() => abrirFicha(p)}
                           className="w-full text-left p-3 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-300 hover:shadow-md transition-all"
                         >
-                          <div className="font-bold text-slate-900 text-sm">{p.grupo || 'Sin nombre'}</div>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="font-bold text-slate-900 text-sm">{p.grupo || 'Sin nombre'}</div>
+                            <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                              🔥 {p.puntuacion_lead ?? 0}
+                            </span>
+                          </div>
                           <div className="text-xs text-slate-600 mt-1">
                             {p.contacto_persona || p.responsable || 'Sin contacto'}
                           </div>
@@ -756,6 +797,13 @@ const CRM = () => {
                 {prospectoSelected.id ? `ID: ${prospectoSelected.id}` : 'NUEVO PROSPECTO'}
               </div>
               <h2 className="text-lg font-black text-slate-900">{prospectoSelected.grupo || 'Ficha de Prospecto'}</h2>
+              {prospectoSelected.id != null && (
+                <div className="mt-2">
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                    🔥 Puntuación Lead: {prospectoSelected.puntuacion_lead ?? 0}
+                  </span>
+                </div>
+              )}
               </div>
             <div className="flex gap-2">
               {prospectoSelected.id && (
@@ -828,6 +876,15 @@ const CRM = () => {
                       onChange={(e) => updateField('responsable', e.target.value)}
                     />
                   </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Email</label>
+                  <input 
+                    type="email"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                    value={prospectoSelected.email || ''}
+                    onChange={(e) => updateField('email', e.target.value)}
+                  />
+                </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 mb-1">Dirección</label>
                   <input 
@@ -1152,8 +1209,12 @@ const CRM = () => {
                     <input type="text" value={formProspecto.cif} onChange={e => setFormProspecto(p => ({ ...p, cif: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="CIF/NIF" />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Contacto Persona</label>
-                    <input type="text" value={formProspecto.contacto_persona} onChange={e => setFormProspecto(p => ({ ...p, contacto_persona: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="Nombre del contacto" />
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Responsable</label>
+                    <input type="text" value={formProspecto.responsable} onChange={e => setFormProspecto(p => ({ ...p, responsable: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="Nombre del responsable" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Email</label>
+                    <input type="email" value={formProspecto.email} onChange={e => setFormProspecto(p => ({ ...p, email: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} placeholder="email@ejemplo.com" />
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Teléfono</label>
