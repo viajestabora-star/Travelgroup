@@ -4,7 +4,7 @@ import { X, Phone, Navigation } from 'lucide-react'
 
 const CRM = () => {
   // Estados principales
-  const [activeTab, setActiveTab] = useState('calendario') // calendario | proximas | historial | estadisticas
+  const [activeTab, setActiveTab] = useState('calendario') // calendario | proximas | historial | estadisticas | embudo
   const [prospectos, setProspectos] = useState([])
   const [clientes, setClientes] = useState([])
   const [visitas, setVisitas] = useState([])
@@ -133,6 +133,15 @@ const CRM = () => {
     }
     return []
   }, [prospectos, activeTab, hoyStr])
+
+  // Prospectos para el embudo: excluir Ganado y Perdido
+  const EMBUDO_COLUMNAS = ['Lead', 'Contactado', 'Propuesta', 'Negociación']
+  const prospectosEnEmbudo = useMemo(() => {
+    return prospectos.filter(p => {
+      const estado = (p.estado_comercial || 'Lead').trim()
+      return estado !== 'Ganado' && estado !== 'Perdido'
+    })
+  }, [prospectos])
 
   const guardarProspectoDesdeModal = async () => {
     try {
@@ -265,6 +274,21 @@ const CRM = () => {
   // Actualizar campo del prospecto
   const updateField = (field, value) => {
     setProspectoSelected(prev => prev ? { ...prev, [field]: value } : prev)
+  }
+
+  // Actualizar estado_comercial en Supabase inmediatamente (para el selector del panel)
+  const actualizarEstadoComercial = async (nuevoEstado) => {
+    if (!prospectoSelected?.id) return
+    const { error } = await supabase
+      .from('prospectos')
+      .update({ estado_comercial: nuevoEstado })
+      .eq('id', prospectoSelected.id)
+    if (!error) {
+      setProspectoSelected(prev => prev ? { ...prev, estado_comercial: nuevoEstado } : prev)
+      setProspectos(prev => prev.map(p => p.id === prospectoSelected.id ? { ...p, estado_comercial: nuevoEstado } : p))
+    } else {
+      alert('Error al actualizar estado: ' + error.message)
+    }
   }
 
   // Registrar nueva visita desde panel
@@ -522,6 +546,7 @@ const CRM = () => {
               { key: 'calendario', label: 'Calendario' },
               { key: 'proximas', label: 'Próximas' },
               { key: 'historial', label: 'Historial' },
+              { key: 'embudo', label: 'Embudo' },
               { key: 'estadisticas', label: 'Estadísticas' }
             ].map(tab => (
               <button
@@ -661,6 +686,45 @@ const CRM = () => {
               </>
             )}
         </div>
+        )}
+
+        {/* VISTA: EMBUDO (Kanban) */}
+        {activeTab === 'embudo' && !loading && (
+          <div className="flex gap-4 overflow-x-auto pb-4">
+            {EMBUDO_COLUMNAS.map(col => {
+              const prospectosEnColumna = prospectosEnEmbudo.filter(p => {
+                const estado = (p.estado_comercial || 'Lead').trim()
+                const estadoNormalizado = EMBUDO_COLUMNAS.includes(estado) ? estado : 'Lead'
+                return estadoNormalizado === col
+              })
+              return (
+                <div key={col} className="flex-shrink-0 w-72 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                  <div className="px-4 py-3 bg-slate-100 border-b border-slate-200">
+                    <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">{col}</h3>
+                    <span className="text-xs text-slate-500">{prospectosEnColumna.length}</span>
+                  </div>
+                  <div className="p-3 space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto">
+                    {prospectosEnColumna.length === 0 ? (
+                      <div className="text-xs text-slate-400 italic py-4 text-center">Sin prospectos</div>
+                    ) : (
+                      prospectosEnColumna.map(p => (
+                        <button
+                          key={p.id}
+                          onClick={() => abrirFicha(p)}
+                          className="w-full text-left p-3 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-300 hover:shadow-md transition-all"
+                        >
+                          <div className="font-bold text-slate-900 text-sm">{p.grupo || 'Sin nombre'}</div>
+                          <div className="text-xs text-slate-600 mt-1">
+                            {p.contacto_persona || p.responsable || 'Sin contacto'}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
 
         {/* VISTA: ESTADÍSTICAS */}
@@ -813,12 +877,15 @@ const CRM = () => {
                   <label className="block text-xs font-bold text-slate-500 mb-1">Estado Comercial</label>
                   <select
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                    value={prospectoSelected.estado_comercial || 'POTENCIAL'}
-                    onChange={(e) => updateField('estado_comercial', e.target.value)}
+                    value={prospectoSelected.estado_comercial || 'Lead'}
+                    onChange={(e) => actualizarEstadoComercial(e.target.value)}
                   >
-                    <option value="CLIENTE">CLIENTE</option>
-                    <option value="POTENCIAL">POTENCIAL</option>
-                    <option value="DESCARTAR">DESCARTAR</option>
+                    <option value="Lead">Lead</option>
+                    <option value="Contactado">Contactado</option>
+                    <option value="Propuesta">Propuesta</option>
+                    <option value="Negociación">Negociación</option>
+                    <option value="Ganado">Ganado</option>
+                    <option value="Perdido">Perdido</option>
                   </select>
                 </div>
                 <div>
