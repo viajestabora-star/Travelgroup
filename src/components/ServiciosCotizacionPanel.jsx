@@ -558,7 +558,6 @@ const ServiciosCotizacionPanel = ({
       serviciosSnapshotRef.current = null
       setIsEditing(false)
       setHasCosteRealSinGuardar?.(false)
-      if (typeof onRefresh === 'function') onRefresh()
     } catch (_) {
       alert('No se pudo guardar. Inténtalo de nuevo.')
     } finally {
