@@ -26,14 +26,15 @@ const Clientes = () => {
     gratuidades: ''
   })
 
-  useEffect(() => { fetchClientes() }, [])
+  useEffect(() => { fetchClientesData() }, [])
 
-  const fetchClientes = async () => {
+  // Función maestra de refresco: obtiene clientes desde Supabase y actualiza el estado
+  const fetchClientesData = async () => {
     const { data, error } = await supabase
       .from('clientes')
       .select('*')
       .order('nombre', { ascending: true }) // Regla 1.14: Clientes A-Z por nombre
-    if (!error) setClientes(data)
+    if (!error) setClientes(data || [])
   }
 
   const handleSubmit = async (e) => {
@@ -59,8 +60,12 @@ const Clientes = () => {
       : supabase.from('clientes').insert([formData])
     
     const { error } = await action
-    if (!error) { closeModal(); fetchClientes(); }
-    else { alert("Error al guardar cliente: " + error.message) }
+    if (!error) {
+      closeModal()
+      await fetchClientesData()
+    } else {
+      alert("Error al guardar cliente: " + error.message)
+    }
   }
 
   // Regla 1.14: Confirmación doble antes de borrar (evita pérdidas accidentales)
@@ -68,7 +73,11 @@ const Clientes = () => {
     if (!window.confirm(`¿Estás seguro de que quieres borrar al cliente "${nombre}"?\n\nEsta acción no se puede deshacer.`)) return
     if (!window.confirm('¿Estás seguro de que quieres borrar este registro definitivamente?')) return
     const { error } = await supabase.from('clientes').delete().eq('id', id)
-    if (!error) fetchClientes()
+    if (!error) {
+      await fetchClientesData()
+    } else {
+      alert('Error al eliminar cliente: ' + (error?.message || 'Error desconocido'))
+    }
   }
 
   const cargarExpedientesCliente = async (nombreCliente) => {
