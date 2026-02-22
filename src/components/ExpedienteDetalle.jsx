@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown, CheckCircle } from 'lucide-react'
+import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown, CheckCircle, CreditCard } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { supabase } from '../supabase'
@@ -352,7 +352,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Abrir en tab específica cuando se navega desde Historial de Cierres (Ver Detalle)
   useEffect(() => {
-    if (initialTab && ['grupo', 'cotizacion', 'pasajeros', 'cobros', 'facturacion', 'documentacion', 'cierre'].includes(initialTab)) {
+    if (initialTab && ['grupo', 'cotizacion', 'pasajeros', 'cobros', 'pagosProveedores', 'facturacion', 'documentacion', 'cierre'].includes(initialTab)) {
       setTab(initialTab)
     }
   }, [initialTab])
@@ -418,6 +418,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Estados para Historial de Expedientes
   const [expedientesHistorial, setExpedientesHistorial] = useState([])
   const [cargandoHistorial, setCargandoHistorial] = useState(false)
+
+  // Estados para Pagos a Proveedores
+  const [pagosProveedores, setPagosProveedores] = useState([])
+  const [cargandoPagosProveedores, setCargandoPagosProveedores] = useState(false)
+  const [formPago, setFormPago] = useState({ servicio_id: '', fecha_pago: '', importe_pagado: '' })
 
   // Cliente(s) del expediente: relación directa expedientes.cliente_id → clientes (tabla expediente_clientes NO existe)
   const expedienteClientes = useMemo(() => {
@@ -1526,6 +1531,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [tab, expediente?.id])
 
+  // Cargar pagos a proveedores solo cuando se abre la pestaña (evita bucles)
+  const cargarPagosProveedores = async () => {
+    if (!expediente?.id) {
+      setPagosProveedores([])
+      return
+    }
+    setCargandoPagosProveedores(true)
+    try {
+      const { data, error } = await supabase
+        .from('pagos_proveedores')
+        .select('*')
+        .eq('expediente_id', expediente.id)
+        .order('fecha_pago', { ascending: false })
+      if (error) {
+        setPagosProveedores([])
+        return
+      }
+      setPagosProveedores(data || [])
+    } catch (_) {
+      setPagosProveedores([])
+    } finally {
+      setCargandoPagosProveedores(false)
+    }
+  }
+  useEffect(() => {
+    if (tab === 'pagosProveedores' && expediente?.id) {
+      cargarPagosProveedores()
+    }
+  }, [tab, expediente?.id])
+
   // ============ CARGAR VERSIONES DE FACTURAS ============
   // ============ CARGAR VERSIONES DE FACTURA (SINCRONIZADO) ============
   // Historial dinámico: se actualiza automáticamente al borrar facturas en Supabase
@@ -2306,6 +2341,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     { id: 'cotizacion', label: 'Cotización', icon: Calculator },
     { id: 'pasajeros', label: 'Rooming List', icon: Bed },
     { id: 'cobros', label: 'Cobros y Pagos', icon: DollarSign },
+    { id: 'pagosProveedores', label: 'Pagos a Proveedores', icon: CreditCard },
     { id: 'facturacion', label: 'Facturación', icon: FileText },
     { id: 'documentacion', label: 'Documentación', icon: FileUp },
     { id: 'cierre', label: 'Cierre de Grupo', icon: TrendingUp },
@@ -2583,6 +2619,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         
         if (error) {
           alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
+        } else if (typeof onRefresh === 'function') {
+          onRefresh()
         }
       } else {
         const { data, error } = await supabase
@@ -2593,10 +2631,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         
         if (error) {
           alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
-        } else if (data) {
-          setServicios(prevServicios => prevServicios.map(s => 
-            s.id === servicio.id ? { ...s, id: data.id } : s
-          ))
+        } else {
+          if (data) {
+            setServicios(prevServicios => prevServicios.map(s => 
+              s.id === servicio.id ? { ...s, id: data.id } : s
+            ))
+          }
+          if (typeof onRefresh === 'function') onRefresh()
         }
       }
     } catch (err) {
@@ -2636,6 +2677,38 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       actualizarServicio(servicioId, 'releasePagado', true)
     } catch (e) {
       alert('No se pudo marcar como pagado.')
+    }
+  }
+
+  // Registrar pago a proveedor (insert en pagos_proveedores)
+  const registrarPagoProveedor = async () => {
+    if (!expediente?.id || !formPago.servicio_id || !formPago.fecha_pago || !formPago.importe_pagado) {
+      alert('Completa Servicio, Fecha e Importe.')
+      return
+    }
+    const importe = parseFloat(String(formPago.importe_pagado).replace(',', '.'))
+    if (isNaN(importe) || importe <= 0) {
+      alert('El importe debe ser un número positivo.')
+      return
+    }
+    try {
+      const { error } = await supabase
+        .from('pagos_proveedores')
+        .insert([{
+          expediente_id: expediente.id,
+          servicio_id: formPago.servicio_id,
+          fecha_pago: formPago.fecha_pago,
+          importe_pagado: importe,
+        }])
+      if (error) {
+        alert(`Error al registrar pago: ${error.message}`)
+        return
+      }
+      setFormPago({ servicio_id: '', fecha_pago: '', importe_pagado: '' })
+      await cargarPagosProveedores()
+      if (typeof onRefresh === 'function') onRefresh()
+    } catch (e) {
+      alert('Error inesperado al registrar el pago.')
     }
   }
 
@@ -4787,6 +4860,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           <col style={{ width: '130px', minWidth: '130px', maxWidth: '130px' }} />
                           <col style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }} />
                           <col style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }} />
+                          <col style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }} />
                           <col style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }} />
                           <col style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }} />
                           <col style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }} />
@@ -4799,6 +4873,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '130px' }}>Detalle</th>
                             <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '50px' }}>Cant.</th>
                             <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '70px' }}>Precio</th>
+                            <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '90px' }}>Coste Real (€)</th>
                             <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '120px' }}>Modo</th>
                             <th className="px-1 py-2 text-right text-xs font-semibold text-gray-700" style={{ width: '90px' }}>Total</th>
                             <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '120px' }}>Release</th>
@@ -5152,6 +5227,50 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '70px', minWidth: '70px', maxWidth: '70px' }}
                                   placeholder="0.00"
                                   min="0"
+                                />
+                                </div>
+                              </td>
+
+                              {/* COLUMNA: COSTE REAL (€) — 90px exactos */}
+                              <td className="px-1 py-2 align-middle" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                                <div className="flex justify-end">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={servicio?.coste_real_proveedor === '' || servicio?.coste_real_proveedor == null ? '' : servicio?.coste_real_proveedor}
+                                  onWheel={handleWheel}
+                                  onChange={(e) => {
+                                    const v = e.target.value
+                                    if (v === '' || v === '-') {
+                                      actualizarServicio(servicio.id, 'coste_real_proveedor', null)
+                                      return
+                                    }
+                                    const n = parseFloat(v.replace(/,/g, '.'))
+                                    if (!isNaN(n)) actualizarServicio(servicio.id, 'coste_real_proveedor', n)
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = '#e2e8f0'
+                                    e.target.style.boxShadow = 'none'
+                                    const v = e.target.value
+                                    if (v === '' || v === '-') {
+                                      actualizarServicio(servicio.id, 'coste_real_proveedor', null)
+                                      return
+                                    }
+                                    const n = parseFloat(v.replace(/,/g, '.'))
+                                    if (!isNaN(n)) {
+                                      actualizarServicio(servicio.id, 'coste_real_proveedor', n, { immediate: true })
+                                    }
+                                  }}
+                                  onFocus={(e) => {
+                                    e.target.select()
+                                    handleFocus(e)
+                                    e.target.style.borderColor = '#3b82f6'
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                  }}
+                                  className="input-field text-xs text-right w-full transition-all"
+                                  style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '90px', minWidth: '90px', maxWidth: '90px' }}
+                                  placeholder="—"
                                 />
                                 </div>
                               </td>
@@ -5783,6 +5902,95 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 obtenerProveedorPorId={obtenerProveedorPorId}
                 clientes={clientes}
               />
+          )}
+
+          {/* TAB: Pagos a Proveedores */}
+          {tab === 'pagosProveedores' && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+                <h3 className="text-xl font-bold text-navy-900 mb-4">Registrar nuevo pago</h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Servicio</label>
+                    <select
+                      value={formPago.servicio_id}
+                      onChange={(e) => setFormPago({ ...formPago, servicio_id: e.target.value })}
+                      className="w-full p-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-900"
+                    >
+                      <option value="">— Seleccionar —</option>
+                      {servicios.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.tipo || 'Servicio'} {s.nombreEspecifico ? `- ${s.nombreEspecifico}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fecha de Pago</label>
+                    <input
+                      type="date"
+                      value={formPago.fecha_pago}
+                      onChange={(e) => setFormPago({ ...formPago, fecha_pago: e.target.value })}
+                      className="w-full p-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Importe Pagado (€)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formPago.importe_pagado}
+                      onChange={(e) => setFormPago({ ...formPago, importe_pagado: e.target.value })}
+                      className="w-full p-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-900"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={registrarPagoProveedor}
+                      className="btn-primary w-full flex items-center justify-center gap-2 py-3"
+                    >
+                      <CreditCard size={18} />
+                      Registrar Pago
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+                <h3 className="text-xl font-bold text-navy-900 mb-4">Pagos realizados</h3>
+                {cargandoPagosProveedores ? (
+                  <p className="text-gray-500">Cargando...</p>
+                ) : pagosProveedores.length === 0 ? (
+                  <p className="text-gray-500">No hay pagos registrados.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200 text-left text-gray-600 font-semibold">
+                          <th className="py-2 pr-4">Fecha</th>
+                          <th className="py-2 pr-4">Servicio</th>
+                          <th className="py-2 pr-4">Importe</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pagosProveedores.map((p) => {
+                          const servicio = servicios.find((s) => s.id === (p.servicio_id || p.id_servicio))
+                          return (
+                            <tr key={p.id || `${p.servicio_id}-${p.fecha_pago}-${p.importe_pagado}`} className="border-b border-gray-100">
+                              <td className="py-2 pr-4">{p.fecha_pago || '—'}</td>
+                              <td className="py-2 pr-4">{servicio ? `${servicio.tipo || ''} ${servicio.nombreEspecifico || ''}`.trim() || '—' : '—'}</td>
+                              <td className="py-2 pr-4 font-medium">{Number(p.importe_pagado || 0).toFixed(2)} €</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {/* TAB: Cierre de Grupo - delegado a ExpedienteFinanzas */}
