@@ -211,7 +211,7 @@ const Expedientes = () => {
   useEffect(() => {
     const init = async () => {
       try {
-        await loadData()
+        await fetchExpedientesData()
       } catch (_) {
         setExpedientes([])
         setIsLoading(false)
@@ -258,8 +258,8 @@ const Expedientes = () => {
     }
   }, [location.state, expedientes, navigate])
 
-  // Cargar expedientes desde Supabase
-  const loadData = async () => {
+  // Función maestra de refresco: obtiene expedientes desde Supabase y actualiza el estado
+  const fetchExpedientesData = async () => {
     setIsLoading(true)
     try {
       // Lee expedientes de Supabase - usar select('*') para evitar errores de columnas
@@ -445,6 +445,7 @@ const Expedientes = () => {
       // Sincronización con estado local tras éxito en Supabase
       setExpedientes(dataToSave);
       storage.set('expedientes', dataToSave);
+      await fetchExpedientesData();
 
     } catch (error) {
       const errorInfo = manejarErrorSupabase(error, 'sincronizar expediente');
@@ -601,7 +602,7 @@ const Expedientes = () => {
       }
 
       // 3. Refrescar la lista completa desde Supabase para mostrar el ID generado
-      await loadData();
+      await fetchExpedientesData();
       
       setShowExpedienteModal(false);
       resetExpedienteForm();
@@ -703,11 +704,9 @@ const Expedientes = () => {
         throw error;
       }
 
-      const nuevosExpedientes = expedientes.filter(exp => exp.id !== id)
-      setExpedientes(nuevosExpedientes)
-      storage.set('expedientes', nuevosExpedientes)
       setConfirmarBorrado(null)
       alert('✅ Expediente eliminado correctamente')
+      await fetchExpedientesData()
     } catch (err) {
       alert('⚠️ Error eliminando expediente. Revisa tu conexión.')
     }
@@ -793,6 +792,7 @@ const Expedientes = () => {
         }
         return;
       }
+      await fetchExpedientesData()
     } catch (err) {
       alert('⚠️ Error actualizando expediente. Revisa tu conexión.')
       setExpedientes(prevExpedientes)
@@ -805,6 +805,7 @@ const Expedientes = () => {
 
   const cambiarEstado = async (id, nuevoEstado) => {
     try {
+      const expediente = expedientes.find(exp => exp.id === id)
       // Actualizar en Supabase
       const { error } = await supabase
         .from('expedientes')
@@ -819,16 +820,9 @@ const Expedientes = () => {
         }
         throw error;
       }
+      await fetchExpedientesData()
       
-      // Actualizar estado local
-      const updated = (expedientes || []).map(exp =>
-        exp.id === id ? { ...exp, estado: nuevoEstado } : exp
-      )
-      setExpedientes(updated)
-      storage.set('expedientes', updated)
-      
-      const expediente = updated.find(exp => exp.id === id)
-      if (expediente && expediente.planningId) {
+      if (expediente?.planningId) {
         const planning = storage.getPlanning()
         const updatedPlanning = (planning || []).map(p =>
           p.id === expediente.planningId
@@ -1762,7 +1756,7 @@ const Expedientes = () => {
             setTabInicialParaDetalle(null)
           }}
           onUpdate={actualizarExpediente}
-          onRefresh={loadData}
+          onRefresh={fetchExpedientesData}
           initialTab={tabInicialParaDetalle}
         />
       )}
