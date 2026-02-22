@@ -50,6 +50,28 @@ const Proveedores = () => {
     if (vacio(proveedor.email)) faltantes.push('Email')
     return faltantes
   }
+  // Función maestra de refresco: obtiene la lista completa de proveedores desde Supabase
+  const fetchProveedoresData = async () => {
+    setCargando(true)
+    setErrorBusqueda(null)
+    try {
+      const { data, error } = await supabase
+        .from('proveedores')
+        .select('*')
+        .order('nombre_comercial', { ascending: true })
+      if (!error) setProveedores(Array.isArray(data) ? data : [])
+      else {
+        setProveedores([])
+        setErrorBusqueda(error.message)
+      }
+    } catch (err) {
+      setProveedores([])
+      setErrorBusqueda(err?.message || 'Error al cargar proveedores')
+    } finally {
+      setCargando(false)
+    }
+  }
+
   // Búsqueda mediante RPC buscar_proveedores (nombre, provincia, poblacion, ciudad)
   const buscarProveedores = async (termino) => {
     setCargando(true)
@@ -74,7 +96,11 @@ const Proveedores = () => {
   }
 
   useEffect(() => {
-    buscarProveedores(searchTerm)
+    if ((searchTerm || '').trim() === '') {
+      fetchProveedoresData()
+    } else {
+      buscarProveedores(searchTerm)
+    }
   }, [searchTerm])
 
   // Sanitizar valores a texto para evitar errores uuid vs bigint en Supabase
@@ -134,8 +160,12 @@ const Proveedores = () => {
       : supabase.from('proveedores').insert([datosParaGuardar])
     
     const { error } = await action
-    if (!error) { closeModal(); buscarProveedores(searchTerm); }
-    else { alert("Error: " + error.message) }
+    if (!error) {
+      closeModal()
+      await fetchProveedoresData()
+    } else {
+      alert("Error: " + error.message)
+    }
   }
 
   // Regla 1.14: Modal de confirmación antes de borrar
@@ -145,9 +175,13 @@ const Proveedores = () => {
   const ejecutarBorradoProveedor = async () => {
     if (!confirmarBorrado?.id) return
     if (!window.confirm('¿Estás seguro de que quieres borrar este registro definitivamente?')) return
-    await supabase.from('proveedores').delete().eq('id', confirmarBorrado.id)
-    buscarProveedores(searchTerm)
+    const { error } = await supabase.from('proveedores').delete().eq('id', confirmarBorrado.id)
     setConfirmarBorrado(null)
+    if (!error) {
+      await fetchProveedoresData()
+    } else {
+      alert('Error al eliminar proveedor: ' + (error?.message || 'Error desconocido'))
+    }
   }
 
   const openModal = (p = null) => {
