@@ -1,6 +1,33 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabase'
-import { X, Phone, Navigation } from 'lucide-react'
+import { X, Phone, Navigation, MoreVertical } from 'lucide-react'
+
+/**
+ * Función maestra de refresco: obtiene prospectos, visitas y clientes de Supabase
+ * y actualiza el estado mediante los setters proporcionados.
+ * @param {Function} setProspectos - Setter del estado de prospectos
+ * @param {Function} setVisitas - Setter del estado de visitas
+ * @param {Function} setClientes - Setter del estado de clientes
+ */
+const fetchCrmData = async (setProspectos, setVisitas, setClientes) => {
+  try {
+    const [prospectosRes, clientesRes, visitasRes] = await Promise.all([
+      supabase.from('prospectos').select('*').order('grupo', { ascending: true }),
+      supabase.from('clientes').select('*').order('nombre', { ascending: true }),
+      supabase.from('visitas').select('*').order('fecha', { ascending: false })
+    ])
+    const prospectosData = prospectosRes.error ? [] : (prospectosRes.data || [])
+    const clientesData = clientesRes.error ? [] : (clientesRes.data || [])
+    const visitasData = visitasRes.error ? [] : (visitasRes.data || [])
+    setProspectos(prospectosData)
+    setClientes(clientesData)
+    setVisitas(visitasData)
+    return { prospectosData, clientesData, visitasData }
+  } catch (err) {
+    console.error('Error al cargar datos CRM:', err)
+    return { prospectosData: [], clientesData: [], visitasData: [] }
+  }
+}
 
 const CRM = () => {
   // Estados principales
@@ -33,6 +60,12 @@ const CRM = () => {
   // Visitas del prospecto seleccionado
   const [visitasProspecto, setVisitasProspecto] = useState([])
 
+  // Modal Gestionar Visita (editar fecha / eliminar)
+  const [showGestionVisitaModal, setShowGestionVisitaModal] = useState(false)
+  const [visitaGestionSelected, setVisitaGestionSelected] = useState(null)
+  const [showInputFechaVisita, setShowInputFechaVisita] = useState(false)
+  const [nuevaFechaVisita, setNuevaFechaVisita] = useState('')
+
   // Modal Registrar Visita - Nuevo Prospecto (mapeo exacto CSV)
   const [showVisitaModal, setShowVisitaModal] = useState(false)
   const [formProspecto, setFormProspecto] = useState({
@@ -51,28 +84,27 @@ const CRM = () => {
     notas_comerciales: ''
   })
 
-  // Cargar datos iniciales
-  useEffect(() => {
-    fetchData()
-  }, [])
-
-  const fetchData = async () => {
+  // Función local de refresco: invoca la función maestra y sincroniza el panel del prospecto seleccionado
+  const refrescarDatos = async () => {
     setLoading(true)
     try {
-      const [prospectosRes, clientesRes, visitasRes] = await Promise.all([
-        supabase.from('prospectos').select('*').order('grupo', { ascending: true }),
-        supabase.from('clientes').select('*').order('nombre', { ascending: true }),
-        supabase.from('visitas').select('*').order('fecha', { ascending: false })
-      ])
-      
-      if (!prospectosRes.error) setProspectos(prospectosRes.data || [])
-      if (!clientesRes.error) setClientes(clientesRes.data || [])
-      if (!visitasRes.error) setVisitas(visitasRes.data || [])
-    } catch (err) {
+      const { prospectosData, visitasData } = await fetchCrmData(setProspectos, setVisitas, setClientes)
+      if (prospectoSelected?.id) {
+        setVisitasProspecto(visitasData.filter(v => v.prospecto_id === prospectoSelected.id).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '')))
+        const prospectoActualizado = prospectosData.find(p => p.id === prospectoSelected.id)
+        if (prospectoActualizado) {
+          setProspectoSelected({ ...prospectoActualizado, programas_presentados: Array.isArray(prospectoActualizado.programas_presentados) ? prospectoActualizado.programas_presentados : [] })
+        }
+      }
     } finally {
       setLoading(false)
     }
   }
+
+  // Carga inicial
+  useEffect(() => {
+    fetchCrmData(setProspectos, setVisitas, setClientes).finally(() => setLoading(false))
+  }, [])
 
   // Comprobar si un prospecto existe ya como cliente (por nombre/grupo)
   const esCliente = useMemo(() => {
@@ -171,7 +203,7 @@ const CRM = () => {
       }
       setShowVisitaModal(false)
       setFormProspecto(resetFormProspecto())
-      await fetchData()
+      await refrescarDatos()
       alert('Prospecto registrado con éxito')
     } catch (err) {
       alert('Error al guardar prospecto.')
@@ -200,15 +232,7 @@ const CRM = () => {
     setProspectoSelected(normalizado)
     setFichaTab('datos')
     setShowPanel(true)
-    
-    // Cargar visitas del prospecto
-    const { data } = await supabase
-      .from('visitas')
-      .select('*')
-      .eq('prospecto_id', prospecto.id)
-      .order('fecha', { ascending: false })
-    
-    setVisitasProspecto(data || [])
+    setVisitasProspecto(visitas.filter(v => v.prospecto_id === prospecto.id).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '')))
   }
 
   const cerrarFicha = () => {
@@ -236,7 +260,7 @@ const CRM = () => {
         alert('Error al crear prospecto: ' + error.message)
       } else {
         alert('¡Prospecto creado con éxito!')
-        await fetchData()
+        await refrescarDatos()
         // Actualizar el prospecto seleccionado con el ID recién creado
         if (data) {
           setProspectoSelected({
@@ -256,7 +280,7 @@ const CRM = () => {
         alert('Error al guardar: ' + error.message)
       } else {
         alert('¡Guardado con éxito!')
-        await fetchData()
+        await refrescarDatos()
         // Actualizar el prospecto seleccionado con los datos frescos
         const { data } = await supabase
           .from('prospectos')
@@ -305,7 +329,7 @@ const CRM = () => {
 
     await supabase.from('prospectos').update({ puntuacion_lead: puntuacion }).eq('id', prospectoId)
 
-    await fetchData()
+    await refrescarDatos()
     if (prospectoSelected?.id === prospectoId) {
       const { data } = await supabase.from('prospectos').select('*').eq('id', prospectoId).single()
       if (data) setProspectoSelected({ ...data, programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : [] })
@@ -340,19 +364,77 @@ const CRM = () => {
       fecha: nuevaVisita.fecha,
       comentario: nuevaVisita.comentario
     })
-    await recalcularPuntuacionLead(prospectoSelected.id)
 
-      if (error) {
+    if (error) {
       alert('Error al registrar visita: ' + error.message)
     } else {
-      const { data } = await supabase
-        .from('visitas')
-        .select('*')
-        .eq('prospecto_id', prospectoSelected.id)
-        .order('fecha', { ascending: false })
-      setVisitasProspecto(data || [])
       setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '' })
       alert('Visita registrada con éxito')
+      await recalcularPuntuacionLead(prospectoSelected.id)
+      await refrescarDatos()
+    }
+  }
+
+  // Abrir modal de gestión de visita
+  const abrirModalGestionVisita = (visita) => {
+    setVisitaGestionSelected(visita)
+    setShowInputFechaVisita(false)
+    setNuevaFechaVisita(visita?.fecha || '')
+    setShowGestionVisitaModal(true)
+  }
+
+  // Recalcular y actualizar proxima_visita en prospectos: la visita futura con fecha más cercana
+  const actualizarProximaVisitaProspecto = async (prospectoId) => {
+    if (!prospectoId) return
+    const hoyStr = new Date().toISOString().split('T')[0]
+    const { data: visitasRestantes } = await supabase
+      .from('visitas')
+      .select('fecha')
+      .eq('prospecto_id', prospectoId)
+      .gte('fecha', hoyStr)
+      .order('fecha', { ascending: true })
+    const nuevaProximaVisita = visitasRestantes?.length ? visitasRestantes[0].fecha : null
+    await supabase.from('prospectos').update({ proxima_visita: nuevaProximaVisita }).eq('id', prospectoId)
+  }
+
+  // Eliminar visita desde modal
+  const eliminarVisitaDesdeModal = async () => {
+    if (!visitaGestionSelected?.id) return
+    if (!window.confirm('¿Estás seguro de que quieres eliminar esta visita?')) return
+
+    const prospectoId = visitaGestionSelected.prospecto_id
+    const { error } = await supabase.from('visitas').delete().eq('id', visitaGestionSelected.id)
+    if (error) {
+      alert('Error al eliminar visita: ' + error.message)
+    } else {
+      await actualizarProximaVisitaProspecto(prospectoId)
+      alert('Visita eliminada con éxito')
+      setShowGestionVisitaModal(false)
+      setVisitaGestionSelected(null)
+      await recalcularPuntuacionLead(prospectoId)
+      await refrescarDatos()
+    }
+  }
+
+  // Guardar nueva fecha de visita desde modal
+  const guardarFechaVisitaDesdeModal = async () => {
+    if (!visitaGestionSelected?.id || !nuevaFechaVisita) return
+
+    const prospectoId = visitaGestionSelected.prospecto_id
+    const { error } = await supabase
+      .from('visitas')
+      .update({ fecha: nuevaFechaVisita })
+      .eq('id', visitaGestionSelected.id)
+    if (error) {
+      alert('Error al actualizar fecha: ' + error.message)
+    } else {
+      await actualizarProximaVisitaProspecto(prospectoId)
+      alert('Fecha actualizada con éxito')
+      setShowInputFechaVisita(false)
+      setShowGestionVisitaModal(false)
+      setVisitaGestionSelected(null)
+      await recalcularPuntuacionLead(prospectoId)
+      await refrescarDatos()
     }
   }
 
@@ -430,6 +512,7 @@ const CRM = () => {
           return
         }
         prospectoIdFinal = nuevoPros.id
+        await refrescarDatos()
       }
     } else if (agendaProspectoId.startsWith('prospecto-')) {
       prospectoIdFinal = Number(agendaProspectoId.replace('prospecto-', ''))
@@ -442,7 +525,6 @@ const CRM = () => {
       fecha: fechaSeleccionada,
       comentario: agendaComentario
     })
-    await recalcularPuntuacionLead(prospectoIdFinal)
 
     if (error) {
       alert('Error al agendar visita: ' + error.message)
@@ -451,6 +533,8 @@ const CRM = () => {
         .from('prospectos')
         .update({ proxima_visita: fechaSeleccionada })
         .eq('id', prospectoIdFinal)
+      await recalcularPuntuacionLead(prospectoIdFinal)
+      await refrescarDatos()
       setShowAgendaModal(false)
       setAgendaProspectoId('')
       setAgendaComentario('')
@@ -566,7 +650,7 @@ const CRM = () => {
       alert('Error al borrar: ' + error.message)
     } else {
       cerrarFicha()
-      await fetchData()
+      await refrescarDatos()
       alert('Prospecto borrado con éxito')
     }
   }
@@ -1015,10 +1099,19 @@ const CRM = () => {
                   ) : (
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                       {visitasProspecto.map(v => (
-                        <div key={v.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                          <div className="text-xs font-mono text-slate-500 mb-1">{v.fecha}</div>
-                          <div className="text-xs text-slate-700 whitespace-pre-line">{v.comentario || 'Sin comentario'}</div>
-    </div>
+                        <div key={v.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-mono text-slate-500 mb-1">{v.fecha}</div>
+                            <div className="text-xs text-slate-700 whitespace-pre-line">{v.comentario || 'Sin comentario'}</div>
+                          </div>
+                          <button
+                            onClick={() => abrirModalGestionVisita(v)}
+                            className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition flex-shrink-0"
+                            title="Gestionar"
+                          >
+                            <MoreVertical size={16} />
+                          </button>
+                        </div>
                       ))}
       </div>
                   )}
@@ -1181,6 +1274,67 @@ const CRM = () => {
                 Guardar Visita
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GESTIONAR VISITA */}
+      {showGestionVisitaModal && visitaGestionSelected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900">Gestionar Visita</h3>
+              <button
+                onClick={() => { setShowGestionVisitaModal(false); setVisitaGestionSelected(null); setShowInputFechaVisita(false); }}
+                className="p-1 rounded-full hover:bg-slate-100 text-slate-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="text-xs font-mono text-slate-500 mb-1">Fecha: {visitaGestionSelected.fecha}</div>
+              <div className="text-xs text-slate-700 whitespace-pre-line">{visitaGestionSelected.comentario || 'Sin comentario'}</div>
+            </div>
+            {showInputFechaVisita ? (
+              <div className="space-y-3">
+                <label className="block text-xs font-bold text-slate-500">Nueva fecha</label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                  value={nuevaFechaVisita}
+                  onChange={(e) => setNuevaFechaVisita(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowInputFechaVisita(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={guardarFechaVisitaDesdeModal}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-[#0f172a] text-white"
+                  >
+                    Guardar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowInputFechaVisita(true); setNuevaFechaVisita(visitaGestionSelected.fecha || ''); }}
+                  className="flex-1 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  Cambiar Fecha
+                </button>
+                <button
+                  onClick={eliminarVisitaDesdeModal}
+                  className="flex-1 px-4 py-2 rounded-xl text-xs font-bold bg-red-600 text-white hover:bg-red-700"
+                >
+                  Eliminar Visita
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
