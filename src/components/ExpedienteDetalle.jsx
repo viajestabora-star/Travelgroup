@@ -2680,6 +2680,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }
 
+  // Guardar solo coste_real_proveedor (sin onRefresh para evitar parpadeo)
+  const guardarCosteRealProveedor = async (servicioId, valor) => {
+    if (!servicioId || !expediente?.id) return
+    const valorFinal = valor == null || valor === '' ? null : toNum(valor)
+    try {
+      const { error } = await supabase
+        .from('servicios_cotizacion')
+        .update({ coste_real_proveedor: valorFinal })
+        .eq('id', servicioId)
+        .eq('id_expediente', String(expediente.id).trim())
+      if (error) return
+      setServicios(prev => prev.map(s => s.id === servicioId ? { ...s, coste_real_proveedor: valorFinal } : s))
+    } catch (_) {}
+  }
+
   // Registrar pago a proveedor (insert en pagos_proveedores)
   const registrarPagoProveedor = async () => {
     if (!expediente?.id || !formPago.servicio_id || !formPago.fecha_pago || !formPago.importe_pagado) {
@@ -5231,35 +5246,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 </div>
                               </td>
 
-                              {/* COLUMNA: COSTE REAL (€) — 90px exactos */}
+                              {/* COLUMNA: COSTE REAL (€) — 90px exactos — guardado solo en onBlur */}
                               <td className="px-1 py-2 align-middle" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
                                 <div className="flex justify-end">
                                 <input
                                   type="number"
                                   step="0.01"
                                   min="0"
-                                  value={servicio?.coste_real_proveedor === '' || servicio?.coste_real_proveedor == null ? '' : servicio?.coste_real_proveedor}
+                                  defaultValue={servicio?.coste_real_proveedor ?? ''}
+                                  key={`coste-real-${servicio.id}-${servicio?.coste_real_proveedor ?? 'empty'}`}
                                   onWheel={handleWheel}
-                                  onChange={(e) => {
-                                    const v = e.target.value
-                                    if (v === '' || v === '-') {
-                                      actualizarServicio(servicio.id, 'coste_real_proveedor', null)
-                                      return
-                                    }
-                                    const n = parseFloat(v.replace(/,/g, '.'))
-                                    if (!isNaN(n)) actualizarServicio(servicio.id, 'coste_real_proveedor', n)
-                                  }}
                                   onBlur={(e) => {
                                     e.target.style.borderColor = '#e2e8f0'
                                     e.target.style.boxShadow = 'none'
                                     const v = e.target.value
-                                    if (v === '' || v === '-') {
-                                      actualizarServicio(servicio.id, 'coste_real_proveedor', null)
-                                      return
-                                    }
-                                    const n = parseFloat(v.replace(/,/g, '.'))
-                                    if (!isNaN(n)) {
-                                      actualizarServicio(servicio.id, 'coste_real_proveedor', n, { immediate: true })
+                                    const valorFinal = v === '' || v === '-' ? null : parseFloat(v.replace(/,/g, '.'))
+                                    if (v === '' || v === '-' || !isNaN(valorFinal)) {
+                                      guardarCosteRealProveedor(servicio.id, v === '' || v === '-' ? null : valorFinal)
                                     }
                                   }}
                                   onFocus={(e) => {
@@ -5463,7 +5466,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               <input type="number" step="0.01" value={servicio.coste_unitario === '' || servicio.coste_unitario == null ? '' : servicio.coste_unitario} onWheel={handleWheel} onChange={(e) => { const valorInput = e.target.value; if (valorInput === '' || valorInput === '-') { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: '', total_servicio_manual: '' } : { coste_unitario: '' }); return; } const valorLimpio = valorInput.replace(/,/g, '.'); const valorNumerico = parseFloat(valorLimpio); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } else { actualizarServicio(servicio.id, 'coste_unitario', valorLimpio); } }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { const valor = e.target.value; if (valor !== '' && valor !== '-') { const valorNumerico = parseFloat(valor.replace(/,/g, '.')); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } } else { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: 0, total_servicio_manual: 0 } : { coste_unitario: 0 }); } e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }} className="input-field text-xs text-right w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} placeholder="0.00" min="0" />
                             </div>
                             <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Coste real proveedor</span>
-                              <input type="number" step="0.01" value={servicio?.coste_real_proveedor === '' || servicio?.coste_real_proveedor == null ? '' : servicio?.coste_real_proveedor} onWheel={handleWheel} onChange={(e) => { const v = e.target.value; if (v === '' || v === '-') { actualizarServicio(servicio.id, 'coste_real_proveedor', null); return; } const n = parseFloat(v.replace(/,/g, '.')); if (!isNaN(n)) actualizarServicio(servicio.id, 'coste_real_proveedor', n); }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const v = e.target.value; if (v === '' || v === '-') actualizarServicio(servicio.id, 'coste_real_proveedor', null); else { const n = parseFloat(v.replace(/,/g, '.')); if (!isNaN(n)) actualizarServicio(servicio.id, 'coste_real_proveedor', n); } }} className="input-field text-xs text-right w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} placeholder="—" min="0" />
+                              <input type="number" step="0.01" defaultValue={servicio?.coste_real_proveedor ?? ''} key={`coste-real-mob-${servicio.id}-${servicio?.coste_real_proveedor ?? 'empty'}`} onWheel={handleWheel} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const v = e.target.value; const valorFinal = v === '' || v === '-' ? null : parseFloat(v.replace(/,/g, '.')); if (v === '' || v === '-' || !isNaN(valorFinal)) guardarCosteRealProveedor(servicio.id, v === '' || v === '-' ? null : valorFinal); }} className="input-field text-xs text-right w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} placeholder="—" min="0" />
                             </div>
                           </div>
                           <div><span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Modo</span>
