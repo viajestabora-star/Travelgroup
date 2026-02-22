@@ -724,12 +724,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return formDataDirty || hasCosteRealSinGuardar
   }, [formData, hasCosteRealSinGuardar])
 
-  // Validación: algún servicio tiene release (fecha) vacío → no permitir guardar
-  const hasReleaseFaltante = useMemo(() => {
-    if (!servicios?.length) return false
-    return servicios.some(s => !s.fechaRelease || String(s.fechaRelease || '').trim() === '')
-  }, [servicios])
-
   // ============ CARGA DE SERVICIOS (separada, depende de proveedores) ============
   // Cargar servicios cuando hay expediente; proveedores puede estar vacío inicialmente
   // (se cargarán en paralelo; si proveedores llega después, el mapeo se hace con lo disponible)
@@ -4418,11 +4412,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 {hasCotizacionSinGuardar && (
                   <div className="sticky top-0 z-10 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 bg-amber-50/95 backdrop-blur border-b border-amber-200 flex items-center justify-between gap-4">
                     <span className="text-sm text-amber-800">
-                      {hasReleaseFaltante ? 'Completa la fecha Release en todos los servicios para poder guardar' : 'Cambios sin guardar'}
+                      Cambios sin guardar
                     </span>
                     <button
                       onClick={guardarCotizacion}
-                      disabled={hasReleaseFaltante}
                       className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Save size={18} />
@@ -5756,12 +5749,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   </div>
                   
                   <div className="mt-6">
-                    {hasReleaseFaltante && (
-                      <p className="text-xs text-amber-700 mb-2">Completa la fecha Release en todos los servicios para poder guardar.</p>
-                    )}
                     <button
                       onClick={async () => {
-                        if (isSaving || hasReleaseFaltante) return
+                        if (isSaving) return
                         setIsSaving(true)
                         try {
                           const resultado = await persistirCambios()
@@ -5776,7 +5766,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           setIsSaving(false)
                         }
                       }}
-                      disabled={isSaving || hasReleaseFaltante}
+                      disabled={isSaving}
                       className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       <Save size={20} />
