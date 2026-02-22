@@ -239,8 +239,11 @@ const ServiciosCotizacionPanel = ({
       tipo: 'Hotel',
       tipo_calculo: 'porPersona',
     }
-    setServicios([...servicios, nuevoServicio])
-    if (expediente?.id) guardarServicioEnSupabase(nuevoServicio)
+    if (!isEditing) {
+      serviciosSnapshotRef.current = servicios.map(s => ({ ...s }))
+      setIsEditing(true)
+    }
+    setServicios(prev => [...prev, nuevoServicio])
   }
 
   const seleccionarMayoristaYCrearHotel = (servicioId, proveedorId, nombreProveedor) => {
@@ -260,7 +263,7 @@ const ServiciosCotizacionPanel = ({
     })
     setBusquedaProveedor(prev => ({ ...prev, [servicioId]: nombreProveedor }))
     setMostrarSugerencias(prev => ({ ...prev, [servicioId]: false }))
-    if (expediente?.id) {
+    if (expediente?.id && !isEditing) {
       guardarServicioEnSupabase({ ...servicioActual, proveedorId })
       guardarServicioEnSupabase(nuevoHotel)
     }
@@ -329,7 +332,7 @@ const ServiciosCotizacionPanel = ({
     setServicios(serviciosActualizados)
 
     const servicioActualizado = serviciosActualizados.find(s => s.id === id)
-    if (servicioActualizado && expediente?.id) {
+    if (servicioActualizado && expediente?.id && !isEditing) {
       if (timeoutsGuardado.current[id]) {
         clearTimeout(timeoutsGuardado.current[id])
         delete timeoutsGuardado.current[id]
@@ -345,65 +348,66 @@ const ServiciosCotizacionPanel = ({
     }
   }
 
+  const buildDatosParaSupabase = (servicio) => {
+    const nochesFinal = Math.max(1, toNum(servicio?.noches))
+    const tipoCalc = servicio?.tipo_calculo === 'porGrupo' || servicio?.tipo_calculo === 'Total a dividir' ? 'porGrupo' : 'porPersona'
+    const precioUnitario = toNum(servicio?.coste_unitario)
+    const fila = {
+      ...servicio,
+      tipo_calculo: tipoCalc,
+      tipo_servicio: servicio?.tipo_servicio || servicio?.tipo || '',
+      coste_unitario: precioUnitario,
+      noches: nochesFinal,
+      dias_guia: toNum(servicio?.dias_guia) || nochesFinal,
+      total_servicio_manual: toNum(servicio?.total_servicio_manual) || 0,
+    }
+    const calculado = finalizarCalculoModulo(fila, paxPago, totalPax)
+    const totalServicio = toNum(calculado?.total_servicio)
+    let proveedorIdLimpio = null
+    if (servicio?.proveedorId != null) {
+      const idRaw = typeof servicio.proveedorId === 'object' ? servicio.proveedorId?.id : servicio.proveedorId
+      const num = idRaw != null ? Number(idRaw) : NaN
+      proveedorIdLimpio = !isNaN(num) ? num : null
+    }
+    const tipoNorm = normalizarTipo(servicio?.tipo || '')
+    const cantidadGuia = Math.max(1, toNum(servicio?.cantidad ?? servicio?.dias_guia ?? nochesFinal))
+    const totalServicioFinal = (tipoNorm === 'guia' || tipoNorm === 'g')
+      ? toNum(precioUnitario) * cantidadGuia
+      : toNum(totalServicio)
+    return {
+      id_expediente: String(expediente?.id ?? '').trim(),
+      tipo_servicio: servicio?.tipo || 'Hotel',
+      nombre_especifico: servicio?.nombreEspecifico || '',
+      localizacion: servicio?.localizacion || '',
+      especificacion_destino: (servicio?.especificacion_destino && String(servicio.especificacion_destino).trim()) || null,
+      coste_unitario: toNum(precioUnitario),
+      total_servicio: totalServicioFinal,
+      precio_venta: toNum(precioUnitario),
+      margen_pax: toNum(servicio?.margen),
+      noches: nochesFinal,
+      dias_guia: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : nochesFinal,
+      cantidad: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : Math.max(1, toNum(servicio?.noches ?? 1)),
+      fecha_release: servicio?.fechaRelease || null,
+      release_pagado: !!servicio?.releasePagado,
+      tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
+      proveedor_id_int: proveedorIdLimpio,
+      nombre_proveedor_manual: (servicio?.proveedorNombreTemporal && String(servicio.proveedorNombreTemporal).trim()) || null,
+      coste_real_proveedor: servicio?.coste_real_proveedor != null && servicio.coste_real_proveedor !== '' ? toNum(servicio.coste_real_proveedor) : null,
+      mayorista_id: (() => {
+        const v = servicio?.mayorista_id
+        if (v == null || v === '' || v === undefined) return null
+        const str = String(v)
+        const esUuidValido = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+        return esUuidValido ? str : null
+      })(),
+    }
+  }
+
   const guardarServicioEnSupabase = async (servicio) => {
     if (!expediente?.id || !servicio) return
 
     try {
-      const nochesFinal = Math.max(1, toNum(servicio?.noches))
-      const tipoCalc = servicio?.tipo_calculo === 'porGrupo' || servicio?.tipo_calculo === 'Total a dividir' ? 'porGrupo' : 'porPersona'
-      const precioUnitario = toNum(servicio?.coste_unitario)
-      const fila = {
-        ...servicio,
-        tipo_calculo: tipoCalc,
-        tipo_servicio: servicio?.tipo_servicio || servicio?.tipo || '',
-        coste_unitario: precioUnitario,
-        noches: nochesFinal,
-        dias_guia: toNum(servicio?.dias_guia) || nochesFinal,
-        total_servicio_manual: toNum(servicio?.total_servicio_manual) || 0,
-      }
-      const calculado = finalizarCalculoModulo(fila, paxPago, totalPax)
-      const totalServicio = toNum(calculado?.total_servicio)
-
-      let proveedorIdLimpio = null
-      if (servicio?.proveedorId != null) {
-        const idRaw = typeof servicio.proveedorId === 'object' ? servicio.proveedorId?.id : servicio.proveedorId
-        const num = idRaw != null ? Number(idRaw) : NaN
-        proveedorIdLimpio = !isNaN(num) ? num : null
-      }
-
-      const tipoNorm = normalizarTipo(servicio?.tipo || '')
-      const cantidadGuia = Math.max(1, toNum(servicio?.cantidad ?? servicio?.dias_guia ?? nochesFinal))
-      const totalServicioFinal = (tipoNorm === 'guia' || tipoNorm === 'g')
-        ? toNum(precioUnitario) * cantidadGuia
-        : toNum(totalServicio)
-
-      const datosParaSupabase = {
-        id_expediente: String(expediente?.id ?? '').trim(),
-        tipo_servicio: servicio?.tipo || 'Hotel',
-        nombre_especifico: servicio?.nombreEspecifico || '',
-        localizacion: servicio?.localizacion || '',
-        especificacion_destino: (servicio?.especificacion_destino && String(servicio.especificacion_destino).trim()) || null,
-        coste_unitario: toNum(precioUnitario),
-        total_servicio: totalServicioFinal,
-        precio_venta: toNum(precioUnitario),
-        margen_pax: toNum(servicio?.margen),
-        noches: nochesFinal,
-        dias_guia: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : nochesFinal,
-        cantidad: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : Math.max(1, toNum(servicio?.noches ?? 1)),
-        fecha_release: servicio?.fechaRelease || null,
-        release_pagado: !!servicio?.releasePagado,
-        tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
-        proveedor_id_int: proveedorIdLimpio,
-        nombre_proveedor_manual: (servicio?.proveedorNombreTemporal && String(servicio.proveedorNombreTemporal).trim()) || null,
-        coste_real_proveedor: servicio?.coste_real_proveedor != null && servicio.coste_real_proveedor !== '' ? toNum(servicio.coste_real_proveedor) : null,
-        mayorista_id: (() => {
-          const v = servicio?.mayorista_id
-          if (v == null || v === '' || v === undefined) return null
-          const str = String(v)
-          const esUuidValido = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
-          return esUuidValido ? str : null
-        })(),
-      }
+      const datosParaSupabase = buildDatosParaSupabase(servicio)
 
       let servicioExiste = false
       if (servicio.id && typeof servicio.id === 'string' && servicio.id.length > 10 && servicio.id.includes('-')) {
@@ -521,10 +525,12 @@ const ServiciosCotizacionPanel = ({
 
   const guardarCambiosCosteReal = async () => {
     if (!expediente?.id || isSaving) return
-    const snapshot = serviciosSnapshotRef.current
-    if (!snapshot) return
+    const snapshot = serviciosSnapshotRef.current || []
 
-    const modificados = servicios.filter((s) => {
+    const nuevos = servicios.filter(s => !snapshot.find(o => o.id === s.id))
+    const existentes = servicios.filter(s => snapshot.find(o => o.id === s.id))
+
+    const modificados = existentes.filter((s) => {
       const orig = snapshot.find(o => o.id === s.id)
       if (!orig) return false
       const origVal = toNum(orig.coste_real_proveedor)
@@ -534,15 +540,30 @@ const ServiciosCotizacionPanel = ({
       return Math.abs(origVal - toNum(nuevoVal)) > 0.001
     })
 
-    if (modificados.length === 0) {
-      setIsEditing(false)
+    if (nuevos.length === 0 && modificados.length === 0) {
       serviciosSnapshotRef.current = null
+      setIsEditing(false)
       setHasCosteRealSinGuardar?.(false)
       return
     }
 
     setIsSaving(true)
     try {
+      for (const srv of nuevos) {
+        const datos = buildDatosParaSupabase(srv)
+        const { data, error } = await supabase
+          .from('servicios_cotizacion')
+          .insert([datos])
+          .select()
+          .single()
+        if (error) {
+          alert('No se pudo guardar el servicio nuevo. Inténtalo de nuevo.')
+          return
+        }
+        if (data) {
+          setServicios(prev => prev.map(s => (s.id === srv.id ? { ...s, id: data.id } : s)))
+        }
+      }
       for (const srv of modificados) {
         const valorFinal = srv.coste_real_proveedor == null || srv.coste_real_proveedor === '' ? null : toNum(srv.coste_real_proveedor)
         const { error } = await supabase
