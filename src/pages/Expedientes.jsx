@@ -115,22 +115,26 @@ const obtenerSiguienteNumeroExpediente = async (año) => {
     return `${año}-001`;
   }
 };
-// Mapa de colores corporativo: Petición=Amarillo, Finalizado=Azul, Confirmado=Verde, Cancelado=Rojo
+// Sistema de 5 Estados: Petición, Confirmado, Finalizado, Cerrado, Cancelado
 const ESTADOS = {
-  peticion: { label: 'Petición', color: 'bg-yellow-100 text-yellow-900 border-yellow-400', badge: 'bg-yellow-500', cssClass: 'peticion' },
-  confirmado: { label: 'Petición', color: 'bg-yellow-100 text-yellow-900 border-yellow-400', badge: 'bg-yellow-500', cssClass: 'peticion' },
+  peticion: { label: 'Petición', color: 'bg-yellow-100 text-yellow-900 border-yellow-400', badge: 'bg-yellow-400', cssClass: 'peticion' },
+  confirmado: { label: 'Petición', color: 'bg-yellow-100 text-yellow-900 border-yellow-400', badge: 'bg-yellow-400', cssClass: 'peticion' },
   en_curso: { label: 'Confirmado', color: 'bg-green-100 text-green-800 border-green-300', badge: 'bg-green-500', cssClass: 'en_curso' },
   finalizado: { label: 'Finalizado', color: 'bg-blue-100 text-blue-800 border-blue-300', badge: 'bg-blue-500', cssClass: 'finalizado' },
-  cancelado: { label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300', badge: 'bg-red-500', cssClass: 'cancelado' },
+  cerrado: { label: 'Cerrado', color: 'bg-purple-100 text-purple-800 border-purple-300', badge: 'bg-purple-600', cssClass: 'cerrado' },
+  cancelado: { label: 'Cancelado', color: 'bg-red-100 text-red-800 border-red-300', badge: 'bg-red-600', cssClass: 'cancelado' },
 }
+// Helper: lookup por estado normalizado (BD puede guardar 'Finalizado', 'Petición', etc.)
+const getEstadoUI = (estado) => ESTADOS[(estado || '').toString().trim().toLowerCase()] || ESTADOS.peticion
 
 const ESTADOS_UI = ['peticion', 'en_curso', 'finalizado', 'cancelado']
 
-// 4 pestañas: Petición, Confirmado, Finalizado, Cancelado
+// 5 pestañas: Petición, Confirmado, Finalizado, Cerrado, Cancelado
 const TABS_EXPEDIENTES = [
   { id: 'pendientes', label: 'Petición', estados: ['peticion', 'confirmado'] },
   { id: 'confirmados', label: 'Confirmado', estados: ['en_curso'] },
   { id: 'finalizado', label: 'Finalizado', estados: ['finalizado'] },
+  { id: 'cerrado', label: 'Cerrado', estados: ['cerrado'] },
   { id: 'cancelado', label: 'Cancelado', estados: ['cancelado'] },
 ]
 
@@ -1187,7 +1191,7 @@ const Expedientes = () => {
             .map((expediente, idx) => {
               try {
                 if (!expediente || !expediente.id) return null
-                const estado = ESTADOS[expediente.estado || 'peticion'] || ESTADOS.peticion
+                const estado = getEstadoUI(expediente.estado)
                 const cliente = clientes.find(c => String(c.id) === String(expediente.cliente_id || expediente.clienteId)) || {}
                 const nombreGrupo = expediente.cliente_nombre || cliente.nombre || 'GRUPO SIN NOMBRE'
                 const responsableCompleto = expediente.responsable || cliente.responsable || ''
@@ -1195,7 +1199,7 @@ const Expedientes = () => {
                 const fechaInicio = expediente.fecha_inicio || expediente.fechaInicio || ''
                 const fechaFin = expediente.fecha_final || expediente.fechaFin || expediente.fecha_fin || ''
 
-                const esCancelado = (expediente.estado || '') === 'cancelado'
+                const esCancelado = (expediente.estado || '').toString().trim().toLowerCase() === 'cancelado'
                 return (
                   <div key={expediente.id} className={`card border-l-4 ${estado.badge.replace('bg-', 'border-')} hover:shadow-xl transition-shadow cursor-pointer ${esCancelado ? 'bg-red-50/50 border-red-200' : ''}`}
                        onClick={() => abrirDetalle(expediente)}>
@@ -1254,25 +1258,31 @@ const Expedientes = () => {
                         title="Petición"
                         type="button"
                         onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'peticion'); }}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${(expediente?.estado === 'peticion' || expediente?.estado === 'confirmado') ? 'bg-[#FACC15] text-black' : 'bg-gray-100 text-gray-400'}`}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${['peticion', 'confirmado'].includes((expediente?.estado || '').toString().trim().toLowerCase()) ? 'bg-yellow-400 text-black' : 'bg-gray-100 text-gray-400'}`}
                       >P</button>
                       <button
                         title="Confirmado"
                         type="button"
                         onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'en_curso'); }}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${expediente?.estado === 'en_curso' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${(expediente?.estado || '').toString().trim().toLowerCase() === 'en_curso' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}
                       >C</button>
                       <button
                         title="Finalizado"
                         type="button"
                         onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'finalizado'); }}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${expediente?.estado === 'finalizado' ? 'bg-[#3B82F6] text-white' : 'bg-gray-100 text-gray-400'}`}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${(expediente?.estado || '').toString().trim().toLowerCase() === 'finalizado' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-400'}`}
                       >F</button>
+                      <button
+                        title="Cerrado"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'cerrado'); }}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${(expediente?.estado || '').toString().trim().toLowerCase() === 'cerrado' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-400'}`}
+                      >Ce</button>
                       <button
                         title="Cancelado"
                         type="button"
                         onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'cancelado'); }}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${expediente?.estado === 'cancelado' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-400'}`}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${(expediente?.estado || '').toString().trim().toLowerCase() === 'cancelado' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-400'}`}
                       >Ca</button>
                     </div>
                   </div>

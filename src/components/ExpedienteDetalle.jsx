@@ -3251,14 +3251,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   )}
                   <span
                     className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                      (expediente.estado || '').toLowerCase() === 'finalizado'
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : ['cotización', 'cotizacion', ''].includes((expediente.estado || '').toLowerCase())
-                        ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                        : 'bg-slate-100 text-slate-700 border border-slate-300'
+                      ['peticion', 'confirmado'].includes((expediente.estado || '').toLowerCase())
+                        ? 'bg-yellow-400 text-black'
+                        : (expediente.estado || '').toLowerCase() === 'en_curso'
+                        ? 'bg-green-500 text-white'
+                        : (expediente.estado || '').toLowerCase() === 'finalizado'
+                        ? 'bg-blue-500 text-white'
+                        : (expediente.estado || '').toLowerCase() === 'cerrado'
+                        ? 'bg-purple-600 text-white'
+                        : (expediente.estado || '').toLowerCase() === 'cancelado'
+                        ? 'bg-red-600 text-white'
+                        : 'bg-yellow-400 text-black'
                     }`}
                   >
-                    {expediente.estado || 'Cotización'}
+                    {['peticion', 'confirmado'].includes((expediente.estado || '').toLowerCase())
+                      ? 'Petición'
+                      : (expediente.estado || '').toLowerCase() === 'en_curso'
+                      ? 'Confirmado'
+                      : (expediente.estado || '').toLowerCase() === 'finalizado'
+                      ? 'Finalizado'
+                      : (expediente.estado || '').toLowerCase() === 'cerrado'
+                      ? 'Cerrado'
+                      : (expediente.estado || '').toLowerCase() === 'cancelado'
+                      ? 'Cancelado'
+                      : expediente.estado || 'Petición'}
                   </span>
                 </div>
                 {/* REGLA: Responsable = PEQUEÑO DEBAJO */}
