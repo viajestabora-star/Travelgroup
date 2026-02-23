@@ -643,7 +643,7 @@ const ExpedienteFinanzas = ({
 
       const { error } = await supabase
         .from('expedientes')
-        .update({ cierre_grupo: datosCierre })
+        .update({ cierre_grupo: datosCierre, estado: 'Finalizado' })
         .eq('id', expediente.id)
 
       if (error) {
@@ -651,7 +651,7 @@ const ExpedienteFinanzas = ({
         return
       }
 
-      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: datosCierre })
+      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: datosCierre, estado: 'Finalizado' })
       alert('Cierre guardado correctamente.')
     } catch (err) {
       const detalle = err?.message || err?.toString?.() || JSON.stringify(err)

@@ -3242,12 +3242,25 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 <h1 className="text-3xl font-black text-navy-900 uppercase mb-1">
                   {expediente.nombre_grupo || expediente.clienteNombre || grupo.nombre || 'SIN NOMBRE DE GRUPO'}
                 </h1>
-                {/* Número de expediente (EXP-XXXX) — prominente en cabecera */}
-                {expediente.numero_expediente && (
-                  <p className="text-sm font-bold font-mono text-blue-700 mb-1">
-                    EXP-{expediente.numero_expediente}
-                  </p>
-                )}
+                {/* Número de expediente (EXP-XXXX) y Badge de Estado */}
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  {expediente.numero_expediente && (
+                    <p className="text-sm font-bold font-mono text-blue-700">
+                      EXP-{expediente.numero_expediente}
+                    </p>
+                  )}
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                      (expediente.estado || '').toLowerCase() === 'finalizado'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : ['cotización', 'cotizacion', ''].includes((expediente.estado || '').toLowerCase())
+                        ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                        : 'bg-slate-100 text-slate-700 border border-slate-300'
+                    }`}
+                  >
+                    {expediente.estado || 'Cotización'}
+                  </span>
+                </div>
                 {/* REGLA: Responsable = PEQUEÑO DEBAJO */}
                 <p className="text-sm text-gray-600 mb-2">
                   👤 {expediente.cliente_responsable || expediente.responsable || grupo.responsable || 'Sin Responsable'}
