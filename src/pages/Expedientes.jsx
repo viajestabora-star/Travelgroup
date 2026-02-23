@@ -1004,11 +1004,12 @@ const Expedientes = () => {
     )
   })
 
-  // Filtrar por pestaña activa (cada pestaña = uno o más estados)
+  // Filtrar por pestaña activa: conteo por estado (case-insensitive, BD puede guardar 'Cerrado', 'Finalizado', etc.)
   const expedientesPorTab = TABS_EXPEDIENTES.reduce((acc, t) => {
-    acc[t.id] = expedientesFiltradosPorEjercicioYBusqueda.filter(exp =>
-      (t.estados || []).includes(exp.estado || '')
-    )
+    acc[t.id] = expedientesFiltradosPorEjercicioYBusqueda.filter(exp => {
+      const estadoExp = (exp.estado ?? '').toString().trim().toLowerCase()
+      return (t.estados || []).some(e => ((e ?? '').toString().trim().toLowerCase()) === estadoExp)
+    })
     return acc
   }, {})
 
