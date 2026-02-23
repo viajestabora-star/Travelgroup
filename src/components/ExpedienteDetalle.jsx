@@ -376,7 +376,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Ref para detectar cambios sin guardar en cotización (formData)
   const lastSavedFormDataRef = useRef(null)
   const [guardadoExitoCotizacion, setGuardadoExitoCotizacion] = useState(false)
-  const [hasCosteRealSinGuardar, setHasCosteRealSinGuardar] = useState(false)
 
   // Estado local del Cierre de Grupo (editable, NO machaca cotización)
   // costesReales: desde servicios cotización, con coste_real editable (factura proveedor)
@@ -518,6 +517,80 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   useEffect(() => {
     cargarProveedores()
   }, [])
+
+  // Cargar servicios de cotización cuando se abre el expediente (para Cierre de Grupo y otras pestañas)
+  // Así "Cargar desde Cotización" funciona aunque el usuario no haya visitado la pestaña Cotización
+  const cargarServiciosCotizacion = async () => {
+    const id = expediente?.id
+    if (!id) return
+    try {
+      let serviciosResponse = await supabase
+        .from('servicios_cotizacion')
+        .select('*')
+        .eq('id_expediente', String(id).trim())
+        .order('created_at', { ascending: true, nullsFirst: false })
+        .order('id', { ascending: true })
+
+      if (serviciosResponse.error && (serviciosResponse.error.code === 'PGRST204' || String(serviciosResponse.error.message || '').includes('created_at'))) {
+        serviciosResponse = await supabase
+          .from('servicios_cotizacion')
+          .select('*')
+          .eq('id_expediente', String(id).trim())
+          .order('id', { ascending: true })
+      }
+
+      const data = serviciosResponse.data
+      if (data && Array.isArray(data) && data.length > 0) {
+        const coste = (v) => toNum(v)
+        const todosMapeados = data.map((row) => {
+          const proveedorIdInt = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
+          const c = coste(row.coste_unitario ?? row.precio_venta)
+          const esPorGrupo = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
+          return {
+            ...DEFAULT_SERVICE_VALUES,
+            id: row.id || generarUUID(),
+            proveedorId: proveedorIdInt,
+            proveedorNombreTemporal: row.nombre_proveedor_manual || '',
+            tipo: row.tipo_servicio || row.tipo || 'Hotel',
+            tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
+            nombreEspecifico: row.nombre_especifico || '',
+            localizacion: row.localizacion || '',
+            especificacion_destino: row.especificacion_destino || '',
+            coste_unitario: c,
+            total_servicio_manual: esPorGrupo ? c : 0,
+            tipo_calculo: esPorGrupo ? 'porGrupo' : 'porPersona',
+            margen: coste(row.margen_pax),
+            noches: Math.max(1, coste(row.noches)),
+            dias_guia: coste(row.dias_guia) || Math.max(1, coste(row.noches)),
+            cantidad: Math.max(1, coste(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)),
+            fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
+            releasePagado: !!row.release_pagado,
+            mayorista_id: (row.mayorista_id != null && row.mayorista_id !== '') ? (typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-') ? row.mayorista_id : String(row.mayorista_id)) : null,
+          }
+        })
+        const tieneProveedor = (r) => r.proveedorId != null || (r.proveedorNombreTemporal && String(r.proveedorNombreTemporal).trim())
+        const tieneNombreServicio = (r) => r.nombreEspecifico && String(r.nombreEspecifico).trim()
+        const tieneTipo = (r) => r.tipo && String(r.tipo).trim()
+        const tieneImporte = (r) => r.coste_unitario != null && Number(r.coste_unitario) > 0
+        const tieneTotalManual = (r) => r.total_servicio_manual != null && Number(r.total_servicio_manual) > 0
+        const tieneDatos = (r) => tieneProveedor(r) || tieneNombreServicio(r) || tieneImporte(r) || tieneTotalManual(r) || tieneTipo(r)
+        const serviciosMapeados = todosMapeados.filter(tieneDatos)
+        setServicios(serviciosMapeados)
+      } else {
+        setServicios([])
+      }
+    } catch (_) {
+      setServicios([])
+    }
+  }
+
+  useEffect(() => {
+    if (expediente?.id) {
+      cargarServiciosCotizacion()
+    } else {
+      setServicios([])
+    }
+  }, [expediente?.id])
 
   // Función para cargar historial de expedientes del mismo cliente
   const cargarHistorialExpedientes = async (nombreCliente) => {
@@ -692,12 +765,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [expediente?.id]) // Solo depende del ID del expediente
 
-  // Detectar cambios sin guardar en cotización (formData vs último guardado + coste_real_proveedor)
+  // Detectar cambios sin guardar en cotización (formData vs último guardado)
   const hasCotizacionSinGuardar = useMemo(() => {
     const last = lastSavedFormDataRef.current
-    const formDataDirty = last && formData && !formDataCotizacionIgual(formData, last)
-    return formDataDirty || hasCosteRealSinGuardar
-  }, [formData, hasCosteRealSinGuardar])
+    return last && formData && !formDataCotizacionIgual(formData, last)
+  }, [formData])
 
   const recargarInformeDesdeCotizacion = () => {
     if (!servicios?.length) return
@@ -3024,7 +3096,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const resultado = await persistirCambios()
     if (resultado.ok) {
       lastSavedFormDataRef.current = { ...formData }
-      setHasCosteRealSinGuardar(false)
       setGuardadoExitoCotizacion(true)
       setTimeout(() => setGuardadoExitoCotizacion(false), 2500)
     } else {
@@ -4382,7 +4453,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   totalPax={totalPax}
                   onRefresh={onRefresh}
                   cargarProveedores={cargarProveedores}
-                  setHasCosteRealSinGuardar={setHasCosteRealSinGuardar}
                   persistirCambios={persistirCambios}
                   isSaving={isSaving}
                   setIsSaving={setIsSaving}

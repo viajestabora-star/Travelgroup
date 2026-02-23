@@ -90,7 +90,6 @@ const ServiciosCotizacionPanel = ({
   totalPax,
   onRefresh,
   cargarProveedores,
-  setHasCosteRealSinGuardar,
   persistirCambios,
   isSaving,
   setIsSaving,
@@ -203,7 +202,6 @@ const ServiciosCotizacionPanel = ({
               fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
               releasePagado: !!row.release_pagado,
               mayorista_id: (row.mayorista_id != null && row.mayorista_id !== '') ? (typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-') ? row.mayorista_id : String(row.mayorista_id)) : null,
-              coste_real_proveedor: row?.coste_real_proveedor != null ? toNum(row.coste_real_proveedor) : null,
             }
           })
 
@@ -392,7 +390,6 @@ const ServiciosCotizacionPanel = ({
       tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
       proveedor_id_int: proveedorIdLimpio,
       nombre_proveedor_manual: (servicio?.proveedorNombreTemporal && String(servicio.proveedorNombreTemporal).trim()) || null,
-      coste_real_proveedor: servicio?.coste_real_proveedor != null && servicio.coste_real_proveedor !== '' ? toNum(servicio.coste_real_proveedor) : null,
       mayorista_id: (() => {
         const v = servicio?.mayorista_id
         if (v == null || v === '' || v === undefined) return null
@@ -473,20 +470,6 @@ const ServiciosCotizacionPanel = ({
     }
   }
 
-  const guardarCosteRealProveedor = async (servicioId, valor) => {
-    if (!servicioId || !expediente?.id) return
-    const valorFinal = valor == null || valor === '' ? null : toNum(valor)
-    try {
-      const { error } = await supabase
-        .from('servicios_cotizacion')
-        .update({ coste_real_proveedor: valorFinal })
-        .eq('id', servicioId)
-        .eq('id_expediente', String(expediente.id).trim())
-      if (error) return
-      setServicios(prev => prev.map(s => (s.id === servicioId ? { ...s, coste_real_proveedor: valorFinal } : s)))
-    } catch (_) {}
-  }
-
   const handleGuardar = async () => {
     if (isSaving) return
     setIsSaving(true)
@@ -515,35 +498,23 @@ const ServiciosCotizacionPanel = ({
       serviciosSnapshotRef.current = null
     }
     setIsEditing(false)
-    setHasCosteRealSinGuardar?.(false)
   }
 
-  const actualizarCosteRealLocal = (servicioId, valor) => {
-    const valorFinal = valor == null || valor === '' || valor === '-' ? null : valor
-    setServicios(prev => prev.map(s => (s.id === servicioId ? { ...s, coste_real_proveedor: valorFinal } : s)))
-  }
-
-  const guardarCambiosCosteReal = async () => {
+  const guardarCambiosEdicion = async () => {
     if (!expediente?.id || isSaving) return
     const snapshot = serviciosSnapshotRef.current || []
 
     const nuevos = servicios.filter(s => !snapshot.find(o => o.id === s.id))
     const existentes = servicios.filter(s => snapshot.find(o => o.id === s.id))
-
     const modificados = existentes.filter((s) => {
       const orig = snapshot.find(o => o.id === s.id)
       if (!orig) return false
-      const origVal = toNum(orig.coste_real_proveedor)
-      const nuevoVal = s.coste_real_proveedor
-      if (origVal === 0 && (nuevoVal == null || nuevoVal === '')) return false
-      if (nuevoVal == null || nuevoVal === '') return origVal !== 0
-      return Math.abs(origVal - toNum(nuevoVal)) > 0.001
+      return JSON.stringify({ ...orig, coste_real_proveedor: undefined }) !== JSON.stringify({ ...s, coste_real_proveedor: undefined })
     })
 
     if (nuevos.length === 0 && modificados.length === 0) {
       serviciosSnapshotRef.current = null
       setIsEditing(false)
-      setHasCosteRealSinGuardar?.(false)
       return
     }
 
@@ -565,20 +536,20 @@ const ServiciosCotizacionPanel = ({
         }
       }
       for (const srv of modificados) {
-        const valorFinal = srv.coste_real_proveedor == null || srv.coste_real_proveedor === '' ? null : toNum(srv.coste_real_proveedor)
+        const datos = buildDatosParaSupabase(srv)
         const { error } = await supabase
           .from('servicios_cotizacion')
-          .update({ coste_real_proveedor: valorFinal })
+          .update(datos)
           .eq('id', srv.id)
           .eq('id_expediente', String(expediente.id).trim())
         if (error) {
-          alert('No se pudo guardar el coste real. Inténtalo de nuevo.')
+          alert('No se pudo guardar los cambios. Inténtalo de nuevo.')
           return
         }
       }
       serviciosSnapshotRef.current = null
       setIsEditing(false)
-      setHasCosteRealSinGuardar?.(false)
+      if (typeof onRefresh === 'function') onRefresh()
     } catch (_) {
       alert('No se pudo guardar. Inténtalo de nuevo.')
     } finally {
@@ -614,7 +585,7 @@ const ServiciosCotizacionPanel = ({
             ) : (
               <>
                 <button
-                  onClick={guardarCambiosCosteReal}
+                  onClick={guardarCambiosEdicion}
                   disabled={isSaving}
                   className="btn-primary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60"
                 >
@@ -645,14 +616,13 @@ const ServiciosCotizacionPanel = ({
         ) : (
           <>
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '950px' }}>
+              <table className="w-full whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '860px' }}>
                 <colgroup>
                   <col style={{ width: '160px', minWidth: '160px', maxWidth: '160px' }} />
                   <col style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }} />
                   <col style={{ width: '130px', minWidth: '130px', maxWidth: '130px' }} />
                   <col style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }} />
                   <col style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }} />
-                  <col style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }} />
                   <col style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }} />
                   <col style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }} />
                   <col style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }} />
@@ -665,7 +635,6 @@ const ServiciosCotizacionPanel = ({
                     <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '130px' }}>Detalle</th>
                     <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '50px' }}>Cant.</th>
                     <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '70px' }}>Precio</th>
-                    <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '90px' }}>Coste Real (€)</th>
                     <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '120px' }}>Modo</th>
                     <th className="px-1 py-2 text-right text-xs font-semibold text-gray-700" style={{ width: '90px' }}>Total</th>
                     <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '120px' }}>Release</th>
@@ -953,35 +922,6 @@ const ServiciosCotizacionPanel = ({
                         </div>
                       </td>
 
-                      <td className="px-1 py-2 align-middle" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
-                        <div className="flex justify-end">
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={servicio?.coste_real_proveedor ?? ''}
-                              onChange={(e) => actualizarCosteRealLocal(servicio.id, e.target.value || null)}
-                              onWheel={handleWheel}
-                              onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
-                              onBlur={(e) => {
-                                e.target.style.borderColor = '#e2e8f0'
-                                e.target.style.boxShadow = 'none'
-                              }}
-                              className="input-field text-xs text-right w-full transition-all"
-                              style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '90px', minWidth: '90px', maxWidth: '90px' }}
-                              placeholder="—"
-                            />
-                          ) : (
-                            <span className="text-gray-900 text-xs font-medium">
-                              {servicio?.coste_real_proveedor != null && servicio.coste_real_proveedor !== ''
-                                ? `${Number(servicio.coste_real_proveedor).toFixed(2)}€`
-                                : '—'}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
                       <td className="px-1 py-2 text-center align-middle" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>
                         {(servicio.tipo === 'Autobús' || servicio.tipo === 'Transporte') ? (
                           <span className="text-xs font-medium text-slate-600" title="Autobús/Transporte siempre divide el total entre pasajeros de pago">Total ÷ pax</span>
@@ -1181,33 +1121,6 @@ const ServiciosCotizacionPanel = ({
                     <div>
                       <span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Precio</span>
                       <input type="number" step="0.01" value={servicio.coste_unitario === '' || servicio.coste_unitario == null ? '' : servicio.coste_unitario} onWheel={handleWheel} onChange={(e) => { const valorInput = e.target.value; if (valorInput === '' || valorInput === '-') { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: '', total_servicio_manual: '' } : { coste_unitario: '' }); return; } const valorLimpio = valorInput.replace(/,/g, '.'); const valorNumerico = parseFloat(valorLimpio); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } else { actualizarServicio(servicio.id, 'coste_unitario', valorLimpio); } }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} onBlur={(e) => { const valor = e.target.value; if (valor !== '' && valor !== '-') { const valorNumerico = parseFloat(valor.replace(/,/g, '.')); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } } else { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: 0, total_servicio_manual: 0 } : { coste_unitario: 0 }); } e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }} className="input-field text-xs text-right w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} placeholder="0.00" min="0" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Coste real proveedor</span>
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={servicio?.coste_real_proveedor ?? ''}
-                          onChange={(e) => actualizarCosteRealLocal(servicio.id, e.target.value || null)}
-                          onWheel={handleWheel}
-                          onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
-                          onBlur={(e) => {
-                            e.target.style.borderColor = '#e2e8f0'
-                            e.target.style.boxShadow = 'none'
-                          }}
-                          className="input-field text-xs text-right w-full transition-all"
-                          style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                          placeholder="—"
-                          min="0"
-                        />
-                      ) : (
-                        <span className="text-gray-900 text-sm font-medium block py-2">
-                          {servicio?.coste_real_proveedor != null && servicio.coste_real_proveedor !== ''
-                            ? `${Number(servicio.coste_real_proveedor).toFixed(2)}€`
-                            : '—'}
-                        </span>
-                      )}
                     </div>
                   </div>
                   <div>
