@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import { Users, TrendingUp } from 'lucide-react'
 import CrmIntelligencePanel from './CrmIntelligencePanel'
+import InteligenciaEconomicaPanel from './InteligenciaEconomicaPanel'
 
 /**
  * CentralDeInteligencia - Contenedor principal de la Central de Inteligencia.
- * Gestiona el estado para mostrar los paneles CRM y Económico.
  */
-const CentralDeInteligencia = () => {
+const CentralDeInteligencia = ({ userEmail }) => {
   const [panelActivo, setPanelActivo] = useState('crm')
 
   return (
@@ -36,12 +36,10 @@ const CentralDeInteligencia = () => {
         </button>
       </div>
 
-      {panelActivo === 'crm' && <CrmIntelligencePanel />}
-      {panelActivo === 'economica' && (
-        <div className="p-6 rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 text-gray-500 text-center">
-          Panel de Inteligencia Económica — próximamente
-        </div>
-      )}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+        {panelActivo === 'crm' && <CrmIntelligencePanel />}
+        {panelActivo === 'economica' && <InteligenciaEconomicaPanel userEmail={userEmail} />}
+      </div>
     </div>
   )
 }
