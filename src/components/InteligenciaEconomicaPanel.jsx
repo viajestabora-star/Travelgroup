@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { TrendingUp, DollarSign, Percent, BarChart3 } from 'lucide-react'
+import { TrendingUp, DollarSign, BarChart3 } from 'lucide-react'
 import { supabase } from '../supabase'
 
 const formatearMoneda = (valor) => {
@@ -8,34 +8,41 @@ const formatearMoneda = (valor) => {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 
-const formatearPorcentaje = (valor) => {
-  const n = Number(valor)
-  if (isNaN(n)) return '—'
-  return `${n >= 0 ? '+' : ''}${n.toFixed(1)} %`
-}
-
 const InteligenciaEconomicaPanel = () => {
-  const [data, setData] = useState([])
+  const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [ocultarPorEmail, setOcultarPorEmail] = useState(false)
 
   useEffect(() => {
     const cargarDatos = async () => {
       setLoading(true)
       setError(null)
+      setOcultarPorEmail(false)
+
       try {
-        const { data: rentabilidadData, error: err } = await supabase
-          .from('vista_expedientes_rentabilidad')
-          .select('*')
-        if (err) {
-          setError(err.message)
-          setData([])
+        // Seguridad: si el email es grupos@viajestabora.com, no mostrar el panel
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user?.email?.toLowerCase?.() === 'grupos@viajestabora.com') {
+          setOcultarPorEmail(true)
+          setLoading(false)
           return
         }
-        setData(Array.isArray(rentabilidadData) ? rentabilidadData : [])
+
+        const { data: vistaData, error: err } = await supabase
+          .from('vista_global_financiera')
+          .select('*')
+          .single()
+
+        if (err) {
+          setError(err.message)
+          setData(null)
+          return
+        }
+        setData(vistaData)
       } catch (e) {
         setError(e?.message || 'Error al cargar datos')
-        setData([])
+        setData(null)
       } finally {
         setLoading(false)
       }
@@ -43,15 +50,8 @@ const InteligenciaEconomicaPanel = () => {
     cargarDatos()
   }, [])
 
-  const kpis = React.useMemo(() => {
-    const filas = data || []
-    const ingresosTotales = filas.reduce((sum, r) => sum + (Number(r.ingresos_totales_expediente) || 0), 0)
-    const costesTotales = filas.reduce((sum, r) => sum + (Number(r.costes_totales_reales_expediente) || 0), 0)
-    const beneficioBrutoTotal = filas.reduce((sum, r) => sum + (Number(r.beneficio_bruto_expediente) || 0), 0)
-    const margenes = filas.filter(r => r.margen_beneficio_expediente_porcentaje != null).map(r => Number(r.margen_beneficio_expediente_porcentaje))
-    const margenPromedio = margenes.length > 0 ? margenes.reduce((a, b) => a + b, 0) / margenes.length : null
-    return { ingresosTotales, costesTotales, beneficioBrutoTotal, margenPromedio }
-  }, [data])
+  // Seguridad: no mostrar nada si el email es grupos@viajestabora.com
+  if (ocultarPorEmail) return null
 
   if (loading) {
     return (
@@ -59,7 +59,7 @@ const InteligenciaEconomicaPanel = () => {
         <div className="flex items-center justify-center py-16">
           <div className="flex flex-col items-center gap-3">
             <div className="w-12 h-12 border-4 border-navy-200 border-t-navy-600 rounded-full animate-spin" />
-            <p className="text-gray-500 font-medium">Cargando datos de rentabilidad...</p>
+            <p className="text-gray-500 font-medium">Cargando KPIs financieros...</p>
           </div>
         </div>
       </div>
@@ -77,6 +77,8 @@ const InteligenciaEconomicaPanel = () => {
     )
   }
 
+  const kpis = data || {}
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -86,88 +88,70 @@ const InteligenciaEconomicaPanel = () => {
         </h2>
       </div>
 
-      {/* Tarjetas de KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Tarjetas de KPIs desde vista_global_financiera */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         <div className="p-5 rounded-xl border-2 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-2 text-slate-500 mb-2">
             <DollarSign size={18} />
-            <span className="text-sm font-bold uppercase tracking-wider">Ingresos Totales</span>
+            <span className="text-sm font-bold uppercase tracking-wider">Ingresos Brutos Totales</span>
           </div>
-          <p className="text-2xl font-bold text-navy-900">{formatearMoneda(kpis.ingresosTotales)}</p>
+          <p className="text-2xl font-bold text-navy-900">{formatearMoneda(kpis.ingresos_brutos_totales)}</p>
         </div>
+
         <div className="p-5 rounded-xl border-2 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-2 text-slate-500 mb-2">
             <DollarSign size={18} />
-            <span className="text-sm font-bold uppercase tracking-wider">Costes Totales</span>
+            <span className="text-sm font-bold uppercase tracking-wider">Costes Variables Totales</span>
           </div>
-          <p className="text-2xl font-bold text-navy-900">{formatearMoneda(kpis.costesTotales)}</p>
+          <p className="text-2xl font-bold text-navy-900">{formatearMoneda(kpis.costes_variables_totales)}</p>
         </div>
+
         <div className="p-5 rounded-xl border-2 border-emerald-200 bg-emerald-50 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-2 text-emerald-700 mb-2">
             <TrendingUp size={18} />
-            <span className="text-sm font-bold uppercase tracking-wider">Beneficio Bruto Total</span>
+            <span className="text-sm font-bold uppercase tracking-wider">Beneficio Bruto de Viajes</span>
           </div>
-          <p className={`text-2xl font-bold ${kpis.beneficioBrutoTotal >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
-            {formatearMoneda(kpis.beneficioBrutoTotal)}
+          <p className={`text-2xl font-bold ${(Number(kpis.beneficio_bruto_expedientes) || 0) >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+            {formatearMoneda(kpis.beneficio_bruto_expedientes)}
           </p>
         </div>
+
         <div className="p-5 rounded-xl border-2 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-2 text-slate-500 mb-2">
-            <Percent size={18} />
-            <span className="text-sm font-bold uppercase tracking-wider">Margen Promedio</span>
+            <DollarSign size={18} />
+            <span className="text-sm font-bold uppercase tracking-wider">Costes Fijos Totales</span>
           </div>
-          <p className="text-2xl font-bold text-navy-900">{formatearPorcentaje(kpis.margenPromedio)}</p>
+          <p className="text-2xl font-bold text-navy-900">{formatearMoneda(kpis.costes_fijos_totales)}</p>
+        </div>
+
+        <div className="p-5 rounded-xl border-2 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center gap-2 text-slate-500 mb-2">
+            <DollarSign size={18} />
+            <span className="text-sm font-bold uppercase tracking-wider">Beneficio Neto antes de Impuestos</span>
+          </div>
+          <p className={`text-2xl font-bold ${(Number(kpis.beneficio_neto_antes_impuestos) || 0) >= 0 ? 'text-navy-900' : 'text-red-800'}`}>
+            {formatearMoneda(kpis.beneficio_neto_antes_impuestos)}
+          </p>
+        </div>
+
+        <div className="p-5 rounded-xl border-2 border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center gap-2 text-slate-500 mb-2">
+            <DollarSign size={18} />
+            <span className="text-sm font-bold uppercase tracking-wider">IVA Estimado</span>
+          </div>
+          <p className="text-2xl font-bold text-navy-900">{formatearMoneda(kpis.iva_estimado)}</p>
         </div>
       </div>
 
-      {/* Tabla de detalle */}
-      <div className="rounded-xl border-2 border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 bg-slate-50">
-          <h3 className="text-base font-bold text-navy-900">Detalle por expediente</h3>
+      {/* Beneficio Neto Final - diseño destacado */}
+      <div className="p-6 rounded-xl border-2 border-emerald-300 bg-gradient-to-r from-emerald-50 to-green-50 shadow-md">
+        <div className="flex items-center gap-2 text-emerald-700 mb-2">
+          <TrendingUp size={22} />
+          <span className="text-sm font-bold uppercase tracking-wider">Beneficio Neto Final</span>
         </div>
-        {data.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">
-            <p className="font-medium">No hay datos de rentabilidad disponibles</p>
-            <p className="text-sm mt-1">La vista vista_expedientes_rentabilidad no contiene datos.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px]">
-              <thead>
-                <tr className="bg-slate-100 border-b border-slate-200">
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase text-slate-600 tracking-wider">Nº Expediente</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase text-slate-600 tracking-wider">Grupo</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase text-slate-600 tracking-wider">Destino</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold uppercase text-slate-600 tracking-wider">Ingresos</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold uppercase text-slate-600 tracking-wider">Costes</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold uppercase text-slate-600 tracking-wider">Beneficio Bruto</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold uppercase text-slate-600 tracking-wider">Margen %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((row, idx) => {
-                  const beneficio = Number(row.beneficio_bruto_expediente) || 0
-                  return (
-                    <tr
-                      key={row.id || idx}
-                      className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}
-                    >
-                      <td className="px-4 py-3 text-sm font-medium text-navy-900">{row.numero_expediente || '—'}</td>
-                      <td className="px-4 py-3 text-sm text-slate-700">{row.nombre_grupo || '—'}</td>
-                      <td className="px-4 py-3 text-sm text-slate-700">{row.destino || '—'}</td>
-                      <td className="px-4 py-3 text-sm text-right font-medium">{formatearMoneda(row.ingresos_totales_expediente)}</td>
-                      <td className="px-4 py-3 text-sm text-right font-medium">{formatearMoneda(row.costes_totales_reales_expediente)}</td>
-                      <td className={`px-4 py-3 text-sm text-right font-bold ${beneficio >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                        {formatearMoneda(row.beneficio_bruto_expediente)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right font-medium">{formatearPorcentaje(row.margen_beneficio_expediente_porcentaje)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <p className={`text-3xl sm:text-4xl font-black ${(Number(kpis.beneficio_neto_final) || 0) >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+          {formatearMoneda(kpis.beneficio_neto_final)}
+        </p>
       </div>
     </div>
   )
