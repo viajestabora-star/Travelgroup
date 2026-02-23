@@ -5,6 +5,7 @@ import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol,
 import { supabase } from '../supabase'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
+import EditableInput from './EditableInput'
 import jsPDF from 'jspdf'
 
 // Función helper para normalizar tipos: minúsculas + sin tildes
@@ -2244,7 +2245,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const paxPago = Math.max(0, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
   const totalPax = Math.max(0, toNum(expediente?.total_pax) || toNum(formData?.total_pax))
 
-  // Resultados de Cotización: usa el array servicios del estado (cargado desde Supabase)
+  // Firma primitiva de servicios: evita re-renders cuando el array cambia de referencia pero el contenido es igual
+  const serviciosSignature = useMemo(() =>
+    servicios.map(s => `${s.id}:${toNum(s.coste_unitario)}:${toNum(s.noches)}:${toNum(s.cantidad)}:${s.tipo_calculo}:${toNum(s.total_servicio_manual)}:${s.tipo || ''}`).join('|'),
+    [servicios]
+  )
+
+  // Resultados de Cotización: depende de valores primitivos para evitar recálculos innecesarios
   const resultados = useMemo(() => {
     const nochesExpediente = Math.max(1, toNum(expediente?.noches) || toNum(formData?.noches))
     return calcularFinanzasExpediente({
@@ -2254,7 +2261,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       totalPax,
       nochesExpediente,
     })
-  }, [servicios, formData, paxPago, totalPax, expediente?.noches, expediente?.pax_pago, expediente?.total_pax])
+  }, [serviciosSignature, formData, paxPago, totalPax, expediente?.noches, expediente?.pax_pago, expediente?.total_pax])
 
   // NOTA: Para "Total a dividir" (porGrupo), coste_unitario y total_servicio_manual almacenan el TOTAL.
 
@@ -4085,10 +4092,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div>
                       <label className="label">Total Pasajeros *</label>
-                      <input
+                      <EditableInput
                         type="number"
-                        value={formData?.total_pax || ''}
-                        onChange={(e) => setFormData({ ...formData, total_pax: e.target.value })}
+                        value={formData?.total_pax ?? ''}
+                        onSave={(v) => setFormData(prev => ({ ...prev, total_pax: v }))}
+                        parseValue={(v) => Math.max(1, parseInt(String(v).trim(), 10) || 1)}
+                        formatForDisplay={(v) => (v === null || v === undefined || v === '' ? '' : String(v))}
                         onFocus={(e) => {
                           e.target.select()
                           handleFocus(e)
@@ -4105,13 +4114,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         min="1"
                         tabIndex="1"
                       />
-            </div>
+                    </div>
                     <div>
                       <label className="label">Gratuidades</label>
-                      <input
+                      <EditableInput
                         type="number"
-                        value={formData?.gratuidades || ''}
-                        onChange={(e) => setFormData({ ...formData, gratuidades: e.target.value })}
+                        value={formData?.gratuidades ?? ''}
+                        onSave={(v) => setFormData(prev => ({ ...prev, gratuidades: v }))}
+                        parseValue={(v) => Math.max(0, parseInt(String(v).trim(), 10) || 0)}
+                        formatForDisplay={(v) => (v === null || v === undefined || v === '' ? '' : String(v))}
                         onFocus={(e) => {
                           e.target.select()
                           handleFocus(e)
@@ -4131,24 +4142,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     </div>
                     <div>
                       <label className="label">Bonificación/Pax (€)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={formData?.bonificacion_pax || ''}
-                        onChange={(e) => {
-                          const valorInput = e.target.value;
-                          if (valorInput === '' || valorInput === '-') {
-                            setFormData({ ...formData, bonificacion_pax: '' });
-                            return;
-                          }
-                          let valorLimpio = valorInput.replace(/,/g, '.');
-                          const valorNumerico = parseFloat(valorLimpio);
-                          if (!isNaN(valorNumerico)) {
-                            setFormData({ ...formData, bonificacion_pax: valorNumerico });
-                          } else {
-                            setFormData({ ...formData, bonificacion_pax: valorLimpio });
-                          }
+                      <EditableInput
+                        type="text"
+                        value={formData?.bonificacion_pax ?? ''}
+                        onSave={(v) => setFormData(prev => ({ ...prev, bonificacion_pax: v }))}
+                        parseValue={(v) => {
+                          const s = String(v || '').trim().replace(/,/g, '.')
+                          if (s === '' || s === '-') return 0
+                          const n = parseFloat(s)
+                          return isNaN(n) ? 0 : Math.max(0, n)
                         }}
+                        formatForDisplay={(v) => (v === null || v === undefined || v === '' ? '' : String(v))}
                         onFocus={(e) => {
                           e.target.select()
                           handleFocus(e)
@@ -4156,14 +4160,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                         }}
                         onBlur={(e) => {
-                          const valor = e.target.value;
-                          if (valor !== '' && valor !== '-') {
-                            const valorLimpio = valor.replace(/,/g, '.');
-                            const valorNumerico = parseFloat(valorLimpio);
-                            setFormData({ ...formData, bonificacion_pax: isNaN(valorNumerico) ? 0 : valorNumerico });
-                          } else {
-                            setFormData({ ...formData, bonificacion_pax: 0 });
-                          }
                           e.target.style.borderColor = '#e2e8f0'
                           e.target.style.boxShadow = 'none'
                         }}
@@ -4177,24 +4173,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     </div>
                     <div>
                       <label className="label font-bold text-green-700">💰 Precio Venta al Cliente (€/pax) *</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={formData?.precio_venta_cliente || ''}
-                        onChange={(e) => {
-                          const valorInput = e.target.value;
-                          if (valorInput === '' || valorInput === '-') {
-                            setFormData({ ...formData, precio_venta_cliente: '' });
-                            return;
-                          }
-                          let valorLimpio = valorInput.replace(/,/g, '.');
-                          const valorNumerico = parseFloat(valorLimpio);
-                          if (!isNaN(valorNumerico)) {
-                            setFormData({ ...formData, precio_venta_cliente: valorNumerico });
-                          } else {
-                            setFormData({ ...formData, precio_venta_cliente: valorLimpio });
-                          }
+                      <EditableInput
+                        type="text"
+                        value={formData?.precio_venta_cliente ?? ''}
+                        onSave={(v) => setFormData(prev => ({ ...prev, precio_venta_cliente: v }))}
+                        parseValue={(v) => {
+                          const s = String(v || '').trim().replace(/,/g, '.')
+                          if (s === '' || s === '-') return 0
+                          const n = parseFloat(s)
+                          return isNaN(n) ? 0 : Math.max(0, n)
                         }}
+                        formatForDisplay={(v) => (v === null || v === undefined || v === '' ? '' : String(v))}
                         onFocus={(e) => {
                           e.target.select()
                           handleFocus(e)
@@ -4202,14 +4191,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
                         }}
                         onBlur={(e) => {
-                          const valor = e.target.value;
-                          if (valor !== '' && valor !== '-') {
-                            const valorLimpio = valor.replace(/,/g, '.');
-                            const valorNumerico = parseFloat(valorLimpio);
-                            setFormData({ ...formData, precio_venta_cliente: isNaN(valorNumerico) ? 0 : valorNumerico });
-                          } else {
-                            setFormData({ ...formData, precio_venta_cliente: 0 });
-                          }
                           e.target.style.borderColor = '#e2e8f0'
                           e.target.style.boxShadow = 'none'
                         }}

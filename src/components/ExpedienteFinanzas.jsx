@@ -641,9 +641,23 @@ const ExpedienteFinanzas = ({
       }
       const datosCierre = JSON.parse(JSON.stringify(payload))
 
+      const paxTotal = Math.max(1, toNum(formData?.total_pax) || toNum(expediente?.total_pax))
+      const gratuidades = toNum(formData?.gratuidades) || toNum(expediente?.gratuidades) || 0
+      const bonificacionPax = toNum(formData?.bonificacion_pax) || toNum(expediente?.bonificacion_pax) || 0
+      const precioVentaCliente = toNum(formData?.precio_venta_cliente) || toNum(expediente?.precio_venta_cliente) || 0
+      const paxPago = Math.max(1, paxTotal - gratuidades)
+
       const { error } = await supabase
         .from('expedientes')
-        .update({ cierre_grupo: datosCierre, estado: 'Cerrado' })
+        .update({
+          cierre_grupo: datosCierre,
+          estado: 'Cerrado',
+          total_pax: paxTotal,
+          gratuidades,
+          bonificacion_pax: bonificacionPax,
+          precio_venta_cliente: precioVentaCliente,
+          pax_pago: paxPago,
+        })
         .eq('id', expediente.id)
 
       if (error) {
@@ -651,7 +665,16 @@ const ExpedienteFinanzas = ({
         return
       }
 
-      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: datosCierre, estado: 'Cerrado' })
+      if (onUpdate) onUpdate({
+        ...expediente,
+        cierre_grupo: datosCierre,
+        estado: 'Cerrado',
+        total_pax: paxTotal,
+        gratuidades,
+        bonificacion_pax: bonificacionPax,
+        precio_venta_cliente: precioVentaCliente,
+        pax_pago: paxPago,
+      })
       alert('Cierre guardado correctamente.')
     } catch (err) {
       const detalle = err?.message || err?.toString?.() || JSON.stringify(err)
