@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { X, Save, Plus, Trash2, CheckCircle, Pencil } from 'lucide-react'
+import { X, Save, Plus, Trash2, CheckCircle } from 'lucide-react'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
 
@@ -100,9 +100,6 @@ const ServiciosCotizacionPanel = ({
   const [nombreNuevoProveedor, setNombreNuevoProveedor] = useState('')
   const [tipoNuevoProveedor, setTipoNuevoProveedor] = useState('hotel')
   const [servicioIdParaProveedor, setServicioIdParaProveedor] = useState(null)
-
-  const [isEditing, setIsEditing] = useState(false)
-  const serviciosSnapshotRef = useRef(null)
 
   const timeoutsGuardado = useRef({})
   const serviciosInicializados = useRef(false)
@@ -237,11 +234,10 @@ const ServiciosCotizacionPanel = ({
       tipo: 'Hotel',
       tipo_calculo: 'porPersona',
     }
-    if (!isEditing) {
-      serviciosSnapshotRef.current = servicios.map(s => ({ ...s }))
-      setIsEditing(true)
-    }
     setServicios(prev => [...prev, nuevoServicio])
+    if (expediente?.id) {
+      guardarServicioEnSupabase(nuevoServicio)
+    }
   }
 
   const seleccionarMayoristaYCrearHotel = (servicioId, proveedorId, nombreProveedor) => {
@@ -261,7 +257,7 @@ const ServiciosCotizacionPanel = ({
     })
     setBusquedaProveedor(prev => ({ ...prev, [servicioId]: nombreProveedor }))
     setMostrarSugerencias(prev => ({ ...prev, [servicioId]: false }))
-    if (expediente?.id && !isEditing) {
+    if (expediente?.id) {
       guardarServicioEnSupabase({ ...servicioActual, proveedorId })
       guardarServicioEnSupabase(nuevoHotel)
     }
@@ -330,7 +326,7 @@ const ServiciosCotizacionPanel = ({
     setServicios(serviciosActualizados)
 
     const servicioActualizado = serviciosActualizados.find(s => s.id === id)
-    if (servicioActualizado && expediente?.id && !isEditing) {
+    if (servicioActualizado && expediente?.id) {
       if (timeoutsGuardado.current[id]) {
         clearTimeout(timeoutsGuardado.current[id])
         delete timeoutsGuardado.current[id]
@@ -487,121 +483,20 @@ const ServiciosCotizacionPanel = ({
     }
   }
 
-  const iniciarEdicionServicios = () => {
-    serviciosSnapshotRef.current = servicios.map(s => ({ ...s }))
-    setIsEditing(true)
-  }
-
-  const cancelarEdicionServicios = () => {
-    if (serviciosSnapshotRef.current) {
-      setServicios(serviciosSnapshotRef.current)
-      serviciosSnapshotRef.current = null
-    }
-    setIsEditing(false)
-  }
-
-  const guardarCambiosEdicion = async () => {
-    if (!expediente?.id || isSaving) return
-    const snapshot = serviciosSnapshotRef.current || []
-
-    const nuevos = servicios.filter(s => !snapshot.find(o => o.id === s.id))
-    const existentes = servicios.filter(s => snapshot.find(o => o.id === s.id))
-    const modificados = existentes.filter((s) => {
-      const orig = snapshot.find(o => o.id === s.id)
-      if (!orig) return false
-      return JSON.stringify({ ...orig, coste_real_proveedor: undefined }) !== JSON.stringify({ ...s, coste_real_proveedor: undefined })
-    })
-
-    if (nuevos.length === 0 && modificados.length === 0) {
-      serviciosSnapshotRef.current = null
-      setIsEditing(false)
-      return
-    }
-
-    setIsSaving(true)
-    try {
-      for (const srv of nuevos) {
-        const datos = buildDatosParaSupabase(srv)
-        const { data, error } = await supabase
-          .from('servicios_cotizacion')
-          .insert([datos])
-          .select()
-          .single()
-        if (error) {
-          alert('No se pudo guardar el servicio nuevo. Inténtalo de nuevo.')
-          return
-        }
-        if (data) {
-          setServicios(prev => prev.map(s => (s.id === srv.id ? { ...s, id: data.id } : s)))
-        }
-      }
-      for (const srv of modificados) {
-        const datos = buildDatosParaSupabase(srv)
-        const { error } = await supabase
-          .from('servicios_cotizacion')
-          .update(datos)
-          .eq('id', srv.id)
-          .eq('id_expediente', String(expediente.id).trim())
-        if (error) {
-          alert('No se pudo guardar los cambios. Inténtalo de nuevo.')
-          return
-        }
-      }
-      serviciosSnapshotRef.current = null
-      setIsEditing(false)
-      if (typeof onRefresh === 'function') onRefresh()
-    } catch (_) {
-      alert('No se pudo guardar. Inténtalo de nuevo.')
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
   return (
     <>
       <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 border border-gray-200">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
           <h3 className="text-xl font-bold text-navy-900">Servicios del Viaje</h3>
           <div className="flex flex-wrap items-center gap-2">
-            {!isEditing ? (
-              <>
-                <button
-                  onClick={iniciarEdicionServicios}
-                  disabled={servicios.length === 0}
-                  className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60"
-                >
-                  <Pencil size={16} />
-                  Editar Servicios
-                </button>
-                <button
-                  onClick={handleGuardar}
-                  disabled={isSaving}
-                  className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60"
-                >
-                  <Save size={16} />
-                  {isSaving ? 'Guardando...' : 'Guardar'}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={guardarCambiosEdicion}
-                  disabled={isSaving}
-                  className="btn-primary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60"
-                >
-                  <Save size={16} />
-                  {isSaving ? 'Guardando...' : 'Guardar Cambios'}
-                </button>
-                <button
-                  onClick={cancelarEdicionServicios}
-                  disabled={isSaving}
-                  className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60 border-red-200 text-red-700 hover:bg-red-50"
-                >
-                  <X size={16} />
-                  Cancelar
-                </button>
-              </>
-            )}
+            <button
+              onClick={handleGuardar}
+              disabled={isSaving}
+              className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60"
+            >
+              <Save size={16} />
+              {isSaving ? 'Guardando...' : 'Guardar'}
+            </button>
           </div>
         </div>
 
