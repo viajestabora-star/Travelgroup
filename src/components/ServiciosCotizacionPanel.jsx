@@ -150,6 +150,7 @@ const ServiciosCotizacionPanel = ({
           .from('servicios_cotizacion')
           .select('*')
           .eq('id_expediente', String(id).trim())
+          .order('orden', { ascending: true })
           .order('created_at', { ascending: true, nullsFirst: false })
           .order('id', { ascending: true })
 
@@ -158,6 +159,7 @@ const ServiciosCotizacionPanel = ({
             .from('servicios_cotizacion')
             .select('*')
             .eq('id_expediente', String(id).trim())
+            .order('orden', { ascending: true })
             .order('id', { ascending: true })
         }
 
@@ -376,11 +378,12 @@ const ServiciosCotizacionPanel = ({
         return { ok: false }
       }
 
-      const rowsToInsert = servicios.map((s) => {
+      const rowsToInsert = servicios.map((s, index) => {
         const datos = buildDatosParaSupabase(s)
         return {
           ...datos,
           id: s.id && typeof s.id === 'string' && s.id.length > 10 ? s.id : generarUUID(),
+          orden: index,
         }
       })
 
