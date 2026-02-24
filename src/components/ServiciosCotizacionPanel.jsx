@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef } from 'react'
 import { X, Save, Plus, Trash2, CheckCircle } from 'lucide-react'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
-import EditableInput from './EditableInput'
-import ServicioRow from './ServicioRow'
 
 /** Sanitización de números: cualquier valor no numérico → 0 (para cálculos financieros) */
 const toNum = (v) => {
@@ -339,7 +337,7 @@ const ServiciosCotizacionPanel = ({
         timeoutsGuardado.current[id] = setTimeout(() => {
           guardarServicioEnSupabase(servicioActualizado)
           delete timeoutsGuardado.current[id]
-        }, 800)
+        }, 500)
       }
     }
   }
@@ -468,47 +466,6 @@ const ServiciosCotizacionPanel = ({
     }
   }
 
-  const handleServicioUpdate = (id, updates) => {
-    setServicios(prev => prev.map(s =>
-      s.id === id ? { ...s, ...updates } : s
-    ))
-  }
-
-  const handleServicioBlur = async (id, updates) => {
-    try {
-      const { error } = await supabase
-        .from('servicios_cotizacion')
-        .update(updates)
-        .eq('id', id)
-
-      if (error) throw error
-      if (onRefresh) onRefresh()
-      await persistirCambios()
-    } catch (error) {
-      console.error('Error guardando servicio:', error)
-    }
-  }
-
-  const handleServicioDelete = async (id) => {
-    if (!window.confirm('¿Eliminar este servicio?')) return
-
-    try {
-      const { error } = await supabase
-        .from('servicios_cotizacion')
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
-
-      setServicios(prev => prev.filter(s => s.id !== id))
-      if (onRefresh) onRefresh()
-      await persistirCambios()
-    } catch (error) {
-      console.error('Error eliminando servicio:', error)
-      alert('Error al eliminar el servicio')
-    }
-  }
-
   const handleGuardar = async () => {
     if (isSaving) return
     setIsSaving(true)
@@ -580,26 +537,345 @@ const ServiciosCotizacionPanel = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {servicios.map((servicio, index) => (
-                    <ServicioRow
-                      key={servicio.id}
-                      servicio={servicio}
-                      index={index}
-                      proveedores={proveedores}
-                      paxPago={paxPago}
-                      totalPax={totalPax}
-                      onUpdate={handleServicioUpdate}
-                      onDelete={handleServicioDelete}
-                      onBlur={handleServicioBlur}
-                    />
-                  ))}
-                  {servicios.length === 0 && (
-                    <tr>
-                      <td colSpan="6" className="p-4 text-center text-gray-500">
-                        No hay servicios. Haz clic en &quot;Añadir Servicio&quot; para comenzar.
+                  {servicios.map((servicio, idx) => (
+                    <tr key={servicio.id || `svc-${idx}`} className="border-t border-gray-200 hover:bg-gray-50 whitespace-nowrap">
+                      <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '160px', minWidth: '160px', maxWidth: '160px' }}>
+                        <select
+                          value={servicio.tipo}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            const nuevoTipo = e.target.value
+                            const updates = { tipo: nuevoTipo }
+                            if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') {
+                              updates.tipo_calculo = 'porGrupo'
+                              if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
+                            }
+                            if (servicio.proveedorId) {
+                              const proveedorActual = obtenerProveedorPorId(servicio.proveedorId)
+                              const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || '')
+                              const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo)
+                              if (tipoProveedorActual !== nuevoTipoProveedor) {
+                                updates.proveedorId = null
+                                setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
+                              }
+                            }
+                            actualizarServicio(servicio.id, updates)
+                            setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true }))
+                          }}
+                          className="input-field text-xs transition-all"
+                          style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '158px', minWidth: '158px', maxWidth: '158px' }}
+                          onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
+                          onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
+                        >
+                          <option>Hotel</option>
+                          <option>Mayorista</option>
+                          <option>Restaurante</option>
+                          <option>Autobús</option>
+                          <option>Transporte</option>
+                          <option>Guía</option>
+                          <option>Guía Local</option>
+                          <option>Entradas/Tickets</option>
+                          <option>Seguro</option>
+                          <option>Otros</option>
+                        </select>
+                      </td>
+
+                      <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }}>
+                        <div className="relative" data-provider-combobox>
+                          <div className="flex flex-row gap-1 items-center flex-nowrap" style={{ width: '170px' }}>
+                            <div className="relative flex-shrink-0 flex-1 min-w-0" style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }}>
+                              <input
+                                type="text"
+                                value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')}
+                                onChange={(e) => {
+                                  const inputValue = e.target.value
+                                  setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue })
+                                  setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
+                                }}
+                                onFocus={(e) => {
+                                  setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true })
+                                  if (!busquedaProveedor[servicio.id]) setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                  e.target.style.borderColor = '#3b82f6'
+                                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                                }}
+                                placeholder="Pendiente"
+                                className="input-field text-xs w-full pr-8 transition-all"
+                                style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                onBlur={(e) => {
+                                  e.target.style.borderColor = '#e2e8f0'
+                                  e.target.style.boxShadow = 'none'
+                                  setTimeout(() => {
+                                    setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: false }))
+                                    if (!servicio.proveedorId && busquedaProveedor[servicio.id]) {
+                                      setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
+                                    }
+                                  }, 120)
+                                }}
+                              />
+                              {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
+                                <button
+                                  onClick={() => {
+                                    setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                    actualizarServicio(servicio.id, 'proveedorId', null)
+                                    setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                  }}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                                  title="Limpiar"
+                                >
+                                  <X size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {mostrarSugerencias[servicio.id] && (
+                            <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                              {(() => {
+                                const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
+                                const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase().trim()
+                                const proveedoresFiltrados = proveedores
+                                  .filter(p => {
+                                    const tipoProveedorNormalizado = normalizarText(p.tipo || '')
+                                    const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado || '')
+                                    const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado
+                                    if (!textoBusqueda) return coincideTipo
+                                    const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda)
+                                    return coincideTipo && coincideNombre
+                                  })
+                                  .sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || ''))
+
+                                return (
+                                  <>
+                                    {proveedoresFiltrados.length === 0 && !textoBusqueda && (
+                                      <div className="px-3 py-3 text-xs text-center">
+                                        <p className="text-gray-600 mb-2">No hay proveedores de <strong>{servicio.tipo}</strong></p>
+                                        <p className="text-green-600 font-medium">💡 Usa el botón + para añadir uno nuevo</p>
+                                      </div>
+                                    )}
+                                    {proveedoresFiltrados.length === 0 && textoBusqueda && (
+                                      <div className="px-3 py-3 text-xs text-center">
+                                        <p className="text-gray-600 mb-2">No se encontró &quot;{busquedaProveedor[servicio.id]}&quot; en {servicio.tipo}</p>
+                                        <p className="text-green-600 font-medium">➕ Usa el botón + para crear nuevo proveedor</p>
+                                      </div>
+                                    )}
+                                    {proveedoresFiltrados.length > 0 && (
+                                      <div className="py-1">
+                                        {proveedoresFiltrados.map((proveedor, pidx) => (
+                                          <button
+                                            key={proveedor.id || `prov-${pidx}`}
+                                            type="button"
+                                            onMouseDown={(e) => {
+                                              e.preventDefault()
+                                              e.stopPropagation()
+                                              if (servicio.tipo === 'Mayorista') {
+                                                seleccionarMayoristaYCrearHotel(servicio.id, proveedor.id, proveedor.nombreComercial)
+                                              } else {
+                                                actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
+                                                setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
+                                                setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                              }
+                                            }}
+                                            className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
+                                          >
+                                            <span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>
+                                            {proveedor.telefono && <span className="text-gray-500">· {proveedor.telefono}</span>}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </>
+                                )
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '130px', minWidth: '130px', maxWidth: '130px' }}>
+                        <div className="flex flex-row items-center gap-1 flex-nowrap" style={{ width: '130px' }}>
+                          {(servicio.tipo === 'Guía Local' || servicio.tipo === 'Entradas/Tickets') && (
+                            <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap flex-shrink-0">de </span>
+                          )}
+                          <input
+                            type="text"
+                            value={servicio.especificacion_destino || ''}
+                            onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
+                            className="input-field text-xs py-1.5 px-2 flex-1 min-w-0"
+                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', flex: '1 1 0', minWidth: 0 }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => abrirModalProveedor(busquedaProveedor[servicio.id] || '', servicio.tipo, servicio.id)}
+                            className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
+                            style={{ width: '32px', minWidth: '32px' }}
+                            title="Añadir nuevo proveedor"
+                          >
+                            <Plus size={16} />
+                          </button>
+                        </div>
+                      </td>
+
+                      <td className="px-1 py-2 align-middle" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>
+                        <div className="flex justify-center">
+                          {servicio.tipo === 'Hotel' ? (
+                            <input
+                              type="number"
+                              value={servicio.noches || 1}
+                              onChange={(e) => {
+                                const valor = e.target.value
+                                const valorNumerico = valor === '' ? 1 : Number(valor) || 1
+                                actualizarServicio(servicio.id, 'noches', Math.max(1, valorNumerico))
+                              }}
+                              onWheel={handleWheel}
+                              onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
+                              onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
+                              className="input-field text-xs text-center transition-all"
+                              style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '50px', minWidth: '50px', maxWidth: '50px' }}
+                              min="1"
+                              placeholder="1"
+                            />
+                          ) : servicio.tipo === 'Guía' ? (
+                            <input
+                              type="number"
+                              value={servicio.cantidad ?? servicio.dias_guia ?? 1}
+                              onChange={(e) => {
+                                const valor = e.target.value
+                                const valorNumerico = valor === '' ? 1 : Number(valor) || 1
+                                actualizarServicio(servicio.id, 'cantidad', Math.max(1, valorNumerico))
+                              }}
+                              onWheel={handleWheel}
+                              onBlur={(e) => {
+                                e.target.style.borderColor = '#e2e8f0'
+                                e.target.style.boxShadow = 'none'
+                                const valor = e.target.value
+                                const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1)
+                                actualizarServicio(servicio.id, 'cantidad', valorNumerico, { immediate: true })
+                              }}
+                              onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
+                              className="input-field text-xs text-center transition-all"
+                              style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '50px', minWidth: '50px', maxWidth: '50px' }}
+                              min="1"
+                              placeholder="1"
+                            />
+                          ) : (
+                            <span className="text-gray-600 text-xs font-medium">1</span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-1 py-2 align-middle" style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}>
+                        <div className="flex justify-end">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={servicio.coste_unitario === '' || servicio.coste_unitario == null ? '' : servicio.coste_unitario}
+                            onWheel={handleWheel}
+                            onChange={(e) => {
+                              const valorInput = e.target.value
+                              if (valorInput === '' || valorInput === '-') {
+                                actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo'
+                                  ? { coste_unitario: '', total_servicio_manual: '' }
+                                  : { coste_unitario: '' })
+                                return
+                              }
+                              const valorLimpio = valorInput.replace(/,/g, '.')
+                              const valorNumerico = parseFloat(valorLimpio)
+                              if (!isNaN(valorNumerico)) {
+                                actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo'
+                                  ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico }
+                                  : { coste_unitario: valorNumerico })
+                              } else {
+                                actualizarServicio(servicio.id, 'coste_unitario', valorLimpio)
+                              }
+                            }}
+                            onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
+                            onBlur={(e) => {
+                              const valor = e.target.value
+                              if (valor !== '' && valor !== '-') {
+                                const valorNumerico = parseFloat(valor.replace(/,/g, '.'))
+                                if (!isNaN(valorNumerico)) {
+                                  actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo'
+                                    ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico }
+                                    : { coste_unitario: valorNumerico })
+                                }
+                              } else {
+                                actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo'
+                                  ? { coste_unitario: 0, total_servicio_manual: 0 }
+                                  : { coste_unitario: 0 })
+                              }
+                              e.target.style.borderColor = '#e2e8f0'
+                              e.target.style.boxShadow = 'none'
+                            }}
+                            className="input-field text-xs text-right w-full transition-all"
+                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '70px', minWidth: '70px', maxWidth: '70px' }}
+                            placeholder="0.00"
+                            min="0"
+                          />
+                        </div>
+                      </td>
+
+                      <td className="px-1 py-2 text-center align-middle" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>
+                        {(servicio.tipo === 'Autobús' || servicio.tipo === 'Transporte') ? (
+                          <span className="text-xs font-medium text-slate-600" title="Autobús/Transporte siempre divide el total entre pasajeros de pago">Total ÷ pax</span>
+                        ) : (
+                          <select
+                            value={servicio.tipo_calculo || 'porPersona'}
+                            onChange={(e) => {
+                              const nuevoModo = e.target.value
+                              const updates = { tipo_calculo: nuevoModo }
+                              if (nuevoModo === 'porGrupo' && servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
+                              else if (nuevoModo === 'porPersona') updates.total_servicio_manual = 0
+                              actualizarServicio(servicio.id, updates)
+                            }}
+                            className="input-field text-[10px] transition-all"
+                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '120px', minWidth: '120px', maxWidth: '120px' }}
+                            onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
+                            onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
+                          >
+                            <option value="porPersona">X pax</option>
+                            <option value="porGrupo">÷ Todos</option>
+                          </select>
+                        )}
+                      </td>
+
+                      <td className="px-1 py-2 align-middle text-right" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                        <span className="text-gray-900 text-xs font-semibold whitespace-nowrap">{calcularTotalFilaUI(servicio).toFixed(2)}€</span>
+                      </td>
+
+                      <td className="px-1 py-2 text-center align-middle" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>
+                        <div className="flex flex-col items-center gap-1">
+                          <input
+                            type="date"
+                            value={servicio.fechaRelease || ''}
+                            onChange={(e) => actualizarServicio(servicio.id, 'fechaRelease', e.target.value || '')}
+                            onFocus={(e) => { e.target.select(); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#e2e8f0'
+                              e.target.style.boxShadow = 'none'
+                              guardarFechaReleaseServicio(servicio.id, e.target.value || '')
+                            }}
+                            className="input-field text-center transition-all"
+                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '4px 4px', width: '120px', minWidth: '120px', maxWidth: '120px', fontSize: '11px' }}
+                          />
+                          {!servicio.releasePagado && servicio.fechaRelease && (
+                            <button type="button" onClick={() => marcarReleaseComoPagadoServicio(servicio.id)} className="flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-semibold" style={{ fontSize: '16px' }} title="Marcar como pagado"><CheckCircle size={12} /> Pagado</button>
+                          )}
+                          {servicio.releasePagado && (
+                            <span className="text-green-600 font-semibold flex items-center gap-1" style={{ fontSize: '16px' }}><CheckCircle size={12} /> Pagado</span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-1 py-2 text-center align-middle" style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }}>
+                        <button onClick={() => eliminarServicio(servicio.id)} className="text-red-600 hover:text-red-900 p-1" title="Eliminar">
+                          <Trash2 size={16} />
+                        </button>
                       </td>
                     </tr>
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -730,65 +1006,16 @@ const ServiciosCotizacionPanel = ({
                     <div>
                       <span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Cantidad</span>
                       {servicio.tipo === 'Hotel' ? (
-                        <EditableInput
-                          type="number"
-                          value={servicio.noches ?? 1}
-                          onSave={(v) => actualizarServicio(servicio.id, 'noches', Math.max(1, v))}
-                          parseValue={(v) => Math.max(1, parseInt(String(v).trim(), 10) || 1)}
-                          formatForDisplay={(v) => (v === null || v === undefined || v === '' ? '1' : String(v))}
-                          onWheel={handleWheel}
-                          onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
-                          onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
-                          className="input-field text-xs text-center w-full transition-all"
-                          style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                          min="1"
-                          placeholder="1"
-                        />
+                        <input type="number" value={servicio.noches || 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'noches', Math.max(1, valorNumerico)) }} onWheel={handleWheel} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
                       ) : servicio.tipo === 'Guía' ? (
-                        <EditableInput
-                          type="number"
-                          value={servicio.cantidad ?? servicio.dias_guia ?? 1}
-                          onSave={(v) => actualizarServicio(servicio.id, 'cantidad', Math.max(1, v), { immediate: true })}
-                          parseValue={(v) => Math.max(1, parseInt(String(v).trim(), 10) || 1)}
-                          formatForDisplay={(v) => (v === null || v === undefined || v === '' ? '1' : String(v))}
-                          onWheel={handleWheel}
-                          onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
-                          onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
-                          className="input-field text-xs text-center w-full transition-all"
-                          style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                          min="1"
-                          placeholder="1"
-                        />
+                        <input type="number" value={servicio.cantidad ?? servicio.dias_guia ?? 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'cantidad', Math.max(1, valorNumerico)) }} onWheel={handleWheel} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const valor = e.target.value; const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1); actualizarServicio(servicio.id, 'cantidad', valorNumerico, { immediate: true }) }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
                       ) : (
                         <span className="text-gray-600 text-xs font-medium block py-2">1</span>
                       )}
                     </div>
                     <div>
                       <span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Precio</span>
-                      <EditableInput
-                        type="text"
-                        value={servicio.coste_unitario === '' || servicio.coste_unitario == null ? '' : servicio.coste_unitario}
-                        onSave={(v) => {
-                          const s = String(v || '').trim().replace(/,/g, '.')
-                          if (s === '' || s === '-') {
-                            if (servicio.tipo_calculo === 'porGrupo') actualizarServicio(servicio.id, { coste_unitario: '', total_servicio_manual: '' })
-                            else actualizarServicio(servicio.id, 'coste_unitario', '')
-                            return
-                          }
-                          const n = parseFloat(s)
-                          const valorNum = isNaN(n) ? 0 : Math.max(0, n)
-                          if (servicio.tipo_calculo === 'porGrupo') actualizarServicio(servicio.id, { coste_unitario: valorNum, total_servicio_manual: valorNum })
-                          else actualizarServicio(servicio.id, 'coste_unitario', valorNum)
-                        }}
-                        parseValue={(v) => v}
-                        formatForDisplay={(v) => (v === null || v === undefined || v === '' ? '' : String(v))}
-                        onWheel={handleWheel}
-                        onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
-                        onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
-                        className="input-field text-xs text-right w-full transition-all"
-                        style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                        placeholder="0.00"
-                      />
+                      <input type="number" step="0.01" value={servicio.coste_unitario === '' || servicio.coste_unitario == null ? '' : servicio.coste_unitario} onWheel={handleWheel} onChange={(e) => { const valorInput = e.target.value; if (valorInput === '' || valorInput === '-') { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: '', total_servicio_manual: '' } : { coste_unitario: '' }); return; } const valorLimpio = valorInput.replace(/,/g, '.'); const valorNumerico = parseFloat(valorLimpio); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } else { actualizarServicio(servicio.id, 'coste_unitario', valorLimpio); } }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} onBlur={(e) => { const valor = e.target.value; if (valor !== '' && valor !== '-') { const valorNumerico = parseFloat(valor.replace(/,/g, '.')); if (!isNaN(valorNumerico)) { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: valorNumerico, total_servicio_manual: valorNumerico } : { coste_unitario: valorNumerico }); } } else { actualizarServicio(servicio.id, servicio.tipo_calculo === 'porGrupo' ? { coste_unitario: 0, total_servicio_manual: 0 } : { coste_unitario: 0 }); } e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }} className="input-field text-xs text-right w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} placeholder="0.00" min="0" />
                     </div>
                   </div>
                   <div>
