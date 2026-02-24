@@ -653,9 +653,6 @@ const ServiciosCotizacionPanel = ({
 
                       <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '130px', minWidth: '130px', maxWidth: '130px' }}>
                         <div className="flex flex-row items-center gap-1 flex-nowrap" style={{ width: '130px' }}>
-                          {(servicio.tipo === 'Guía Local' || servicio.tipo === 'Entradas/Tickets') && (
-                            <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap flex-shrink-0">de </span>
-                          )}
                           <input
                             type="text"
                             value={servicio.especificacion_destino || ''}
@@ -933,7 +930,6 @@ const ServiciosCotizacionPanel = ({
                           )}
                         </div>
                         <div className="flex flex-row items-center gap-1 min-w-0 flex-1">
-                          {(servicio.tipo === 'Guía Local' || servicio.tipo === 'Entradas/Tickets') && <span className="text-[10px] font-medium text-gray-500 whitespace-nowrap">de </span>}
                           <input
                             type="text"
                             value={servicio.especificacion_destino || ''}
