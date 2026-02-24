@@ -270,11 +270,11 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
       }
     });
 
-    // Prorrateo: coste de gratuidades se suma al total antes de dividir por pagadores
+    // Prorrateo: coste de gratuidades se reparte entre pasajeros de pago
+    // Fórmula documentada: Coste Real = Coste Base + Prorrateo Gratuidades + Bonificación
     const costePlazasGratuitas = costeBasePorPersona * gratuidades;
-    const costeTotalConGratuidades = costeTotalProveedor + costePlazasGratuitas;
     const costeGratuidadesPorPax = pP > 0 ? costePlazasGratuitas / pP : 0;
-    const costeRealPorPersona = (pP > 0 ? costeTotalConGratuidades / pP : 0) + bonif;
+    const costeRealPorPersona = costeBasePorPersona + costeGratuidadesPorPax + bonif;
     const paxDePago = paxPago;
     const precioBase = Math.max(0, toNum(formData?.precio_venta_cliente));
     const bonificacionTotal = bonif * paxDePago;
