@@ -101,7 +101,6 @@ const ServiciosCotizacionPanel = ({
   const [tipoNuevoProveedor, setTipoNuevoProveedor] = useState('hotel')
   const [servicioIdParaProveedor, setServicioIdParaProveedor] = useState(null)
 
-  const timeoutsGuardado = useRef({})
   const serviciosInicializados = useRef(false)
 
   const handleFocus = (e) => e.target.select()
@@ -235,9 +234,7 @@ const ServiciosCotizacionPanel = ({
       tipo_calculo: 'porPersona',
     }
     setServicios(prev => [...prev, nuevoServicio])
-    if (expediente?.id) {
-      guardarServicioEnSupabase(nuevoServicio)
-    }
+    /* Persistence via manual Guardar button */
   }
 
   const seleccionarMayoristaYCrearHotel = (servicioId, proveedorId, nombreProveedor) => {
@@ -257,10 +254,7 @@ const ServiciosCotizacionPanel = ({
     })
     setBusquedaProveedor(prev => ({ ...prev, [servicioId]: nombreProveedor }))
     setMostrarSugerencias(prev => ({ ...prev, [servicioId]: false }))
-    if (expediente?.id) {
-      guardarServicioEnSupabase({ ...servicioActual, proveedorId })
-      guardarServicioEnSupabase(nuevoHotel)
-    }
+    /* Persistence via manual Guardar button */
   }
 
   const eliminarServicio = async (id) => {
@@ -279,21 +273,7 @@ const ServiciosCotizacionPanel = ({
       hotelesVinculados.forEach(h => idsAEliminar.push(h.id))
     }
 
-    if (expediente?.id) {
-      for (const idElim of idsAEliminar) {
-        const srv = servicios.find(s => s.id === idElim)
-        if (srv?.id && typeof srv.id === 'string' && srv.id.length > 10) {
-          try {
-            const { error } = await supabase.from('servicios_cotizacion').delete().eq('id', srv.id)
-            if (error) {
-              alert('Error eliminando servicio de la base de datos')
-              return
-            }
-          } catch (_) {}
-        }
-      }
-    }
-
+    /* DB delete happens on manual Guardar (delete-then-insert) */
     setServicios(servicios.filter(s => !idsAEliminar.includes(s.id)))
     const busquedaActualizada = { ...busquedaProveedor }
     idsAEliminar.forEach(idElim => delete busquedaActualizada[idElim])
@@ -321,25 +301,9 @@ const ServiciosCotizacionPanel = ({
   const actualizarServicio = (id, campoOrUpdates, valorOrOpts, opts = {}) => {
     const isMulti = typeof campoOrUpdates === 'object' && campoOrUpdates !== null && !Array.isArray(campoOrUpdates)
     const updates = isMulti ? campoOrUpdates : { [campoOrUpdates]: valorOrOpts }
-    const options = isMulti ? (valorOrOpts || {}) : opts
     const serviciosActualizados = servicios.map(s => (s.id === id ? { ...s, ...updates } : s))
     setServicios(serviciosActualizados)
-
-    const servicioActualizado = serviciosActualizados.find(s => s.id === id)
-    if (servicioActualizado && expediente?.id) {
-      if (timeoutsGuardado.current[id]) {
-        clearTimeout(timeoutsGuardado.current[id])
-        delete timeoutsGuardado.current[id]
-      }
-      if (options.immediate) {
-        guardarServicioEnSupabase(servicioActualizado)
-      } else {
-        timeoutsGuardado.current[id] = setTimeout(() => {
-          guardarServicioEnSupabase(servicioActualizado)
-          delete timeoutsGuardado.current[id]
-        }, 500)
-      }
-    }
+    /* No auto-save on blur: all persistence via manual Guardar button to avoid focus loss and save loops */
   }
 
   const buildDatosParaSupabase = (servicio) => {
@@ -396,85 +360,72 @@ const ServiciosCotizacionPanel = ({
     }
   }
 
-  const guardarServicioEnSupabase = async (servicio) => {
-    if (!expediente?.id || !servicio) return
+  /** Delete-then-insert for servicios_cotizacion to avoid 406 errors. Called only from manual Guardar. */
+  const guardarTodosServiciosEnSupabase = async () => {
+    const id = expedienteId || expediente?.id
+    if (!id || !servicios?.length) return { ok: true }
 
     try {
-      const datosParaSupabase = buildDatosParaSupabase(servicio)
+      const { error: deleteError } = await supabase
+        .from('servicios_cotizacion')
+        .delete()
+        .eq('id_expediente', String(id).trim())
 
-      let servicioExiste = false
-      if (servicio.id && typeof servicio.id === 'string' && servicio.id.length > 10 && servicio.id.includes('-')) {
-        const { data: servicioExistente, error: errorVerificacion } = await supabase
-          .from('servicios_cotizacion')
-          .select('id')
-          .eq('id', servicio.id)
-          .eq('id_expediente', String(expediente.id).trim())
-          .single()
-        if (!errorVerificacion && servicioExistente) servicioExiste = true
+      if (deleteError) {
+        alert('Error al guardar servicios. Inténtalo de nuevo.')
+        return { ok: false }
       }
 
-      if (servicioExiste) {
-        const { error } = await supabase
-          .from('servicios_cotizacion')
-          .update(datosParaSupabase)
-          .eq('id', servicio.id)
-          .eq('id_expediente', String(expediente.id).trim())
-        if (error) {
-          alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
-        } else if (typeof onRefresh === 'function') {
-          onRefresh()
+      const rowsToInsert = servicios.map((s) => {
+        const datos = buildDatosParaSupabase(s)
+        return {
+          ...datos,
+          id: s.id && typeof s.id === 'string' && s.id.length > 10 ? s.id : generarUUID(),
         }
-      } else {
-        const { data, error } = await supabase
-          .from('servicios_cotizacion')
-          .insert([datosParaSupabase])
-          .select()
-          .single()
-        if (error) {
-          alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
-        } else {
-          if (data) {
-            setServicios(prev => prev.map(s => (s.id === servicio.id ? { ...s, id: data.id } : s)))
-          }
-          if (typeof onRefresh === 'function') onRefresh()
-        }
+      })
+
+      const { data, error: insertError } = await supabase
+        .from('servicios_cotizacion')
+        .insert(rowsToInsert)
+        .select('id')
+
+      if (insertError) {
+        alert('No se pudieron guardar los servicios. Inténtalo de nuevo.')
+        return { ok: false }
       }
+
+      if (data && Array.isArray(data) && data.length === servicios.length) {
+        setServicios((prev) =>
+          prev.map((s, i) => (data[i]?.id ? { ...s, id: data[i].id } : s))
+        )
+      }
+      if (typeof onRefresh === 'function') onRefresh()
+      return { ok: true }
     } catch (_) {
-      alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
+      alert('No se pudieron guardar los servicios. Inténtalo de nuevo.')
+      return { ok: false }
     }
   }
 
-  const guardarFechaReleaseServicio = async (servicioId, fechaReleaseISO) => {
-    if (!servicioId) return
-    try {
-      await supabase.from('servicios_cotizacion').update({ fecha_release: fechaReleaseISO || null }).eq('id', servicioId)
-    } catch (_) {}
-  }
-
-  const marcarReleaseComoPagadoServicio = async (servicioId) => {
+  const marcarReleaseComoPagadoServicio = (servicioId) => {
     if (!servicioId) return
     if (!window.confirm('¿Estás seguro de que quieres marcar este release como pagado?')) return
-    try {
-      const { error } = await supabase.from('servicios_cotizacion').update({ release_pagado: true }).eq('id', servicioId)
-      if (error) {
-        alert('No se pudo marcar como pagado. Inténtalo de nuevo.')
-        return
-      }
-      actualizarServicio(servicioId, 'releasePagado', true)
-    } catch (_) {
-      alert('No se pudo marcar como pagado.')
-    }
+    actualizarServicio(servicioId, 'releasePagado', true)
+    /* Persistence via manual Guardar button */
   }
 
   const handleGuardar = async () => {
     if (isSaving) return
     setIsSaving(true)
     try {
-      const resultado = await persistirCambios()
-      if (resultado?.ok) {
+      const resultadoForm = await persistirCambios()
+      const resultadoServicios = await guardarTodosServiciosEnSupabase()
+      if (resultadoForm?.ok && resultadoServicios?.ok) {
         alert('✅ Cotización guardada correctamente')
-      } else {
+      } else if (!resultadoForm?.ok) {
         alert('No se pudo guardar. Inténtalo de nuevo.')
+      } else if (!resultadoServicios?.ok) {
+        alert('No se pudieron guardar los servicios. Inténtalo de nuevo.')
       }
     } catch {
       alert('No se pudo guardar. Inténtalo de nuevo.')
@@ -566,7 +517,11 @@ const ServiciosCotizacionPanel = ({
                           className="input-field text-xs transition-all"
                           style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '158px', minWidth: '158px', maxWidth: '158px' }}
                           onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
-                          onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0'
+                            e.target.style.boxShadow = 'none'
+                            actualizarServicio(servicio.id, 'tipo', e.target.value)
+                          }}
                         >
                           <option>Hotel</option>
                           <option>Mayorista</option>
@@ -615,12 +570,13 @@ const ServiciosCotizacionPanel = ({
                               />
                               {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
                                 <button
+                                  type="button"
                                   onClick={() => {
-                                    setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' })
+                                    setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
                                     actualizarServicio(servicio.id, 'proveedorId', null)
-                                    setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
+                                    setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: false }))
                                   }}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10 transition-colors"
                                   title="Limpiar"
                                 >
                                   <X size={14} />
@@ -702,6 +658,7 @@ const ServiciosCotizacionPanel = ({
                             value={servicio.especificacion_destino || ''}
                             onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
                             onFocus={(e) => e.target.select()}
+                            onBlur={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
                             placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
                             className="input-field text-xs py-1.5 px-2 flex-1 min-w-0"
                             style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', flex: '1 1 0', minWidth: 0 }}
@@ -731,7 +688,13 @@ const ServiciosCotizacionPanel = ({
                               }}
                               onWheel={handleWheel}
                               onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
-                              onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
+                              onBlur={(e) => {
+                                e.target.style.borderColor = '#e2e8f0'
+                                e.target.style.boxShadow = 'none'
+                                const valor = e.target.value
+                                const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1)
+                                actualizarServicio(servicio.id, 'noches', valorNumerico)
+                              }}
                               className="input-field text-xs text-center transition-all"
                               style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '50px', minWidth: '50px', maxWidth: '50px' }}
                               min="1"
@@ -752,7 +715,7 @@ const ServiciosCotizacionPanel = ({
                                 e.target.style.boxShadow = 'none'
                                 const valor = e.target.value
                                 const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1)
-                                actualizarServicio(servicio.id, 'cantidad', valorNumerico, { immediate: true })
+                                actualizarServicio(servicio.id, 'cantidad', valorNumerico)
                               }}
                               onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
                               className="input-field text-xs text-center transition-all"
@@ -833,7 +796,15 @@ const ServiciosCotizacionPanel = ({
                             className="input-field text-[10px] transition-all"
                             style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '120px', minWidth: '120px', maxWidth: '120px' }}
                             onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
-                            onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#e2e8f0'
+                              e.target.style.boxShadow = 'none'
+                              const nuevoModo = e.target.value
+                              const updates = { tipo_calculo: nuevoModo }
+                              if (nuevoModo === 'porGrupo' && servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
+                              else if (nuevoModo === 'porPersona') updates.total_servicio_manual = 0
+                              actualizarServicio(servicio.id, updates)
+                            }}
                           >
                             <option value="porPersona">X pax</option>
                             <option value="porGrupo">÷ Todos</option>
@@ -855,7 +826,7 @@ const ServiciosCotizacionPanel = ({
                             onBlur={(e) => {
                               e.target.style.borderColor = '#e2e8f0'
                               e.target.style.boxShadow = 'none'
-                              guardarFechaReleaseServicio(servicio.id, e.target.value || '')
+                              actualizarServicio(servicio.id, 'fechaRelease', e.target.value || '')
                             }}
                             className="input-field text-center transition-all"
                             style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '4px 4px', width: '120px', minWidth: '120px', maxWidth: '120px', fontSize: '11px' }}
@@ -914,7 +885,11 @@ const ServiciosCotizacionPanel = ({
                       className="input-field text-xs w-full transition-all"
                       style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                       onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
-                      onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = '#e2e8f0'
+                        e.target.style.boxShadow = 'none'
+                        actualizarServicio(servicio.id, 'tipo', e.target.value)
+                      }}
                     >
                       <option>Hotel</option>
                       <option>Mayorista</option>
@@ -961,6 +936,7 @@ const ServiciosCotizacionPanel = ({
                             value={servicio.especificacion_destino || ''}
                             onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
                             onFocus={(e) => e.target.select()}
+                            onBlur={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
                             placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
                             className="input-field text-xs flex-1 min-w-0 py-1.5 px-2"
                             style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
@@ -1006,9 +982,9 @@ const ServiciosCotizacionPanel = ({
                     <div>
                       <span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Cantidad</span>
                       {servicio.tipo === 'Hotel' ? (
-                        <input type="number" value={servicio.noches || 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'noches', Math.max(1, valorNumerico)) }} onWheel={handleWheel} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
+                        <input type="number" value={servicio.noches || 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'noches', Math.max(1, valorNumerico)) }} onWheel={handleWheel} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const valor = e.target.value; const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1); actualizarServicio(servicio.id, 'noches', valorNumerico) }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
                       ) : servicio.tipo === 'Guía' ? (
-                        <input type="number" value={servicio.cantidad ?? servicio.dias_guia ?? 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'cantidad', Math.max(1, valorNumerico)) }} onWheel={handleWheel} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const valor = e.target.value; const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1); actualizarServicio(servicio.id, 'cantidad', valorNumerico, { immediate: true }) }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
+                        <input type="number" value={servicio.cantidad ?? servicio.dias_guia ?? 1} onChange={(e) => { const valor = e.target.value; const valorNumerico = valor === '' ? 1 : Number(valor) || 1; actualizarServicio(servicio.id, 'cantidad', Math.max(1, valorNumerico)) }} onWheel={handleWheel} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const valor = e.target.value; const valorNumerico = Math.max(1, valor === '' ? 1 : Number(valor) || 1); actualizarServicio(servicio.id, 'cantidad', valorNumerico) }} onFocus={(e) => { e.target.select(); handleFocus(e); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} className="input-field text-xs text-center w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} min="1" placeholder="1" />
                       ) : (
                         <span className="text-gray-600 text-xs font-medium block py-2">1</span>
                       )}
@@ -1023,7 +999,7 @@ const ServiciosCotizacionPanel = ({
                     {(servicio.tipo === 'Autobús' || servicio.tipo === 'Transporte') ? (
                       <span className="text-xs font-medium text-slate-600">Total ÷ pax</span>
                     ) : (
-                      <select value={servicio.tipo_calculo || 'porPersona'} onChange={(e) => { const nuevoModo = e.target.value; const updates = { tipo_calculo: nuevoModo }; if (nuevoModo === 'porGrupo' && servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario); else if (nuevoModo === 'porPersona') updates.total_servicio_manual = 0; actualizarServicio(servicio.id, updates); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none' }}>
+                      <select value={servicio.tipo_calculo || 'porPersona'} onChange={(e) => { const nuevoModo = e.target.value; const updates = { tipo_calculo: nuevoModo }; if (nuevoModo === 'porGrupo' && servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario); else if (nuevoModo === 'porPersona') updates.total_servicio_manual = 0; actualizarServicio(servicio.id, updates); }} className="input-field text-xs w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; const nuevoModo = e.target.value; const updates = { tipo_calculo: nuevoModo }; if (nuevoModo === 'porGrupo' && servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario); else if (nuevoModo === 'porPersona') updates.total_servicio_manual = 0; actualizarServicio(servicio.id, updates); }}>
                         <option value="porPersona">X pax</option>
                         <option value="porGrupo">÷ Todos</option>
                       </select>
@@ -1035,7 +1011,7 @@ const ServiciosCotizacionPanel = ({
                   </div>
                   <div>
                     <span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Release</span>
-                    <input type="date" value={servicio.fechaRelease || ''} onChange={(e) => actualizarServicio(servicio.id, 'fechaRelease', e.target.value || '')} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; guardarFechaReleaseServicio(servicio.id, e.target.value || '') }} className="input-field w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '6px 8px', fontSize: '16px' }} />
+                    <input type="date" value={servicio.fechaRelease || ''} onChange={(e) => actualizarServicio(servicio.id, 'fechaRelease', e.target.value || '')} onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; actualizarServicio(servicio.id, 'fechaRelease', e.target.value || '') }} className="input-field w-full transition-all" style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '6px 8px', fontSize: '16px' }} />
                     {!servicio.releasePagado && servicio.fechaRelease && (
                       <button type="button" onClick={() => marcarReleaseComoPagadoServicio(servicio.id)} className="mt-2 flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-semibold w-full justify-center" style={{ fontSize: '16px' }}><CheckCircle size={14} /> Marcar como Pagado</button>
                     )}
