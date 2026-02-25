@@ -541,8 +541,8 @@ const ServiciosCotizacionPanel = ({
 
                       <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }}>
                         <div className="relative" data-provider-combobox>
-                          <div className="flex flex-row gap-1 items-center flex-nowrap" style={{ width: '170px' }}>
-                            <div className="relative flex-shrink-0 flex-1 min-w-0" style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }}>
+                          <div className="flex flex-row gap-1.5 items-center flex-nowrap w-full">
+                            <div className="relative flex-1 min-w-0">
                               <input
                                 type="text"
                                 value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')}
@@ -586,6 +586,15 @@ const ServiciosCotizacionPanel = ({
                                 </button>
                               )}
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => abrirModalProveedor(busquedaProveedor[servicio.id] || '', servicio.tipo, servicio.id)}
+                              className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
+                              style={{ width: '32px', minWidth: '32px' }}
+                              title="Añadir nuevo proveedor"
+                            >
+                              <Plus size={16} />
+                            </button>
                           </div>
 
                           {mostrarSugerencias[servicio.id] && (
@@ -652,27 +661,16 @@ const ServiciosCotizacionPanel = ({
                       </td>
 
                       <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '130px', minWidth: '130px', maxWidth: '130px' }}>
-                        <div className="flex flex-row items-center gap-1 flex-nowrap" style={{ width: '130px' }}>
-                          <input
-                            type="text"
-                            value={servicio.especificacion_destino || ''}
-                            onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
-                            onFocus={(e) => e.target.select()}
-                            onBlur={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
-                            placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
-                            className="input-field text-xs py-1.5 px-2 flex-1 min-w-0"
-                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', flex: '1 1 0', minWidth: 0 }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => abrirModalProveedor(busquedaProveedor[servicio.id] || '', servicio.tipo, servicio.id)}
-                            className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors"
-                            style={{ width: '32px', minWidth: '32px' }}
-                            title="Añadir nuevo proveedor"
-                          >
-                            <Plus size={16} />
-                          </button>
-                        </div>
+                        <input
+                          type="text"
+                          value={servicio.especificacion_destino || ''}
+                          onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
+                          onFocus={(e) => e.target.select()}
+                          onBlur={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
+                          placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
+                          className="input-field text-xs py-1.5 px-2 w-full"
+                          style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', width: '100%', minWidth: 0, maxWidth: '130px' }}
+                        />
                       </td>
 
                       <td className="px-1 py-2 align-middle" style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }}>
@@ -906,8 +904,8 @@ const ServiciosCotizacionPanel = ({
                   <div>
                     <span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Proveedor</span>
                     <div className="relative" data-provider-combobox onClick={(e) => e.stopPropagation()}>
-                      <div className="flex flex-row gap-2 items-center flex-nowrap">
-                        <div className="relative flex-shrink-0 min-w-0" style={{ minWidth: '80px', maxWidth: '120px' }}>
+                      <div className="flex flex-row gap-1.5 items-center flex-nowrap">
+                        <div className="relative flex-1 min-w-0">
                           <input
                             type="text"
                             value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')}
@@ -928,18 +926,6 @@ const ServiciosCotizacionPanel = ({
                           {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
                             <button onClick={() => { setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' }); actualizarServicio(servicio.id, 'proveedorId', null); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }) }} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10" title="Limpiar"><X size={14} /></button>
                           )}
-                        </div>
-                        <div className="flex flex-row items-center gap-1 min-w-0 flex-1">
-                          <input
-                            type="text"
-                            value={servicio.especificacion_destino || ''}
-                            onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
-                            onFocus={(e) => e.target.select()}
-                            onBlur={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
-                            placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
-                            className="input-field text-xs flex-1 min-w-0 py-1.5 px-2"
-                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                          />
                         </div>
                         <button type="button" onClick={() => abrirModalProveedor(busquedaProveedor[servicio.id] || '', servicio.tipo, servicio.id)} className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors" title="Añadir nuevo proveedor"><Plus size={16} /></button>
                       </div>
@@ -976,6 +962,19 @@ const ServiciosCotizacionPanel = ({
                         </div>
                       )}
                     </div>
+                  </div>
+                  <div>
+                    <span className="text-xs font-semibold text-gray-500 uppercase block mb-1">Detalle</span>
+                    <input
+                      type="text"
+                      value={servicio.especificacion_destino || ''}
+                      onChange={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={(e) => actualizarServicio(servicio.id, 'especificacion_destino', e.target.value)}
+                      placeholder={servicio.tipo === 'Guía Local' ? 'ej. Santiago' : servicio.tipo === 'Entradas/Tickets' ? 'ej. Catedral' : 'Detalle...'}
+                      className="input-field text-xs w-full py-1.5 px-2"
+                      style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
