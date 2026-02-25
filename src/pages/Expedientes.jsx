@@ -1015,7 +1015,8 @@ const Expedientes = () => {
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
 
-  if (isLoading) {
+  // No desmontar el modal de detalle durante el loading: preservar pestaña activa (ej. Cotización)
+  if (isLoading && !showDetalleModal) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <p className="text-xl text-gray-600 font-medium">Cargando...</p>
