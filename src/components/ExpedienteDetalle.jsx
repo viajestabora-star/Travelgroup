@@ -609,7 +609,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         .from('expedientes')
         .select('*')
         .ilike('cliente_nombre', nombreNormalizado)
-        .order('fecha_inicio', { ascending: false, nullsFirst: false })
+        .order('fecha_inicio', { ascending: true, nullsFirst: false })
 
 
       if (error) {

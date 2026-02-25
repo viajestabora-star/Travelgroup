@@ -411,7 +411,7 @@ const Cierres = ({ user, onClose }) => {
         .select(
           'id, numero_expediente, nombre_grupo, cliente_nombre, destino, precio_venta_cliente, pax_pago, total_pax, gratuidades, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total, noches, informe_gastos_hacienda, total_gastos_reales, liquidacion_final_beneficio, cierre_grupo'
         )
-        .order('id', { ascending: false })
+        .order('fecha_inicio', { ascending: true, nullsFirst: false })
 
       if (error) {
         setExpedientesCierre([])

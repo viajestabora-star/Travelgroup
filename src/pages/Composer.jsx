@@ -51,7 +51,7 @@ const Composer = () => {
           supabase
             .from('expedientes')
             .select('*')
-            .order('fecha_viaje', { ascending: false }),
+            .order('fecha_inicio', { ascending: true, nullsFirst: false }),
         ])
 
         if (!provRes.error && Array.isArray(provRes.data)) {
@@ -101,7 +101,7 @@ const Composer = () => {
     if (exp) {
       // Mapeo de Datos de Viaje: inyectar campos en formulario y bono
       setTitulo(exp.cliente_nombre ? `Bono para ${exp.cliente_nombre}` : '')
-      setFechaServicio(exp.fecha_viaje || '')
+      setFechaServicio(exp.fecha_viaje || exp.fecha_inicio || '')
       setNPersonas(exp.total_pax ? String(exp.total_pax) : '')
       setTlfGuia(exp.movil_guia || '')
       setTlfResponsable(exp.movil_responsable || '')

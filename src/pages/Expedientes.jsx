@@ -270,7 +270,7 @@ const Expedientes = () => {
       const { data: cloudData, error } = await supabase
         .from('expedientes')
         .select('*')
-        .order('id', { ascending: false })
+        .order('fecha_inicio', { ascending: true, nullsFirst: false })
 
       if (error) {
         setExpedientes([])
@@ -1171,20 +1171,24 @@ const Expedientes = () => {
             .slice()
             .sort((a, b) => {
               try {
-                // Regla 1.14: Ordenación A-Z por cliente
-                const nombreA = (a.cliente_nombre || a.clienteNombre || '').toLowerCase().trim()
-                const nombreB = (b.cliente_nombre || b.clienteNombre || '').toLowerCase().trim()
-                const cmpCliente = nombreA.localeCompare(nombreB, 'es')
-                if (cmpCliente !== 0) return cmpCliente
-                // Desempate: por fecha de inicio
+                // Regla de negocio: Ordenación por fecha de salida (más próximo a más lejano)
                 const fechaInicioA = a.fecha_inicio || a.fechaInicio
                 const fechaInicioB = b.fecha_inicio || b.fechaInicio
                 const fechaObjA = parsearFecha(fechaInicioA)
                 const fechaObjB = parsearFecha(fechaInicioB)
+                if (!fechaObjA && !fechaObjB) {
+                  const nombreA = (a.cliente_nombre || a.clienteNombre || '').toLowerCase().trim()
+                  const nombreB = (b.cliente_nombre || b.clienteNombre || '').toLowerCase().trim()
+                  return nombreA.localeCompare(nombreB, 'es')
+                }
                 if (!fechaObjA) return 1
                 if (!fechaObjB) return -1
-                const esArchivo = tabExpedientes === 'finalizado' || tabExpedientes === 'cancelado'
-                return esArchivo ? fechaObjB - fechaObjA : fechaObjA - fechaObjB
+                const cmpFecha = fechaObjA - fechaObjB
+                if (cmpFecha !== 0) return cmpFecha
+                // Desempate: por cliente A-Z
+                const nombreA = (a.cliente_nombre || a.clienteNombre || '').toLowerCase().trim()
+                const nombreB = (b.cliente_nombre || b.clienteNombre || '').toLowerCase().trim()
+                return nombreA.localeCompare(nombreB, 'es')
               } catch (error) {
                 return 0
               }

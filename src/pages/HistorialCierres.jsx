@@ -19,7 +19,7 @@ const HistorialCierres = () => {
         .from('expedientes')
         .select('id, numero_expediente, nombre_grupo, cliente_nombre, informe_gastos_hacienda, total_gastos_reales, liquidacion_final_beneficio')
         .not('informe_gastos_hacienda', 'is', null)
-        .order('id', { ascending: false })
+        .order('fecha_inicio', { ascending: true, nullsFirst: false })
 
       if (error) {
         setCierres([])

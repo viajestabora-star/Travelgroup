@@ -94,7 +94,7 @@ const Clientes = () => {
         .from('expedientes')
         .select('*')
         .ilike('cliente_nombre', nombreNormalizado)
-        .order('fecha_viaje', { ascending: false })
+        .order('fecha_inicio', { ascending: true, nullsFirst: false })
 
       if (error) {
         setExpedientesCliente([])
