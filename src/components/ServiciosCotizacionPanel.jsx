@@ -464,7 +464,7 @@ const ServiciosCotizacionPanel = ({
           </div>
         ) : (
           <>
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden md:block overflow-visible">
               <table className="w-full whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '860px' }}>
                 <colgroup>
                   <col style={{ width: '160px', minWidth: '160px', maxWidth: '160px' }} />
@@ -589,7 +589,7 @@ const ServiciosCotizacionPanel = ({
                           </div>
 
                           {mostrarSugerencias[servicio.id] && (
-                            <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                            <div className="absolute left-0 top-full mt-1 w-full min-w-[170px] bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto" style={{ zIndex: 9999 }}>
                               {(() => {
                                 const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
                                 const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase().trim()
@@ -944,7 +944,7 @@ const ServiciosCotizacionPanel = ({
                         <button type="button" onClick={() => abrirModalProveedor(busquedaProveedor[servicio.id] || '', servicio.tipo, servicio.id)} className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors" title="Añadir nuevo proveedor"><Plus size={16} /></button>
                       </div>
                       {mostrarSugerencias[servicio.id] && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                        <div className="absolute left-0 top-full mt-1 w-full min-w-[170px] bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto" style={{ zIndex: 9999 }}>
                           {(() => {
                             const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
                             const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase().trim()
