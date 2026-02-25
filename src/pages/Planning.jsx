@@ -4,6 +4,7 @@ import { storage } from '../utils/storage'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
+import { supabase } from '../supabase'
 
 // ============================================================================
 // PLANNING 2026 - DISEÑO EN COLUMNA ÚNICA
@@ -19,7 +20,7 @@ const parsearFecha = parsearFechaADate
 const formatearFecha = formatearFechaVisual
 
 // ============ ESTADOS CON COLORES (REGLA 1.14 - IDÉNTICO A EXPEDIENTES) ============
-// Petición: #FACC15 | Confirmado: Verde | Finalizado: #3B82F6
+// Petición: #FACC15 | Confirmado: Verde | Finalizado: #3B82F6 | Cerrado: púrpura
 const ESTADOS = {
   peticion: { label: 'Petición', color: 'bg-[#FACC15] text-black', badge: 'bg-[#FACC15]' },
   presupuesto: { label: 'Petición', color: 'bg-[#FACC15] text-black', badge: 'bg-[#FACC15]' },
@@ -27,6 +28,7 @@ const ESTADOS = {
   encurso: { label: 'Confirmado', color: 'bg-green-500 text-white', badge: 'bg-green-500' },
   en_curso: { label: 'Confirmado', color: 'bg-green-500 text-white', badge: 'bg-green-500' },
   finalizado: { label: 'Finalizado', color: 'bg-[#3B82F6] text-white', badge: 'bg-[#3B82F6]' },
+  cerrado: { label: 'Cerrado', color: 'bg-purple-600 text-white', badge: 'bg-purple-600' },
   cancelado: { label: 'Cancelado', color: 'bg-red-500 text-white', badge: 'bg-red-500' },
 }
 
@@ -67,19 +69,71 @@ const Planning = () => {
     return unsubscribe
   }, [])
 
-  // ============ CARGAR EXPEDIENTES (FUENTE ÚNICA DE VERDAD) ============
-  const loadExpedientes = () => {
+  // ============ CARGAR EXPEDIENTES (FUENTE ÚNICA DE VERDAD: SUPABASE) ============
+  // Sincronización: Lee estado directamente de Supabase para reflejar cambios de Expedientes
+  const loadExpedientes = async () => {
     try {
-      const allExpedientes = storage.get('expedientes') || []
+      const { data: cloudData, error } = await supabase
+        .from('expedientes')
+        .select('id, numero_expediente, cliente_nombre, cliente_id, fecha_inicio, fecha_final, fecha_fin, destino, responsable, estado, observaciones, tipo_colectivo, duracion_viaje, itinerario, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, cierre_grupo, ejercicio')
+        .order('fecha_inicio', { ascending: true, nullsFirst: false })
 
-      // ============ NORMALIZACIÓN AUTOMÁTICA DE FECHAS ============
-      const expedientesNormalizados = normalizarExpedientes(allExpedientes)
-      
+      if (error) {
+        // Fallback a localStorage si Supabase falla
+        const allExpedientes = storage.get('expedientes') || []
+        const expedientesNormalizados = normalizarExpedientes(allExpedientes)
+        const expedientesFiltrados = expedientesNormalizados.filter(exp => {
+          const estado = (exp.estado || 'peticion').toString().trim().toLowerCase()
+          if (estado === 'cancelado') return false
+          const fechaInicio = exp.fecha_inicio || exp.fechaInicio
+          if (!fechaInicio) return true
+          const añoExpediente = extraerAño(fechaInicio)
+          if (!añoExpediente) return true
+          return añoExpediente === ejercicioActual
+        })
+        setExpedientes(expedientesFiltrados)
+        return
+      }
+
+      const expedientesParseados = (cloudData || []).map(exp => ({
+        id: exp.id,
+        numero_expediente: exp.numero_expediente || '',
+        cliente_id: exp.cliente_id || '',
+        cliente_nombre: exp.cliente_nombre || exp.cliente_name || '',
+        clienteNombre: exp.cliente_nombre || exp.cliente_name || '',
+        nombre_grupo: exp.cliente_nombre || exp.nombre_grupo || '',
+        fecha_inicio: exp.fecha_inicio || '',
+        fecha_fin: exp.fecha_final || exp.fecha_fin || '',
+        fechaInicio: exp.fecha_inicio || '',
+        fechaFin: exp.fecha_final || exp.fecha_fin || '',
+        destino: exp.destino || '',
+        responsable: exp.responsable || '',
+        estado: (exp.estado || 'peticion').toString().trim(),
+        observaciones: exp.observaciones || '',
+        tipo_colectivo: exp?.tipo_colectivo || '',
+        duracion_viaje: exp?.duracion_viaje || '',
+        itinerario: exp.itinerario || '',
+        total_pax: exp.total_pax || null,
+        pax_pago: exp.pax_pago || null,
+        gratuidades: exp.gratuidades ?? 0,
+        precio_venta_cliente: exp.precio_venta_cliente ?? 0,
+        bonificacion_pax: exp.bonificacion_pax ?? 0,
+        cierre_grupo: exp?.cierre_grupo ?? null,
+        ejercicio: exp.ejercicio || extraerAño(exp.fecha_inicio || '') || getEjercicioActual(),
+        pasajeros: [],
+        cobros: [],
+        pagos: [],
+        documentos: [],
+        cierre: null,
+      }))
+
+      const expedientesNormalizados = normalizarExpedientes(expedientesParseados)
+
       // ============ FILTRAR POR EJERCICIO Y ESTADO ============
-      // INCLUSIÓN: Petición, Confirmado, Finalizado
+      // INCLUSIÓN: Petición, Confirmado, Finalizado, Cerrado
       // EXCLUSIÓN: Cancelado (nunca aparece en Planning)
       const expedientesFiltrados = expedientesNormalizados.filter(exp => {
-        const estado = (exp.estado || 'peticion').toLowerCase()
+        const estado = (exp.estado || 'peticion').toString().trim().toLowerCase()
         if (estado === 'cancelado') return false
 
         const fechaInicio = exp.fecha_inicio || exp.fechaInicio
@@ -89,9 +143,45 @@ const Planning = () => {
         return añoExpediente === ejercicioActual
       })
 
-      setExpedientes(expedientesFiltrados)
+      // Fusionar con expedientes locales (creados en Planning) que aún no están en Supabase
+      const idsEnCloud = new Set((expedientesParseados || []).map(e => String(e.id)))
+      const locales = (storage.get('expedientes') || []).filter(exp => {
+        if (idsEnCloud.has(String(exp.id))) return false
+        const estado = (exp.estado || 'peticion').toString().trim().toLowerCase()
+        if (estado === 'cancelado') return false
+        const fechaInicio = exp.fecha_inicio || exp.fechaInicio
+        if (!fechaInicio) return true
+        const añoExpediente = extraerAño(fechaInicio)
+        if (!añoExpediente) return true
+        return añoExpediente === ejercicioActual
+      })
+      const fusionados = ordenarExpedientes([...expedientesFiltrados, ...normalizarExpedientes(locales)])
+      setExpedientes(fusionados)
+
+      // Sincronizar localStorage como backup
+      if (expedientesParseados?.length > 0) {
+        try {
+          storage.set('expedientes', expedientesParseados)
+        } catch (_) { /* no bloquear por localStorage */ }
+      }
     } catch (error) {
-      setExpedientes([])
+      // Fallback a localStorage en caso de error
+      try {
+        const allExpedientes = storage.get('expedientes') || []
+        const expedientesNormalizados = normalizarExpedientes(allExpedientes)
+        const expedientesFiltrados = expedientesNormalizados.filter(exp => {
+          const estado = (exp.estado || 'peticion').toString().trim().toLowerCase()
+          if (estado === 'cancelado') return false
+          const fechaInicio = exp.fecha_inicio || exp.fechaInicio
+          if (!fechaInicio) return true
+          const añoExpediente = extraerAño(fechaInicio)
+          if (!añoExpediente) return true
+          return añoExpediente === ejercicioActual
+        })
+        setExpedientes(expedientesFiltrados)
+      } catch (_) {
+        setExpedientes([])
+      }
     }
   }
 
@@ -245,8 +335,10 @@ const Planning = () => {
   // ============ RENDER DE TARJETA (EXACTAMENTE IGUAL A EXPEDIENTES) ============
   const renderTarjeta = (expediente) => {
     if (!expediente || !expediente.id) return null
-    
-    const estado = ESTADOS[expediente.estado || 'peticion'] || ESTADOS.peticion
+
+    // Normalizar estado a minúsculas para lookup (BD puede devolver 'Finalizado', 'finalizado', etc.)
+    const estadoKey = (expediente.estado || 'peticion').toString().trim().toLowerCase()
+    const estado = ESTADOS[estadoKey] || ESTADOS.peticion
     const nombreGrupo = expediente.nombre_grupo || expediente.clienteNombre || 'GRUPO SIN NOMBRE'
     const nombreResponsable = expediente.cliente_responsable || expediente.responsable || 'Sin responsable'
     const destino = expediente.destino || 'Sin destino'
@@ -564,6 +656,7 @@ const Planning = () => {
           expediente={expedienteActual}
           onClose={cerrarDetalle}
           onUpdate={actualizarExpediente}
+          onRefresh={loadExpedientes}
           clientes={[]} // Planning no necesita lista de clientes para el modal
         />
       )}
