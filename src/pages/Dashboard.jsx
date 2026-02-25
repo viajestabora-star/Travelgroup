@@ -309,10 +309,6 @@ const Dashboard = ({ user = null }) => {
           <ResumenPipeline />
         </div>
       </div>
-
-      <div className="mt-8">
-        <CentralDeInteligencia user={user} />
-      </div>
     </div>
   )
 }
