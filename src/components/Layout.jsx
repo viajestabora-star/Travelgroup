@@ -32,7 +32,7 @@ const Layout = ({ user }) => {
     return unsubscribe
   }, [])
 
-  // Recalcular menuItems cuando cambie el ejercicio. Inteligencia Económica solo para ADMIN.
+  // Recalcular menuItems cuando cambie el ejercicio. Inteligencia Económica solo para ADMIN, al final.
   const esAdmin = user?.rol === 'ADMIN'
   const menuItems = useMemo(() => {
     const base = [
@@ -48,7 +48,7 @@ const Layout = ({ user }) => {
       { path: '/historial-cierres', icon: History, label: 'Historial de Cierres' }
     ]
     if (esAdmin) {
-      base.splice(2, 0, { path: '/inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })
+      base.push({ path: '/inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })
     }
     return base
   }, [ejercicioActual, esAdmin])
