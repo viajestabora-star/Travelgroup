@@ -12,14 +12,15 @@ import {
   Plane, 
   Truck,
   Edit3,
-  History
+  History,
+  TrendingUp
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
 // Logo Tabora - URL oficial
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
-const Layout = () => {
+const Layout = ({ user }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
 
@@ -31,19 +32,26 @@ const Layout = () => {
     return unsubscribe
   }, [])
 
-  // Recalcular menuItems cuando cambie el ejercicio
-  const menuItems = useMemo(() => [
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Panel de Control' },
-    { path: '/clientes', icon: Users, label: 'Clientes' },
-    { path: '/notas', icon: Briefcase, label: 'NOTAS DE TRABAJO' },
-    { path: '/expedientes', icon: FileText, label: `Expedientes ${ejercicioActual}` },
-    { path: '/proveedores', icon: Truck, label: 'Proveedores' },
-    { path: '/planning', icon: Calendar, label: `Planning ${ejercicioActual}` },
-    { path: '/crm', icon: Plane, label: 'CRM / Captación' },
-    { path: '/composer', icon: Edit3, label: 'Composer' },
-    { path: '/cierres', icon: Calculator, label: 'Cierres' },
-    { path: '/historial-cierres', icon: History, label: 'Historial de Cierres' }
-  ], [ejercicioActual])
+  // Recalcular menuItems cuando cambie el ejercicio. Inteligencia Económica solo para ADMIN.
+  const esAdmin = user?.rol === 'ADMIN'
+  const menuItems = useMemo(() => {
+    const base = [
+      { path: '/dashboard', icon: LayoutDashboard, label: 'Panel de Control' },
+      { path: '/clientes', icon: Users, label: 'Clientes' },
+      { path: '/notas', icon: Briefcase, label: 'NOTAS DE TRABAJO' },
+      { path: '/expedientes', icon: FileText, label: `Expedientes ${ejercicioActual}` },
+      { path: '/proveedores', icon: Truck, label: 'Proveedores' },
+      { path: '/planning', icon: Calendar, label: `Planning ${ejercicioActual}` },
+      { path: '/crm', icon: Plane, label: 'CRM / Captación' },
+      { path: '/composer', icon: Edit3, label: 'Composer' },
+      { path: '/cierres', icon: Calculator, label: 'Cierres' },
+      { path: '/historial-cierres', icon: History, label: 'Historial de Cierres' }
+    ]
+    if (esAdmin) {
+      base.splice(2, 0, { path: '/inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })
+    }
+    return base
+  }, [ejercicioActual, esAdmin])
 
   return (
     <div className="flex h-screen bg-gray-50">

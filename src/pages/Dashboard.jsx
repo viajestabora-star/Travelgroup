@@ -196,7 +196,7 @@ const Dashboard = ({ user = null }) => {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
-              <CentralDeInteligencia />
+              <CentralDeInteligencia user={user} />
             </div>
           </div>
         </div>
@@ -311,7 +311,7 @@ const Dashboard = ({ user = null }) => {
       </div>
 
       <div className="mt-8">
-        <CentralDeInteligencia />
+        <CentralDeInteligencia user={user} />
       </div>
     </div>
   )

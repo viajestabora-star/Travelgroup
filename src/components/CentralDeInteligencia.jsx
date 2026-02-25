@@ -5,9 +5,11 @@ import InteligenciaEconomicaPanel from './InteligenciaEconomicaPanel'
 
 /**
  * CentralDeInteligencia - Contenedor principal de la Central de Inteligencia.
+ * El tab "Inteligencia Económica" solo se muestra si user.rol === 'ADMIN'.
  */
-const CentralDeInteligencia = ({ userEmail }) => {
+const CentralDeInteligencia = ({ user }) => {
   const [panelActivo, setPanelActivo] = useState('crm')
+  const esAdmin = user?.rol === 'ADMIN'
 
   return (
     <div className="space-y-6">
@@ -23,22 +25,24 @@ const CentralDeInteligencia = ({ userEmail }) => {
           <Users size={20} />
           Inteligencia de Clientes (CRM)
         </button>
-        <button
-          onClick={() => setPanelActivo('economica')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-colors ${
-            panelActivo === 'economica'
-              ? 'bg-navy-700 text-white shadow-md'
-              : 'bg-navy-100 text-navy-800 hover:bg-navy-200'
-          }`}
-        >
-          <TrendingUp size={20} />
-          Inteligencia Económica (Finanzas)
-        </button>
+        {esAdmin && (
+          <button
+            onClick={() => setPanelActivo('economica')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-colors ${
+              panelActivo === 'economica'
+                ? 'bg-navy-700 text-white shadow-md'
+                : 'bg-navy-100 text-navy-800 hover:bg-navy-200'
+            }`}
+          >
+            <TrendingUp size={20} />
+            Inteligencia Económica (Finanzas)
+          </button>
+        )}
       </div>
 
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         {panelActivo === 'crm' && <CrmIntelligencePanel />}
-        {panelActivo === 'economica' && <InteligenciaEconomicaPanel userEmail={userEmail} />}
+        {panelActivo === 'economica' && esAdmin && <InteligenciaEconomicaPanel user={user} />}
       </div>
     </div>
   )

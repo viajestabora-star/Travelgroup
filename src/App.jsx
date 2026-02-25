@@ -12,6 +12,8 @@ import Cierres from './pages/Cierres';
 import HistorialCierres from './pages/HistorialCierres';
 import NotasTrabajo from './pages/NotasTrabajo'; // NUEVA PÁGINA
 import Composer from './pages/Composer';
+import InteligenciaEconomica from './pages/InteligenciaEconomica';
+import AdminRouteGuard from './components/AdminRouteGuard';
 
 const USUARIOS_AUTORIZADOS = {
   'andres@viajestabora.com': { nombre: 'Andrés', rol: 'ADMIN' },
@@ -83,6 +85,14 @@ function App() {
           <Route path="composer" element={<Composer user={user} />} />
           <Route path="cierres" element={<Cierres user={user} />} />
           <Route path="historial-cierres" element={<HistorialCierres user={user} />} />
+          <Route
+            path="inteligencia-economica"
+            element={
+              <AdminRouteGuard user={user}>
+                <InteligenciaEconomica user={user} />
+              </AdminRouteGuard>
+            }
+          />
         </Route>
       </Routes>
     </BrowserRouter>

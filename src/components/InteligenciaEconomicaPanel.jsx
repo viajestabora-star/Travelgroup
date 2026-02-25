@@ -1,26 +1,21 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 
-const InteligenciaEconomicaPanel = ({ userEmail: userEmailProp }) => {
+/**
+ * InteligenciaEconomicaPanel - Panel financiero (vista_global_financiera).
+ * Solo accesible si user.rol === 'ADMIN' (basado en roles_usuarios.nivel_acceso).
+ */
+const InteligenciaEconomicaPanel = ({ user }) => {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [userEmail, setUserEmail] = useState(userEmailProp)
+  const esAdmin = user?.rol === 'ADMIN'
 
   useEffect(() => {
-    const resolveEmail = async () => {
-      if (userEmailProp) {
-        setUserEmail(userEmailProp)
-        return
-      }
-      const { data: { user } } = await supabase.auth.getUser()
-      setUserEmail(user?.email || '')
+    if (!esAdmin) {
+      setLoading(false)
+      return
     }
-    resolveEmail()
-  }, [userEmailProp])
-
-  useEffect(() => {
-    if (userEmail === 'grupos@viajestabora.com') return
 
     const fetchData = async () => {
       try {
@@ -38,11 +33,11 @@ const InteligenciaEconomicaPanel = ({ userEmail: userEmailProp }) => {
       }
     }
 
-    if (userEmail !== undefined) fetchData()
-  }, [userEmail])
+    fetchData()
+  }, [esAdmin])
 
-  // Seguridad: Sin permisos para grupos@viajestabora.com
-  if (userEmail === 'grupos@viajestabora.com') {
+  // Seguridad: Sin permisos si nivel_acceso !== 'ADMIN'
+  if (!esAdmin) {
     return (
       <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-medium">
         Sin permisos para ver este panel.
