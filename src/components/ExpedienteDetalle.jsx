@@ -1972,13 +1972,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
 
     try {
+      // Estructura cobros_expediente: importe (numeric), metodo_pago, concepto, fecha
       const datosCobro = {
         expediente_id: expediente.id,
         cliente_id: clienteId,
-        importe: importeLimpio,
-        metodo_pago: formCobro.metodo_pago,
-        cuenta_destino: formCobro.cuenta_destino,
-        concepto: formCobro.concepto.trim()
+        importe: Number(importeLimpio),
+        metodo_pago: String(formCobro.metodo_pago || 'Transferencia'),
+        cuenta_destino: String(formCobro.cuenta_destino || 'Caixabank'),
+        concepto: String(formCobro.concepto || '').trim(),
+        fecha: new Date().toISOString()
       }
 
       let errorOperacion = null
