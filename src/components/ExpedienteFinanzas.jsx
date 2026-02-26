@@ -211,15 +211,19 @@ const ExpedienteFinanzas = ({
 
     try {
       // Estructura cobros_expediente: importe (numeric), metodo_pago, concepto, fecha
+      // CRÍTICO: Usar 'importe' (NO 'monto'). El valor debe ser numérico.
+      const importeNumerico = Number(parseFloat(String(importeLimpio))) || 0
       const datosCobro = {
         expediente_id: expediente.id,
         cliente_id: clienteId,
-        importe: Number(importeLimpio),
+        importe: importeNumerico,
         metodo_pago: String(formCobro.metodo_pago || 'Transferencia'),
         cuenta_destino: String(formCobro.cuenta_destino || 'Caixabank'),
         concepto: String(formCobro.concepto || '').trim(),
         fecha: new Date().toISOString()
       }
+      // Garantizar que NUNCA se envíe 'monto' (eliminar si existiera por error)
+      delete datosCobro.monto
 
       let errorOperacion = null
       let operacionExitosa = false
@@ -375,7 +379,7 @@ const ExpedienteFinanzas = ({
       const nombreGrupo = expediente?.nombre_grupo || expediente?.clienteNombre || 'Sin nombre'
       const destino = expediente?.destino || 'Sin destino'
       const clienteNombre = grupo?.nombre || expediente?.clienteNombre || 'Sin cliente'
-      const importe = Number(cobro.importe || 0)
+      const importe = Number(cobro.importe ?? cobro.monto ?? 0)
       const importeTexto = numeroATexto(importe) + ' euros'
       const fechaCobro = cobro.fecha ? new Date(cobro.fecha) : new Date()
       const fechaFormateada = fechaCobro.toLocaleDateString('es-ES', {
@@ -1052,7 +1056,7 @@ const ExpedienteFinanzas = ({
                           <td className="py-3 px-4 text-sm font-mono text-gray-600">{cobro.numero_recibo || '—'}</td>
                           <td className="py-3 px-4 text-sm">{fechaFormateada}</td>
                           <td className="py-3 px-4 text-sm font-semibold text-navy-900">
-                            {Number(cobro.importe || 0).toFixed(2)}€
+                            {Number(cobro.importe ?? cobro.monto ?? 0).toFixed(2)}€
                           </td>
                           <td className="py-3 px-4 text-sm">{cobro.metodo_pago || '-'}</td>
                           <td className="py-3 px-4 text-sm">{cobro.cuenta_destino || '-'}</td>
@@ -1062,8 +1066,10 @@ const ExpedienteFinanzas = ({
                               <button
                                 onClick={() => {
                                   setCobroEnEdicionId(cobro.id)
+                                  // BD puede devolver 'importe' o legacy 'monto'
+                                  const valorImporte = Number(cobro.importe ?? cobro.monto ?? 0)
                                   setFormCobro({
-                                    importe: Number(cobro.importe || 0).toFixed(2),
+                                    importe: valorImporte > 0 ? valorImporte.toFixed(2) : '',
                                     metodo_pago: cobro.metodo_pago || 'Transferencia',
                                     cuenta_destino: cobro.cuenta_destino || 'Caixabank',
                                     concepto: cobro.concepto || ''
