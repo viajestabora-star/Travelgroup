@@ -223,6 +223,7 @@ const ExpedienteFinanzas = ({
 
       let errorOperacion = null
       let operacionExitosa = false
+      let numeroReciboGenerado = null
 
       if (cobroEnEdicionId) {
         const cobroOriginal = (cobros || []).find(c => c.id === cobroEnEdicionId)
@@ -282,23 +283,26 @@ const ExpedienteFinanzas = ({
           operacionExitosa = true
           const numeroRecibo = await obtenerSiguienteNumeroRecibo()
           const numeroExp = expediente?.numero_expediente || expediente?.numeroExpediente || ''
+          const datosRecibo = {
+            cobro_id: cobroInsertado[0].id,
+            numero_recibo: numeroRecibo,
+            expediente_id: datosCobro.expediente_id,
+            numero_expediente: numeroExp || null,
+            cliente_id: datosCobro.cliente_id,
+            importe_total: datosCobro.importe,
+            importe: datosCobro.importe,
+            concepto: datosCobro.concepto,
+            metodo_pago: datosCobro.metodo_pago,
+            cuenta_destino: datosCobro.cuenta_destino,
+            fecha: datosCobro.fecha
+          }
           const { error: errRecibo } = await supabase
             .from('recibos_oficiales')
-            .insert([{
-              cobro_id: cobroInsertado[0].id,
-              numero_recibo: numeroRecibo,
-              expediente_id: expediente.id,
-              numero_expediente: numeroExp || null,
-              cliente_id: clienteId,
-              importe_total: importeLimpio,
-              importe: importeLimpio,
-              concepto: formCobro.concepto.trim(),
-              metodo_pago: formCobro.metodo_pago,
-              cuenta_destino: formCobro.cuenta_destino,
-              fecha: new Date().toISOString()
-            }])
+            .insert([datosRecibo])
           if (errRecibo) {
-            alert(`⚠️ El cobro se guardó pero no se pudo crear el recibo oficial (REC-2026-XXXX):\n\n${errRecibo.message}`)
+            alert(`⚠️ El cobro se guardó pero no se pudo crear el recibo oficial:\n\n${errRecibo.message}\n\nEl cobro permanece registrado.`)
+          } else {
+            numeroReciboGenerado = numeroRecibo
           }
           const { error: logError } = await supabase
             .from('logs_financieros')
@@ -322,7 +326,9 @@ const ExpedienteFinanzas = ({
 
       await cargarCobros()
       await onExpedienteRefresh?.()
-      alert('✅ Cobro guardado correctamente.')
+      alert(numeroReciboGenerado
+        ? `✅ Cobro registrado y Recibo ${numeroReciboGenerado} generado con éxito.`
+        : '✅ Cobro guardado correctamente.')
 
       setFormCobro({
         importe: '',
