@@ -1250,7 +1250,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const nombreGrupo = expediente?.nombre_grupo || expediente?.clienteNombre || 'Sin nombre'
       const destino = expediente?.destino || 'Sin destino'
       const clienteNombre = grupo?.nombre || expediente?.clienteNombre || 'Sin cliente'
-      const importe = Number(cobro.importe ?? cobro.monto ?? 0)
+      const importe = Number(cobro.importe ?? 0)
       const importeTexto = numeroATexto(importe) + ' euros'
       const fechaCobro = cobro.fecha ? new Date(cobro.fecha) : new Date()
       const fechaFormateada = fechaCobro.toLocaleDateString('es-ES', { 
@@ -4693,7 +4693,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     {/* Comparativa de cobros: Total Cobrado y Saldo Pendiente */}
                     {(() => {
                       const totalCotizacion = parseFloat(String(resultados?.totalVenta ?? 0).replace(',', '.')) || 0
-                      const totalCobrado = Array.isArray(cobros) ? cobros.reduce((sum, c) => sum + (parseFloat(String(c.importe ?? c.monto ?? 0).replace(',', '.')) || 0), 0) : 0
+                      const totalCobrado = Array.isArray(cobros) ? cobros.reduce((sum, c) => sum + (parseFloat(String(c.importe ?? 0).replace(',', '.')) || 0), 0) : 0
                       const saldoPendiente = totalCotizacion - totalCobrado
                       const isPagado = saldoPendiente <= 0
                       return (
