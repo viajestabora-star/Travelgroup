@@ -210,8 +210,6 @@ const ExpedienteFinanzas = ({
     }
 
     try {
-      // Estructura cobros_expediente: importe (numeric), metodo_pago, concepto, fecha
-      // CRÍTICO: Usar 'importe' (NO 'monto'). El valor debe ser numérico.
       const importeNumerico = Number(parseFloat(String(importeLimpio))) || 0
       const datosCobro = {
         expediente_id: expediente.id,
@@ -222,8 +220,6 @@ const ExpedienteFinanzas = ({
         concepto: String(formCobro.concepto || '').trim(),
         fecha: new Date().toISOString()
       }
-      // Garantizar que NUNCA se envíe 'monto' (eliminar si existiera por error)
-      delete datosCobro.monto
 
       let errorOperacion = null
       let operacionExitosa = false
