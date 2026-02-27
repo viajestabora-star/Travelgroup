@@ -81,7 +81,10 @@ const CRM = () => {
     nivel_interes: '',
     proxima_visita: '',
     status: '',
-    notas_comerciales: ''
+    notas_comerciales: '',
+    dias_visita: '',
+    horario_visita_inicio: '',
+    horario_visita_fin: ''
   })
 
   // Función local de refresco: invoca la función maestra y sincroniza el panel del prospecto seleccionado
@@ -194,6 +197,9 @@ const CRM = () => {
           proxima_visita: formProspecto.proxima_visita || null,
           status: formProspecto.status || null,
           notas_comerciales: formProspecto.notas_comerciales || null,
+          dias_visita: formProspecto.dias_visita || null,
+          horario_visita_inicio: formProspecto.horario_visita_inicio || null,
+          horario_visita_fin: formProspecto.horario_visita_fin || null,
           es_cliente: false,
           estado_comercial: 'POTENCIAL'
         })
@@ -212,8 +218,30 @@ const CRM = () => {
 
   const resetFormProspecto = () => ({
     grupo: '', cif: '', responsable: '', email: '', telefono: '', poblacion: '', provincia: '', direccion: '',
-    interes: '', nivel_interes: '', proxima_visita: '', status: '', notas_comerciales: ''
+    interes: '', nivel_interes: '', proxima_visita: '', status: '', notas_comerciales: '',
+    dias_visita: '', horario_visita_inicio: '', horario_visita_fin: ''
   })
+
+  const DIAS_SEMANA = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
+  const getDisponibilidadTexto = (p) => {
+    const dias = (p?.dias_visita || '').trim()
+    const inicio = (p?.horario_visita_inicio || '').trim()
+    const fin = (p?.horario_visita_fin || '').trim()
+    if (!dias && !inicio && !fin) return null
+    const parts = []
+    if (dias) parts.push(dias.replace(/,/g, ' '))
+    if (inicio && fin) parts.push(`${inicio}-${fin}`)
+    else if (inicio) parts.push(`desde ${inicio}`)
+    else if (fin) parts.push(`hasta ${fin}`)
+    return parts.join(' • ')
+  }
+  const toggleDiaVisita = (diasStr, dia) => {
+    const arr = (diasStr || '').split(',').map(d => d.trim()).filter(Boolean)
+    const idx = arr.indexOf(dia)
+    if (idx >= 0) arr.splice(idx, 1)
+    else arr.push(dia)
+    return arr.sort((a, b) => DIAS_SEMANA.indexOf(a) - DIAS_SEMANA.indexOf(b)).join(',')
+  }
 
   // Abrir ficha del prospecto
   const abrirFicha = async (prospecto) => {
@@ -464,7 +492,10 @@ const CRM = () => {
         es_cliente: false,
         proxima_visita: fechaSeleccionada,
         fecha: fechaSeleccionada,
-        programas_presentados: []
+        programas_presentados: [],
+        dias_visita: '',
+        horario_visita_inicio: '',
+        horario_visita_fin: ''
       })
       setFichaTab('datos')
       setShowPanel(true)
@@ -601,6 +632,7 @@ const CRM = () => {
           <div className="space-y-1">
             {prospectosDia.slice(0, 2).map(p => {
               const esClie = esCliente(p)
+              const disp = getDisponibilidadTexto(p)
               return (
                 <div
                   key={p.id}
@@ -611,8 +643,10 @@ const CRM = () => {
                     e.stopPropagation()
                     abrirFicha(p)
                   }}
+                  title={disp ? `Disponible: ${disp}` : undefined}
                 >
                   {esClie ? '⭐ ' : '💼 '}{p.grupo || 'Sin nombre'}
+                  {disp && <span className="text-emerald-600" title={disp}> 🕐</span>}
                 </div>
               )
             })}
@@ -757,6 +791,11 @@ const CRM = () => {
                       <div className="text-xs text-slate-600 mt-1">
                         {p.proxima_visita || p.fecha} • {p.poblacion || p.provincia || 'Localidad no definida'}
                       </div>
+                      {getDisponibilidadTexto(p) && (
+                        <div className="text-[10px] font-semibold text-emerald-700 mt-1.5 bg-emerald-50 px-2 py-1 rounded-lg inline-block border border-emerald-200">
+                          🕐 {getDisponibilidadTexto(p)}
+                        </div>
+                      )}
                     </div>
                     <span className={`px-3 py-1 rounded-full text-[10px] font-bold border ${
                       esClie ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'
@@ -794,6 +833,11 @@ const CRM = () => {
                         <div className="text-xs text-slate-600 mt-1">
                           {p.ultima_visita_realizada || p.fecha} • {p.poblacion || p.provincia || 'Localidad no definida'}
                         </div>
+                        {getDisponibilidadTexto(p) && (
+                          <div className="text-[10px] font-semibold text-emerald-700 mt-1.5 bg-emerald-50 px-2 py-1 rounded-lg inline-block border border-emerald-200">
+                            🕐 {getDisponibilidadTexto(p)}
+                          </div>
+                        )}
                       </div>
                       <span className={`px-3 py-1 rounded-full text-[10px] font-bold border ${
                         esClie ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'
@@ -842,6 +886,11 @@ const CRM = () => {
                           <div className="text-xs text-slate-600 mt-1">
                             {p.contacto_persona || p.responsable || 'Sin contacto'}
                           </div>
+                          {getDisponibilidadTexto(p) && (
+                            <div className="text-[10px] font-semibold text-emerald-700 mt-1.5 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              🕐 {getDisponibilidadTexto(p)}
+                            </div>
+                          )}
                         </button>
                       ))
                     )}
@@ -1037,6 +1086,48 @@ const CRM = () => {
                     value={prospectoSelected.proxima_visita || ''}
                     onChange={(e) => updateField('proxima_visita', e.target.value)}
                   />
+                </div>
+                {/* DISPONIBILIDAD PARA VISITAS */}
+                <div className="border-t border-slate-200 pt-4">
+                  <h4 className="text-xs font-bold uppercase text-slate-400 mb-3">Disponibilidad para visitas</h4>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {DIAS_SEMANA.map(dia => {
+                      const diasArr = (prospectoSelected.dias_visita || '').split(',').map(d => d.trim()).filter(Boolean)
+                      const activo = diasArr.includes(dia)
+                      return (
+                        <button
+                          key={dia}
+                          type="button"
+                          onClick={() => updateField('dias_visita', toggleDiaVisita(prospectoSelected.dias_visita || '', dia))}
+                          className={`w-9 h-9 rounded-lg text-xs font-bold border transition ${
+                            activo ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          {dia}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Hora inicio</label>
+                      <input
+                        type="time"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                        value={prospectoSelected.horario_visita_inicio || ''}
+                        onChange={(e) => updateField('horario_visita_inicio', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Hora fin</label>
+                      <input
+                        type="time"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                        value={prospectoSelected.horario_visita_fin || ''}
+                        onChange={(e) => updateField('horario_visita_fin', e.target.value)}
+                      />
+                    </div>
+                  </div>
                 </div>
                 {/* BOTONES DE ACCIÓN */}
                 <div className="flex gap-2 pt-2">
@@ -1422,6 +1513,38 @@ const CRM = () => {
                   <div>
                     <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Notas Comerciales</label>
                     <textarea value={formProspecto.notas_comerciales} onChange={e => setFormProspecto(p => ({ ...p, notas_comerciales: e.target.value }))} rows={5} className="w-full px-4 py-2 rounded-xl border border-slate-200 min-h-[120px]" style={{ fontSize: '16px' }} placeholder="Notas y observaciones comerciales..." />
+                  </div>
+                  {/* DISPONIBILIDAD PARA VISITAS */}
+                  <div className="border-t border-slate-200 pt-4 mt-4">
+                    <h4 className="font-bold text-slate-700 uppercase text-sm tracking-wider mb-3" style={{ fontSize: '16px' }}>Disponibilidad para visitas</h4>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {DIAS_SEMANA.map(dia => {
+                        const diasArr = (formProspecto.dias_visita || '').split(',').map(d => d.trim()).filter(Boolean)
+                        const activo = diasArr.includes(dia)
+                        return (
+                          <button
+                            key={dia}
+                            type="button"
+                            onClick={() => setFormProspecto(p => ({ ...p, dias_visita: toggleDiaVisita(p.dias_visita || '', dia) }))}
+                            className={`w-10 h-10 rounded-xl text-sm font-bold border transition ${
+                              activo ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            {dia}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Hora inicio</label>
+                        <input type="time" value={formProspecto.horario_visita_inicio} onChange={e => setFormProspecto(p => ({ ...p, horario_visita_inicio: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-1" style={{ fontSize: '16px' }}>Hora fin</label>
+                        <input type="time" value={formProspecto.horario_visita_fin} onChange={e => setFormProspecto(p => ({ ...p, horario_visita_fin: e.target.value }))} className="w-full px-4 py-2 rounded-xl border border-slate-200" style={{ fontSize: '16px' }} />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
