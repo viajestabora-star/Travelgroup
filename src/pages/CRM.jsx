@@ -31,7 +31,7 @@ const fetchCrmData = async (setProspectos, setVisitas, setClientes) => {
 
 const CRM = () => {
   // Estados principales
-  const [activeTab, setActiveTab] = useState('calendario') // calendario | proximas | historial | estadisticas | embudo
+  const [activeTab, setActiveTab] = useState('prospectos') // prospectos | calendario | proximas | historial | estadisticas | embudo
   const [prospectos, setProspectos] = useState([])
   const [clientes, setClientes] = useState([])
   const [visitas, setVisitas] = useState([])
@@ -65,6 +65,9 @@ const CRM = () => {
   const [visitaGestionSelected, setVisitaGestionSelected] = useState(null)
   const [showInputFechaVisita, setShowInputFechaVisita] = useState(false)
   const [nuevaFechaVisita, setNuevaFechaVisita] = useState('')
+
+  // Filtro por disponibilidad (Dashboard Prospectos): L, M, X, J, V
+  const [diasFiltroActivos, setDiasFiltroActivos] = useState([])
 
   // Modal Registrar Visita - Nuevo Prospecto (mapeo exacto CSV)
   const [showVisitaModal, setShowVisitaModal] = useState(false)
@@ -178,6 +181,53 @@ const CRM = () => {
       return estado !== 'Ganado' && estado !== 'Perdido'
     })
   }, [prospectos])
+
+  // Dashboard Prospectos: filtrar por días de disponibilidad (ilike equivalente client-side)
+  const prospectosParaListado = useMemo(() => {
+    let lista = [...(prospectos || [])].sort((a, b) => (a.grupo || '').localeCompare(b.grupo || ''))
+    if (diasFiltroActivos.length > 0) {
+      lista = lista.filter(p => {
+        const dias = (p.dias_visita || '').trim()
+        if (!dias) return false
+        return diasFiltroActivos.some(dia => dias.toLowerCase().includes(dia.toLowerCase()))
+      })
+    }
+    return lista
+  }, [prospectos, diasFiltroActivos])
+
+  // Lógica "Disponible ahora": día actual coincide con dias_visita Y hora dentro de horario
+  const esDisponibleAhora = (p) => {
+    const now = new Date()
+    const diaActual = now.getDay() // 0=Dom, 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sab
+    const DIAS_A_LETRA = { 1: 'L', 2: 'M', 3: 'X', 4: 'J', 5: 'V', 6: 'S', 0: 'D' }
+    const letraHoy = DIAS_A_LETRA[diaActual]
+    const dias = (p?.dias_visita || '').split(',').map(d => d.trim()).filter(Boolean)
+    if (!dias.includes(letraHoy)) return false
+    const inicio = (p?.horario_visita_inicio || '').trim()
+    const fin = (p?.horario_visita_fin || '').trim()
+    if (!inicio && !fin) return true // Sin horario = disponible todo el día
+    const [hNow, mNow] = [now.getHours(), now.getMinutes()]
+    const minNow = hNow * 60 + mNow
+    if (inicio) {
+      const [hi, mi] = inicio.split(':').map(Number)
+      const minInicio = (hi || 0) * 60 + (mi || 0)
+      if (minNow < minInicio) return false
+    }
+    if (fin) {
+      const [hf, mf] = fin.split(':').map(Number)
+      const minFin = (hf || 0) * 60 + (mf || 0)
+      if (minNow > minFin) return false
+    }
+    return true
+  }
+
+  const toggleDiaFiltro = (dia) => {
+    setDiasFiltroActivos(prev => {
+      const idx = prev.indexOf(dia)
+      if (idx >= 0) return prev.filter((_, i) => i !== idx)
+      return [...prev, dia].sort((a, b) => ['L', 'M', 'X', 'J', 'V'].indexOf(a) - ['L', 'M', 'X', 'J', 'V'].indexOf(b))
+    })
+  }
 
   const guardarProspectoDesdeModal = async () => {
     try {
@@ -697,6 +747,7 @@ const CRM = () => {
         <div className="flex gap-2 mb-6 items-center">
           <div className="flex gap-2 flex-1 bg-white p-2 rounded-2xl shadow-sm border">
             {[
+              { key: 'prospectos', label: 'Prospectos' },
               { key: 'calendario', label: 'Calendario' },
               { key: 'proximas', label: 'Próximas' },
               { key: 'historial', label: 'Historial' },
@@ -730,6 +781,127 @@ const CRM = () => {
 
         {loading && (
           <div className="text-center py-12 text-slate-400">Cargando...</div>
+        )}
+
+        {/* VISTA: DASHBOARD PROSPECTOS */}
+        {activeTab === 'prospectos' && !loading && (
+          <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+            <div className="p-4 border-b border-slate-200">
+              <div className="text-xs font-bold uppercase text-slate-400 mb-3">Filtrar por disponibilidad</div>
+              <div className="flex flex-wrap gap-2">
+                {['L', 'M', 'X', 'J', 'V'].map(dia => {
+                  const activo = diasFiltroActivos.includes(dia)
+                  return (
+                    <button
+                      key={dia}
+                      type="button"
+                      onClick={() => toggleDiaFiltro(dia)}
+                      className={`min-w-[44px] h-11 px-3 rounded-xl text-sm font-bold border-2 transition-all ${
+                        activo
+                          ? 'bg-emerald-500 text-white border-emerald-600 shadow-md'
+                          : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300 hover:bg-slate-100'
+                      }`}
+                    >
+                      {dia}
+                    </button>
+                  )
+                })}
+                {diasFiltroActivos.length > 0 && (
+                  <button
+                    onClick={() => setDiasFiltroActivos([])}
+                    className="h-11 px-3 rounded-xl text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left py-4 px-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Nombre / Contacto</th>
+                    <th className="text-left py-4 px-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Empresa</th>
+                    <th className="text-left py-4 px-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Días visita</th>
+                    <th className="text-left py-4 px-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Estado</th>
+                    <th className="text-left py-4 px-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Disponibilidad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {prospectosParaListado.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                        {diasFiltroActivos.length > 0
+                          ? 'No hay prospectos con disponibilidad en los días seleccionados'
+                          : 'No hay prospectos registrados'}
+                      </td>
+                    </tr>
+                  ) : (
+                    prospectosParaListado.map(p => {
+                      const esClie = esCliente(p)
+                      const disp = getDisponibilidadTexto(p)
+                      const disponibleAhora = esDisponibleAhora(p)
+                      const diasArr = (p.dias_visita || '').split(',').map(d => d.trim()).filter(Boolean)
+                      return (
+                        <tr
+                          key={p.id}
+                          onClick={() => abrirFicha(p)}
+                          className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors group"
+                        >
+                          <td className="py-4 px-4">
+                            <div className="font-bold text-slate-900">
+                              {p.responsable || p.contacto_persona || p.grupo || 'Sin nombre'}
+                            </div>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {p.poblacion || p.provincia || '—'}
+                            </div>
+                          </td>
+                          <td className="py-4 px-4">
+                            <span className="text-sm text-slate-700 font-medium">{esClie ? '⭐ ' : '💼 '}{p.grupo || '—'}</span>
+                          </td>
+                          <td className="py-4 px-4">
+                            {diasArr.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {diasArr.map(d => (
+                                  <span
+                                    key={d}
+                                    className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  >
+                                    {d}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">Sin definir</span>
+                            )}
+                          </td>
+                          <td className="py-4 px-4">
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                              esClie ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'
+                            }`}>
+                              {esClie ? 'CLIENTE' : (p.estado_comercial || 'POTENCIAL')}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4">
+                            {disponibleAhora ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-green-100 text-green-800 border border-green-300">
+                                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                                Disponible ahora
+                              </span>
+                            ) : disp ? (
+                              <span className="text-xs text-slate-600">{disp}</span>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
 
         {/* VISTA: CALENDARIO */}
@@ -920,9 +1092,15 @@ const CRM = () => {
           )}
         </div>
 
-      {/* PANEL LATERAL */}
+      {/* SIDE DRAWER - Panel lateral con animación */}
       {showPanel && prospectoSelected && (
-        <div className="w-full max-w-md border-l border-slate-200 bg-white h-full flex flex-col shadow-xl">
+        <>
+          <div
+            className="fixed inset-0 bg-slate-900/30 z-30 backdrop-blur-sm"
+            onClick={cerrarFicha}
+            aria-hidden="true"
+          />
+          <div className="fixed right-0 top-0 h-full w-full max-w-md border-l border-slate-200 bg-white flex flex-col shadow-2xl z-40 animate-slide-in-right">
           {/* HEADER */}
           <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
             <div>
@@ -1301,6 +1479,7 @@ const CRM = () => {
         </button>
       </div>
         </div>
+        </>
       )}
 
       {/* MODAL AGENDAR VISITA */}
