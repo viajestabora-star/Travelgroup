@@ -649,6 +649,22 @@ const ExpedienteFinanzas = ({
       }
       const datosCierre = JSON.parse(JSON.stringify(payload))
 
+      const desglose = []
+      ;(informeLiquidacion.costesReales || []).forEach((c) => {
+        desglose.push({
+          proveedor: c.proveedor || '',
+          concepto: c.concepto || '',
+          precio_coste_real: toNum(c.coste_real),
+        })
+      })
+      ;(informeLiquidacion.gastosImprevistos || []).forEach((g) => {
+        desglose.push({
+          proveedor: 'Imprevisto',
+          concepto: g.concepto || '',
+          precio_coste_real: toNum(g.importe),
+        })
+      })
+
       const paxTotal = Math.max(1, toNum(formData?.total_pax) || toNum(expediente?.total_pax))
       const gratuidades = toNum(formData?.gratuidades) || toNum(expediente?.gratuidades) || 0
       const bonificacionPax = toNum(formData?.bonificacion_pax) || toNum(expediente?.bonificacion_pax) || 0
@@ -659,6 +675,11 @@ const ExpedienteFinanzas = ({
         .from('expedientes')
         .update({
           cierre_grupo: datosCierre,
+          desglose_gastos_reales: desglose,
+          presupuesto_total: ingresosTotales,
+          cuota_iva: ivaPagado,
+          beneficio_total: beneficioLimpio,
+          total_gastos_reales: gastosTotales,
           estado: 'Cerrado',
           total_pax: paxTotal,
           gratuidades,
@@ -676,6 +697,11 @@ const ExpedienteFinanzas = ({
       if (onUpdate) onUpdate({
         ...expediente,
         cierre_grupo: datosCierre,
+        desglose_gastos_reales: desglose,
+        presupuesto_total: ingresosTotales,
+        cuota_iva: ivaPagado,
+        beneficio_total: beneficioLimpio,
+        total_gastos_reales: gastosTotales,
         estado: 'Cerrado',
         total_pax: paxTotal,
         gratuidades,
@@ -707,14 +733,16 @@ const ExpedienteFinanzas = ({
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
     const viaje = expediente?.destino || 'Sin destino'
 
-    const porCategoria = { Bus: [], Restaurante: [], Guía: [], Otros: [] }
+    const CATEGORIAS = ['Bus', 'Hotel', 'Restaurante', 'Guía', 'Otros']
+    const porCategoria = Object.fromEntries(CATEGORIAS.map(c => [c, []]))
     costesReales.forEach(c => {
       const cat = categorizarPago(c.concepto)
-      porCategoria[cat].push(c)
+      if (porCategoria[cat]) porCategoria[cat].push(c)
+      else porCategoria.Otros.push(c)
     })
 
     const filasPagos = []
-    ;['Bus', 'Restaurante', 'Guía', 'Otros'].forEach(cat => {
+    CATEGORIAS.forEach(cat => {
       porCategoria[cat].forEach(c => {
         filasPagos.push(`<tr><td>${cat}</td><td>${(c.concepto || '—').replace(/</g, '&lt;')}</td><td>${(c.proveedor || '—').replace(/</g, '&lt;')}</td><td class="num">${Number(c.coste_real || 0).toFixed(2)} €</td></tr>`)
       })
@@ -791,10 +819,12 @@ const ExpedienteFinanzas = ({
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
     const viaje = expediente?.destino || 'Sin destino'
 
-    const porCategoria = { Bus: [], Restaurante: [], Guía: [], Otros: [] }
+    const CATEGORIAS = ['Bus', 'Hotel', 'Restaurante', 'Guía', 'Otros']
+    const porCategoria = Object.fromEntries(CATEGORIAS.map(c => [c, []]))
     costesReales.forEach(c => {
       const cat = categorizarPago(c.concepto)
-      porCategoria[cat].push(c)
+      if (porCategoria[cat]) porCategoria[cat].push(c)
+      else porCategoria.Otros.push(c)
     })
 
     const doc = new jsPDF()
@@ -827,7 +857,7 @@ const ExpedienteFinanzas = ({
     doc.text('Desglose de pagos a proveedores', 20, y)
     y += 8
 
-    const categoriasOrden = ['Bus', 'Restaurante', 'Guía', 'Otros']
+    const categoriasOrden = ['Bus', 'Hotel', 'Restaurante', 'Guía', 'Otros']
     categoriasOrden.forEach(cat => {
       const items = porCategoria[cat]
       if (items.length === 0) return

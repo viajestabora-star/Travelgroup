@@ -42,8 +42,9 @@ export const limpiarNumero = (valor) => {
 export const categorizarPago = (concepto) => {
   const c = String(concepto || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   if (/bus|autobus|transporte/.test(c)) return 'Bus'
-  if (/restaurante/.test(c)) return 'Restaurante'
+  if (/hotel|alojamiento|habitacion/.test(c)) return 'Hotel'
   if (/guia|guía/.test(c)) return 'Guía'
+  if (/restaurante/.test(c)) return 'Restaurante'
   return 'Otros'
 }
 
