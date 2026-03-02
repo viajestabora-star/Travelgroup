@@ -6,9 +6,7 @@ import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejerci
 
 /**
  * InteligenciaEconomicaPanel - Panel financiero dinámico desde Supabase.
- * Solo expedientes con estado 'Cerrado' o 'Finalizado'.
- * KPIs: Beneficio Bruto (Ingresos), IVA Acumulado, Gastos Reales, Beneficio Neto.
- * Sin mock data - datos en tiempo real.
+ * Fetch directo a expedientes. Suma en frontend.
  */
 const InteligenciaEconomicaPanel = ({ user }) => {
   const [expedientes, setExpedientes] = useState([])
@@ -36,22 +34,15 @@ const InteligenciaEconomicaPanel = ({ user }) => {
       try {
         const { data, error: dbError } = await supabase
           .from('expedientes')
-          .select('id, presupuesto_total, total_gastos_reales, liquidacion_final_beneficio, informe_gastos_hacienda, fecha_inicio')
-          .or('estado.eq.cerrado,estado.eq.finalizado')
-          .order('fecha_inicio', { ascending: false, nullsFirst: false })
+          .select('presupuesto_total, cuota_iva, beneficio_total, total_gastos_reales')
+          .or('estado.ilike.cerrado,estado.ilike.finalizado')
 
         if (dbError) throw dbError
 
         const lista = Array.isArray(data) ? data : []
-        const año = ejercicioActual
-        const filtrados = lista.filter((e) => {
-          const fecha = e.fecha_inicio
-          if (!fecha) return false
-          const añoExp = typeof fecha === 'string' ? parseInt(String(fecha).substring(0, 4), 10) : new Date(fecha).getFullYear()
-          return añoExp === año
-        })
+        console.log('Datos recibidos:', lista)
 
-        setExpedientes(filtrados)
+        setExpedientes(lista)
       } catch (err) {
         setError(err?.message || 'Error desconocido')
         setExpedientes([])
@@ -61,9 +52,8 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     }
 
     fetchData()
-  }, [esAdmin, ejercicioActual])
+  }, [esAdmin])
 
-  // Seguridad: Sin permisos si nivel_acceso !== 'ADMIN'
   if (!esAdmin) {
     return (
       <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-medium">
@@ -89,31 +79,18 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     )
   }
 
-  // COALESCE a 0 para evitar NaN
   const toNum = (v) => (v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : 0)
 
-  const ingresosBrutos = expedientes.reduce((acc, e) => acc + toNum(e.presupuesto_total), 0)
+  const beneficioBruto = expedientes.reduce((acc, e) => acc + toNum(e.presupuesto_total), 0)
+  const ivaAcumulado = expedientes.reduce((acc, e) => acc + toNum(e.cuota_iva), 0)
+  const beneficioNeto = expedientes.reduce((acc, e) => acc + toNum(e.beneficio_total), 0)
   const gastosReales = expedientes.reduce((acc, e) => acc + toNum(e.total_gastos_reales), 0)
-  const beneficioBruto = ingresosBrutos - gastosReales
-
-  let ivaAcumulado = 0
-  expedientes.forEach((e) => {
-    const inf = e.informe_gastos_hacienda
-    if (inf?.resumen?.iva_sobre_beneficio != null) {
-      ivaAcumulado += toNum(inf.resumen.iva_sobre_beneficio)
-    } else {
-      const beneficioAntesIva = toNum(e.liquidacion_final_beneficio) || (toNum(e.presupuesto_total) - toNum(e.total_gastos_reales))
-      if (beneficioAntesIva > 0) ivaAcumulado += beneficioAntesIva * 0.21
-    }
-  })
-
-  const beneficioNeto = beneficioBruto - ivaAcumulado
 
   const formatEuro = (val) =>
     new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(toNum(val))
 
   const chartData = [
-    { name: 'Ingresos Brutos', valor: ingresosBrutos, fill: '#059669' },
+    { name: 'Ingresos Brutos', valor: beneficioBruto, fill: '#059669' },
     { name: 'Gastos', valor: gastosReales, fill: '#dc2626' },
     { name: 'Beneficio Neto', valor: beneficioNeto, fill: '#7c3aed' },
   ]
@@ -121,8 +98,8 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   const cards = [
     {
       title: 'Beneficio Bruto Total',
-      value: formatEuro(ingresosBrutos),
-      subtitle: 'Ingresos de expedientes cerrados',
+      value: formatEuro(beneficioBruto),
+      subtitle: 'Suma de presupuesto_total',
       icon: TrendingUp,
       bg: 'bg-emerald-50',
       border: 'border-emerald-200',
@@ -132,7 +109,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     {
       title: 'IVA Acumulado',
       value: formatEuro(ivaAcumulado),
-      subtitle: 'Cuota IVA (21%)',
+      subtitle: 'Suma de cuota_iva',
       icon: Receipt,
       bg: 'bg-amber-50',
       border: 'border-amber-200',
@@ -140,9 +117,9 @@ const InteligenciaEconomicaPanel = ({ user }) => {
       iconColor: 'text-white',
     },
     {
-      title: 'Gastos Reales',
+      title: 'Gastos Totales',
       value: formatEuro(gastosReales),
-      subtitle: 'Costes totales',
+      subtitle: 'Suma de total_gastos_reales',
       icon: Wallet,
       bg: 'bg-red-50',
       border: 'border-red-200',
@@ -152,7 +129,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     {
       title: 'Beneficio Neto',
       value: formatEuro(beneficioNeto),
-      subtitle: 'Bruto − Gastos',
+      subtitle: 'Suma de beneficio_total',
       icon: PiggyBank,
       bg: 'bg-purple-50',
       border: 'border-purple-200',
@@ -165,12 +142,11 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     <div className="animate-in fade-in duration-500 space-y-8">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-navy-800">
-          Resumen Financiero (Expedientes Cerrados / Finalizados)
+          Resumen Financiero (Cerrado / Finalizado)
         </h2>
         <span className="text-sm text-slate-500 font-medium">{ejercicioActual}</span>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {cards.map((card) => {
           const Icon = card.icon
@@ -194,7 +170,6 @@ const InteligenciaEconomicaPanel = ({ user }) => {
         })}
       </div>
 
-      {/* Bar Chart */}
       <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-2">
           <BarChart3 size={22} className="text-navy-600" />
@@ -203,7 +178,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
         <div className="p-6">
           {expedientes.length === 0 ? (
             <div className="h-64 flex items-center justify-center text-slate-400 text-sm">
-              No hay expedientes cerrados o finalizados en {ejercicioActual}. Cierra expedientes para ver estadísticas.
+              No hay expedientes cerrados o finalizados.
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={320}>
