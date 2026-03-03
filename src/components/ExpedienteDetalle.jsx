@@ -1163,13 +1163,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     setGuardandoCierre(true)
     try {
       const { ingresosTotales, gastosTotales, beneficioBruto, ivaPagado, beneficioLimpio } = calcularCierreFinanciero()
+      const safeNum = (v) => { const n = Number(v); return (n != null && !Number.isNaN(n)) ? n : 0 }
+      const totalIngresos = safeNum(ingresosTotales)
+      const totalGastosReales = safeNum(gastosTotales)
+      const cuotaIva = safeNum(ivaPagado)
+      const beneficioNetoReal = safeNum(beneficioLimpio)
 
       const payload = {
-        ingresos_totales: ingresosTotales,
-        gastos_totales: gastosTotales,
+        ingresos_totales: totalIngresos,
+        gastos_totales: totalGastosReales,
         beneficio_bruto: beneficioBruto,
-        iva_pagado: ivaPagado,
-        beneficio_limpio: beneficioLimpio,
+        iva_pagado: cuotaIva,
+        beneficio_limpio: beneficioNetoReal,
         fecha: new Date().toISOString(),
         ingresos: informeLiquidacion.ingresos,
         costesReales: informeLiquidacion.costesReales || [],
@@ -1178,17 +1183,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       }
       const datosCierre = JSON.parse(JSON.stringify(payload))
 
+      const updatePayload = {
+        cierre_grupo: datosCierre,
+        total_ingresos: totalIngresos,
+        total_gastos_reales: totalGastosReales,
+        cuota_iva: cuotaIva,
+        beneficio_neto_real: beneficioNetoReal,
+        estado: 'Cerrado',
+      }
+
       const { error } = await supabase
         .from('expedientes')
-        .update({ cierre_grupo: datosCierre })
+        .update(updatePayload)
         .eq('id', expediente.id)
 
       if (error) {
-        alert('Error al guardar el cierre: ' + (error.message || 'Revisa que la columna cierre_grupo exista en expedientes.'))
+        alert('Error al guardar el cierre: ' + (error.message || 'Revisa columnas total_ingresos, total_gastos_reales, cuota_iva, beneficio_neto_real.'))
         return
       }
 
-      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: datosCierre })
+      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: datosCierre, total_ingresos: totalIngresos, total_gastos_reales: totalGastosReales, cuota_iva: cuotaIva, beneficio_neto_real: beneficioNetoReal, estado: 'Cerrado' })
       alert('Cierre guardado correctamente.')
     } catch (err) {
       const detalle = err?.message || err?.toString?.() || JSON.stringify(err)

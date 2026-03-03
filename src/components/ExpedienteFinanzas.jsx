@@ -671,10 +671,14 @@ const ExpedienteFinanzas = ({
       const precioVentaCliente = toNum(formData?.precio_venta_cliente) || toNum(expediente?.precio_venta_cliente) || 0
       const paxPago = Math.max(1, paxTotal - gratuidades)
 
-      const totalIngresos = Number(ingresosTotales) || 0
-      const totalGastosReales = Number(gastosTotales) || 0
-      const cuotaIva = Number(ivaPagado) || 0
-      const beneficioNetoReal = Number(beneficioLimpio) || 0
+      const safeNum = (v) => {
+        const n = Number(v)
+        return (n != null && !Number.isNaN(n)) ? n : 0
+      }
+      const totalIngresos = safeNum(ingresosTotales)
+      const totalGastosReales = safeNum(gastosTotales)
+      const cuotaIva = safeNum(ivaPagado)
+      const beneficioNetoReal = safeNum(beneficioLimpio)
 
       const updatePayload = {
         cierre_grupo: datosCierre,
@@ -693,15 +697,21 @@ const ExpedienteFinanzas = ({
         pax_pago: paxPago,
       }
 
-      const { error } = await supabase
+      const { data: updated, error } = await supabase
         .from('expedientes')
         .update(updatePayload)
         .eq('id', expediente.id)
+        .select('id, total_ingresos, total_gastos_reales, cuota_iva, beneficio_neto_real')
+        .maybeSingle()
 
       if (error) {
         console.error('Error Supabase al guardar cierre:', error)
         alert('Error al guardar el cierre: ' + (error.message || 'Revisa que existan las columnas: total_ingresos, total_gastos_reales, cuota_iva, beneficio_neto_real en expedientes.'))
         return
+      }
+
+      if (updated && (Math.abs(Number(updated.total_ingresos || 0) - totalIngresos) > 0.01 || Math.abs(Number(updated.total_gastos_reales || 0) - totalGastosReales) > 0.01)) {
+        console.warn('Cierre: valores persistidos difieren de lo enviado. Revisa RLS o migraciones.', { enviado: { totalIngresos, totalGastosReales }, persistido: updated })
       }
 
       if (onUpdate) onUpdate({
