@@ -554,15 +554,14 @@ const Cierres = ({ user, onClose }) => {
 
       const { error } = await supabase
         .from('expedientes')
-        .upsert(
-          {
-            id: expedienteSeleccionado.id,
-            informe_gastos_hacienda: payloadInforme,
-            total_gastos_reales: totalGastosReales,
-            liquidacion_final_beneficio: beneficio,
-          },
-          { onConflict: 'id' }
-        )
+        .update({
+          informe_gastos_hacienda: payloadInforme,
+          total_ingresos: ingresosTotales,
+          total_gastos_reales: totalGastosReales,
+          beneficio_neto_real: beneficio,
+          liquidacion_final_beneficio: beneficio,
+        })
+        .eq('id', expedienteSeleccionado.id)
 
       if (error) {
         alert('Error guardando Informe Hacienda: ' + error.message)
