@@ -680,15 +680,27 @@ const ExpedienteFinanzas = ({
       const cuotaIva = safeNum(ivaPagado)
       const beneficioNetoReal = safeNum(beneficioLimpio)
 
+      const sanitizarSinExpedienteId = (obj) => {
+        if (!obj || typeof obj !== 'object') return obj
+        const out = Array.isArray(obj) ? [] : {}
+        for (const k of Object.keys(obj)) {
+          if (k === 'expediente_id') continue
+          out[k] = (obj[k] && typeof obj[k] === 'object' && !(obj[k] instanceof Date)) ? sanitizarSinExpedienteId(obj[k]) : obj[k]
+        }
+        return out
+      }
+      const datosCierreLimpio = sanitizarSinExpedienteId(datosCierre)
+
       const updatePayload = {
-        cierre_grupo: datosCierre,
+        cierre_grupo: datosCierreLimpio,
         total_ingresos: totalIngresos,
         total_gastos_reales: totalGastosReales,
         cuota_iva: cuotaIva,
         beneficio_neto_real: beneficioNetoReal,
         estado: 'Cerrado',
       }
-      delete updatePayload.expediente_id
+      console.log('[Cierre] Objeto a enviar a expedientes.update():', JSON.stringify({ ...updatePayload, cierre_grupo: '[JSONB]' }, null, 2))
+      console.log('[Cierre] Claves del payload:', Object.keys(updatePayload), '| expediente.id=', expediente.id)
 
       const { data: updated, error } = await supabase
         .from('expedientes')
