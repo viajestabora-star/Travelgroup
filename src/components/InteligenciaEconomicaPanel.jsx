@@ -87,6 +87,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   const gastosTotales = expedientes.reduce((acc, e) => acc + getGastos(e), 0)
   const ivaAcumulado = expedientes.reduce((acc, e) => acc + getIva(e), 0)
   const beneficioNeto = expedientes.reduce((acc, e) => acc + getBeneficioNeto(e), 0)
+  const margenBruto = ingresosTotales - gastosTotales
 
   const datosSinPersistir = expedientes.length > 0 && ingresosTotales === 0
 
@@ -100,47 +101,11 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   ]
 
   const cards = [
-    {
-      title: 'Ingresos Totales',
-      value: formatEuro(ingresosTotales),
-      subtitle: 'Suma de total_ingresos',
-      icon: TrendingUp,
-      bg: 'bg-emerald-50',
-      border: 'border-emerald-200',
-      iconBg: 'bg-emerald-500',
-      iconColor: 'text-white',
-    },
-    {
-      title: 'IVA Acumulado',
-      value: formatEuro(ivaAcumulado),
-      subtitle: 'Suma de cuota_iva',
-      icon: Receipt,
-      bg: 'bg-amber-50',
-      border: 'border-amber-200',
-      iconBg: 'bg-amber-500',
-      iconColor: 'text-white',
-    },
-    {
-      title: 'Gastos Totales',
-      value: formatEuro(gastosTotales),
-      subtitle: 'Suma de total_gastos_reales',
-      icon: Wallet,
-      bg: 'bg-red-50',
-      border: 'border-red-200',
-      iconBg: 'bg-red-500',
-      iconColor: 'text-white',
-    },
-    {
-      title: 'Beneficio Neto',
-      value: formatEuro(beneficioNeto),
-      subtitle: 'Suma de beneficio_neto_real',
-      icon: PiggyBank,
-      bg: beneficioNeto >= 0 ? 'bg-purple-50' : 'bg-red-50',
-      border: beneficioNeto >= 0 ? 'border-purple-200' : 'border-red-300',
-      iconBg: beneficioNeto >= 0 ? 'bg-purple-600' : 'bg-red-600',
-      iconColor: 'text-white',
-      valueClass: beneficioNeto < 0 ? 'text-red-700 font-black' : undefined,
-    },
+    { title: 'Ingresos Totales', value: formatEuro(ingresosTotales), subtitle: 'Suma de total_ingresos', icon: TrendingUp, bg: 'bg-emerald-50', border: 'border-emerald-200', iconBg: 'bg-emerald-500', iconColor: 'text-white' },
+    { title: 'Gastos Totales', value: formatEuro(gastosTotales), subtitle: 'Suma de total_gastos_reales', icon: Wallet, bg: 'bg-red-50', border: 'border-red-200', iconBg: 'bg-red-500', iconColor: 'text-white' },
+    { title: 'Margen Bruto', value: formatEuro(margenBruto), subtitle: 'Ingresos - Gastos', icon: BarChart3, bg: 'bg-sky-50', border: 'border-sky-200', iconBg: 'bg-sky-500', iconColor: 'text-white' },
+    { title: 'IVA Acumulado', value: formatEuro(ivaAcumulado), subtitle: 'Suma de cuota_iva', icon: Receipt, bg: 'bg-amber-50', border: 'border-amber-200', iconBg: 'bg-amber-500', iconColor: 'text-white' },
+    { title: 'Beneficio Neto', value: formatEuro(beneficioNeto), subtitle: 'Suma de beneficio_neto_real', icon: PiggyBank, bg: beneficioNeto >= 0 ? 'bg-purple-50' : 'bg-red-50', border: beneficioNeto >= 0 ? 'border-purple-200' : 'border-red-300', iconBg: beneficioNeto >= 0 ? 'bg-purple-600' : 'bg-red-600', iconColor: 'text-white', valueClass: beneficioNeto < 0 ? 'text-red-700 font-black' : undefined },
   ]
 
   return (
@@ -158,7 +123,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
         <span className="text-sm text-slate-500 font-medium">{ejercicioActual}</span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
         {cards.map((card) => {
           const Icon = card.icon
           return (
