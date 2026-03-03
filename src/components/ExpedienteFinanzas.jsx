@@ -682,13 +682,10 @@ const ExpedienteFinanzas = ({
 
       const updatePayload = {
         cierre_grupo: datosCierre,
-        desglose_gastos_reales: desglose,
         total_ingresos: totalIngresos,
         total_gastos_reales: totalGastosReales,
         cuota_iva: cuotaIva,
         beneficio_neto_real: beneficioNetoReal,
-        presupuesto_total: totalIngresos,
-        beneficio_total: beneficioNetoReal,
         estado: 'Cerrado',
         total_pax: paxTotal,
         gratuidades,
@@ -717,13 +714,10 @@ const ExpedienteFinanzas = ({
       if (onUpdate) onUpdate({
         ...expediente,
         cierre_grupo: datosCierre,
-        desglose_gastos_reales: desglose,
         total_ingresos: totalIngresos,
         total_gastos_reales: totalGastosReales,
         cuota_iva: cuotaIva,
         beneficio_neto_real: beneficioNetoReal,
-        presupuesto_total: totalIngresos,
-        beneficio_total: beneficioNetoReal,
         estado: 'Cerrado',
         total_pax: paxTotal,
         gratuidades,

@@ -16,6 +16,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'expedientes' AND column_name = 'beneficio_neto_real') THEN
     ALTER TABLE expedientes ADD COLUMN beneficio_neto_real NUMERIC DEFAULT 0;
   END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'expedientes' AND column_name = 'desglose_gastos_reales') THEN
+    ALTER TABLE expedientes ADD COLUMN desglose_gastos_reales JSONB DEFAULT '[]';
+  END IF;
 END $$;
 
 -- Rellenar expedientes ya cerrados desde cierre_grupo (ejecutar tras la migración si hay datos legacy)
