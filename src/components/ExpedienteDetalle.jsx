@@ -1163,62 +1163,45 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     setGuardandoCierre(true)
     try {
       const { ingresosTotales, gastosTotales, beneficioBruto, ivaPagado, beneficioLimpio } = calcularCierreFinanciero()
-      const safeNum = (v) => { const n = Number(v); return (n != null && !Number.isNaN(n)) ? n : 0 }
-      const totalIngresos = safeNum(ingresosTotales)
-      const totalGastosReales = safeNum(gastosTotales)
-      const cuotaIva = safeNum(ivaPagado)
-      const beneficioNetoReal = safeNum(beneficioLimpio)
+      const n = (v) => (v != null && !Number.isNaN(Number(v)) ? Number(v) : 0)
+      const totalIngresos = n(ingresosTotales)
+      const totalGastosReales = n(gastosTotales)
+      const cuotaIva = n(ivaPagado)
+      const beneficioNetoReal = n(beneficioLimpio)
 
-      const payload = {
+      const cierreGrupoJson = {
         ingresos_totales: totalIngresos,
         gastos_totales: totalGastosReales,
         beneficio_bruto: beneficioBruto,
         iva_pagado: cuotaIva,
         beneficio_limpio: beneficioNetoReal,
         fecha: new Date().toISOString(),
-        ingresos: informeLiquidacion.ingresos,
-        costesReales: (informeLiquidacion.costesReales || []).map(({ id_servicio, concepto, proveedor, coste_cotizado, coste_real }) => ({ id_servicio, concepto, proveedor, coste_cotizado, coste_real })),
-        gastosImprevistos: (informeLiquidacion.gastosImprevistos || []).map(({ id, concepto, importe }) => ({ id, concepto, importe })),
-        pax_por_asociacion: paxPorAsociacion.filter(p => p.cliente_id).map(({ cliente_id, cliente_nombre, pax }) => ({ cliente_id, cliente_nombre, pax })),
+        ingresos: { precioViaje: n(informeLiquidacion?.ingresos?.precioViaje), suplementos: n(informeLiquidacion?.ingresos?.suplementos), descuentos: n(informeLiquidacion?.ingresos?.descuentos) },
+        costesReales: (informeLiquidacion.costesReales || []).map((c) => ({ id_servicio: c.id_servicio, concepto: c.concepto || '', proveedor: c.proveedor || '', coste_cotizado: n(c.coste_cotizado), coste_real: n(c.coste_real) })),
+        gastosImprevistos: (informeLiquidacion.gastosImprevistos || []).map((g) => ({ id: g.id, concepto: g.concepto || '', importe: n(g.importe) })),
+        pax_por_asociacion: paxPorAsociacion.filter((p) => p.cliente_id).map((p) => ({ cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre || '', pax: p.pax })),
       }
-      const datosCierre = JSON.parse(JSON.stringify(payload))
 
-      const sanitizarSinExpedienteId = (obj) => {
-        if (!obj || typeof obj !== 'object') return obj
-        const out = Array.isArray(obj) ? [] : {}
-        for (const k of Object.keys(obj)) {
-          if (k === 'expediente_id') continue
-          out[k] = (obj[k] && typeof obj[k] === 'object' && !(obj[k] instanceof Date)) ? sanitizarSinExpedienteId(obj[k]) : obj[k]
-        }
-        return out
-      }
-      const datosCierreLimpio = sanitizarSinExpedienteId(datosCierre)
-
-      const updatePayload = {
-        cierre_grupo: datosCierreLimpio,
+      const payload = {
+        cierre_grupo: cierreGrupoJson,
         total_ingresos: totalIngresos,
         total_gastos_reales: totalGastosReales,
         cuota_iva: cuotaIva,
         beneficio_neto_real: beneficioNetoReal,
         estado: 'Cerrado',
       }
-      console.log('[Cierre Detalle] Objeto a enviar:', Object.keys(updatePayload), 'expediente.id=', expediente.id)
 
-      const { error } = await supabase
-        .from('expedientes')
-        .update(updatePayload)
-        .eq('id', expediente.id)
+      const { error } = await supabase.from('expedientes').update(payload).eq('id', expediente.id)
 
       if (error) {
-        alert('Error al guardar el cierre: ' + (error.message || 'Revisa columnas total_ingresos, total_gastos_reales, cuota_iva, beneficio_neto_real.'))
+        alert('Error al guardar el cierre: ' + (error?.message || 'Revisa columnas en expedientes.'))
         return
       }
 
-      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: datosCierre, total_ingresos: totalIngresos, total_gastos_reales: totalGastosReales, cuota_iva: cuotaIva, beneficio_neto_real: beneficioNetoReal, estado: 'Cerrado' })
+      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: cierreGrupoJson, total_ingresos: totalIngresos, total_gastos_reales: totalGastosReales, cuota_iva: cuotaIva, beneficio_neto_real: beneficioNetoReal, estado: 'Cerrado' })
       alert('Cierre guardado correctamente.')
     } catch (err) {
-      const detalle = err?.message || err?.toString?.() || JSON.stringify(err)
-      alert('Error al guardar el cierre:\n\n' + detalle + (err?.code ? '\n\nCódigo: ' + err.code : ''))
+      alert('Error al guardar el cierre: ' + (err?.message || String(err)))
     } finally {
       setGuardandoCierre(false)
     }
