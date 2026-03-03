@@ -1182,14 +1182,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         pax_por_asociacion: paxPorAsociacion.filter((p) => p.cliente_id).map((p) => ({ cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre || '', pax: p.pax })),
       }
 
-      const payload = {
-        total_ingresos: totalIngresos,
-        total_gastos_reales: totalGastosReales,
-        beneficio_neto_real: beneficioNetoReal,
-        estado: 'Cerrado',
-      }
-
-      const { error } = await supabase.from('expedientes').update(payload).eq('id', expediente.id)
+      const { error } = await supabase
+        .from('expedientes')
+        .update({
+          total_ingresos: totalIngresos,
+          total_gastos_reales: totalGastosReales,
+          beneficio_neto_real: beneficioNetoReal,
+          cuota_iva: cuotaIva,
+          estado: 'Cerrado',
+        })
+        .eq('id', expediente.id)
 
       if (error) {
         alert('Error al guardar el cierre: ' + (error?.message || 'Revisa columnas en expedientes.'))
