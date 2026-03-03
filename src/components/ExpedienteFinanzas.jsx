@@ -687,11 +687,6 @@ const ExpedienteFinanzas = ({
         cuota_iva: cuotaIva,
         beneficio_neto_real: beneficioNetoReal,
         estado: 'Cerrado',
-        total_pax: paxTotal,
-        gratuidades,
-        bonificacion_pax: bonificacionPax,
-        precio_venta_cliente: precioVentaCliente,
-        pax_pago: paxPago,
       }
 
       const { data: updated, error } = await supabase
