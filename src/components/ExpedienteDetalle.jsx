@@ -1177,9 +1177,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         beneficio_limpio: beneficioNetoReal,
         fecha: new Date().toISOString(),
         ingresos: informeLiquidacion.ingresos,
-        costesReales: informeLiquidacion.costesReales || [],
-        gastosImprevistos: informeLiquidacion.gastosImprevistos || [],
-        pax_por_asociacion: paxPorAsociacion.filter(p => p.cliente_id),
+        costesReales: (informeLiquidacion.costesReales || []).map(({ id_servicio, concepto, proveedor, coste_cotizado, coste_real }) => ({ id_servicio, concepto, proveedor, coste_cotizado, coste_real })),
+        gastosImprevistos: (informeLiquidacion.gastosImprevistos || []).map(({ id, concepto, importe }) => ({ id, concepto, importe })),
+        pax_por_asociacion: paxPorAsociacion.filter(p => p.cliente_id).map(({ cliente_id, cliente_nombre, pax }) => ({ cliente_id, cliente_nombre, pax })),
       }
       const datosCierre = JSON.parse(JSON.stringify(payload))
 
@@ -1191,6 +1191,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         beneficio_neto_real: beneficioNetoReal,
         estado: 'Cerrado',
       }
+      delete updatePayload.expediente_id
 
       const { error } = await supabase
         .from('expedientes')
