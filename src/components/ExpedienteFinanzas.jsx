@@ -655,10 +655,8 @@ const ExpedienteFinanzas = ({
       }
 
       const payload = {
-        cierre_grupo: cierreGrupoJson,
         total_ingresos: totalIngresos,
         total_gastos_reales: totalGastosReales,
-        cuota_iva: cuotaIva,
         beneficio_neto_real: beneficioNetoReal,
         estado: 'Cerrado',
       }
