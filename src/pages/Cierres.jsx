@@ -439,7 +439,7 @@ const Cierres = ({ user, onClose }) => {
     const totalSupSeguro = (parseFloat(exp?.sup_seguro_pax || 0) || 0) * (parseFloat(exp?.sup_seguro_precio_total || 0) || 0)
     const suplementosVal = totalSupHabitacion + totalSupSeguro
     const bonificaciones = (parseFloat(exp?.bonificacion_pax || 0) || 0) * paxPago
-    const gratuidadesVal = 0
+    const gratuidadesVal = Number(exp?.gratuidades_monetario || 0)
     const ingresosTotales = (precioVenta + suplementosVal) - (bonificaciones + gratuidadesVal)
 
     const beneficioBruto = ingresosTotales - totalGastosReales
@@ -534,6 +534,7 @@ const Cierres = ({ user, onClose }) => {
 
   const guardarInformeHacienda = async () => {
     if (!expedienteSeleccionado) return
+    if (!window.confirm('¿Estás seguro de que quieres cerrar este expediente? Se actualizarán los registros financieros de forma permanente.')) return
     if (!window.confirm('¿Estás seguro de que los importes reales coinciden con las facturas de proveedores?')) return
 
     setGuardandoInforme(true)
@@ -545,22 +546,24 @@ const Cierres = ({ user, onClose }) => {
         resumen: {
           total_gastos_reales: totalGastosReales,
           ingresos_totales: ingresosTotales,
-          liquidacion_final_beneficio: beneficioBruto,
+          liquidacion_final_beneficio: beneficio,
           iva_sobre_beneficio: ivaPagado,
           beneficio_neto_real: beneficio,
           updated_at: new Date().toISOString(),
         },
       }
 
+      const financialPayload = {
+        informe_gastos_hacienda: payloadInforme,
+        total_ingresos: ingresosTotales,
+        total_gastos_reales: totalGastosReales,
+        beneficio_neto_real: beneficio,
+        liquidacion_final_beneficio: beneficio,
+      }
+
       const { error } = await supabase
         .from('expedientes')
-        .update({
-          informe_gastos_hacienda: payloadInforme,
-          total_ingresos: ingresosTotales,
-          total_gastos_reales: totalGastosReales,
-          beneficio_neto_real: beneficio,
-          liquidacion_final_beneficio: beneficio,
-        })
+        .update(financialPayload)
         .eq('id', expedienteSeleccionado.id)
 
       if (error) {
