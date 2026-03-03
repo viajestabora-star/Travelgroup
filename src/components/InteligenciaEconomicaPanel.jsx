@@ -34,14 +34,12 @@ const InteligenciaEconomicaPanel = ({ user }) => {
       try {
         const { data, error: dbError } = await supabase
           .from('expedientes')
-          .select('presupuesto_total, cuota_iva, beneficio_total, total_gastos_reales')
-          .or('estado.ilike.cerrado,estado.ilike.finalizado')
+          .select('total_ingresos, total_gastos_reales, cuota_iva, beneficio_neto_real, cierre_grupo')
+          .or('estado.eq.Cerrado,estado.ilike.cerrado')
 
         if (dbError) throw dbError
 
         const lista = Array.isArray(data) ? data : []
-        console.log('Datos recibidos:', lista)
-
         setExpedientes(lista)
       } catch (err) {
         setError(err?.message || 'Error desconocido')
@@ -80,26 +78,32 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   }
 
   const toNum = (v) => (v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : 0)
+  const getIngresos = (e) => toNum(e.total_ingresos) || toNum(e.cierre_grupo?.ingresos_totales ?? e.cierre_grupo?.total_ingresos)
+  const getGastos = (e) => toNum(e.total_gastos_reales) || toNum(e.cierre_grupo?.gastos_totales ?? e.cierre_grupo?.total_gastos)
+  const getIva = (e) => toNum(e.cuota_iva) || toNum(e.cierre_grupo?.iva_pagado)
+  const getBeneficioNeto = (e) => toNum(e.beneficio_neto_real) || toNum(e.cierre_grupo?.beneficio_limpio ?? e.cierre_grupo?.beneficio)
 
-  const beneficioBruto = expedientes.reduce((acc, e) => acc + toNum(e.presupuesto_total), 0)
-  const ivaAcumulado = expedientes.reduce((acc, e) => acc + toNum(e.cuota_iva), 0)
-  const beneficioNeto = expedientes.reduce((acc, e) => acc + toNum(e.beneficio_total), 0)
-  const gastosReales = expedientes.reduce((acc, e) => acc + toNum(e.total_gastos_reales), 0)
+  const ingresosTotales = expedientes.reduce((acc, e) => acc + getIngresos(e), 0)
+  const gastosTotales = expedientes.reduce((acc, e) => acc + getGastos(e), 0)
+  const ivaAcumulado = expedientes.reduce((acc, e) => acc + getIva(e), 0)
+  const beneficioNeto = expedientes.reduce((acc, e) => acc + getBeneficioNeto(e), 0)
+
+  const datosSinPersistir = expedientes.length > 0 && ingresosTotales === 0
 
   const formatEuro = (val) =>
     new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(toNum(val))
 
   const chartData = [
-    { name: 'Ingresos Brutos', valor: beneficioBruto, fill: '#059669' },
-    { name: 'Gastos', valor: gastosReales, fill: '#dc2626' },
-    { name: 'Beneficio Neto', valor: beneficioNeto, fill: '#7c3aed' },
+    { name: 'Ingresos Totales', valor: ingresosTotales, fill: '#059669' },
+    { name: 'Gastos Totales', valor: gastosTotales, fill: '#dc2626' },
+    { name: 'Beneficio Neto', valor: beneficioNeto, fill: beneficioNeto >= 0 ? '#7c3aed' : '#dc2626' },
   ]
 
   const cards = [
     {
-      title: 'Beneficio Bruto Total',
-      value: formatEuro(beneficioBruto),
-      subtitle: 'Suma de presupuesto_total',
+      title: 'Ingresos Totales',
+      value: formatEuro(ingresosTotales),
+      subtitle: 'Suma de total_ingresos',
       icon: TrendingUp,
       bg: 'bg-emerald-50',
       border: 'border-emerald-200',
@@ -118,7 +122,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     },
     {
       title: 'Gastos Totales',
-      value: formatEuro(gastosReales),
+      value: formatEuro(gastosTotales),
       subtitle: 'Suma de total_gastos_reales',
       icon: Wallet,
       bg: 'bg-red-50',
@@ -129,20 +133,27 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     {
       title: 'Beneficio Neto',
       value: formatEuro(beneficioNeto),
-      subtitle: 'Suma de beneficio_total',
+      subtitle: 'Suma de beneficio_neto_real',
       icon: PiggyBank,
-      bg: 'bg-purple-50',
-      border: 'border-purple-200',
-      iconBg: 'bg-purple-600',
+      bg: beneficioNeto >= 0 ? 'bg-purple-50' : 'bg-red-50',
+      border: beneficioNeto >= 0 ? 'border-purple-200' : 'border-red-300',
+      iconBg: beneficioNeto >= 0 ? 'bg-purple-600' : 'bg-red-600',
       iconColor: 'text-white',
+      valueClass: beneficioNeto < 0 ? 'text-red-700 font-black' : undefined,
     },
   ]
 
   return (
     <div className="animate-in fade-in duration-500 space-y-8">
+      {datosSinPersistir && (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-amber-800">
+          <p className="font-bold">⚠️ Validación: Los totales suman 0 €</p>
+          <p className="text-sm mt-1">Hay {expedientes.length} expediente(s) cerrado(s) pero las columnas total_ingresos, total_gastos_reales, cuota_iva y beneficio_neto_real están vacías. Ejecuta la migración SQL y vuelve a guardar el cierre en cada expediente.</p>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-navy-800">
-          Resumen Financiero (Cerrado / Finalizado)
+          Resumen Financiero (Cerrado)
         </h2>
         <span className="text-sm text-slate-500 font-medium">{ejercicioActual}</span>
       </div>
@@ -158,7 +169,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-slate-600 mb-1">{card.title}</p>
-                  <p className="text-2xl font-black text-slate-900 truncate">{card.value}</p>
+                  <p className={`text-2xl font-black truncate ${card.valueClass || 'text-slate-900'}`}>{card.value}</p>
                   <p className="text-xs text-slate-500 mt-1">{card.subtitle}</p>
                 </div>
                 <div className={`flex-shrink-0 w-12 h-12 rounded-xl ${card.iconBg} ${card.iconColor} flex items-center justify-center`}>
@@ -178,7 +189,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
         <div className="p-6">
           {expedientes.length === 0 ? (
             <div className="h-64 flex items-center justify-center text-slate-400 text-sm">
-              No hay expedientes cerrados o finalizados.
+              No hay expedientes con estado Cerrado.
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={320}>

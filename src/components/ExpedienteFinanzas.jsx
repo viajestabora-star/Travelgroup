@@ -671,26 +671,36 @@ const ExpedienteFinanzas = ({
       const precioVentaCliente = toNum(formData?.precio_venta_cliente) || toNum(expediente?.precio_venta_cliente) || 0
       const paxPago = Math.max(1, paxTotal - gratuidades)
 
+      const totalIngresos = Number(ingresosTotales) || 0
+      const totalGastosReales = Number(gastosTotales) || 0
+      const cuotaIva = Number(ivaPagado) || 0
+      const beneficioNetoReal = Number(beneficioLimpio) || 0
+
+      const updatePayload = {
+        cierre_grupo: datosCierre,
+        desglose_gastos_reales: desglose,
+        total_ingresos: totalIngresos,
+        total_gastos_reales: totalGastosReales,
+        cuota_iva: cuotaIva,
+        beneficio_neto_real: beneficioNetoReal,
+        presupuesto_total: totalIngresos,
+        beneficio_total: beneficioNetoReal,
+        estado: 'Cerrado',
+        total_pax: paxTotal,
+        gratuidades,
+        bonificacion_pax: bonificacionPax,
+        precio_venta_cliente: precioVentaCliente,
+        pax_pago: paxPago,
+      }
+
       const { error } = await supabase
         .from('expedientes')
-        .update({
-          cierre_grupo: datosCierre,
-          desglose_gastos_reales: desglose,
-          presupuesto_total: ingresosTotales,
-          cuota_iva: ivaPagado,
-          beneficio_total: beneficioLimpio,
-          total_gastos_reales: gastosTotales,
-          estado: 'Cerrado',
-          total_pax: paxTotal,
-          gratuidades,
-          bonificacion_pax: bonificacionPax,
-          precio_venta_cliente: precioVentaCliente,
-          pax_pago: paxPago,
-        })
+        .update(updatePayload)
         .eq('id', expediente.id)
 
       if (error) {
-        alert('Error al guardar el cierre: ' + (error.message || 'Revisa que la columna cierre_grupo exista en expedientes.'))
+        console.error('Error Supabase al guardar cierre:', error)
+        alert('Error al guardar el cierre: ' + (error.message || 'Revisa que existan las columnas: total_ingresos, total_gastos_reales, cuota_iva, beneficio_neto_real en expedientes.'))
         return
       }
 
@@ -698,10 +708,12 @@ const ExpedienteFinanzas = ({
         ...expediente,
         cierre_grupo: datosCierre,
         desglose_gastos_reales: desglose,
-        presupuesto_total: ingresosTotales,
-        cuota_iva: ivaPagado,
-        beneficio_total: beneficioLimpio,
-        total_gastos_reales: gastosTotales,
+        total_ingresos: totalIngresos,
+        total_gastos_reales: totalGastosReales,
+        cuota_iva: cuotaIva,
+        beneficio_neto_real: beneficioNetoReal,
+        presupuesto_total: totalIngresos,
+        beneficio_total: beneficioNetoReal,
         estado: 'Cerrado',
         total_pax: paxTotal,
         gratuidades,
