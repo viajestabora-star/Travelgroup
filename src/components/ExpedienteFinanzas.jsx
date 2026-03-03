@@ -654,13 +654,25 @@ const ExpedienteFinanzas = ({
         pax_por_asociacion: paxPorAsociacion.filter((p) => p.cliente_id).map((p) => ({ cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre || '', pax: p.pax })),
       }
 
+      const paxTotal = Math.max(1, n(formData?.total_pax) || n(expediente?.total_pax))
+      const gratuidades = n(formData?.gratuidades) || n(expediente?.gratuidades)
+      const bonificacionPax = n(formData?.bonificacion_pax) || n(expediente?.bonificacion_pax)
+      const precioVentaCliente = n(formData?.precio_venta_cliente) || n(expediente?.precio_venta_cliente)
+      const paxPago = Math.max(1, paxTotal - gratuidades)
+
       const payload = {
+        expediente_id: expediente.id,
         cierre_grupo: cierreGrupoJson,
         total_ingresos: totalIngresos,
         total_gastos_reales: totalGastosReales,
         cuota_iva: cuotaIva,
         beneficio_neto_real: beneficioNetoReal,
         estado: 'Cerrado',
+        total_pax: paxTotal,
+        gratuidades,
+        bonificacion_pax: bonificacionPax,
+        precio_venta_cliente: precioVentaCliente,
+        pax_pago: paxPago,
       }
 
       const { error } = await supabase.from('expedientes').update(payload).eq('id', expediente.id)
@@ -670,7 +682,7 @@ const ExpedienteFinanzas = ({
         return
       }
 
-      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: cierreGrupoJson, total_ingresos: totalIngresos, total_gastos_reales: totalGastosReales, cuota_iva: cuotaIva, beneficio_neto_real: beneficioNetoReal, estado: 'Cerrado' })
+      if (onUpdate) onUpdate({ ...expediente, expediente_id: expediente.id, cierre_grupo: cierreGrupoJson, total_ingresos: totalIngresos, total_gastos_reales: totalGastosReales, cuota_iva: cuotaIva, beneficio_neto_real: beneficioNetoReal, estado: 'Cerrado', total_pax: paxTotal, gratuidades, bonificacion_pax: bonificacionPax, precio_venta_cliente: precioVentaCliente, pax_pago: paxPago })
       alert('Cierre guardado correctamente.')
     } catch (err) {
       alert('Error al guardar el cierre: ' + (err?.message || String(err)))
