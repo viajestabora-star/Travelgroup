@@ -570,7 +570,7 @@ const Cierres = ({ user, onClose }) => {
           liquidacion_final_beneficio: Number(beneficio),
           cuota_iva: Number(ivaPagado),
           estado: 'Cerrado',
-          informe_gastos_hacienda: payloadInforme,
+          informe_gastos_hacienda: payloadInforme
         })
         .eq('id', expedienteSeleccionado.id)
 
