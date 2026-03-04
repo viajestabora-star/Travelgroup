@@ -131,10 +131,15 @@ const InteligenciaEconomicaPanel = ({ user }) => {
               key={card.title}
               className={`p-6 rounded-2xl border-2 ${card.bg} ${card.border} shadow-sm hover:shadow-md transition-shadow`}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0 overflow-visible pr-2">
                   <p className="text-sm font-semibold text-slate-600 mb-1">{card.title}</p>
-                  <p className={`text-2xl font-black truncate ${card.valueClass || 'text-slate-900'}`}>{card.value}</p>
+                  <p
+                    className={`font-black break-words ${card.valueClass || 'text-slate-900'}`}
+                    style={{ fontSize: 'clamp(0.875rem, 1.25vw + 0.625rem, 1.5rem)' }}
+                  >
+                    {card.value}
+                  </p>
                   <p className="text-xs text-slate-500 mt-1">{card.subtitle}</p>
                 </div>
                 <div className={`flex-shrink-0 w-12 h-12 rounded-xl ${card.iconBg} ${card.iconColor} flex items-center justify-center`}>
