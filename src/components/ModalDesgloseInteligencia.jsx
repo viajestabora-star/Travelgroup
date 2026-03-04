@@ -39,14 +39,11 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
 
   const lista = Array.isArray(expedientes) ? expedientes : []
 
-  // a) Lista por expediente para tablas: [CLIENTE | GRUPO | EXPEDIENTE | DESTINO | IMPORTE]
-  const FORMATO_NUM_EXP = /^\d{4}-\d+$/
-  const esNumExpValido = (v) => v && typeof v === 'string' && FORMATO_NUM_EXP.test(String(v).trim())
+  // a) Lista por expediente: [CLIENTE | EXPEDIENTE | DESTINO | IMPORTE] - numero_expediente siempre visible (dato real)
   const filasRentabilidad = lista.map((e) => ({
     id: e.id,
     cliente_nombre: e?.cliente_nombre || e?.nombre_grupo || 'Sin asignar',
-    nombre_grupo: e?.nombre_grupo || e?.cliente_nombre || '—',
-    numero_expediente: esNumExpValido(e?.numero_expediente) ? e.numero_expediente : '—',
+    numero_expediente: e?.numero_expediente ?? e?.numeroExpediente ?? '—',
     destino: e?.destino || '—',
     beneficio_neto_real: toNum(e?.beneficio_neto_real ?? 0),
   })).sort((a, b) => b.beneficio_neto_real - a.beneficio_neto_real)
@@ -62,13 +59,12 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
   const totalCobrado = lista.reduce((acc, e) => acc + toNum(e?.total_cobrado ?? 0), 0)
   const deudaPendiente = Math.max(0, totalIngresos - totalCobrado)
 
-  // d) Listado Cobros por expediente: [CLIENTE | GRUPO | EXPEDIENTE | DESTINO | IMPORTE]
+  // d) Listado Cobros: [CLIENTE | EXPEDIENTE | DESTINO | IMPORTE] - numero_expediente siempre visible
   const getIngresos = (e) => toNum(e?.total_ingresos) || toNum(e?.cierre_grupo?.ingresos_totales ?? e?.cierre_grupo?.total_ingresos)
   const cobrosPorExpediente = lista.map((e) => ({
     id: e.id,
     cliente_nombre: e?.cliente_nombre || e?.nombre_grupo || 'Sin asignar',
-    nombre_grupo: e?.nombre_grupo || e?.cliente_nombre || '—',
-    numero_expediente: esNumExpValido(e?.numero_expediente) ? e.numero_expediente : '—',
+    numero_expediente: e?.numero_expediente ?? e?.numeroExpediente ?? '—',
     destino: e?.destino || '—',
     deudaPendiente: Math.max(0, getIngresos(e) - toNum(e?.total_cobrado ?? 0)),
   }))
@@ -116,11 +112,16 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
                   Ranking de Rentabilidad
                 </h3>
                 <div className="overflow-x-auto rounded-lg border border-slate-200">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+                    <colgroup>
+                      <col style={{ width: '40%' }} />
+                      <col style={{ width: '20%' }} />
+                      <col style={{ width: '20%' }} />
+                      <col style={{ width: '20%' }} />
+                    </colgroup>
                     <thead className="bg-slate-50">
                       <tr>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Cliente</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-600">Grupo</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Expediente</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-600">Destino</th>
                         <th className="px-3 py-2 text-right font-semibold text-slate-600">Importe</th>
@@ -129,15 +130,14 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
                     <tbody>
                       {filasRentabilidad.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-3 py-4 text-center text-slate-500">Sin datos</td>
+                          <td colSpan={4} className="px-3 py-4 text-center text-slate-500">Sin datos</td>
                         </tr>
                       ) : (
                         filasRentabilidad.map((r) => (
                           <tr key={r.id} className="border-t border-slate-100">
-                            <td className="px-3 py-2 text-slate-800" style={{ textTransform: 'capitalize' }}>{r.cliente_nombre}</td>
-                            <td className="px-3 py-2 text-slate-700" style={{ textTransform: 'capitalize' }}>{r.nombre_grupo}</td>
-                            <td className="px-3 py-2 text-slate-700">{r.numero_expediente}</td>
-                            <td className="px-3 py-2 text-slate-700" style={{ textTransform: 'capitalize' }}>{r.destino}</td>
+                            <td className="px-3 py-2 text-slate-800 truncate" style={{ textTransform: 'capitalize' }} title={r.cliente_nombre}>{r.cliente_nombre}</td>
+                            <td className="px-3 py-2 text-slate-700 truncate" title={r.numero_expediente}>{r.numero_expediente}</td>
+                            <td className="px-3 py-2 text-slate-700 truncate" style={{ textTransform: 'capitalize' }} title={r.destino}>{r.destino}</td>
                             <td className="px-3 py-2 text-right font-medium">{formatEuro(r.beneficio_neto_real)}</td>
                           </tr>
                         ))
@@ -201,7 +201,7 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
             </div>
           )}
 
-          {/* Pestaña Rentabilidad: [CLIENTE | GRUPO | EXPEDIENTE | DESTINO | IMPORTE] */}
+          {/* Pestaña Rentabilidad: [CLIENTE | EXPEDIENTE | DESTINO | IMPORTE] */}
           {tabActivo === 'rentabilidad' && (
             <section>
               <h3 className="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
@@ -209,11 +209,16 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
                 Ranking de Rentabilidad
               </h3>
               <div className="overflow-x-auto rounded-lg border border-slate-200">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+                  <colgroup>
+                    <col style={{ width: '40%' }} />
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '20%' }} />
+                  </colgroup>
                   <thead className="bg-slate-50">
                     <tr>
                       <th className="px-3 py-2 text-left font-semibold text-slate-600">Cliente</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Grupo</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-600">Expediente</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-600">Destino</th>
                       <th className="px-3 py-2 text-right font-semibold text-slate-600">Importe</th>
@@ -222,15 +227,14 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
                   <tbody>
                     {filasRentabilidad.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-3 py-4 text-center text-slate-500">Sin datos</td>
+                        <td colSpan={4} className="px-3 py-4 text-center text-slate-500">Sin datos</td>
                       </tr>
                     ) : (
                       filasRentabilidad.map((r) => (
                         <tr key={r.id} className="border-t border-slate-100">
-                          <td className="px-3 py-2 text-slate-800" style={{ textTransform: 'capitalize' }}>{r.cliente_nombre}</td>
-                          <td className="px-3 py-2 text-slate-700" style={{ textTransform: 'capitalize' }}>{r.nombre_grupo}</td>
-                          <td className="px-3 py-2 text-slate-700">{r.numero_expediente}</td>
-                          <td className="px-3 py-2 text-slate-700" style={{ textTransform: 'capitalize' }}>{r.destino}</td>
+                          <td className="px-3 py-2 text-slate-800 truncate" style={{ textTransform: 'capitalize' }} title={r.cliente_nombre}>{r.cliente_nombre}</td>
+                          <td className="px-3 py-2 text-slate-700 truncate" title={r.numero_expediente}>{r.numero_expediente}</td>
+                          <td className="px-3 py-2 text-slate-700 truncate" style={{ textTransform: 'capitalize' }} title={r.destino}>{r.destino}</td>
                           <td className="px-3 py-2 text-right font-medium">{formatEuro(r.beneficio_neto_real)}</td>
                         </tr>
                       ))
@@ -241,7 +245,7 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
             </section>
           )}
 
-          {/* Pestaña Cobros: [CLIENTE | GRUPO | EXPEDIENTE | DESTINO | IMPORTE] */}
+          {/* Pestaña Cobros: [CLIENTE | EXPEDIENTE | DESTINO | IMPORTE] */}
           {tabActivo === 'cobros' && (
             <section>
               <h3 className="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
@@ -249,11 +253,16 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
                 Detalle de Cobros por Expediente
               </h3>
               <div className="overflow-x-auto rounded-lg border border-slate-200">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+                  <colgroup>
+                    <col style={{ width: '40%' }} />
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '20%' }} />
+                  </colgroup>
                   <thead className="bg-slate-50">
                     <tr>
                       <th className="px-3 py-2 text-left font-semibold text-slate-600">Cliente</th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-600">Grupo</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-600">Expediente</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-600">Destino</th>
                       <th className="px-3 py-2 text-right font-semibold text-slate-600">Importe</th>
@@ -262,15 +271,14 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
                   <tbody>
                     {cobrosPorExpediente.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-3 py-4 text-center text-slate-500">Sin datos de cobros</td>
+                        <td colSpan={4} className="px-3 py-4 text-center text-slate-500">Sin datos de cobros</td>
                       </tr>
                     ) : (
                       cobrosPorExpediente.map((c) => (
                         <tr key={c.id} className={`border-t border-slate-100 ${c.deudaPendiente > 0 ? 'bg-amber-50/50' : ''}`}>
-                          <td className="px-3 py-2 text-slate-800" style={{ textTransform: 'capitalize' }}>{c.cliente_nombre}</td>
-                          <td className="px-3 py-2 text-slate-700" style={{ textTransform: 'capitalize' }}>{c.nombre_grupo}</td>
-                          <td className="px-3 py-2 text-slate-700">{c.numero_expediente}</td>
-                          <td className="px-3 py-2 text-slate-700" style={{ textTransform: 'capitalize' }}>{c.destino}</td>
+                          <td className="px-3 py-2 text-slate-800 truncate" style={{ textTransform: 'capitalize' }} title={c.cliente_nombre}>{c.cliente_nombre}</td>
+                          <td className="px-3 py-2 text-slate-700 truncate" title={c.numero_expediente}>{c.numero_expediente}</td>
+                          <td className="px-3 py-2 text-slate-700 truncate" style={{ textTransform: 'capitalize' }} title={c.destino}>{c.destino}</td>
                           <td className="px-3 py-2 text-right font-medium text-amber-800">{formatEuro(c.deudaPendiente)}</td>
                         </tr>
                       ))
