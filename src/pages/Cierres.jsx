@@ -561,19 +561,17 @@ const Cierres = ({ user, onClose }) => {
         },
       }
 
-      const dataFinalParaSupabase = {
-        informe_gastos_hacienda: payloadInforme,
-        total_ingresos: Number(ingresosTotales),
-        total_gastos_reales: Number(totalGastosReales),
-        beneficio_neto_real: Number(beneficio),
-        liquidacion_final_beneficio: Number(beneficio),
-        cuota_iva: Number(ivaPagado),
-        estado: 'Cerrado',
-      }
-
       const { error } = await supabase
         .from('expedientes')
-        .update(dataFinalParaSupabase)
+        .update({
+          total_ingresos: Number(ingresosTotales),
+          total_gastos_reales: Number(totalGastosReales),
+          beneficio_neto_real: Number(beneficio),
+          liquidacion_final_beneficio: Number(beneficio),
+          cuota_iva: Number(ivaPagado),
+          estado: 'Cerrado',
+          informe_gastos_hacienda: payloadInforme,
+        })
         .eq('id', expedienteSeleccionado.id)
 
       if (error) {
