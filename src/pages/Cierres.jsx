@@ -572,7 +572,7 @@ const Cierres = ({ user, onClose }) => {
           estado: 'Cerrado',
           informe_gastos_hacienda: payloadInforme
         })
-        .eq('id', expedienteSeleccionado.id)
+        .eq('id', expedienteSeleccionado.id);
 
       if (error) {
         alert('Error guardando Informe Hacienda: ' + error.message)
