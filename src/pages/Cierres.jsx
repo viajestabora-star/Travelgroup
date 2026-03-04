@@ -539,6 +539,8 @@ const Cierres = ({ user, onClose }) => {
 
     setGuardandoInforme(true)
     try {
+      const idParaActualizar = String(expedienteSeleccionado.id);
+
       const { totalGastosReales, ingresosTotales, beneficioBruto, ivaPagado, beneficio } = calcularTotalesInforme
 
       const lineasLimpias = lineasInforme.map((l) => ({
@@ -561,18 +563,23 @@ const Cierres = ({ user, onClose }) => {
         },
       }
 
+      const ingresosFinal = Number(ingresosTotales);
+      const gastosFinal = Number(totalGastosReales);
+      const beneficioFinal = Number(beneficio);
+      const ivaFinal = Number(ivaPagado);
+
       const { error } = await supabase
         .from('expedientes')
         .update({
-          total_ingresos: Number(ingresosTotales),
-          total_gastos_reales: Number(totalGastosReales),
-          beneficio_neto_real: Number(beneficio),
-          liquidacion_final_beneficio: Number(beneficio),
-          cuota_iva: Number(ivaPagado),
+          total_ingresos: ingresosFinal,
+          total_gastos_reales: gastosFinal,
+          beneficio_neto_real: beneficioFinal,
+          liquidacion_final_beneficio: beneficioFinal,
+          cuota_iva: ivaFinal,
           estado: 'Cerrado',
           informe_gastos_hacienda: payloadInforme
         })
-        .eq('id', expedienteSeleccionado.id);
+        .eq('id', idParaActualizar);
 
       if (error) {
         alert('Error guardando Informe Hacienda: ' + error.message)
