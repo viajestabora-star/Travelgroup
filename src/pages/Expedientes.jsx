@@ -80,39 +80,41 @@ const manejarErrorSupabase = (error, operacion = 'operación') => {
 }
 // ============================================================================
 // GENERACIÓN AUTOMÁTICA DEL NÚMERO DE EXPEDIENTE
-// Formato: YYYY-000 (ej: 2026-001)
+// Formato: YYYY-000 (ej: 2026-001) - NUNCA vacío ni UUID
 // ============================================================================
+const FORMATO_NUMERO_EXP = /^\d{4}-\d+$/; // YYYY-NNN
+
+const esNumeroExpedienteValido = (v) => v && typeof v === 'string' && FORMATO_NUMERO_EXP.test(v.trim());
+
 const obtenerSiguienteNumeroExpediente = async (año) => {
   try {
-    // Buscar el número más alto que empiece por ese año en Supabase
+    const añoNum = parseInt(String(año), 10) || new Date().getFullYear();
     const { data, error } = await supabase
       .from('expedientes')
       .select('numero_expediente')
-      .ilike('numero_expediente', `${año}-%`)
+      .ilike('numero_expediente', `${añoNum}-%`)
       .order('numero_expediente', { ascending: false })
-      .limit(1);
+      .limit(50);
 
-    if (error) {
-      // Fallback seguro
-      return `${año}-001`;
-    }
+    if (error) return `${añoNum}-001`;
 
-    let siguienteSecuencia = 1;
-
-    if (Array.isArray(data) && data.length > 0 && data[0]?.numero_expediente) {
-      const partes = String(data[0].numero_expediente).split('-');
+    let maxSecuencia = 0;
+    const filas = Array.isArray(data) ? data : [];
+    for (const row of filas) {
+      const num = String(row?.numero_expediente || '').trim();
+      if (!esNumeroExpedienteValido(num)) continue;
+      const partes = num.split('-');
       if (partes.length === 2) {
-        const numeroActual = parseInt(partes[1], 10);
-        if (!isNaN(numeroActual) && numeroActual >= 0) {
-          siguienteSecuencia = numeroActual + 1;
-        }
+        const seq = parseInt(partes[1], 10);
+        if (!isNaN(seq) && seq > maxSecuencia) maxSecuencia = seq;
       }
     }
 
+    const siguienteSecuencia = maxSecuencia + 1;
     const sufijo = String(siguienteSecuencia).padStart(3, '0');
-    return `${año}-${sufijo}`;
+    return `${añoNum}-${sufijo}`;
   } catch (err) {
-    return `${año}-001`;
+    return `${parseInt(String(año), 10) || new Date().getFullYear()}-001`;
   }
 };
 // Sistema de 5 Estados: Petición, Confirmado, Finalizado, Cerrado, Cancelado
@@ -407,8 +409,18 @@ const Expedientes = () => {
         const totalPaxNum = expediente.total_pax != null ? Number(expediente.total_pax) : 1
         const gratuidadesNum = expediente.gratuidades != null ? Number(expediente.gratuidades) : 0
         const paxPagoNum = Math.max(1, (isNaN(totalPaxNum) ? 1 : totalPaxNum) - (isNaN(gratuidadesNum) ? 0 : gratuidadesNum))
+
+        // numero_expediente: NUNCA vacío ni UUID - calcular correlativo si no es válido
+        let numeroExpFinal = String(expediente.numero_expediente || expediente.numeroExpediente || '').trim();
+        if (!esNumeroExpedienteValido(numeroExpFinal)) {
+          const añoExp = expediente.fecha_inicio || expediente.fechaInicio
+            ? (parsearFecha(expediente.fecha_inicio || expediente.fechaInicio)?.getFullYear?.() || new Date().getFullYear())
+            : new Date().getFullYear();
+          numeroExpFinal = await obtenerSiguienteNumeroExpediente(añoExp);
+        }
+
         const datosParaSupabase = {
-          numero_expediente: String(expediente.numero_expediente || expediente.numeroExpediente || ''),
+          numero_expediente: numeroExpFinal,
           cliente_id: (clienteIdUUID && clienteIdUUID !== '') ? clienteIdUUID : null,
           cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
           fecha_inicio: convertirFechaAISO(expediente.fecha_inicio || expediente.fechaInicio || ''),
@@ -585,11 +597,15 @@ const Expedientes = () => {
         throw new Error('cliente_id en datosInsertar no es válido');
       }
 
-      // Obtener número de expediente correlativo (obligatorio en la tabla)
+      // Obtener número de expediente correlativo (obligatorio) - NUNCA vacío ni UUID
       const añoExpediente = expedienteForm.fechaInicio
         ? (parsearFecha(expedienteForm.fechaInicio)?.getFullYear?.() || new Date().getFullYear())
         : new Date().getFullYear();
-      datosInsertar.numero_expediente = await obtenerSiguienteNumeroExpediente(añoExpediente);
+      let numeroExp = await obtenerSiguienteNumeroExpediente(añoExpediente);
+      if (!esNumeroExpedienteValido(numeroExp)) {
+        numeroExp = `${añoExpediente}-001`;
+      }
+      datosInsertar.numero_expediente = numeroExp;
 
       // Insertar sin id - Supabase generará automáticamente el UUID
       const { data, error } = await supabase

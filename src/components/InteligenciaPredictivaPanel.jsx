@@ -119,7 +119,7 @@ export const ModalDetalleRentabilidad = ({ isOpen, onClose, detalle }) => {
             {filas.map((f) => (
               <div key={f.label} className="flex flex-col">
                 <span className="text-xs font-medium text-slate-500 uppercase">{f.label}</span>
-                <span className="text-sm font-semibold text-slate-800">{f.value}</span>
+                <span className={`text-sm font-semibold text-slate-800 ${f.label === 'Cliente' ? 'capitalize' : ''}`}>{f.value}</span>
               </div>
             ))}
           </div>
