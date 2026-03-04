@@ -37,7 +37,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
       try {
         const { data, error: dbError } = await supabase
           .from('expedientes')
-          .select('id, numero_expediente, total_ingresos, total_gastos_reales, total_cobrado, cuota_iva, beneficio_neto_real, total_pax, cliente_nombre, nombre_grupo, cierre_grupo')
+          .select('id, numero_expediente, destino, total_ingresos, total_gastos_reales, total_cobrado, cuota_iva, beneficio_neto_real, total_pax, cliente_nombre, nombre_grupo, cierre_grupo')
           .or('estado.eq.Cerrado,estado.ilike.cerrado')
 
         if (dbError) throw dbError

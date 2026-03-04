@@ -83,8 +83,10 @@ const manejarErrorSupabase = (error, operacion = 'operación') => {
 // Formato: YYYY-000 (ej: 2026-001) - NUNCA vacío ni UUID
 // ============================================================================
 const FORMATO_NUMERO_EXP = /^\d{4}-\d+$/; // YYYY-NNN
+const REGEX_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const esNumeroExpedienteValido = (v) => v && typeof v === 'string' && FORMATO_NUMERO_EXP.test(v.trim());
+const pareceUUID = (v) => v && typeof v === 'string' && REGEX_UUID.test(String(v).trim());
 
 const obtenerSiguienteNumeroExpediente = async (año) => {
   try {
@@ -410,9 +412,9 @@ const Expedientes = () => {
         const gratuidadesNum = expediente.gratuidades != null ? Number(expediente.gratuidades) : 0
         const paxPagoNum = Math.max(1, (isNaN(totalPaxNum) ? 1 : totalPaxNum) - (isNaN(gratuidadesNum) ? 0 : gratuidadesNum))
 
-        // numero_expediente: NUNCA vacío ni UUID - calcular correlativo si no es válido
+        // numero_expediente: NUNCA vacío ni UUID (ID interno) - forzar 2026-XXX si se detecta UUID
         let numeroExpFinal = String(expediente.numero_expediente || expediente.numeroExpediente || '').trim();
-        if (!esNumeroExpedienteValido(numeroExpFinal)) {
+        if (!esNumeroExpedienteValido(numeroExpFinal) || pareceUUID(numeroExpFinal)) {
           const añoExp = expediente.fecha_inicio || expediente.fechaInicio
             ? (parsearFecha(expediente.fecha_inicio || expediente.fechaInicio)?.getFullYear?.() || new Date().getFullYear())
             : new Date().getFullYear();
