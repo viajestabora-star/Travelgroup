@@ -561,7 +561,7 @@ const Cierres = ({ user, onClose }) => {
         },
       }
 
-      const finalData = {
+      const dataFinalParaSupabase = {
         informe_gastos_hacienda: payloadInforme,
         total_ingresos: Number(ingresosTotales),
         total_gastos_reales: Number(totalGastosReales),
@@ -573,7 +573,7 @@ const Cierres = ({ user, onClose }) => {
 
       const { error } = await supabase
         .from('expedientes')
-        .update(finalData)
+        .update(dataFinalParaSupabase)
         .eq('id', expedienteSeleccionado.id)
 
       if (error) {
