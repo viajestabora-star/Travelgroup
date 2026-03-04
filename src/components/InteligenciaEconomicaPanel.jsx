@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3 } from 'lucide-react'
+import ModalDesgloseInteligencia from './ModalDesgloseInteligencia'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
@@ -34,7 +35,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
       try {
         const { data, error: dbError } = await supabase
           .from('expedientes')
-          .select('total_ingresos, total_gastos_reales, cuota_iva, beneficio_neto_real, cierre_grupo')
+          .select('total_ingresos, total_gastos_reales, total_cobrado, cuota_iva, beneficio_neto_real, total_pax, cliente_nombre, nombre_grupo, cierre_grupo')
           .or('estado.eq.Cerrado,estado.ilike.cerrado')
 
         if (dbError) throw dbError
@@ -101,6 +102,8 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     return `${sign}${formatted},${decPart} €`
   }
 
+  const [showDesgloseModal, setShowDesgloseModal] = useState(false)
+
   const chartData = [
     { name: 'Ingresos Totales', valor: ingresosTotales, fill: '#059669' },
     { name: 'Gastos Totales', valor: gastosTotales, fill: '#dc2626' },
@@ -134,9 +137,11 @@ const InteligenciaEconomicaPanel = ({ user }) => {
         {cards.map((card) => {
           const Icon = card.icon
           return (
-            <div
+            <button
+              type="button"
               key={card.title}
-              className={`flex flex-col p-4 rounded-2xl border-2 ${card.bg} ${card.border} shadow-sm hover:shadow-md transition-shadow min-w-0`}
+              onClick={() => setShowDesgloseModal(true)}
+              className={`flex flex-col p-4 rounded-2xl border-2 ${card.bg} ${card.border} shadow-sm hover:shadow-md transition-shadow min-w-0 text-left cursor-pointer`}
             >
               <div className="flex items-start justify-between gap-3 mb-2">
                 <p className="text-sm font-semibold text-slate-600 shrink-0">{card.title}</p>
@@ -156,10 +161,16 @@ const InteligenciaEconomicaPanel = ({ user }) => {
                 {card.value}
               </p>
               <p className="text-xs text-slate-500 mt-1">{card.subtitle}</p>
-            </div>
+            </button>
           )
         })}
       </div>
+
+      <ModalDesgloseInteligencia
+        isOpen={showDesgloseModal}
+        onClose={() => setShowDesgloseModal(false)}
+        expedientes={expedientes}
+      />
 
       <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-2">
