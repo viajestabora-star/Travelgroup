@@ -27,11 +27,11 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [] }) => {
 
   const lista = Array.isArray(expedientes) ? expedientes : []
 
-  // a) Ranking por cliente_nombre - MAPEO ESTRICTO: beneficio_neto_real (null → 0)
+  // a) Ranking por cliente_nombre - Null safety: (beneficio_neto_real ?? 0) para no romper
   const rankingPorCliente = {}
   lista.forEach((e) => {
-    const nombre = e.cliente_nombre || e.nombre_grupo || 'Sin asignar'
-    const beneficio = toNum(e.beneficio_neto_real)
+    const nombre = e?.cliente_nombre || e?.nombre_grupo || 'Sin asignar'
+    const beneficio = toNum(e?.beneficio_neto_real ?? 0)
     if (!rankingPorCliente[nombre]) rankingPorCliente[nombre] = 0
     rankingPorCliente[nombre] += beneficio
   })
@@ -39,15 +39,15 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [] }) => {
     .map(([cliente_nombre, beneficio_neto_real]) => ({ cliente_nombre, beneficio_neto_real }))
     .sort((a, b) => b.beneficio_neto_real - a.beneficio_neto_real)
 
-  // b) Análisis Pasajeros: media total_pax, beneficio por pasajero - MAPEO ESTRICTO (null → 0)
-  const totalPax = lista.reduce((acc, e) => acc + toNum(e.total_pax), 0)
+  // b) Análisis Pasajeros: media total_pax, beneficio por pasajero - total_pax null → 0 (evitar división rota)
+  const totalPax = lista.reduce((acc, e) => acc + toNum(e?.total_pax ?? 0), 0)
   const mediaPax = lista.length > 0 ? totalPax / lista.length : 0
-  const beneficioTotal = lista.reduce((acc, e) => acc + toNum(e.beneficio_neto_real), 0)
+  const beneficioTotal = lista.reduce((acc, e) => acc + toNum(e?.beneficio_neto_real ?? 0), 0)
   const beneficioPorPax = totalPax > 0 ? beneficioTotal / totalPax : 0
 
-  // c) Control Deuda: total_ingresos vs total_cobrado - MAPEO ESTRICTO (null → 0)
-  const totalIngresos = lista.reduce((acc, e) => acc + toNum(e.total_ingresos), 0)
-  const totalCobrado = lista.reduce((acc, e) => acc + toNum(e.total_cobrado), 0)
+  // c) Control Deuda: total_ingresos vs total_cobrado - Null safety (null → 0)
+  const totalIngresos = lista.reduce((acc, e) => acc + toNum(e?.total_ingresos ?? 0), 0)
+  const totalCobrado = lista.reduce((acc, e) => acc + toNum(e?.total_cobrado ?? 0), 0)
   const deudaPendiente = Math.max(0, totalIngresos - totalCobrado)
 
   return (

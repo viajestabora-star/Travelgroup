@@ -14,6 +14,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
+  const [showDesgloseModal, setShowDesgloseModal] = useState(false)
   const esAdmin = user?.rol === 'ADMIN'
 
   useEffect(() => {
@@ -43,7 +44,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
         const lista = Array.isArray(data) ? data : []
         setExpedientes(lista)
       } catch (err) {
-        setError(err?.message || 'Error desconocido')
+        setError(err?.message || 'Error desconocido al cargar datos financieros.')
         setExpedientes([])
       } finally {
         setLoading(false)
@@ -74,6 +75,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     return (
       <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-red-700">
         <span className="font-bold">Error al cargar datos:</span> {error}
+        <p className="text-sm mt-2 text-red-600">Comprueba la conexión y vuelve a intentarlo.</p>
       </div>
     )
   }
@@ -101,8 +103,6 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     const sign = num < 0 ? '−' : ''
     return `${sign}${formatted},${decPart} €`
   }
-
-  const [showDesgloseModal, setShowDesgloseModal] = useState(false)
 
   const chartData = [
     { name: 'Ingresos Totales', valor: ingresosTotales, fill: '#059669' },

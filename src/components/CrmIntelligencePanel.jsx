@@ -21,13 +21,13 @@ const CrmIntelligencePanel = () => {
           .from('view_crm_intelligence')
           .select('*')
         if (err) {
-          setError(err.message)
+          setError(err.message || 'Error al cargar datos CRM')
           setData([])
           return
         }
         setData(Array.isArray(rows) ? rows : [])
       } catch (e) {
-        setError(e?.message || 'Error cargando datos')
+        setError(e?.message || 'Error inesperado al cargar datos.')
         setData([])
       } finally {
         setLoading(false)
