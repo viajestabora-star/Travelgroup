@@ -3,6 +3,7 @@ import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { supabase } from '../supabase'
+import { existeNumeroExpedienteEnSupabase, esNumeroExpedienteValido } from '../utils/expedienteNumero'
 import { normalizarMetodoPago } from '../utils/finanzasHelpers'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
@@ -351,6 +352,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Estados
   const [tab, setTab] = useState('grupo')
   const [editandoCliente, setEditandoCliente] = useState(false)
+  const [errorNumeroExpediente, setErrorNumeroExpediente] = useState(null)
 
   // Abrir en tab específica cuando se navega desde Historial de Cierres (Ver Detalle)
   useEffect(() => {
@@ -358,6 +360,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       setTab(initialTab)
     }
   }, [initialTab])
+
+  // Limpiar error de numero_expediente al cambiar de expediente
+  useEffect(() => {
+    setErrorNumeroExpediente(null)
+  }, [expediente?.id])
 
   // Restaurar cierre_grupo guardado (JSONB: total_ingresos, total_gastos, beneficio, fecha + detalle)
   useEffect(() => {
@@ -3395,6 +3402,52 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <p className="text-xs text-slate-400 mb-4">
                         Información básica del grupo o entidad responsable del viaje
                       </p>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Nº Expediente</label>
+                      <EditableInput
+                        type="text"
+                        value={expediente?.numero_expediente ?? expediente?.numeroExpediente ?? ''}
+                        onSave={async (v) => {
+                          const val = String(v || '').trim()
+                          if (!val) return
+                          const partes = val.split('-')
+                          let formatted = val
+                          if (partes.length === 2) {
+                            const año = partes[0]
+                            const seq = parseInt(partes[1], 10)
+                            if (!isNaN(seq)) formatted = `${año}-${String(seq).padStart(3, '0')}`
+                          }
+                          if (!esNumeroExpedienteValido(formatted)) return
+                          const yaExiste = await existeNumeroExpedienteEnSupabase(formatted, expediente?.id)
+                          if (yaExiste) {
+                            setErrorNumeroExpediente('Error: Este número de expediente ya está en uso')
+                            return
+                          }
+                          setErrorNumeroExpediente(null)
+                          if (onUpdate) onUpdate({ ...expediente, numero_expediente: formatted })
+                        }}
+                        parseValue={(v) => {
+                          const s = String(v || '').trim()
+                          if (!s) return ''
+                          const partes = s.split('-')
+                          if (partes.length === 2) {
+                            const año = partes[0]
+                            const seq = parseInt(partes[1], 10)
+                            if (!isNaN(seq)) return `${año}-${String(seq).padStart(3, '0')}`
+                          }
+                          return s
+                        }}
+                        formatForDisplay={(v) => (v == null || v === '' ? '' : String(v))}
+                        className="w-full p-4 transition-all font-mono font-semibold text-blue-700"
+                        style={{ backgroundColor: '#f8fafc', color: '#1d4ed8', borderRadius: '12px', border: errorNumeroExpediente ? '2px solid #dc2626' : '1px solid #e2e8f0' }}
+                        placeholder="2026-001"
+                      />
+                      {errorNumeroExpediente ? (
+                        <p className="text-xs font-semibold text-red-600 mt-1">{errorNumeroExpediente}</p>
+                      ) : (
+                        <p className="text-xs text-slate-500 mt-1">Formato YYYY-XXX (ej: 2026-012)</p>
+                      )}
                     </div>
                     <div className="md:col-span-2">
                       <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>Nombre del Grupo *</label>

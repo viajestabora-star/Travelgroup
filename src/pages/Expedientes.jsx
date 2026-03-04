@@ -6,6 +6,7 @@ import ExpedienteDetalle from '../components/ExpedienteDetalle'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 import { getEjercicioActual, subscribeToEjercicioChanges, setEjercicioActual as guardarEjercicioGlobal, getAñosDisponibles } from '../utils/ejercicioGlobal'
 import { supabase } from '../supabase'
+import { existeNumeroExpedienteEnSupabase } from '../utils/expedienteNumero'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -88,15 +89,19 @@ const REGEX_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const esNumeroExpedienteValido = (v) => v && typeof v === 'string' && FORMATO_NUMERO_EXP.test(v.trim());
 const pareceUUID = (v) => v && typeof v === 'string' && REGEX_UUID.test(String(v).trim());
 
+// LÓGICA SEGURA: Consulta MAX en Supabase - NUNCA confiar en estado local.
+// Formato YYYY-XXX con ceros a la izquierda (ej: 2026-012).
 const obtenerSiguienteNumeroExpediente = async (año) => {
   try {
     const añoNum = parseInt(String(año), 10) || new Date().getFullYear();
+    const prefijo = `${añoNum}-`;
+    // Consulta directa: orden descendente + limit 1 = el máximo existente
     const { data, error } = await supabase
       .from('expedientes')
       .select('numero_expediente')
-      .ilike('numero_expediente', `${añoNum}-%`)
+      .ilike('numero_expediente', `${prefijo}%`)
       .order('numero_expediente', { ascending: false })
-      .limit(50);
+      .limit(1);
 
     if (error) return `${añoNum}-001`;
 
@@ -119,6 +124,7 @@ const obtenerSiguienteNumeroExpediente = async (año) => {
     return `${parseInt(String(año), 10) || new Date().getFullYear()}-001`;
   }
 };
+
 // Sistema de 5 Estados: Petición, Confirmado, Finalizado, Cerrado, Cancelado
 const ESTADOS = {
   peticion: { label: 'Petición', color: 'bg-yellow-100 text-yellow-900 border-yellow-400', badge: 'bg-yellow-400', cssClass: 'peticion' },
@@ -419,6 +425,21 @@ const Expedientes = () => {
             ? (parsearFecha(expediente.fecha_inicio || expediente.fechaInicio)?.getFullYear?.() || new Date().getFullYear())
             : new Date().getFullYear();
           numeroExpFinal = await obtenerSiguienteNumeroExpediente(añoExp);
+        } else {
+          // VALIDACIÓN: Si el usuario puso un número manualmente, comprobar que no exista
+          const idExpediente = expediente.id;
+          const yaExiste = await existeNumeroExpedienteEnSupabase(numeroExpFinal, idExpediente);
+          if (yaExiste) {
+            alert('Error: Este número de expediente ya está en uso');
+            return;
+          }
+          // Normalizar formato YYYY-XXX con ceros a la izquierda
+          const partes = numeroExpFinal.split('-');
+          if (partes.length === 2) {
+            const año = partes[0];
+            const seq = parseInt(partes[1], 10);
+            if (!isNaN(seq)) numeroExpFinal = `${año}-${String(seq).padStart(3, '0')}`;
+          }
         }
 
         const datosParaSupabase = {
@@ -738,6 +759,23 @@ const Expedientes = () => {
     const prevExpedientes = expedientes
     const prevExpedienteActual = expedienteActual
     try {
+      const idExpediente = expedienteActualizado.id
+      if (!idExpediente) {
+        throw new Error('id es requerido para actualizar')
+      }
+
+      // VALIDACIÓN: Si el usuario cambió numero_expediente manualmente, comprobar que no exista
+      const numeroNuevo = String(expedienteActualizado.numero_expediente || expedienteActualizado.numeroExpediente || '').trim()
+      const expedienteOriginal = expedientes.find(e => e.id === idExpediente)
+      const numeroOriginal = String(expedienteOriginal?.numero_expediente || expedienteOriginal?.numeroExpediente || '').trim()
+      if (numeroNuevo && esNumeroExpedienteValido(numeroNuevo) && numeroNuevo !== numeroOriginal) {
+        const yaExiste = await existeNumeroExpedienteEnSupabase(numeroNuevo, idExpediente)
+        if (yaExiste) {
+          alert('Error: Este número de expediente ya está en uso')
+          return
+        }
+      }
+
       // Actualización optimista: actualizar UI al instante antes de Supabase
       const updated = (expedientes || []).map(exp =>
         exp.id === expedienteActualizado.id ? expedienteActualizado : exp
@@ -752,11 +790,6 @@ const Expedientes = () => {
       let totalPaxTexto = ''
       if (expedienteActualizado.total_pax !== undefined && expedienteActualizado.total_pax !== null) {
         totalPaxTexto = String(expedienteActualizado.total_pax)
-      }
-      
-      const idExpediente = expedienteActualizado.id
-      if (!idExpediente) {
-        throw new Error('id es requerido para actualizar')
       }
       
       // Objeto exacto para Supabase - Asegurar que todos los campos obligatorios estén presentes y no sean NULL
@@ -776,6 +809,20 @@ const Expedientes = () => {
       const totalPaxNum = expedienteActualizado.total_pax != null ? Number(expedienteActualizado.total_pax) : NaN
       const gratuidadesNum = expedienteActualizado.gratuidades != null ? Number(expedienteActualizado.gratuidades) : 0
       const paxPagoNum = Math.max(1, (isNaN(totalPaxNum) ? 1 : totalPaxNum) - (isNaN(gratuidadesNum) ? 0 : gratuidadesNum))
+
+      // numero_expediente: normalizar formato YYYY-XXX con ceros a la izquierda
+      let numeroExpParaSupabase = null
+      if (numeroNuevo && esNumeroExpedienteValido(numeroNuevo)) {
+        const partes = numeroNuevo.split('-')
+        if (partes.length === 2) {
+          const año = partes[0]
+          const seq = parseInt(partes[1], 10)
+          numeroExpParaSupabase = !isNaN(seq) ? `${año}-${String(seq).padStart(3, '0')}` : numeroNuevo
+        } else {
+          numeroExpParaSupabase = numeroNuevo
+        }
+      }
+
       const expedienteActualizadoParaSupabase = {
         cliente_id: (clienteIdUUIDUpdate && clienteIdUUIDUpdate !== '') ? clienteIdUUIDUpdate : null,
         cliente_nombre: String(expedienteActualizado.cliente_nombre || expedienteActualizado.clienteNombre || ''),
@@ -795,6 +842,9 @@ const Expedientes = () => {
         pax_pago: paxPagoNum,
         precio_venta_cliente: expedienteActualizado.precio_venta_cliente != null ? Number(expedienteActualizado.precio_venta_cliente) : 0,
         bonificacion_pax: expedienteActualizado.bonificacion_pax != null ? Number(expedienteActualizado.bonificacion_pax) : 0,
+      }
+      if (numeroExpParaSupabase) {
+        expedienteActualizadoParaSupabase.numero_expediente = numeroExpParaSupabase
       }
       
       const { error } = await supabase
