@@ -91,8 +91,15 @@ const InteligenciaEconomicaPanel = ({ user }) => {
 
   const datosSinPersistir = expedientes.length > 0 && ingresosTotales === 0
 
-  const formatEuro = (val) =>
-    new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(toNum(val))
+  /** Formato profesional: 1.234,56 € (punto miles, coma decimales, espacio + € al final) */
+  const formatEuro = (val) => {
+    const num = toNum(val)
+    const abs = Math.abs(num)
+    const [intPart, decPart] = abs.toFixed(2).split('.')
+    const formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+    const sign = num < 0 ? '−' : ''
+    return `${sign}${formatted},${decPart} €`
+  }
 
   const chartData = [
     { name: 'Ingresos Totales', valor: ingresosTotales, fill: '#059669' },
@@ -129,23 +136,26 @@ const InteligenciaEconomicaPanel = ({ user }) => {
           return (
             <div
               key={card.title}
-              className={`p-6 rounded-2xl border-2 ${card.bg} ${card.border} shadow-sm hover:shadow-md transition-shadow`}
+              className={`flex flex-col p-4 rounded-2xl border-2 ${card.bg} ${card.border} shadow-sm hover:shadow-md transition-shadow min-w-0`}
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0 overflow-visible pr-2">
-                  <p className="text-sm font-semibold text-slate-600 mb-1">{card.title}</p>
-                  <p
-                    className={`font-black break-words ${card.valueClass || 'text-slate-900'}`}
-                    style={{ fontSize: 'clamp(0.875rem, 1.25vw + 0.625rem, 1.5rem)' }}
-                  >
-                    {card.value}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">{card.subtitle}</p>
-                </div>
-                <div className={`flex-shrink-0 w-12 h-12 rounded-xl ${card.iconBg} ${card.iconColor} flex items-center justify-center`}>
-                  <Icon size={24} strokeWidth={2.5} />
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <p className="text-sm font-semibold text-slate-600 shrink-0">{card.title}</p>
+                <div className={`flex-shrink-0 w-10 h-10 rounded-xl ${card.iconBg} ${card.iconColor} flex items-center justify-center`}>
+                  <Icon size={20} strokeWidth={2.5} />
                 </div>
               </div>
+              <p
+                className={`font-black min-w-0 ${card.valueClass || 'text-slate-900'}`}
+                style={{
+                  fontSize: '1.25rem',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {card.value}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">{card.subtitle}</p>
             </div>
           )
         })}
