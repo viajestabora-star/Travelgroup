@@ -541,8 +541,16 @@ const Cierres = ({ user, onClose }) => {
     try {
       const { totalGastosReales, ingresosTotales, beneficioBruto, ivaPagado, beneficio } = calcularTotalesInforme
 
+      const lineasLimpias = lineasInforme.map((l) => ({
+        id_servicio: l.id_servicio,
+        concepto: l.concepto || '',
+        proveedor: l.proveedor || '',
+        importe_cotizado: Number(l.importe_cotizado) || 0,
+        importe_real: Number(l.importe_real) || 0,
+      }))
+
       const payloadInforme = {
-        lineas: lineasInforme,
+        lineas: lineasLimpias,
         resumen: {
           total_gastos_reales: totalGastosReales,
           ingresos_totales: ingresosTotales,
@@ -553,17 +561,19 @@ const Cierres = ({ user, onClose }) => {
         },
       }
 
-      const financialPayload = {
+      const finalData = {
         informe_gastos_hacienda: payloadInforme,
-        total_ingresos: ingresosTotales,
-        total_gastos_reales: totalGastosReales,
-        beneficio_neto_real: beneficio,
-        liquidacion_final_beneficio: beneficio,
+        total_ingresos: Number(ingresosTotales),
+        total_gastos_reales: Number(totalGastosReales),
+        beneficio_neto_real: Number(beneficio),
+        liquidacion_final_beneficio: Number(beneficio),
+        cuota_iva: Number(ivaPagado),
+        estado: 'Cerrado',
       }
 
       const { error } = await supabase
         .from('expedientes')
-        .update(financialPayload)
+        .update(finalData)
         .eq('id', expedienteSeleccionado.id)
 
       if (error) {
