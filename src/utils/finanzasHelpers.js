@@ -39,6 +39,22 @@ export const limpiarNumero = (valor) => {
   return isNaN(resultado) ? 0 : resultado
 }
 
+/**
+ * Normaliza metodo_pago para coincidir con el Check Constraint de cobros_expediente:
+ * ANY (ARRAY['Transferencia', 'Efectivo', 'Tarjeta', 'Talon', 'Mixto'])
+ * Elimina acentos (Talón → Talon) y mapea a valores válidos.
+ */
+export const normalizarMetodoPago = (valor) => {
+  if (valor == null || valor === '') return 'Transferencia'
+  const sinAcentos = String(valor)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+  const validos = ['Transferencia', 'Efectivo', 'Tarjeta', 'Talon', 'Mixto']
+  const encontrado = validos.find((v) => v.toLowerCase() === sinAcentos.toLowerCase())
+  return encontrado || 'Transferencia'
+}
+
 export const categorizarPago = (concepto) => {
   const c = String(concepto || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   if (/bus|autobus|transporte/.test(c)) return 'Bus'

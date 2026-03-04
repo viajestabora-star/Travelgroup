@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown } from 'lucide-react'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
-import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo } from '../utils/finanzasHelpers'
+import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
 
 /**
  * ============ DEFAULT_SERVICE_VALUES - DEFENSA CONTRA UNDEFINED ============
@@ -215,7 +215,7 @@ const ExpedienteFinanzas = ({
         expediente_id: expediente.id,
         cliente_id: clienteId,
         importe: importeNumerico,
-        metodo_pago: String(formCobro.metodo_pago || 'Transferencia'),
+        metodo_pago: normalizarMetodoPago(formCobro.metodo_pago),
         cuenta_destino: String(formCobro.cuenta_destino || 'Caixabank'),
         concepto: String(formCobro.concepto || '').trim(),
         fecha: new Date().toISOString()
@@ -1397,7 +1397,8 @@ const ExpedienteFinanzas = ({
                   <option value="Transferencia">Transferencia</option>
                   <option value="Efectivo">Efectivo</option>
                   <option value="Tarjeta">Tarjeta</option>
-                  <option value="Talón">Talón</option>
+                  <option value="Talon">Talón</option>
+                  <option value="Mixto">Mixto</option>
                 </select>
               </div>
 

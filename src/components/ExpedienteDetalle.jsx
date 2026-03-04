@@ -3,6 +3,7 @@ import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { supabase } from '../supabase'
+import { normalizarMetodoPago } from '../utils/finanzasHelpers'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
 import EditableInput from './EditableInput'
@@ -1994,7 +1995,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         expediente_id: expediente.id,
         cliente_id: clienteId,
         importe: importeNumerico,
-        metodo_pago: String(formCobro.metodo_pago || 'Transferencia'),
+        metodo_pago: normalizarMetodoPago(formCobro.metodo_pago),
         cuenta_destino: String(formCobro.cuenta_destino || 'Caixabank'),
         concepto: String(formCobro.concepto || '').trim(),
         fecha: new Date().toISOString()
