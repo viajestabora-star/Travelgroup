@@ -39,12 +39,13 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
 
   const lista = Array.isArray(expedientes) ? expedientes : []
 
-  // a) Lista por expediente: [CLIENTE | EXPEDIENTE | DESTINO | IMPORTE] - numero_expediente siempre visible (dato real)
+  // a) Lista por expediente: [CLIENTE | EXPEDIENTE | DESTINO | IMPORTE] - sin GRUPO. numero_expediente: S/N si null
+  const fmtNumExp = (v) => (v != null && String(v).trim() !== '' ? String(v).trim() : 'S/N')
   const filasRentabilidad = lista.map((e) => ({
     id: e.id,
-    cliente_nombre: e?.cliente_nombre || e?.nombre_grupo || 'Sin asignar',
-    numero_expediente: e?.numero_expediente ?? e?.numeroExpediente ?? '—',
-    destino: e?.destino || '—',
+    cliente_nombre: (e?.cliente_nombre || e?.nombre_grupo || 'Sin asignar').toUpperCase(),
+    numero_expediente: fmtNumExp(e?.numero_expediente ?? e?.numeroExpediente),
+    destino: (e?.destino || '—').toUpperCase(),
     beneficio_neto_real: toNum(e?.beneficio_neto_real ?? 0),
   })).sort((a, b) => b.beneficio_neto_real - a.beneficio_neto_real)
 
@@ -59,13 +60,13 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
   const totalCobrado = lista.reduce((acc, e) => acc + toNum(e?.total_cobrado ?? 0), 0)
   const deudaPendiente = Math.max(0, totalIngresos - totalCobrado)
 
-  // d) Listado Cobros: [CLIENTE | EXPEDIENTE | DESTINO | IMPORTE] - numero_expediente siempre visible
+  // d) Listado Cobros: [CLIENTE | EXPEDIENTE | DESTINO | IMPORTE] - lógica de cobros preservada
   const getIngresos = (e) => toNum(e?.total_ingresos) || toNum(e?.cierre_grupo?.ingresos_totales ?? e?.cierre_grupo?.total_ingresos)
   const cobrosPorExpediente = lista.map((e) => ({
     id: e.id,
-    cliente_nombre: e?.cliente_nombre || e?.nombre_grupo || 'Sin asignar',
-    numero_expediente: e?.numero_expediente ?? e?.numeroExpediente ?? '—',
-    destino: e?.destino || '—',
+    cliente_nombre: (e?.cliente_nombre || e?.nombre_grupo || 'Sin asignar').toUpperCase(),
+    numero_expediente: fmtNumExp(e?.numero_expediente ?? e?.numeroExpediente),
+    destino: (e?.destino || '—').toUpperCase(),
     deudaPendiente: Math.max(0, getIngresos(e) - toNum(e?.total_cobrado ?? 0)),
   }))
 
@@ -135,9 +136,9 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
                       ) : (
                         filasRentabilidad.map((r) => (
                           <tr key={r.id} className="border-t border-slate-100">
-                            <td className="px-3 py-2 text-slate-800 truncate" style={{ textTransform: 'capitalize' }} title={r.cliente_nombre}>{r.cliente_nombre}</td>
-                            <td className="px-3 py-2 text-slate-700 truncate" title={r.numero_expediente}>{r.numero_expediente}</td>
-                            <td className="px-3 py-2 text-slate-700 truncate" style={{ textTransform: 'capitalize' }} title={r.destino}>{r.destino}</td>
+                            <td className="px-3 py-2 text-slate-800 truncate uppercase" title={r.cliente_nombre}>{r.cliente_nombre}</td>
+                            <td className="px-3 py-2 text-slate-700 truncate font-mono" title={r.numero_expediente}>{r.numero_expediente}</td>
+                            <td className="px-3 py-2 text-slate-700 truncate uppercase" title={r.destino}>{r.destino}</td>
                             <td className="px-3 py-2 text-right font-medium">{formatEuro(r.beneficio_neto_real)}</td>
                           </tr>
                         ))
@@ -232,9 +233,9 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
                     ) : (
                       filasRentabilidad.map((r) => (
                         <tr key={r.id} className="border-t border-slate-100">
-                          <td className="px-3 py-2 text-slate-800 truncate" style={{ textTransform: 'capitalize' }} title={r.cliente_nombre}>{r.cliente_nombre}</td>
-                          <td className="px-3 py-2 text-slate-700 truncate" title={r.numero_expediente}>{r.numero_expediente}</td>
-                          <td className="px-3 py-2 text-slate-700 truncate" style={{ textTransform: 'capitalize' }} title={r.destino}>{r.destino}</td>
+                          <td className="px-3 py-2 text-slate-800 truncate uppercase" title={r.cliente_nombre}>{r.cliente_nombre}</td>
+                          <td className="px-3 py-2 text-slate-700 truncate font-mono" title={r.numero_expediente}>{r.numero_expediente}</td>
+                          <td className="px-3 py-2 text-slate-700 truncate uppercase" title={r.destino}>{r.destino}</td>
                           <td className="px-3 py-2 text-right font-medium">{formatEuro(r.beneficio_neto_real)}</td>
                         </tr>
                       ))
@@ -276,9 +277,9 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
                     ) : (
                       cobrosPorExpediente.map((c) => (
                         <tr key={c.id} className={`border-t border-slate-100 ${c.deudaPendiente > 0 ? 'bg-amber-50/50' : ''}`}>
-                          <td className="px-3 py-2 text-slate-800 truncate" style={{ textTransform: 'capitalize' }} title={c.cliente_nombre}>{c.cliente_nombre}</td>
-                          <td className="px-3 py-2 text-slate-700 truncate" title={c.numero_expediente}>{c.numero_expediente}</td>
-                          <td className="px-3 py-2 text-slate-700 truncate" style={{ textTransform: 'capitalize' }} title={c.destino}>{c.destino}</td>
+                          <td className="px-3 py-2 text-slate-800 truncate uppercase" title={c.cliente_nombre}>{c.cliente_nombre}</td>
+                          <td className="px-3 py-2 text-slate-700 truncate font-mono" title={c.numero_expediente}>{c.numero_expediente}</td>
+                          <td className="px-3 py-2 text-slate-700 truncate uppercase" title={c.destino}>{c.destino}</td>
                           <td className="px-3 py-2 text-right font-medium text-amber-800">{formatEuro(c.deudaPendiente)}</td>
                         </tr>
                       ))
