@@ -7,6 +7,7 @@ import { existeNumeroExpedienteEnSupabase, esNumeroExpedienteValido } from '../u
 import { normalizarMetodoPago } from '../utils/finanzasHelpers'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
+import TablaServiciosVariante from './TablaServiciosVariante'
 import EditableInput from './EditableInput'
 import jsPDF from 'jspdf'
 
@@ -121,13 +122,27 @@ const toNum = (v) => {
   return isNaN(n) ? 0 : n;
 };
 
+/** Keys de cabecera por variante (Pasajeros, Precio, Bonificación, Suplementos) */
+const CABECERA_KEYS = ['total_pax', 'gratuidades', 'precio_venta_cliente', 'bonificacion_pax', 'sup_individual_pax', 'sup_individual_precio_dia', 'sup_seguro_pax', 'sup_seguro_precio_total'];
+
 /** Compara formData de cotización con último guardado (para detectar cambios sin guardar) */
 const formDataCotizacionIgual = (a, b) => {
   if (!a && !b) return true;
   if (!a || !b) return false;
-  const keys = ['total_pax', 'gratuidades', 'precio_venta_cliente', 'bonificacion_pax', 'sup_individual_pax', 'sup_individual_precio_dia', 'sup_seguro_pax', 'sup_seguro_precio_total'];
-  return keys.every(k => toNum(a[k]) === toNum(b[k]));
+  return CABECERA_KEYS.every(k => toNum(a[k]) === toNum(b[k]));
 };
+
+/** Cabecera por defecto desde expediente o formData */
+const getDefaultCabecera = (exp, fd) => ({
+  total_pax: toNum(exp?.total_pax ?? fd?.total_pax) || 1,
+  gratuidades: toNum(exp?.gratuidades ?? fd?.gratuidades) || 0,
+  precio_venta_cliente: toNum(exp?.precio_venta_cliente ?? fd?.precio_venta_cliente) || 0,
+  bonificacion_pax: toNum(exp?.bonificacion_pax ?? fd?.bonificacion_pax) || 0,
+  sup_individual_pax: toNum(exp?.sup_individual_pax ?? fd?.sup_individual_pax) || 0,
+  sup_individual_precio_dia: toNum(exp?.sup_individual_precio_dia ?? fd?.sup_individual_precio_dia) || 0,
+  sup_seguro_pax: toNum(exp?.sup_seguro_pax ?? fd?.sup_seguro_pax) || 0,
+  sup_seguro_precio_total: toNum(exp?.sup_seguro_precio_total ?? fd?.sup_seguro_precio_total) || 0,
+});
 
 /**
  * ============ DEFAULT_SERVICE_VALUES - DEFENSA CONTRA UNDEFINED ============
@@ -384,6 +399,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Ref para detectar cambios sin guardar en cotización (formData)
   const lastSavedFormDataRef = useRef(null)
+  const lastSavedVersionesRef = useRef(null)
   const [guardadoExitoCotizacion, setGuardadoExitoCotizacion] = useState(false)
 
   // Estado local del Cierre de Grupo (editable, NO machaca cotización)
@@ -416,6 +432,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Estados para servicios (separados porque se guardan en tabla diferente)
   const [servicios, setServicios] = useState([])
+
+  // Multicotización: versiones de presupuesto. versiones_json en expediente.
+  // Solo la opción CONFIRMADA suma para beneficio_neto_real (Central de Inteligencia).
+  const [versiones, setVersiones] = useState([])
+  const [versionActiva, setVersionActiva] = useState(0)
   
   // Estados para Proveedores
   const [proveedores, setProveedores] = useState([])
@@ -527,12 +548,76 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     cargarProveedores()
   }, [])
 
+  // Mapear fila BD → objeto servicio interno
+  const mapearFilaAServicio = (row) => {
+    const coste = (v) => toNum(v)
+    const proveedorIdInt = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
+    const c = coste(row.coste_unitario ?? row.precio_venta)
+    const esPorGrupo = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
+    return {
+      ...DEFAULT_SERVICE_VALUES,
+      id: row.id || generarUUID(),
+      proveedorId: proveedorIdInt,
+      proveedorNombreTemporal: row.nombre_proveedor_manual || '',
+      tipo: row.tipo_servicio || row.tipo || 'Hotel',
+      tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
+      nombreEspecifico: row.nombre_especifico || '',
+      localizacion: row.localizacion || '',
+      especificacion_destino: row.especificacion_destino || '',
+      coste_unitario: c,
+      total_servicio_manual: esPorGrupo ? c : 0,
+      tipo_calculo: esPorGrupo ? 'porGrupo' : 'porPersona',
+      margen: coste(row.margen_pax),
+      noches: Math.max(1, coste(row.noches)),
+      dias_guia: coste(row.dias_guia) || Math.max(1, coste(row.noches)),
+      cantidad: Math.max(1, coste(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)),
+      fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
+      releasePagado: !!row.release_pagado,
+      mayorista_id: (row.mayorista_id != null && row.mayorista_id !== '') ? (typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-') ? row.mayorista_id : String(row.mayorista_id)) : null,
+    }
+  }
+  const tieneDatos = (r) => {
+    const tieneProveedor = (x) => x.proveedorId != null || (x.proveedorNombreTemporal && String(x.proveedorNombreTemporal).trim())
+    const tieneNombreServicio = (x) => x.nombreEspecifico && String(x.nombreEspecifico).trim()
+    const tieneTipo = (x) => x.tipo && String(x.tipo).trim()
+    const tieneImporte = (x) => x.coste_unitario != null && Number(x.coste_unitario) > 0
+    const tieneTotalManual = (x) => x.total_servicio_manual != null && Number(x.total_servicio_manual) > 0
+    return tieneProveedor(r) || tieneNombreServicio(r) || tieneImporte(r) || tieneTotalManual(r) || tieneTipo(r)
+  }
+
   // Cargar servicios de cotización cuando se abre el expediente (para Cierre de Grupo y otras pestañas)
-  // Así "Cargar desde Cotización" funciona aunque el usuario no haya visitado la pestaña Cotización
+  // Multicotización: si versiones_json existe, usar; si no, crear Opción 1 desde servicios_cotizacion
   const cargarServiciosCotizacion = async () => {
     const id = expediente?.id
     if (!id) return
+    lastSavedVersionesRef.current = null
     try {
+      const { data: expData } = await supabase.from('expedientes').select('versiones_json').eq('id', id).single()
+      const vj = expData?.versiones_json ?? expediente?.versiones_json
+      const versionesGuardadas = Array.isArray(vj?.versiones) ? vj.versiones : null
+
+      if (versionesGuardadas && versionesGuardadas.length > 0) {
+        const defaultCab = getDefaultCabecera(expediente, null)
+        const vs = versionesGuardadas.map(v => {
+          const cab = v.cabecera && typeof v.cabecera === 'object'
+            ? { ...defaultCab, ...v.cabecera }
+            : defaultCab
+          return {
+            id: v.id || generarUUID(),
+            nombre: v.nombre ?? '',
+            servicios: Array.isArray(v.servicios) ? v.servicios : [],
+            confirmada: !!v.confirmada,
+            cabecera: cab,
+          }
+        })
+        setVersiones(vs)
+        lastSavedVersionesRef.current = JSON.parse(JSON.stringify(vs))
+        setVersionActiva(0)
+        const servs = versionesGuardadas[0]?.servicios || []
+        setServicios(Array.isArray(servs) ? servs : [])
+        return
+      }
+
       let serviciosResponse = await supabase
         .from('servicios_cotizacion')
         .select('*')
@@ -549,46 +634,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       }
 
       const data = serviciosResponse.data
+      const defaultCab = getDefaultCabecera(expediente, null)
       if (data && Array.isArray(data) && data.length > 0) {
-        const coste = (v) => toNum(v)
-        const todosMapeados = data.map((row) => {
-          const proveedorIdInt = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
-          const c = coste(row.coste_unitario ?? row.precio_venta)
-          const esPorGrupo = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
-          return {
-            ...DEFAULT_SERVICE_VALUES,
-            id: row.id || generarUUID(),
-            proveedorId: proveedorIdInt,
-            proveedorNombreTemporal: row.nombre_proveedor_manual || '',
-            tipo: row.tipo_servicio || row.tipo || 'Hotel',
-            tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
-            nombreEspecifico: row.nombre_especifico || '',
-            localizacion: row.localizacion || '',
-            especificacion_destino: row.especificacion_destino || '',
-            coste_unitario: c,
-            total_servicio_manual: esPorGrupo ? c : 0,
-            tipo_calculo: esPorGrupo ? 'porGrupo' : 'porPersona',
-            margen: coste(row.margen_pax),
-            noches: Math.max(1, coste(row.noches)),
-            dias_guia: coste(row.dias_guia) || Math.max(1, coste(row.noches)),
-            cantidad: Math.max(1, coste(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)),
-            fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
-            releasePagado: !!row.release_pagado,
-            mayorista_id: (row.mayorista_id != null && row.mayorista_id !== '') ? (typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-') ? row.mayorista_id : String(row.mayorista_id)) : null,
-          }
-        })
-        const tieneProveedor = (r) => r.proveedorId != null || (r.proveedorNombreTemporal && String(r.proveedorNombreTemporal).trim())
-        const tieneNombreServicio = (r) => r.nombreEspecifico && String(r.nombreEspecifico).trim()
-        const tieneTipo = (r) => r.tipo && String(r.tipo).trim()
-        const tieneImporte = (r) => r.coste_unitario != null && Number(r.coste_unitario) > 0
-        const tieneTotalManual = (r) => r.total_servicio_manual != null && Number(r.total_servicio_manual) > 0
-        const tieneDatos = (r) => tieneProveedor(r) || tieneNombreServicio(r) || tieneImporte(r) || tieneTotalManual(r) || tieneTipo(r)
+        const todosMapeados = data.map(mapearFilaAServicio)
         const serviciosMapeados = todosMapeados.filter(tieneDatos)
+        const versionInicial = {
+          id: generarUUID(),
+          nombre: '',
+          servicios: serviciosMapeados,
+          confirmada: false,
+          cabecera: { ...defaultCab },
+        }
+        setVersiones([versionInicial])
+        setVersionActiva(0)
         setServicios(serviciosMapeados)
       } else {
+        const versionInicial = { id: generarUUID(), nombre: '', servicios: [], confirmada: false, cabecera: { ...defaultCab } }
+        setVersiones([versionInicial])
+        setVersionActiva(0)
         setServicios([])
       }
     } catch (_) {
+      const defaultCab = getDefaultCabecera(expediente, null)
+      setVersiones([{ id: generarUUID(), nombre: '', servicios: [], confirmada: false, cabecera: { ...defaultCab } }])
+      setVersionActiva(0)
       setServicios([])
     }
   }
@@ -598,8 +667,93 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       cargarServiciosCotizacion()
     } else {
       setServicios([])
+      setVersiones([])
+      setVersionActiva(0)
     }
   }, [expediente?.id])
+
+  // setServicios que persiste en versiones[versionActiva].servicios (no en raíz del expediente)
+  const setServiciosYVersiones = (nuevosServiciosOrUpdater) => {
+    const nuevos = typeof nuevosServiciosOrUpdater === 'function'
+      ? nuevosServiciosOrUpdater(servicios)
+      : nuevosServiciosOrUpdater
+    const arrFinal = Array.isArray(nuevos) ? nuevos : []
+    setServicios(arrFinal)
+    setVersiones(prev => {
+      const next = [...prev]
+      if (next[versionActiva]) {
+        next[versionActiva] = { ...next[versionActiva], servicios: [...arrFinal] }
+      }
+      return next
+    })
+  }
+
+  // Al cambiar de pestaña: TablaServiciosVariante ya actualiza versiones en cada cambio; aquí solo cambiamos activa.
+  const cambiarVersionActiva = (nuevoIdx) => {
+    if (nuevoIdx === versionActiva) return
+    setVersiones(prev => {
+      const servs = prev[versionActiva]?.servicios ?? servicios
+      return prev.map((v, i) => i === versionActiva ? { ...v, servicios: [...servs] } : v)
+    })
+    setVersionActiva(nuevoIdx)
+  }
+
+  // VINCULACIÓN DE DATOS: servicios = versiones[versionActiva].servicios. Actualiza inputs al cambiar pestaña.
+  useEffect(() => {
+    if (versiones.length > 0 && versionActiva >= 0 && versionActiva < versiones.length) {
+      const servs = versiones[versionActiva]?.servicios ?? []
+      setServicios(Array.isArray(servs) ? [...servs] : [])
+    }
+  }, [versionActiva, versiones])
+
+  // Cabecera por variante: en multicotización usa versiones[versionActiva].cabecera; si no, formData
+  const formDataParaVariante = useMemo(() => {
+    if (versiones.length > 0 && versionActiva >= 0 && versionActiva < versiones.length) {
+      const cab = versiones[versionActiva]?.cabecera
+      return { ...getDefaultCabecera(expediente, formData), ...cab }
+    }
+    return formData
+  }, [versiones, versionActiva, formData, expediente])
+
+  // Actualizar cabecera de la variante activa (solo en multicotización)
+  const setCabeceraVariante = (field, value) => {
+    if (versiones.length === 0) {
+      setFormData(prev => ({ ...prev, [field]: value }))
+      return
+    }
+    setVersiones(prev => prev.map((v, i) =>
+      i === versionActiva ? { ...v, cabecera: { ...(v.cabecera || getDefaultCabecera(expediente, formData)), [field]: value } } : v
+    ))
+  }
+
+  // Duplicar cotización actual: hereda servicios y cabecera de la variante activa
+  const duplicarCotizacion = () => {
+    const v = versiones[versionActiva]
+    const servs = v?.servicios ?? servicios
+    const cab = v?.cabecera ? { ...getDefaultCabecera(expediente, null), ...v.cabecera } : getDefaultCabecera(expediente, formData)
+    const nuevaVersion = {
+      id: generarUUID(),
+      nombre: '',
+      servicios: servs.map(s => ({ ...s, id: generarUUID() })),
+      confirmada: false,
+      cabecera: { ...cab },
+    }
+    setVersiones(prev => [...prev, nuevaVersion])
+    setVersionActiva(versiones.length)
+    setServicios(nuevaVersion.servicios)
+  }
+
+  // Marcar versión como CONFIRMADA (solo esta suma para beneficio_neto_real)
+  const marcarComoConfirmada = (idx) => {
+    setVersiones(prev => prev.map((v, i) => ({ ...v, confirmada: i === idx })))
+  }
+
+  // Servicios para Cierre/beneficio: usar la versión CONFIRMADA
+  const serviciosParaCierre = useMemo(() => {
+    const conf = versiones.find(v => v.confirmada)
+    if (conf && Array.isArray(conf.servicios) && conf.servicios.length > 0) return conf.servicios
+    return servicios
+  }, [versiones, servicios])
 
   // Función para cargar historial de expedientes del mismo cliente
   const cargarHistorialExpedientes = async (nombreCliente) => {
@@ -774,11 +928,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [expediente?.id]) // Solo depende del ID del expediente
 
-  // Detectar cambios sin guardar en cotización (formData vs último guardado)
+  // Detectar cambios sin guardar en cotización (cabecera + versiones vs último guardado)
   const hasCotizacionSinGuardar = useMemo(() => {
+    if (versiones.length > 0) {
+      const last = lastSavedVersionesRef.current
+      if (!last) return true // versiones nuevas sin guardar aún
+      try {
+        return JSON.stringify(versiones) !== JSON.stringify(last)
+      } catch {
+        return false
+      }
+    }
     const last = lastSavedFormDataRef.current
     return last && formData && !formDataCotizacionIgual(formData, last)
-  }, [formData])
+  }, [formData, versiones])
 
   const recargarInformeDesdeCotizacion = () => {
     if (!servicios?.length) return
@@ -2272,28 +2435,32 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }
 
-  // ⚠️ BLINDAJE NIVEL 2: Cálculo seguro de pasajeros de pago
-  // Si expediente tiene pax_pago, usarlo como divisor; si no, calcular desde formData.
-  const paxPago = Math.max(0, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
-  const totalPax = Math.max(0, toNum(expediente?.total_pax) || toNum(formData?.total_pax))
+  // ⚠️ BLINDAJE NIVEL 2: Cálculo seguro de pasajeros de pago (usa cabecera de variante activa)
+  const paxPago = Math.max(0, toNum(expediente?.pax_pago) || Math.max(0, toNum(formDataParaVariante?.total_pax) - toNum(formDataParaVariante?.gratuidades)))
+  const totalPax = Math.max(0, toNum(expediente?.total_pax) || toNum(formDataParaVariante?.total_pax))
+
+  // Servicios para cálculos: en multicotización usar variante activa; si no, servicios raíz
+  const serviciosParaCalculo = versiones.length > 0 && versionActiva >= 0 && versionActiva < versiones.length
+    ? (versiones[versionActiva]?.servicios ?? servicios)
+    : servicios
 
   // Firma primitiva de servicios: evita re-renders cuando el array cambia de referencia pero el contenido es igual
   const serviciosSignature = useMemo(() =>
-    servicios.map(s => `${s.id}:${toNum(s.coste_unitario)}:${toNum(s.noches)}:${toNum(s.cantidad)}:${s.tipo_calculo}:${toNum(s.total_servicio_manual)}:${s.tipo || ''}`).join('|'),
-    [servicios]
+    serviciosParaCalculo.map(s => `${s.id}:${toNum(s.coste_unitario)}:${toNum(s.noches)}:${toNum(s.cantidad)}:${s.tipo_calculo}:${toNum(s.total_servicio_manual)}:${s.tipo || ''}`).join('|'),
+    [serviciosParaCalculo]
   )
 
-  // Resultados de Cotización: depende de valores primitivos para evitar recálculos innecesarios
+  // Resultados de Cotización: usa cabecera de variante activa (pasajeros × precio por variante)
   const resultados = useMemo(() => {
     const nochesExpediente = Math.max(1, toNum(expediente?.noches) || toNum(formData?.noches))
     return calcularFinanzasExpediente({
-      servicios,
-      formData,
+      servicios: serviciosParaCalculo,
+      formData: formDataParaVariante,
       paxPago,
       totalPax,
       nochesExpediente,
     })
-  }, [serviciosSignature, formData, paxPago, totalPax, expediente?.noches, expediente?.pax_pago, expediente?.total_pax])
+  }, [serviciosSignature, formDataParaVariante, paxPago, totalPax, expediente?.noches, expediente?.pax_pago, expediente?.total_pax])
 
   // NOTA: Para "Total a dividir" (porGrupo), coste_unitario y total_servicio_manual almacenan el TOTAL.
 
@@ -2410,7 +2577,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // ============ CÁLCULOS DE SUPLEMENTOS (INDIVIDUAL Y SEGURO) ============
   const suplementos = useMemo(() => {
-    if (!formData) {
+    const fd = formDataParaVariante
+    if (!fd) {
       return {
         totalSuplementos: 0,
         totalSupHabitacion: 0,
@@ -2419,10 +2587,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
     const noches = calcularNochesExpediente()
 
-    const paxIndividual = toNum(formData?.sup_individual_pax)
-    const precioIndividualDia = toNum(formData?.sup_individual_precio_dia)
-    const paxSeguro = toNum(formData?.sup_seguro_pax)
-    const precioSeguroTotal = toNum(formData?.sup_seguro_precio_total)
+    const paxIndividual = toNum(fd?.sup_individual_pax)
+    const precioIndividualDia = toNum(fd?.sup_individual_precio_dia)
+    const paxSeguro = toNum(fd?.sup_seguro_pax)
+    const precioSeguroTotal = toNum(fd?.sup_seguro_precio_total)
 
     const totalSupHabitacion = paxIndividual * precioIndividualDia * noches
     const totalSupSeguro = paxSeguro * precioSeguroTotal
@@ -2434,7 +2602,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       totalSupSeguro: totalSupSeguro.toFixed(2),
       totalSuplementos: totalSuplementos.toFixed(2),
     }
-  }, [formData?.sup_individual_pax, formData?.sup_individual_precio_dia, formData?.sup_seguro_pax, formData?.sup_seguro_precio_total, expediente?.noches, expediente?.fecha_inicio, expediente?.fechaInicio, expediente?.fecha_final, expediente?.fecha_fin, expediente?.fechaFin])
+  }, [formDataParaVariante?.sup_individual_pax, formDataParaVariante?.sup_individual_precio_dia, formDataParaVariante?.sup_seguro_pax, formDataParaVariante?.sup_seguro_precio_total, expediente?.noches, expediente?.fecha_inicio, expediente?.fechaInicio, expediente?.fecha_final, expediente?.fecha_fin, expediente?.fechaFin])
 
   // ============ INICIALIZAR DATOS DEL RECEPTOR DE FACTURA ============
   // Dependencias estables (primitivas) para evitar bucle infinito con objeto grupo
@@ -3102,16 +3270,35 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (!datosCargados) return { ok: false, error: 'Datos aún cargando' }
 
     try {
+      const fd = versiones?.length > 0 ? formDataParaVariante : formData
       const datosParaGuardar = {
-        total_pax: toNum(formData?.total_pax),
-        gratuidades: toNum(formData?.gratuidades),
-        pax_pago: Math.max(1, toNum(formData?.total_pax) - toNum(formData?.gratuidades)),
-        precio_venta_cliente: toNum(formData?.precio_venta_cliente),
-        bonificacion_pax: toNum(formData?.bonificacion_pax),
-        sup_individual_pax: toNum(formData?.sup_individual_pax),
-        sup_individual_precio_dia: toNum(formData?.sup_individual_precio_dia),
-        sup_seguro_pax: toNum(formData?.sup_seguro_pax),
-        sup_seguro_precio_total: toNum(formData?.sup_seguro_precio_total),
+        total_pax: toNum(fd?.total_pax),
+        gratuidades: toNum(fd?.gratuidades),
+        pax_pago: Math.max(1, toNum(fd?.total_pax) - toNum(fd?.gratuidades)),
+        precio_venta_cliente: toNum(fd?.precio_venta_cliente),
+        bonificacion_pax: toNum(fd?.bonificacion_pax),
+        sup_individual_pax: toNum(fd?.sup_individual_pax),
+        sup_individual_precio_dia: toNum(fd?.sup_individual_precio_dia),
+        sup_seguro_pax: toNum(fd?.sup_seguro_pax),
+        sup_seguro_precio_total: toNum(fd?.sup_seguro_precio_total),
+      }
+      let versionesGuardadas = null
+      if (versiones?.length > 0) {
+        const servsActuales = versiones[versionActiva]?.servicios ?? servicios
+        const cabActual = {
+          total_pax: toNum(fd?.total_pax),
+          gratuidades: toNum(fd?.gratuidades),
+          precio_venta_cliente: toNum(fd?.precio_venta_cliente),
+          bonificacion_pax: toNum(fd?.bonificacion_pax),
+          sup_individual_pax: toNum(fd?.sup_individual_pax),
+          sup_individual_precio_dia: toNum(fd?.sup_individual_precio_dia),
+          sup_seguro_pax: toNum(fd?.sup_seguro_pax),
+          sup_seguro_precio_total: toNum(fd?.sup_seguro_precio_total),
+        }
+        versionesGuardadas = versiones.map((v, i) =>
+          i === versionActiva ? { ...v, servicios: [...servsActuales], cabecera: cabActual } : v
+        )
+        datosParaGuardar.versiones_json = { versiones: versionesGuardadas }
       }
 
       const { error } = await supabase
@@ -3122,6 +3309,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (error) return { ok: false, error: extraerMensajeError(error) }
 
       onUpdate({ ...expediente, ...datosParaGuardar })
+      if (versionesGuardadas) lastSavedVersionesRef.current = JSON.parse(JSON.stringify(versionesGuardadas))
+      else lastSavedFormDataRef.current = { ...fd }
       await recargarDatosFinancieros()
       if (typeof onRefresh === 'function') onRefresh()
       return { ok: true }
@@ -4172,8 +4361,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <label className="label">Total Pasajeros *</label>
                       <EditableInput
                         type="number"
-                        value={formData?.total_pax ?? ''}
-                        onSave={(v) => setFormData(prev => ({ ...prev, total_pax: v }))}
+                        value={formDataParaVariante?.total_pax ?? ''}
+                        onSave={(v) => setCabeceraVariante('total_pax', v)}
                         parseValue={(v) => Math.max(1, parseInt(String(v).trim(), 10) || 1)}
                         formatForDisplay={(v) => (v === null || v === undefined || v === '' ? '' : String(v))}
                         onFocus={(e) => {
@@ -4197,8 +4386,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <label className="label">Gratuidades</label>
                       <EditableInput
                         type="number"
-                        value={formData?.gratuidades ?? ''}
-                        onSave={(v) => setFormData(prev => ({ ...prev, gratuidades: v }))}
+                        value={formDataParaVariante?.gratuidades ?? ''}
+                        onSave={(v) => setCabeceraVariante('gratuidades', v)}
                         parseValue={(v) => Math.max(0, parseInt(String(v).trim(), 10) || 0)}
                         formatForDisplay={(v) => (v === null || v === undefined || v === '' ? '' : String(v))}
                         onFocus={(e) => {
@@ -4222,8 +4411,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <label className="label">Bonificación/Pax (€)</label>
                       <EditableInput
                         type="text"
-                        value={formData?.bonificacion_pax ?? ''}
-                        onSave={(v) => setFormData(prev => ({ ...prev, bonificacion_pax: v }))}
+                        value={formDataParaVariante?.bonificacion_pax ?? ''}
+                        onSave={(v) => setCabeceraVariante('bonificacion_pax', v)}
                         parseValue={(v) => {
                           const s = String(v || '').trim().replace(/,/g, '.')
                           if (s === '' || s === '-') return 0
@@ -4253,8 +4442,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <label className="label font-bold text-green-700">💰 Precio Venta al Cliente (€/pax) *</label>
                       <EditableInput
                         type="text"
-                        value={formData?.precio_venta_cliente ?? ''}
-                        onSave={(v) => setFormData(prev => ({ ...prev, precio_venta_cliente: v }))}
+                        value={formDataParaVariante?.precio_venta_cliente ?? ''}
+                        onSave={(v) => setCabeceraVariante('precio_venta_cliente', v)}
                         parseValue={(v) => {
                           const s = String(v || '').trim().replace(/,/g, '.')
                           if (s === '' || s === '-') return 0
@@ -4285,7 +4474,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                     <p className="text-sm font-semibold text-blue-900">
                       📊 Pasajeros de Pago: <span className="text-2xl">{paxPago}</span> 
-                      <span className="text-xs ml-2 text-blue-600">({totalPax} total - {formData?.gratuidades || 0} gratis)</span>
+                      <span className="text-xs ml-2 text-blue-600">({totalPax} total - {formDataParaVariante?.gratuidades || 0} gratis)</span>
                     </p>
                   </div>
                 </div>
@@ -4324,15 +4513,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             }}
                           >
                             Pax con Individual
-                            {(!formData?.sup_individual_pax || Number(formData?.sup_individual_pax) === 0) && (
+                            {(!formDataParaVariante?.sup_individual_pax || Number(formDataParaVariante?.sup_individual_pax) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
                           <input
                             type="number"
                             min="0"
-                            value={formData?.sup_individual_pax}
-                            onChange={(e) => setFormData({ ...formData, sup_individual_pax: e.target.value })}
+                            value={formDataParaVariante?.sup_individual_pax}
+                            onChange={(e) => setCabeceraVariante('sup_individual_pax', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                             onWheel={handleWheel}
                             className="w-full p-3 text-sm transition-all"
                             style={{
@@ -4340,7 +4529,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !formData?.sup_individual_pax || Number(formData?.sup_individual_pax) === 0
+                                !formDataParaVariante?.sup_individual_pax || Number(formDataParaVariante?.sup_individual_pax) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -4351,7 +4540,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             }}
                             onBlur={(e) => {
                               e.target.style.borderColor =
-                                !formData?.sup_individual_pax || Number(formData?.sup_individual_pax) === 0 ? '#f59e0b' : '#e2e8f0'
+                                !formDataParaVariante?.sup_individual_pax || Number(formDataParaVariante?.sup_individual_pax) === 0 ? '#f59e0b' : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
                             }}
                           />
@@ -4369,7 +4558,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             }}
                           >
                             Total Estancia (€)
-                            {(!formData?.sup_individual_precio_dia || Number(formData?.sup_individual_precio_dia) === 0) && (
+                            {(!formDataParaVariante?.sup_individual_precio_dia || Number(formDataParaVariante?.sup_individual_precio_dia) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
@@ -4377,8 +4566,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             type="number"
                         step="0.01"
                             min="0"
-                            value={formData?.sup_individual_precio_dia || ''}
-                            onChange={(e) => setFormData({ ...formData, sup_individual_precio_dia: e.target.value })}
+                            value={formDataParaVariante?.sup_individual_precio_dia || ''}
+                            onChange={(e) => setCabeceraVariante('sup_individual_precio_dia', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                             onWheel={handleWheel}
                             className="w-full p-3 text-sm transition-all"
                             style={{
@@ -4386,7 +4575,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !formData?.sup_individual_precio_dia || Number(formData?.sup_individual_precio_dia) === 0
+                                !formDataParaVariante?.sup_individual_precio_dia || Number(formDataParaVariante?.sup_individual_precio_dia) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -4397,7 +4586,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             }}
                             onBlur={(e) => {
                               e.target.style.borderColor =
-                                !formData?.sup_individual_precio_dia || Number(formData?.sup_individual_precio_dia) === 0
+                                !formDataParaVariante?.sup_individual_precio_dia || Number(formDataParaVariante?.sup_individual_precio_dia) === 0
                                   ? '#f59e0b'
                                   : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
@@ -4408,7 +4597,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <p className="mt-2 text-xs text-slate-500">
                         Total estancia: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
                         <span className="text-slate-400">
-                          ({formData?.sup_individual_pax || 0} pax × {formData?.sup_individual_precio_dia || 0}€ × {suplementos.noches} noches)
+                          ({formDataParaVariante?.sup_individual_pax || 0} pax × {formDataParaVariante?.sup_individual_precio_dia || 0}€ × {suplementos.noches} noches)
                         </span>
                       </p>
                     </div>
@@ -4432,15 +4621,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             }}
                           >
                             Pax con Seguro
-                            {(!formData?.sup_seguro_pax || Number(formData?.sup_seguro_pax) === 0) && (
+                            {(!formDataParaVariante?.sup_seguro_pax || Number(formDataParaVariante?.sup_seguro_pax) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
                       <input
                         type="number"
                             min="0"
-                            value={formData?.sup_seguro_pax || ''}
-                            onChange={(e) => setFormData({ ...formData, sup_seguro_pax: e.target.value })}
+                            value={formDataParaVariante?.sup_seguro_pax || ''}
+                            onChange={(e) => setCabeceraVariante('sup_seguro_pax', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                             onWheel={handleWheel}
                             className="w-full p-3 text-sm transition-all"
                             style={{
@@ -4448,7 +4637,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !formData?.sup_seguro_pax || Number(formData?.sup_seguro_pax) === 0
+                                !formDataParaVariante?.sup_seguro_pax || Number(formDataParaVariante?.sup_seguro_pax) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -4459,7 +4648,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         }}
                         onBlur={(e) => {
                               e.target.style.borderColor =
-                                !formData?.sup_seguro_pax || Number(formData?.sup_seguro_pax) === 0 ? '#f59e0b' : '#e2e8f0'
+                                !formDataParaVariante?.sup_seguro_pax || Number(formDataParaVariante?.sup_seguro_pax) === 0 ? '#f59e0b' : '#e2e8f0'
                           e.target.style.boxShadow = 'none'
                         }}
                           />
@@ -4477,7 +4666,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             }}
                           >
                             Precio por Persona (€)
-                            {(!formData?.sup_seguro_precio_total || Number(formData?.sup_seguro_precio_total) === 0) && (
+                            {(!formDataParaVariante?.sup_seguro_precio_total || Number(formDataParaVariante?.sup_seguro_precio_total) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
                           </label>
@@ -4485,8 +4674,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             type="number"
                         step="0.01"
                             min="0"
-                            value={formData?.sup_seguro_precio_total || ''}
-                            onChange={(e) => setFormData({ ...formData, sup_seguro_precio_total: e.target.value })}
+                            value={formDataParaVariante?.sup_seguro_precio_total || ''}
+                            onChange={(e) => setCabeceraVariante('sup_seguro_precio_total', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                             onWheel={handleWheel}
                             className="w-full p-3 text-sm transition-all"
                             style={{
@@ -4494,7 +4683,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               color: '#0f172a',
                               borderRadius: '12px',
                               border:
-                                !formData?.sup_seguro_precio_total || Number(formData?.sup_seguro_precio_total) === 0
+                                !formDataParaVariante?.sup_seguro_precio_total || Number(formDataParaVariante?.sup_seguro_precio_total) === 0
                                   ? '1px solid #f59e0b'
                                   : '1px solid #e2e8f0',
                             }}
@@ -4505,7 +4694,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             }}
                             onBlur={(e) => {
                               e.target.style.borderColor =
-                                !formData?.sup_seguro_precio_total || Number(formData?.sup_seguro_precio_total) === 0
+                                !formDataParaVariante?.sup_seguro_precio_total || Number(formDataParaVariante?.sup_seguro_precio_total) === 0
                                   ? '#f59e0b'
                                   : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
@@ -4516,7 +4705,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <p className="mt-2 text-xs text-slate-500">
                         Importe total seguro: <span className="font-semibold text-slate-900">{suplementos.totalSupSeguro}€</span>{' '}
                         <span className="text-slate-400">
-                          ({formData?.sup_seguro_pax || 0} pax × {formData?.sup_seguro_precio_total || 0}€)
+                          ({formDataParaVariante?.sup_seguro_pax || 0} pax × {formDataParaVariante?.sup_seguro_precio_total || 0}€)
                         </span>
                       </p>
                     </div>
@@ -4530,21 +4719,96 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   </div>
                 </div>
 
-                {/* Tabla de Servicios */}
-                <ServiciosCotizacionPanel
-                  expediente={expediente}
-                  expedienteId={expediente?.id}
-                  servicios={servicios}
-                  setServicios={setServicios}
-                  proveedores={proveedores}
-                  paxPago={paxPago}
-                  totalPax={totalPax}
-                  onRefresh={onRefresh}
-                  cargarProveedores={cargarProveedores}
-                  persistirCambios={persistirCambios}
-                  isSaving={isSaving}
-                  setIsSaving={setIsSaving}
-                />
+                {/* Multicotización: pestañas Opción 1, Opción 2... + Duplicar */}
+                <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 border border-gray-200 mb-6">
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <h3 className="text-lg font-bold text-navy-900">Presupuestos (Multicotización)</h3>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={duplicarCotizacion}
+                        className="px-3 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 font-medium text-sm flex items-center gap-2"
+                      >
+                        ➕ Duplicar esta cotización
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-3 mb-3">
+                    {versiones.map((v, idx) => (
+                      <div key={v.id} className="flex items-center gap-1 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => cambiarVersionActiva(idx)}
+                          className={`px-3 py-2 rounded-lg font-medium text-sm transition-colors min-w-[100px] ${
+                            versionActiva === idx
+                              ? 'bg-navy-600 text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          {v.nombre || `Opción ${idx + 1}`}
+                        </button>
+                        <input
+                          type="text"
+                          value={v.nombre}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setVersiones(prev => prev.map((x, i) => i === idx ? { ...x, nombre: val } : x))
+                          }}
+                          onFocus={(ev) => ev.stopPropagation()}
+                          className="text-xs w-32 px-2 py-1 border border-gray-200 rounded bg-white"
+                          placeholder="Nombre de la opción"
+                          title="Editar nombre de la opción"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); marcarComoConfirmada(idx) }}
+                          title="Solo la opción CONFIRMADA suma para beneficio_neto_real en Central de Inteligencia"
+                          className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
+                            v.confirmada ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-800'
+                          }`}
+                        >
+                          {v.confirmada ? '✓ CONFIRMADA' : 'Confirmar'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Tabla de Servicios - TablaServiciosVariante con key=versionActiva: contenedor estanco por variante */}
+                {versiones.length > 0 ? (
+                  <TablaServiciosVariante
+                    key={versionActiva}
+                    indiceActivo={versionActiva}
+                    versiones={versiones}
+                    onVersionesChange={setVersiones}
+                    expedienteId={expediente?.id}
+                    proveedores={proveedores}
+                    paxPago={paxPago}
+                    totalPax={totalPax}
+                    onRefresh={onRefresh}
+                    cargarProveedores={cargarProveedores}
+                    persistirCambios={persistirCambios}
+                    isSaving={isSaving}
+                    setIsSaving={setIsSaving}
+                    expediente={expediente}
+                  />
+                ) : (
+                  <ServiciosCotizacionPanel
+                    expediente={expediente}
+                    expedienteId={expediente?.id}
+                    servicios={servicios}
+                    setServicios={setServiciosYVersiones}
+                    multicotizacionMode={false}
+                    proveedores={proveedores}
+                    paxPago={paxPago}
+                    totalPax={totalPax}
+                    onRefresh={onRefresh}
+                    cargarProveedores={cargarProveedores}
+                    persistirCambios={persistirCambios}
+                    isSaving={isSaving}
+                    setIsSaving={setIsSaving}
+                  />
+                )}
 
                 {/* Resultados de la Cotización */}
                 <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 border border-gray-200">
@@ -4585,7 +4849,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <p className="text-xl font-bold text-slate-900">{resultados?.costeOtrosPorPax ?? '0.00'}€</p>
                     </div>
 
-                    {parseInt(formData?.gratuidades || 0) > 0 && (
+                    {parseInt(formDataParaVariante?.gratuidades || 0) > 0 && (
                       <div className="bg-orange-50 p-4 rounded-lg md:col-span-2 border-2 border-orange-300">
                         <p className="text-xs text-orange-700 font-semibold uppercase mb-1">🎁 Prorrateo Gratuidades/Pax</p>
                         <p className="text-sm text-orange-600 mb-1">
@@ -4595,7 +4859,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             </div>
           )}
 
-                    {parseFloat(formData?.bonificacion_pax || 0) > 0 && (
+                    {parseFloat(formDataParaVariante?.bonificacion_pax || 0) > 0 && (
                       <div className="bg-yellow-50 p-4 rounded-lg md:col-span-2 border-2 border-yellow-300">
                         <p className="text-xs text-yellow-700 font-semibold uppercase mb-1">💳 Bonificación Pactada</p>
                         <p className="text-2xl font-bold text-yellow-900">+{resultados?.bonificacion ?? 0}€/pax</p>
@@ -4611,13 +4875,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         <span className="text-blue-700 font-medium">🚌 Coste Base Servicios (por persona)</span>
                         <span className="font-bold text-blue-900">{resultados?.costeBasePorPersona ?? 0}€</span>
                       </div>
-                      {parseInt(formData?.gratuidades || 0) > 0 && (
+                      {parseInt(formDataParaVariante?.gratuidades || 0) > 0 && (
                         <div className="flex justify-between py-2 border-b border-blue-200">
-                          <span className="text-orange-700 font-medium">➕ Prorrateo Gratuidades ({formData?.gratuidades || 0} × {resultados?.costeBaseGratuidad ?? 0}€)</span>
+                          <span className="text-orange-700 font-medium">➕ Prorrateo Gratuidades ({formDataParaVariante?.gratuidades || 0} × {resultados?.costeBaseGratuidad ?? 0}€)</span>
                           <span className="font-bold text-orange-900">+{resultados?.costeGratuidadesPorPax ?? 0}€</span>
                         </div>
                       )}
-                      {parseFloat(formData?.bonificacion_pax || 0) > 0 && (
+                      {parseFloat(formDataParaVariante?.bonificacion_pax || 0) > 0 && (
                         <div className="flex justify-between py-2 border-b border-blue-200">
                           <span className="text-yellow-700 font-medium">➕ Bonificación Pactada</span>
                           <span className="font-bold text-yellow-900">+{resultados?.bonificacion ?? 0}€</span>
@@ -4933,6 +5197,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   if (data) onUpdate({ ...expediente, presupuesto_total: data.presupuesto_total, total_cobrado: data.total_cobrado })
                 }}
                 servicios={servicios}
+                versiones={versiones}
+                versionActiva={versionActiva}
+                onVersionChange={cambiarVersionActiva}
                 formData={formData}
                 suplementos={suplementos}
                 expedienteClientes={expedienteClientes}
@@ -5033,6 +5300,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           )}
 
           {/* TAB: Cierre de Grupo - delegado a ExpedienteFinanzas */}
+          {/* Solo la opción CONFIRMADA suma para beneficio_neto_real (Central de Inteligencia) */}
           {tab === 'cierre' && (
               <ExpedienteFinanzas
                 activeTab="cierre"
@@ -5045,7 +5313,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   const { data } = await supabase.from('expedientes').select('presupuesto_total, total_cobrado').eq('id', expediente.id).single()
                   if (data) onUpdate({ ...expediente, presupuesto_total: data.presupuesto_total, total_cobrado: data.total_cobrado })
                 }}
-                servicios={servicios}
+                servicios={serviciosParaCierre}
                 formData={formData}
                 suplementos={suplementos}
                 expedienteClientes={expedienteClientes}
@@ -5053,6 +5321,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 clienteIdPrincipal={clienteIdPrincipal}
                 obtenerProveedorPorId={obtenerProveedorPorId}
                 clientes={clientes}
+                versiones={versiones}
+                versionActiva={versionActiva}
+                onVersionChange={cambiarVersionActiva}
               />
           )}
 

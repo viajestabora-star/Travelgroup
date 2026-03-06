@@ -78,6 +78,9 @@ const ExpedienteFinanzas = ({
   obtenerProveedorPorId,
   clientes = [],
   activeTab,
+  versiones = [],
+  versionActiva = 0,
+  onVersionChange,
 }) => {
   const cierreGrupo = expediente?.cierre_grupo || {}
 
@@ -960,6 +963,32 @@ const ExpedienteFinanzas = ({
       {/* TAB: Cobros */}
       {activeTab === 'cobros' && (
         <div className="max-w-6xl mx-auto space-y-6">
+          {/* Multicotización: botones de variante (20PAX, 15PAX, etc.) - clic cambia cotizacionActiva */}
+          {versiones?.length > 0 && (
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50">
+              <p className="text-sm font-semibold text-slate-700 mb-2">Presupuestos (Multicotización)</p>
+              <div className="flex flex-wrap gap-2">
+                {versiones.map((v, idx) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => onVersionChange?.(idx)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      versionActiva === idx
+                        ? 'bg-navy-600 text-white ring-2 ring-navy-400'
+                        : v.confirmada
+                          ? 'bg-green-600 text-white hover:bg-green-700'
+                          : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                    }`}
+                  >
+                    {v.nombre || `Opción ${idx + 1}`}{v.confirmada ? ' ✓ CONFIRMADA' : ''}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500 mt-2">Solo la opción CONFIRMADA suma para beneficio_neto_real en Central de Inteligencia.</p>
+            </div>
+          )}
+
           {/* Banner Estado Financiero: Presupuesto - Cobrado = Pendiente (total_cobrado desde Supabase/trigger) */}
           <div className={`p-4 rounded-xl border-2 ${pendiente > 0 ? 'bg-red-50 text-red-800 border-red-200' : 'bg-green-50 text-green-800 border-green-200'}`}>
             <p className="font-bold text-lg">

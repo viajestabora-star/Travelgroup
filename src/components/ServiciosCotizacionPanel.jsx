@@ -93,6 +93,7 @@ const ServiciosCotizacionPanel = ({
   persistirCambios,
   isSaving,
   setIsSaving,
+  multicotizacionMode = false,
 }) => {
   const [busquedaProveedor, setBusquedaProveedor] = useState({})
   const [mostrarSugerencias, setMostrarSugerencias] = useState({})
@@ -143,6 +144,7 @@ const ServiciosCotizacionPanel = ({
   useEffect(() => {
     const id = expedienteId || expediente?.id
     if (!id) return
+    if (multicotizacionMode) return
 
     const cargarServicios = async () => {
       try {
@@ -226,7 +228,7 @@ const ServiciosCotizacionPanel = ({
     }
 
     cargarServicios()
-  }, [expedienteId || expediente?.id, proveedores])
+  }, [expedienteId || expediente?.id, proveedores, multicotizacionMode])
 
   const añadirServicio = () => {
     const nuevoServicio = {

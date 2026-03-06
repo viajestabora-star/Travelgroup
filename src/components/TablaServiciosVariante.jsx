@@ -1,0 +1,174 @@
+import React, { useState, useEffect, useRef } from 'react'
+import { supabase } from '../supabase'
+import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
+
+const toNum = (v) => {
+  if (v === null || v === undefined) return 0
+  if (typeof v === 'number' && !isNaN(v)) return v
+  const n = Number(v)
+  return isNaN(n) ? 0 : n
+}
+
+const generarUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
+const DEFAULT_SERVICE_VALUES = {
+  id: null,
+  proveedorId: null,
+  proveedorNombreTemporal: '',
+  mayorista_id: null,
+  tipo: 'Hotel',
+  tipo_servicio: 'Hotel',
+  tipo_calculo: 'porPersona',
+  nombreEspecifico: '',
+  localizacion: '',
+  especificacion_destino: '',
+  coste_unitario: 0,
+  total_servicio_manual: 0,
+  margen: 0,
+  noches: 1,
+  dias_guia: 1,
+  cantidad: 1,
+  fechaRelease: '',
+  releasePagado: false,
+}
+
+/**
+ * TablaServiciosVariante - Contenedor estanco por variante.
+ * key={indiceActivo} fuerza remontaje al cambiar pestaña; cada variante tiene datos independientes.
+ * Carga desde versiones_json[indiceActivo].servicios; si vacío, carga desde expediente (servicios_cotizacion).
+ */
+const TablaServiciosVariante = ({
+  indiceActivo,
+  versiones,
+  onVersionesChange,
+  expedienteId,
+  proveedores = [],
+  paxPago,
+  totalPax,
+  onRefresh,
+  cargarProveedores,
+  persistirCambios,
+  isSaving,
+  setIsSaving,
+  expediente,
+}) => {
+  const servsIniciales = versiones[indiceActivo]?.servicios ?? []
+  const [servicios, setServiciosLocal] = useState(() =>
+    Array.isArray(servsIniciales) ? [...servsIniciales] : []
+  )
+  const cargadoDesdeExpedienteRef = useRef(false)
+
+  const setServiciosParaVariante = (nuevosOrUpdater) => {
+    const arr = typeof nuevosOrUpdater === 'function'
+      ? nuevosOrUpdater(servicios)
+      : nuevosOrUpdater
+    const final = Array.isArray(arr) ? arr : []
+    setServiciosLocal(final)
+    onVersionesChange(prev => prev.map((v, i) =>
+      i === indiceActivo ? { ...v, servicios: [...final] } : v
+    ))
+  }
+
+  useEffect(() => {
+    if (!expedienteId || cargadoDesdeExpedienteRef.current) return
+    const servs = versiones[indiceActivo]?.servicios ?? []
+    if (Array.isArray(servs) && servs.length > 0) return
+
+    const cargarDesdeExpediente = async () => {
+      try {
+        let res = await supabase
+          .from('servicios_cotizacion')
+          .select('*')
+          .eq('id_expediente', String(expedienteId).trim())
+          .order('orden', { ascending: true })
+          .order('created_at', { ascending: true, nullsFirst: false })
+          .order('id', { ascending: true })
+
+        if (res.error && (res.error.code === 'PGRST204' || String(res.error?.message || '').includes('created_at'))) {
+          res = await supabase
+            .from('servicios_cotizacion')
+            .select('*')
+            .eq('id_expediente', String(expedienteId).trim())
+            .order('orden', { ascending: true })
+            .order('id', { ascending: true })
+        }
+
+        const data = res.data
+        if (!data || !Array.isArray(data) || data.length === 0) return
+
+        const tieneDatos = (r) => {
+          const tieneProveedor = (x) => x.proveedorId != null || (x.proveedorNombreTemporal && String(x.proveedorNombreTemporal).trim())
+          const tieneNombreServicio = (x) => x.nombreEspecifico && String(x.nombreEspecifico).trim()
+          const tieneTipo = (x) => x.tipo && String(x.tipo).trim()
+          const tieneImporte = (x) => x.coste_unitario != null && Number(x.coste_unitario) > 0
+          const tieneTotalManual = (x) => x.total_servicio_manual != null && Number(x.total_servicio_manual) > 0
+          return tieneProveedor(r) || tieneNombreServicio(r) || tieneImporte(r) || tieneTotalManual(r) || tieneTipo(r)
+        }
+
+        const mapeados = data.map(row => {
+          const coste = (v) => toNum(v)
+          const proveedorIdInt = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
+          const c = coste(row.coste_unitario ?? row.precio_venta)
+          const esPorGrupo = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
+          return {
+            ...DEFAULT_SERVICE_VALUES,
+            id: row.id || generarUUID(),
+            proveedorId: proveedorIdInt,
+            proveedorNombreTemporal: row.nombre_proveedor_manual || '',
+            tipo: row.tipo_servicio || row.tipo || 'Hotel',
+            tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
+            nombreEspecifico: row.nombre_especifico || '',
+            localizacion: row.localizacion || '',
+            especificacion_destino: row.especificacion_destino || '',
+            coste_unitario: c,
+            total_servicio_manual: esPorGrupo ? c : 0,
+            tipo_calculo: esPorGrupo ? 'porGrupo' : 'porPersona',
+            margen: coste(row.margen_pax),
+            noches: Math.max(1, coste(row.noches)),
+            dias_guia: coste(row.dias_guia) || Math.max(1, coste(row.noches)),
+            cantidad: Math.max(1, coste(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)),
+            fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
+            releasePagado: !!row.release_pagado,
+            mayorista_id: (row.mayorista_id != null && row.mayorista_id !== '') ? (typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-') ? row.mayorista_id : String(row.mayorista_id)) : null,
+          }
+        }).filter(tieneDatos)
+
+        if (mapeados.length > 0) {
+          setServiciosLocal(mapeados)
+          onVersionesChange(prev => prev.map((v, i) =>
+            i === indiceActivo ? { ...v, servicios: [...mapeados] } : v
+          ))
+        }
+        cargadoDesdeExpedienteRef.current = true
+      } catch (_) {}
+    }
+
+    cargarDesdeExpediente()
+  }, [expedienteId, indiceActivo])
+
+  return (
+    <ServiciosCotizacionPanel
+      expediente={expediente}
+      expedienteId={expedienteId}
+      servicios={servicios}
+      setServicios={setServiciosParaVariante}
+      multicotizacionMode={true}
+      proveedores={proveedores}
+      paxPago={paxPago}
+      totalPax={totalPax}
+      onRefresh={onRefresh}
+      cargarProveedores={cargarProveedores}
+      persistirCambios={persistirCambios}
+      isSaving={isSaving}
+      setIsSaving={setIsSaving}
+    />
+  )
+}
+
+export default TablaServiciosVariante
