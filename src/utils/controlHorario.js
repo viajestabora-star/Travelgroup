@@ -4,25 +4,33 @@ const STORAGE_KEY_ENTRADA = 'control_horario_entrada_id'
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
 
 /**
- * Registro silencioso de entrada. Se llama automáticamente al iniciar sesión (Marisa).
- * Inserta en control_horario y guarda el id en sessionStorage. 100% invisible.
+ * Registro silencioso de entrada. Se llama automáticamente al iniciar sesión.
+ * Inserta en control_horario con usuario_id (auth.uid()) y user_email. 100% invisible.
  */
-export async function registrarEntradaSilencioso(userEmail) {
+export async function registrarEntradaSilencioso(userEmail, usuarioId = null) {
   if (!userEmail) return
   const hoy = new Date().toISOString().slice(0, 10)
+  const payload = {
+    user_email: userEmail.toLowerCase(),
+    fecha: hoy,
+    hora_entrada: new Date().toISOString(),
+  }
+  if (usuarioId) payload.usuario_id = usuarioId
+
   const { data, error } = await supabase
     .from('control_horario')
-    .insert([{
-      user_email: userEmail.toLowerCase(),
-      fecha: hoy,
-      hora_entrada: new Date().toISOString(),
-    }])
+    .insert([payload])
     .select('id')
     .single()
 
-  if (!error && data?.id) {
+  if (error) {
+    console.error('[control_horario] Error al insertar entrada:', error.message, 'Detalle:', error)
+    return
+  }
+  if (data?.id) {
     sessionStorage.setItem(STORAGE_KEY_ENTRADA, data.id)
     sessionStorage.setItem(STORAGE_KEY_FECHA, hoy)
+    console.log('Fichaje realizado con éxito')
   }
 }
 

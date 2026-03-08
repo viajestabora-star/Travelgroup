@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Outlet, NavLink } from 'react-router-dom'
+import { supabase } from '../supabase'
+import { registrarSalidaOnUnload, heartbeatSalida, registrarEntradaSilencioso } from '../utils/controlHorario'
 import { 
   LayoutDashboard, 
   Users, 
@@ -18,6 +20,9 @@ import {
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
+const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
+const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
+
 // Logo Tabora - URL oficial
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
@@ -32,6 +37,60 @@ const Layout = ({ user, onLogout }) => {
     })
     return unsubscribe
   }, [])
+
+  // Control horario: registro automático al cargar (punto de entrada tras login)
+  useEffect(() => {
+    if (!user?.email) return
+    const init = async () => {
+      try {
+        const hoy = new Date().toISOString().slice(0, 10)
+        const email = user.email.toLowerCase()
+        if (sessionStorage.getItem(STORAGE_KEY_FECHA) === hoy && sessionStorage.getItem('control_horario_entrada_id')) return
+
+        const { data: { user: authUser } } = await supabase.auth.getUser()
+        const usuarioId = authUser?.id || null
+
+        const { data: registros, error: fetchError } = await supabase
+          .from('control_horario')
+          .select('id, hora_salida')
+          .eq('user_email', email)
+          .eq('fecha', hoy)
+          .order('hora_entrada', { ascending: false })
+
+        if (fetchError) {
+          console.error('[control_horario] Error al verificar registro:', fetchError.message, 'Detalle:', fetchError)
+          return
+        }
+
+        if (Array.isArray(registros) && registros.length > 0) {
+          const abierto = registros.find((r) => !r.hora_salida)
+          if (abierto) {
+            sessionStorage.setItem('control_horario_entrada_id', abierto.id)
+            sessionStorage.setItem(STORAGE_KEY_FECHA, hoy)
+          } else {
+            await registrarEntradaSilencioso(user.email, usuarioId)
+          }
+        } else {
+          await registrarEntradaSilencioso(user.email, usuarioId)
+        }
+      } catch (err) {
+        console.error('[control_horario] Error inesperado:', err)
+      }
+    }
+    init()
+  }, [user?.email])
+
+  useEffect(() => {
+    if (!user?.email) return
+    window.addEventListener('beforeunload', registrarSalidaOnUnload)
+    return () => window.removeEventListener('beforeunload', registrarSalidaOnUnload)
+  }, [user?.email])
+
+  useEffect(() => {
+    if (!user?.email) return
+    const id = setInterval(heartbeatSalida, HEARTBEAT_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [user?.email])
 
   // Recalcular menuItems cuando cambie el ejercicio. Inteligencia Económica solo para ADMIN, al final.
   const esAdmin = user?.rol === 'ADMIN'
