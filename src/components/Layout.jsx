@@ -29,6 +29,7 @@ const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/
 const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
+  const [session, setSession] = useState(null)
 
   // Sincronizar con cambios globales del ejercicio
   useEffect(() => {
@@ -38,43 +39,55 @@ const Layout = ({ user, onLogout }) => {
     return unsubscribe
   }, [])
 
-  // Control horario: registro silencioso (hora_entrada en formato HH:MM:SS para columna TIME)
   useEffect(() => {
-    const registrarEntrada = async () => {
+    const load = async () => {
+      if (!user?.email) return
       const { data } = await supabase.auth.getSession()
-      const session = data?.session
+      if (data?.session?.user) {
+        setSession(data.session)
+      } else {
+        const { data: { user: authUser } } = await supabase.auth.getUser()
+        setSession({ user: { id: authUser?.id ?? null, email: user.email } })
+      }
+    }
+    load()
+  }, [user?.email])
+
+  // Control horario: registro silencioso (formato HH:MM:SS para columna TIME)
+  useEffect(() => {
+    const f_fichaje = async () => {
       if (!session?.user) return
 
-      const ahora = new Date()
-      const hoyISO = ahora.toISOString().split('T')[0]
-      const horaFormateada = ahora.toLocaleTimeString('en-GB', { hour12: false })
+      const d = new Date()
+      const f_hoy = d.toISOString().split('T')[0]
+      const h_ahora = d.toLocaleTimeString('en-GB', { hour12: false })
 
-      const { data: existe } = await supabase
+      const { data: reg } = await supabase
         .from('control_horario')
         .select('id')
         .eq('usuario_id', session.user.id)
-        .eq('fecha', hoyISO)
+        .eq('fecha', f_hoy)
         .maybeSingle()
 
-      if (!existe) {
+      if (!reg) {
         const { data: inserted, error: insertError } = await supabase.from('control_horario').insert([{
           usuario_id: session.user.id,
           user_email: session.user.email,
-          fecha: hoyISO,
-          hora_entrada: horaFormateada
+          fecha: f_hoy,
+          hora_entrada: h_ahora
         }]).select('id').single()
         if (insertError) console.error('Error al insertar:', insertError.message)
         else if (inserted?.id) {
           sessionStorage.setItem('control_horario_entrada_id', inserted.id)
-          sessionStorage.setItem(STORAGE_KEY_FECHA, hoyISO)
+          sessionStorage.setItem(STORAGE_KEY_FECHA, f_hoy)
         }
       } else {
-        sessionStorage.setItem('control_horario_entrada_id', existe.id)
-        sessionStorage.setItem(STORAGE_KEY_FECHA, hoyISO)
+        sessionStorage.setItem('control_horario_entrada_id', reg.id)
+        sessionStorage.setItem(STORAGE_KEY_FECHA, f_hoy)
       }
     }
-    registrarEntrada()
-  }, [])
+    f_fichaje()
+  }, [session])
 
   useEffect(() => {
     if (!user?.email) return
