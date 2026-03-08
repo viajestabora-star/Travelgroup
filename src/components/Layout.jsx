@@ -38,26 +38,31 @@ const Layout = ({ user, onLogout }) => {
     return unsubscribe
   }, [])
 
-  // Control horario: registro automático al cargar (punto de entrada tras login)
+  // Control horario: registro silencioso para TODOS los usuarios autenticados
   useEffect(() => {
-    if (!user?.email) return
     const init = async () => {
       try {
         await new Promise((r) => setTimeout(r, 0))
+
+        const { data: authData } = await supabase.auth.getSession()
+        let session = authData?.session
+        if (!session?.user) {
+          const { data: { user: authUser } } = await supabase.auth.getUser()
+          if (!user?.email) return
+          session = { user: { id: authUser?.id ?? user?.id ?? null, email: user.email } }
+        }
+        if (!session?.user || !session.user.email) return
+
         const hoy = new Date().toISOString().split('T')[0]
         if (sessionStorage.getItem(STORAGE_KEY_FECHA) === hoy && sessionStorage.getItem('control_horario_entrada_id')) return
 
-        const { data } = await supabase.auth.getSession()
-        const session = data?.session
-        if (!session?.user) return
-
-        const hoy = new Date().toISOString().split('T')[0]
-        const { data: existe, error: errExiste } = await supabase
-          .from('control_horario')
-          .select('id')
-          .eq('usuario_id', session.user.id)
-          .eq('fecha', hoy)
-          .maybeSingle()
+        let query = supabase.from('control_horario').select('id').eq('fecha', hoy)
+        if (session.user.id) {
+          query = query.eq('usuario_id', session.user.id)
+        } else {
+          query = query.eq('user_email', session.user.email.toLowerCase())
+        }
+        const { data: existe, error: errExiste } = await query.maybeSingle()
 
         if (errExiste) {
           console.error('Detalle error:', errExiste)
@@ -65,12 +70,14 @@ const Layout = ({ user, onLogout }) => {
         }
 
         if (!existe) {
-          const { data: inserted, error: errInsert } = await supabase.from('control_horario').insert([{
-            usuario_id: session.user.id,
+          const ahora = new Date().toISOString()
+          const payload = {
+            usuario_id: session.user.id ?? null,
             user_email: session.user.email,
             fecha: hoy,
-            hora_entrada: new Date().toLocaleTimeString('en-GB', { hour12: false })
-          }]).select('id').single()
+            hora_entrada: ahora,
+          }
+          const { data: inserted, error: errInsert } = await supabase.from('control_horario').insert([payload]).select('id').single()
 
           if (errInsert) {
             console.error('Detalle error:', errInsert)
@@ -90,7 +97,7 @@ const Layout = ({ user, onLogout }) => {
       }
     }
     init()
-  }, [user?.email])
+  }, [user])
 
   useEffect(() => {
     if (!user?.email) return

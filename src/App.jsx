@@ -51,9 +51,7 @@ function App() {
   };
 
   const handleLogout = async () => {
-    if (user?.email?.toLowerCase() === 'grupos@viajestabora.com') {
-      await registrarSalida();
-    }
+    await registrarSalida();
     localStorage.removeItem('sesion_tabora');
     setUser(null);
     window.location.href = '/';
