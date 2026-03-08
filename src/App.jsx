@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
-import TimeTrackerProvider from './components/TimeTrackerProvider';
 import { registrarSalida } from './utils/controlHorario';
 import Dashboard from './pages/Dashboard';
 import Clientes from './pages/Clientes';
@@ -78,11 +77,7 @@ function App() {
     <ErrorBoundary>
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={
-          <TimeTrackerProvider user={user}>
-            <Layout user={user} onLogout={handleLogout} />
-          </TimeTrackerProvider>
-        }>
+        <Route path="/" element={<Layout user={user} onLogout={handleLogout} />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard user={user} />} />
           <Route path="clientes" element={<Clientes user={user} />} />
