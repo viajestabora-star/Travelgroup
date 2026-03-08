@@ -7,6 +7,7 @@ import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraer
 import { getEjercicioActual, subscribeToEjercicioChanges, setEjercicioActual as guardarEjercicioGlobal, getAñosDisponibles } from '../utils/ejercicioGlobal'
 import { supabase } from '../supabase'
 import { existeNumeroExpedienteEnSupabase } from '../utils/expedienteNumero'
+import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -172,6 +173,7 @@ const Expedientes = () => {
   const [searchTermExpedientes, setSearchTermExpedientes] = useState('')
   const [isSubmittingExpediente, setIsSubmittingExpediente] = useState(false) // Estado de loading para submit
   const [confirmarBorrado, setConfirmarBorrado] = useState(null) // { id, nombre, destino } - Modal confirmación (Regla 1.14)
+  const [confirmarCierre, setConfirmarCierre] = useState(null) // { id, nuevoEstado, expediente } - Modal consolidación
   const [isLoading, setIsLoading] = useState(true) // MODO SEGURO: mostrar "Cargando..." en lugar de romperse
 
   const [expedienteForm, setExpedienteForm] = useState({
@@ -876,30 +878,64 @@ const Expedientes = () => {
   }
 
   const cambiarEstado = async (id, nuevoEstado) => {
-    try {
+    const estadoNorm = (nuevoEstado || '').toString().trim().toLowerCase()
+    const esFinalizadoOCerrado = estadoNorm === 'finalizado' || estadoNorm === 'cerrado'
+
+    if (esFinalizadoOCerrado) {
       const expediente = expedientes.find(exp => exp.id === id)
-      // Actualizar en Supabase
+      setConfirmarCierre({ id, nuevoEstado, expediente })
+      return
+    }
+
+    await ejecutarCambioEstado(id, nuevoEstado, false)
+  }
+
+  const ejecutarCambioEstado = async (id, nuevoEstado, debeConsolidar) => {
+    try {
+      let expediente = expedientes.find(exp => exp.id === id)
+      if (debeConsolidar) {
+        const { data } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json').eq('id', id).single()
+        expediente = data || expediente
+      }
+
+      if (debeConsolidar && expediente) {
+        const validacion = await validarProveedoresServicios(id, expediente?.versiones_json)
+        if (!validacion.ok) {
+          alert(validacion.error || 'Error: Faltan proveedores por asignar en los servicios. No se puede consolidar.')
+          return
+        }
+        const cons = await consolidarGastosExpediente(id, expediente, true)
+        if (!cons.ok) {
+          alert(cons.error || 'Error al consolidar gastos.')
+          return
+        }
+      } else {
+        const cons = await consolidarGastosExpediente(id, expediente || { id }, false)
+        if (!cons.ok) {
+          console.warn('Consolidación DELETE:', cons.error)
+        }
+      }
+
       const { error } = await supabase
         .from('expedientes')
         .update({ estado: nuevoEstado })
         .eq('id', id)
-      
+
       if (error) {
-        const errorInfo = manejarErrorSupabase(error, 'cambiar estado');
+        const errorInfo = manejarErrorSupabase(error, 'cambiar estado')
         if (errorInfo) {
-          alert(errorInfo.mensaje);
-          return;
+          alert(errorInfo.mensaje)
+          return
         }
-        throw error;
+        throw error
       }
       await fetchExpedientesData()
-      
-      if (expediente?.planningId) {
+
+      const expedienteLocal = expedientes.find(exp => exp.id === id)
+      if (expedienteLocal?.planningId) {
         const planning = storage.getPlanning()
         const updatedPlanning = (planning || []).map(p =>
-          p.id === expediente.planningId
-            ? { ...p, estado: nuevoEstado }
-            : p
+          p.id === expedienteLocal.planningId ? { ...p, estado: nuevoEstado } : p
         )
         storage.setPlanning(updatedPlanning)
       }
@@ -1380,6 +1416,36 @@ const Expedientes = () => {
                 )
               }
             })}
+        </div>
+      )}
+
+      {/* Modal Confirmación Cierre (consolidación de gastos) */}
+      {confirmarCierre && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <h2 className="text-xl font-bold text-navy-900 mb-2">Confirmar cierre</h2>
+            <p className="text-gray-600 mb-4">
+              ¿Confirmar cierre? Se consolidarán los costes para el análisis financiero.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={async () => {
+                  const { id, nuevoEstado, expediente } = confirmarCierre
+                  setConfirmarCierre(null)
+                  await ejecutarCambioEstado(id, nuevoEstado, true)
+                }}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+              >
+                Confirmar
+              </button>
+              <button
+                onClick={() => setConfirmarCierre(null)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

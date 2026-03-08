@@ -3,6 +3,7 @@ import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { supabase } from '../supabase'
+import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { existeNumeroExpedienteEnSupabase, esNumeroExpedienteValido } from '../utils/expedienteNumero'
 import { normalizarMetodoPago } from '../utils/finanzasHelpers'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
@@ -1331,9 +1332,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [guardandoCierre, setGuardandoCierre] = useState(false)
   const handleGuardarCierre = async () => {
     if (!expediente?.id) return
-    if (!window.confirm('¿Estás seguro de que quieres cerrar este expediente? Se actualizarán los registros financieros de forma permanente.')) return
+    if (!window.confirm('¿Confirmar cierre? Se consolidarán los costes para el análisis financiero.')) return
     setGuardandoCierre(true)
     try {
+      const { data: expData } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json').eq('id', expediente.id).single()
+      const expConVersiones = expData || expediente
+      const validacion = await validarProveedoresServicios(expediente.id, expConVersiones?.versiones_json)
+      if (!validacion.ok) {
+        alert(validacion.error || 'Error: Faltan proveedores por asignar en los servicios. No se puede consolidar.')
+        setGuardandoCierre(false)
+        return
+      }
       const { ingresosTotales, gastosTotales, beneficioBruto, ivaPagado, beneficioLimpio } = calcularCierreFinanciero()
       const n = (v) => (v != null && !Number.isNaN(Number(v)) ? Number(v) : 0)
       const ingresosCalculados = n(ingresosTotales)
@@ -1369,7 +1378,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
       if (error) {
         alert('Error al guardar el cierre: ' + (error?.message || 'Revisa columnas en expedientes.'))
+        setGuardandoCierre(false)
         return
+      }
+
+      const cons = await consolidarGastosExpediente(expediente.id, expConVersiones, true)
+      if (!cons.ok) {
+        alert(cons.error || 'Error al consolidar gastos. El cierre se guardó pero revisa los proveedores.')
       }
 
       const paxTotal = Math.max(1, n(formData?.total_pax) || n(expediente?.total_pax))

@@ -3,6 +3,7 @@ import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown } from 'luci
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
+import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 
 /**
  * ============ DEFAULT_SERVICE_VALUES - DEFENSA CONTRA UNDEFINED ============
@@ -634,9 +635,17 @@ const ExpedienteFinanzas = ({
 
   const handleGuardarCierre = async () => {
     if (!expediente?.id) return
-    if (!window.confirm('¿Estás seguro de que quieres cerrar este expediente? Se actualizarán los registros financieros de forma permanente.')) return
+    if (!window.confirm('¿Confirmar cierre? Se consolidarán los costes para el análisis financiero.')) return
     setGuardandoCierre(true)
     try {
+      const { data: expDataRaw } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json').eq('id', expediente.id).single()
+      const expData = expDataRaw || expediente
+      const validacion = await validarProveedoresServicios(expediente.id, expData?.versiones_json)
+      if (!validacion.ok) {
+        alert(validacion.error || 'Error: Faltan proveedores por asignar en los servicios. No se puede consolidar.')
+        setGuardandoCierre(false)
+        return
+      }
       const { ingresosTotales, gastosTotales, beneficioBruto, ivaPagado, beneficioLimpio } = calcularCierreFinanciero()
 
       const n = (v) => (v != null && !Number.isNaN(Number(v)) ? Number(v) : 0)
@@ -673,7 +682,13 @@ const ExpedienteFinanzas = ({
 
       if (error) {
         alert('Error al guardar el cierre: ' + (error?.message || 'Revisa columnas en expedientes.'))
+        setGuardandoCierre(false)
         return
+      }
+
+      const cons = await consolidarGastosExpediente(expediente.id, expData, true)
+      if (!cons.ok) {
+        alert(cons.error || 'Error al consolidar gastos. El cierre se guardó pero revisa los proveedores.')
       }
 
       const paxTotal = Math.max(1, n(formData?.total_pax) || n(expediente?.total_pax))
