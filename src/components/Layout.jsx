@@ -47,33 +47,42 @@ const Layout = ({ user, onLogout }) => {
         const hoy = new Date().toISOString().split('T')[0]
         if (sessionStorage.getItem(STORAGE_KEY_FECHA) === hoy && sessionStorage.getItem('control_horario_entrada_id')) return
 
-        const { data: session } = await supabase.auth.getSession()
-        if (session?.session?.user) {
-          const authUser = session.session.user
-          const hoy = new Date().toISOString().split('T')[0]
+        const { data } = await supabase.auth.getSession()
+        const session = data?.session
+        if (!session?.user) return
 
-          const { data: existe } = await supabase
-            .from('control_horario')
-            .select('id')
-            .eq('usuario_id', authUser.id)
-            .eq('fecha', hoy)
-            .maybeSingle()
+        const hoy = new Date().toISOString().split('T')[0]
+        const { data: existe, error: errExiste } = await supabase
+          .from('control_horario')
+          .select('id')
+          .eq('usuario_id', session.user.id)
+          .eq('fecha', hoy)
+          .maybeSingle()
 
-          if (!existe) {
-            const { data: inserted } = await supabase.from('control_horario').insert([{
-              usuario_id: authUser.id,
-              user_email: authUser.email,
-              fecha: hoy,
-              hora_entrada: new Date().toLocaleTimeString('en-GB', { hour12: false })
-            }]).select('id').single()
-            if (inserted?.id) {
-              sessionStorage.setItem('control_horario_entrada_id', inserted.id)
-              sessionStorage.setItem(STORAGE_KEY_FECHA, hoy)
-            }
-          } else {
-            sessionStorage.setItem('control_horario_entrada_id', existe.id)
+        if (errExiste) {
+          console.error('Detalle error:', errExiste)
+          return
+        }
+
+        if (!existe) {
+          const { data: inserted, error: errInsert } = await supabase.from('control_horario').insert([{
+            usuario_id: session.user.id,
+            user_email: session.user.email,
+            fecha: hoy,
+            hora_entrada: new Date().toLocaleTimeString('en-GB', { hour12: false })
+          }]).select('id').single()
+
+          if (errInsert) {
+            console.error('Detalle error:', errInsert)
+            return
+          }
+          if (inserted?.id) {
+            sessionStorage.setItem('control_horario_entrada_id', inserted.id)
             sessionStorage.setItem(STORAGE_KEY_FECHA, hoy)
           }
+        } else {
+          sessionStorage.setItem('control_horario_entrada_id', existe.id)
+          sessionStorage.setItem(STORAGE_KEY_FECHA, hoy)
         }
       } catch (err) {
         console.error('[control_horario] Error inesperado:', err)
