@@ -125,10 +125,18 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
       if (provId == null) continue
       const costeTotal = calcularCosteTotal(s)
       if (costeTotal <= 0) continue
+      const tipoServicio = (
+        s.tipo_servicio ??
+        s.tipo ??
+        s.nombre_servicio ??
+        s.nombreEspecifico ??
+        s.nombre_especifico ??
+        'Otros'
+      )
       filas.push({
         expediente_id: expedienteId,
         proveedor_id: provId,
-        tipo_servicio: (s.tipo_servicio || s.tipo || 'Otros').toString().trim() || 'Otros',
+        tipo_servicio: String(tipoServicio).trim() || 'Otros',
         coste_total: costeTotal,
         año_ejercicio: añoEjercicio,
       })
