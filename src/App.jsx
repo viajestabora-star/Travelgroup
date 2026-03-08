@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
+import TimeTrackerProvider from './components/TimeTrackerProvider';
+import { registrarSalida } from './utils/controlHorario';
 import Dashboard from './pages/Dashboard';
 import Clientes from './pages/Clientes';
 import Expedientes from './pages/Expedientes';
@@ -46,7 +48,10 @@ function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (user?.email?.toLowerCase() === 'grupos@viajestabora.com') {
+      await registrarSalida();
+    }
     localStorage.removeItem('sesion_tabora');
     setUser(null);
     window.location.href = '/';
@@ -73,7 +78,11 @@ function App() {
     <ErrorBoundary>
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Layout user={user} onLogout={handleLogout} />}>
+        <Route path="/" element={
+          <TimeTrackerProvider user={user}>
+            <Layout user={user} onLogout={handleLogout} />
+          </TimeTrackerProvider>
+        }>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard user={user} />} />
           <Route path="clientes" element={<Clientes user={user} />} />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3 } from 'lucide-react'
+import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3, Clock } from 'lucide-react'
 import ModalDesgloseInteligencia from './ModalDesgloseInteligencia'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
@@ -16,6 +16,9 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [showDesgloseModal, setShowDesgloseModal] = useState(false)
   const [tabInicialModal, setTabInicialModal] = useState('general')
+  const [tabPrincipal, setTabPrincipal] = useState('finanzas')
+  const [controlHorario, setControlHorario] = useState([])
+  const [loadingControl, setLoadingControl] = useState(false)
   const esAdmin = user?.rol === 'ADMIN'
 
   useEffect(() => {
@@ -24,6 +27,23 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     })
     return unsubscribe
   }, [])
+
+  useEffect(() => {
+    if (tabPrincipal !== 'controlPersonal' || !esAdmin) return
+    const cargar = async () => {
+      setLoadingControl(true)
+      const { data, error: err } = await supabase
+        .from('control_horario')
+        .select('id, user_email, fecha, hora_entrada, hora_salida, duracion_minutos')
+        .order('fecha', { ascending: false })
+        .order('hora_entrada', { ascending: false })
+        .limit(100)
+      if (!err && Array.isArray(data)) setControlHorario(data)
+      else setControlHorario([])
+      setLoadingControl(false)
+    }
+    cargar()
+  }, [tabPrincipal, esAdmin])
 
   useEffect(() => {
     if (!esAdmin) {
@@ -124,8 +144,98 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     { title: 'Beneficio Neto', value: formatEuro(beneficioNeto), subtitle: 'Suma de beneficio_neto_real', icon: PiggyBank, bg: beneficioNeto >= 0 ? 'bg-purple-50' : 'bg-red-50', border: beneficioNeto >= 0 ? 'border-purple-200' : 'border-red-300', iconBg: beneficioNeto >= 0 ? 'bg-purple-600' : 'bg-red-600', iconColor: 'text-white', valueClass: beneficioNeto < 0 ? 'text-red-700 font-black' : undefined, tabApertura: 'rentabilidad' },
   ]
 
+  const formatearHora = (iso) => {
+    if (!iso) return '—'
+    try {
+      const d = new Date(iso)
+      return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    } catch {
+      return '—'
+    }
+  }
+
+  const formatearFecha = (iso) => {
+    if (!iso) return '—'
+    try {
+      const d = new Date(iso)
+      return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    } catch {
+      return '—'
+    }
+  }
+
+  const formatearDuracion = (min) => {
+    if (min == null || min === '') return '—'
+    const m = parseInt(min, 10)
+    if (isNaN(m)) return '—'
+    const h = Math.floor(m / 60)
+    const mins = m % 60
+    return `${h}h ${mins}m`
+  }
+
   return (
     <div className="animate-in fade-in duration-500 space-y-8">
+      {/* Tabs: Finanzas | Control de Personal (solo visible aquí, no en menú) */}
+      <div className="flex gap-2 border-b border-slate-200 pb-2">
+        <button
+          type="button"
+          onClick={() => setTabPrincipal('finanzas')}
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${tabPrincipal === 'finanzas' ? 'bg-navy-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+        >
+          <TrendingUp size={18} className="inline mr-2 align-middle" />
+          Resumen Financiero
+        </button>
+        <button
+          type="button"
+          onClick={() => setTabPrincipal('controlPersonal')}
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${tabPrincipal === 'controlPersonal' ? 'bg-navy-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+        >
+          <Clock size={18} className="inline mr-2 align-middle" />
+          Control de Personal
+        </button>
+      </div>
+
+      {tabPrincipal === 'controlPersonal' && (
+        <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-2">
+            <Clock size={22} className="text-navy-600" />
+            <h3 className="text-base font-bold text-slate-800">Control Horario</h3>
+          </div>
+          <div className="p-6 overflow-x-auto">
+            {loadingControl ? (
+              <div className="py-12 text-center text-slate-500">Cargando...</div>
+            ) : controlHorario.length === 0 ? (
+              <div className="py-12 text-center text-slate-500">No hay registros de control horario</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Fecha</th>
+                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Usuario</th>
+                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Hora Entrada</th>
+                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Hora Salida</th>
+                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Tiempo Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {controlHorario.map((r) => (
+                    <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="py-3 px-2">{formatearFecha(r.fecha)}</td>
+                      <td className="py-3 px-2">{r.user_email || '—'}</td>
+                      <td className="py-3 px-2">{formatearHora(r.hora_entrada)}</td>
+                      <td className="py-3 px-2">{formatearHora(r.hora_salida)}</td>
+                      <td className="py-3 px-2">{formatearDuracion(r.duracion_minutos)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tabPrincipal === 'finanzas' && (
+        <>
       {datosSinPersistir && (
         <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-amber-800">
           <p className="font-bold">⚠️ Validación: Los totales suman 0 €</p>
@@ -212,6 +322,8 @@ const InteligenciaEconomicaPanel = ({ user }) => {
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   )
 }

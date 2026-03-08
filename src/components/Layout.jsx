@@ -13,14 +13,15 @@ import {
   Truck,
   Edit3,
   History,
-  TrendingUp
+  TrendingUp,
+  LogOut
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
 // Logo Tabora - URL oficial
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
-const Layout = ({ user }) => {
+const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
 
@@ -90,6 +91,15 @@ const Layout = ({ user }) => {
               {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
             </NavLink>
           ))}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-4 border-t border-slate-700"
+            >
+              <LogOut size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
+              {sidebarOpen && <span className="text-sm font-medium">Cerrar sesión</span>}
+            </button>
+          )}
         </nav>
       </aside>
 
