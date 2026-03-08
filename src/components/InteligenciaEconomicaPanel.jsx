@@ -118,7 +118,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
 
   const cards = [
     { title: 'Ingresos Totales', value: formatEuro(ingresosTotales), subtitle: 'Suma de total_ingresos', icon: TrendingUp, bg: 'bg-emerald-50', border: 'border-emerald-200', iconBg: 'bg-emerald-500', iconColor: 'text-white', tabApertura: 'cobros' },
-    { title: 'Gastos Totales', value: formatEuro(gastosTotales), subtitle: 'Suma de total_gastos_reales', icon: Wallet, bg: 'bg-red-50', border: 'border-red-200', iconBg: 'bg-red-500', iconColor: 'text-white', tabApertura: 'general' },
+    { title: 'Gastos Totales', value: formatEuro(gastosTotales), subtitle: 'Suma de total_gastos_reales', icon: Wallet, bg: 'bg-red-50', border: 'border-red-200', iconBg: 'bg-red-500', iconColor: 'text-white', tabApertura: 'gastos' },
     { title: 'Margen Bruto', value: formatEuro(margenBruto), subtitle: 'Ingresos - Gastos', icon: BarChart3, bg: 'bg-sky-50', border: 'border-sky-200', iconBg: 'bg-sky-500', iconColor: 'text-white', tabApertura: 'general' },
     { title: 'IVA Acumulado', value: formatEuro(ivaAcumulado), subtitle: 'Suma de cuota_iva', icon: Receipt, bg: 'bg-amber-50', border: 'border-amber-200', iconBg: 'bg-amber-500', iconColor: 'text-white', tabApertura: 'general' },
     { title: 'Beneficio Neto', value: formatEuro(beneficioNeto), subtitle: 'Suma de beneficio_neto_real', icon: PiggyBank, bg: beneficioNeto >= 0 ? 'bg-purple-50' : 'bg-red-50', border: beneficioNeto >= 0 ? 'border-purple-200' : 'border-red-300', iconBg: beneficioNeto >= 0 ? 'bg-purple-600' : 'bg-red-600', iconColor: 'text-white', valueClass: beneficioNeto < 0 ? 'text-red-700 font-black' : undefined, tabApertura: 'rentabilidad' },
@@ -177,6 +177,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
         onClose={() => setShowDesgloseModal(false)}
         expedientes={expedientes}
         tabInicial={tabInicialModal}
+        ejercicioActual={ejercicioActual}
       />
 
       <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
