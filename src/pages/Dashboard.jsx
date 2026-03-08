@@ -4,6 +4,10 @@ import { useNavigate } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
+import { registrarSalidaOnUnload, heartbeatSalida, registrarEntradaSilencioso } from '../utils/controlHorario'
+
+const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
+const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
 import CentralDeInteligencia from '../components/CentralDeInteligencia'
 import ResumenPipeline from '../components/ResumenPipeline'
 
@@ -24,6 +28,42 @@ const Dashboard = ({ user = null }) => {
     })
     return unsubscribe
   }, [])
+
+  // Control horario (Marisa): efecto secundario solo tras Login. 100% en segundo plano.
+  const esMarisa = user?.email?.toLowerCase() === 'grupos@viajestabora.com'
+  useEffect(() => {
+    if (!esMarisa || !user?.email) return
+    const init = async () => {
+      try {
+        const hoy = new Date().toISOString().slice(0, 10)
+        if (sessionStorage.getItem(STORAGE_KEY_FECHA) === hoy && sessionStorage.getItem('control_horario_entrada_id')) return
+        const { data: registros, error } = await supabase
+          .from('control_horario')
+          .select('id, hora_salida')
+          .eq('user_email', user.email.toLowerCase())
+          .eq('fecha', hoy)
+          .order('hora_entrada', { ascending: false })
+        if (!error && Array.isArray(registros) && registros.length > 0) {
+          const abierto = registros.find((r) => !r.hora_salida)
+          if (abierto) sessionStorage.setItem('control_horario_entrada_id', abierto.id)
+          sessionStorage.setItem(STORAGE_KEY_FECHA, hoy)
+        } else {
+          await registrarEntradaSilencioso(user.email)
+        }
+      } catch (_) {}
+    }
+    init()
+  }, [esMarisa, user?.email])
+  useEffect(() => {
+    if (!esMarisa) return
+    window.addEventListener('beforeunload', registrarSalidaOnUnload)
+    return () => window.removeEventListener('beforeunload', registrarSalidaOnUnload)
+  }, [esMarisa])
+  useEffect(() => {
+    if (!esMarisa) return
+    const id = setInterval(heartbeatSalida, HEARTBEAT_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [esMarisa])
 
   const cargarClientes = async () => {
     try {
