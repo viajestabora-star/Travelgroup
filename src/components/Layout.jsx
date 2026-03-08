@@ -43,6 +43,7 @@ const Layout = ({ user, onLogout }) => {
     if (!user?.email) return
     const init = async () => {
       try {
+        await new Promise((r) => setTimeout(r, 0))
         const hoy = new Date().toISOString().slice(0, 10)
         const email = user.email.toLowerCase()
         if (sessionStorage.getItem(STORAGE_KEY_FECHA) === hoy && sessionStorage.getItem('control_horario_entrada_id')) return
