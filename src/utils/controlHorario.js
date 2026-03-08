@@ -3,7 +3,22 @@ import { supabase } from '../supabase'
 const STORAGE_KEY_ENTRADA = 'control_horario_entrada_id'
 
 /**
- * Registra la hora de salida. El trigger en BD calcula duracion_minutos.
+ * Heartbeat: actualiza hora_salida sin cerrar la sesión.
+ * Usar cada 30 min para mantener el registro actualizado (cierre inesperado, pestaña olvidada).
+ */
+export async function heartbeatSalida() {
+  const id = sessionStorage.getItem(STORAGE_KEY_ENTRADA)
+  if (!id) return
+
+  const ahora = new Date().toISOString()
+  await supabase
+    .from('control_horario')
+    .update({ hora_salida: ahora })
+    .eq('id', id)
+}
+
+/**
+ * Registra la hora de salida y cierra la sesión. El trigger en BD calcula duracion_minutos.
  * Usar en logout.
  */
 export async function registrarSalida() {

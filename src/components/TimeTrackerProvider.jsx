@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import TimeTrackerModal from './TimeTrackerModal'
-import { registrarSalida, registrarSalidaOnUnload } from '../utils/controlHorario'
+import { registrarSalida, registrarSalidaOnUnload, heartbeatSalida } from '../utils/controlHorario'
+
+const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000 // 30 minutos
 
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
 
@@ -62,6 +64,16 @@ const TimeTrackerProvider = ({ user, children }) => {
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [esMarisa, validado])
+
+  // Heartbeat: actualiza hora_salida cada 30 min para precisión ante cierre inesperado
+  useEffect(() => {
+    if (!esMarisa || !validado) return
+    if (!sessionStorage.getItem('control_horario_entrada_id')) return
+
+    const tick = () => heartbeatSalida()
+    const id = setInterval(tick, HEARTBEAT_INTERVAL_MS)
+    return () => clearInterval(id)
   }, [esMarisa, validado])
 
   const handleValidado = useCallback(() => {
