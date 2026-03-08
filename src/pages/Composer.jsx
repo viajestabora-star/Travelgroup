@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { FileText, Save, Printer, X } from 'lucide-react'
 import { supabase } from '../supabase'
+import { convertirISOAEspañol, convertirEspañolAISO } from '../utils/dateNormalizer'
 
 // Logo Tabora - URL oficial
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
@@ -20,7 +21,9 @@ const Composer = () => {
   const [titulo, setTitulo] = useState('')
   const [tipo, setTipo] = useState('Bono')
   const [contenido, setContenido] = useState('')
-  const [fechaServicio, setFechaServicio] = useState('')
+  const [fechaInicio, setFechaInicio] = useState('')
+  const [fechaFin, setFechaFin] = useState('')
+  const [nombreClienteGrupo, setNombreClienteGrupo] = useState('')
   const [descripcionRuta, setDescripcionRuta] = useState('')
   const [recogidaDetalles, setRecogidaDetalles] = useState('')
   const [tlfGuia, setTlfGuia] = useState('')
@@ -95,18 +98,19 @@ const Composer = () => {
   const handleExpedienteChange = (e) => {
     const id = e.target.value
     setExpedienteId(id)
-    
-    // Son UUIDs, no uses Number - comparación directa
+
     const exp = expedientes.find((item) => item.id === e.target.value)
     if (exp) {
-      // Mapeo de Datos de Viaje: inyectar campos en formulario y bono
       setTitulo(exp.cliente_nombre ? `Bono para ${exp.cliente_nombre}` : '')
-      setFechaServicio(exp.fecha_viaje || exp.fecha_inicio || '')
+      setNombreClienteGrupo(exp.cliente_nombre || exp.nombre_grupo || '')
+      const fIni = exp.fecha_inicio || exp.fechaInicio || ''
+      const fFin = exp.fecha_final || exp.fecha_fin || exp.fechaFin || ''
+      setFechaInicio(/^\d{4}-\d{2}-\d{2}$/.test(fIni) ? fIni : (convertirEspañolAISO(fIni) || ''))
+      setFechaFin(/^\d{4}-\d{2}-\d{2}$/.test(fFin) ? fFin : (convertirEspañolAISO(fFin) || ''))
       setNPersonas(exp.total_pax ? String(exp.total_pax) : '')
       setTlfGuia(exp.movil_guia || '')
       setTlfResponsable(exp.movil_responsable || '')
 
-      // Rellenar otros campos si están disponibles y vacíos
       const descRuta = safe(exp.descripcion_ruta)
       if (descRuta && !descripcionRuta) {
         setDescripcionRuta(descRuta)
@@ -139,11 +143,12 @@ const Composer = () => {
 
       const nPersonasNumber = nPersonas && !isNaN(parseInt(nPersonas, 10)) ? parseInt(nPersonas, 10) : null
 
-      const datosParaGuardar = {
+        const datosParaGuardar = {
         titulo: safeValue(titulo.trim()),
         tipo: safeValue(tipo || 'Bono'),
         contenido: safeValue(contenido),
-        fecha_servicio: safeValue(fechaServicio),
+        fecha_inicio: safeValue(fechaInicio),
+        fecha_fin: safeValue(fechaFin),
         descripcion_ruta: safeValue(descripcionRuta),
         recogida_detalles: safeValue(recogidaDetalles),
         tlf_guia: safeValue(tlfGuia),
@@ -186,7 +191,9 @@ const Composer = () => {
     setTitulo('')
     setTipo('Bono')
     setContenido('')
-    setFechaServicio('')
+    setFechaInicio('')
+    setFechaFin('')
+    setNombreClienteGrupo('')
     setDescripcionRuta('')
     setRecogidaDetalles('')
     setTlfGuia('')
@@ -309,15 +316,21 @@ const Composer = () => {
                 </label>
                 <select
                   onChange={handleExpedienteChange}
+                  value={expedienteId}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  defaultValue=""
                 >
                   <option value="">Selecciona un expediente...</option>
-                  {(expedientes || []).map((exp) => (
-                    <option key={exp.id} value={exp.id}>
-                      {exp.cliente_nombre || 'Sin Nombre'}
-                    </option>
-                  ))}
+                  {(expedientes || []).map((exp) => {
+                    const codigo = safe(exp.numero_expediente)
+                    const destino = safe(exp.destino)
+                    const cliente = safe(exp.cliente_nombre || exp.nombre_grupo)
+                    const label = [codigo, destino, cliente].filter(Boolean).join(' - ') || 'Sin datos'
+                    return (
+                      <option key={exp.id} value={exp.id}>
+                        {label}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
             </div>
@@ -327,6 +340,19 @@ const Composer = () => {
               {/* Columna Izquierda: Formulario */}
               <div className="no-print space-y-4">
                 <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Nombre del Cliente / Grupo *
+              </label>
+              <input
+                type="text"
+                value={nombreClienteGrupo}
+                onChange={(e) => setNombreClienteGrupo(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Se rellena al seleccionar expediente"
+              />
+            </div>
+
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                     Título *
               </label>
@@ -357,14 +383,24 @@ const Composer = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Fecha de servicio
+                      Fecha Inicio
                     </label>
                     <input
-                      type="text"
-                      value={fechaServicio}
-                      onChange={(e) => setFechaServicio(e.target.value)}
+                      type="date"
+                      value={fechaInicio}
+                      onChange={(e) => setFechaInicio(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="DD/MM/YYYY"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Fecha Fin
+                    </label>
+                    <input
+                      type="date"
+                      value={fechaFin}
+                      onChange={(e) => setFechaFin(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -534,20 +570,14 @@ const Composer = () => {
                   )}
                   </div>
 
-                {/* Información del Cliente */}
+                {/* Información del Cliente / Grupo */}
                 <div className="border rounded-lg p-3 mb-3 text-xs">
                   <div className="font-semibold mb-2">Cliente / Grupo</div>
-                  {expediente ? (
-                    <div>
-                      <div className="font-medium">
-                        {safe(expediente.cliente_nombre) || 'Cliente'}
-                      </div>
-                      {safe(expediente.destino) && (
-                        <div className="text-gray-600 mt-1">Destino: {safe(expediente.destino)}</div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-gray-400 italic">Selecciona un expediente</div>
+                  <div className="font-medium text-slate-800 text-base">
+                    {safe(nombreClienteGrupo) || (expediente ? (safe(expediente.cliente_nombre) || safe(expediente.nombre_grupo)) : '') || '—'}
+                  </div>
+                  {expediente && safe(expediente.destino) && (
+                    <div className="text-gray-600 mt-1">Destino: {safe(expediente.destino)}</div>
                   )}
                 </div>
 
@@ -557,8 +587,10 @@ const Composer = () => {
                     Rogamos facilitar los siguientes servicios:
                   </div>
                   <div>
-                    <span className="font-semibold">Fecha servicio: </span>
-                    {safe(fechaServicio) || '____/____/______'}
+                    <span className="font-semibold">Del </span>
+                    {fechaInicio ? convertirISOAEspañol(fechaInicio) : '____/____/______'}
+                    <span className="font-semibold"> al </span>
+                    {fechaFin ? convertirISOAEspañol(fechaFin) : '____/____/______'}
                   </div>
                   <div>
                     <span className="font-semibold">Descripción / Ruta: </span>
