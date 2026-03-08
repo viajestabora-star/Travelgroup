@@ -5,45 +5,39 @@ const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
 
 /**
  * Registro silencioso de entrada. Se llama automáticamente al iniciar sesión.
- * Payload: usuario_id, user_email, fecha, hora_entrada (24h en-GB).
+ * Objeto exacto para insert. Verifica existente antes de insertar.
  */
 export async function registrarEntradaSilencioso(session) {
-  const user = session?.user ?? session
-  if (!user?.email) return
-  const payload = {
-    usuario_id: user.id ?? null,
-    user_email: user.email,
+  if (!session?.user?.email) return
+
+  const objeto = {
+    usuario_id: session.user.id,
+    user_email: session.user.email,
     fecha: new Date().toISOString().split('T')[0],
     hora_entrada: new Date().toLocaleTimeString('en-GB', { hour12: false }),
   }
 
-  const { data, error } = await supabase
+  const { data: existente } = await supabase
     .from('control_horario')
-    .insert([payload])
     .select('id')
+    .eq('usuario_id', session.user.id)
+    .eq('fecha', new Date().toISOString().split('T')[0])
     .single()
 
-  if (error) {
-    console.dir(error)
-    if (error.code === '23505') {
-      const hoy = payload.fecha
-      let q = supabase.from('control_horario').select('id').eq('fecha', hoy)
-      if (payload.usuario_id) q = q.eq('usuario_id', payload.usuario_id)
-      else q = q.eq('user_email', user.email.toLowerCase())
-      const { data: rows } = await q.order('hora_entrada', { ascending: false }).limit(1)
-      const existente = Array.isArray(rows) ? rows[0] : rows
-      if (existente?.id) {
-        sessionStorage.setItem(STORAGE_KEY_ENTRADA, existente.id)
-        sessionStorage.setItem(STORAGE_KEY_FECHA, hoy)
-      }
+  if (!existente) {
+    const { data, error } = await supabase.from('control_horario').insert([objeto]).select('id').single()
+    if (error) {
+      console.dir(error)
       return
     }
-    return
-  }
-  if (data?.id) {
-    sessionStorage.setItem(STORAGE_KEY_ENTRADA, data.id)
-    sessionStorage.setItem(STORAGE_KEY_FECHA, payload.fecha)
-    console.log('Fichaje realizado con éxito')
+    if (data?.id) {
+      sessionStorage.setItem(STORAGE_KEY_ENTRADA, data.id)
+      sessionStorage.setItem(STORAGE_KEY_FECHA, objeto.fecha)
+      console.log('Fichaje realizado con éxito')
+    }
+  } else {
+    sessionStorage.setItem(STORAGE_KEY_ENTRADA, existente.id)
+    sessionStorage.setItem(STORAGE_KEY_FECHA, objeto.fecha)
   }
 }
 

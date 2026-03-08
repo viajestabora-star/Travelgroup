@@ -45,38 +45,12 @@ const Layout = ({ user, onLogout }) => {
       try {
         await new Promise((r) => setTimeout(r, 0))
         const hoy = new Date().toISOString().split('T')[0]
-        const email = user.email.toLowerCase()
         if (sessionStorage.getItem(STORAGE_KEY_FECHA) === hoy && sessionStorage.getItem('control_horario_entrada_id')) return
 
         const { data: { user: authUser } } = await supabase.auth.getUser()
-        const usuarioId = user.id ?? authUser?.id ?? null
-        const session = { user: { ...user, id: usuarioId } }
+        const session = { user: { ...user, id: user.id ?? authUser?.id } }
 
-        let query = supabase
-          .from('control_horario')
-          .select('id, hora_salida')
-          .eq('fecha', hoy)
-        if (usuarioId) {
-          query = query.eq('usuario_id', usuarioId)
-        } else {
-          query = query.eq('user_email', email)
-        }
-        const { data: registros, error: fetchError } = await query.order('hora_entrada', { ascending: false })
-
-        if (fetchError) {
-          console.error('[control_horario] Error al verificar registro:', fetchError.message)
-          console.dir(fetchError)
-          return
-        }
-
-        if (Array.isArray(registros) && registros.length > 0) {
-          const abierto = registros.find((r) => !r.hora_salida)
-          const registro = abierto ?? registros[0]
-          sessionStorage.setItem('control_horario_entrada_id', registro.id)
-          sessionStorage.setItem(STORAGE_KEY_FECHA, hoy)
-        } else {
-          await registrarEntradaSilencioso(session)
-        }
+        await registrarEntradaSilencioso(session)
       } catch (err) {
         console.error('[control_horario] Error inesperado:', err)
         console.dir(err)
