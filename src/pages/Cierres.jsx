@@ -137,24 +137,67 @@ const generarFacturaPDFUnificado = async (factura) => {
       yPos += 6
     }
     
-    // Concepto
+    // Tabla de conceptos: Descripción | Unidades | P. Unit | Precio Total (IVA Inc.)
     yPos += 10
-    doc.setFontSize(12)
-    doc.setFont(undefined, 'bold')
-    doc.text('CONCEPTO:', 20, yPos)
-    yPos += 8
     doc.setFontSize(10)
-    doc.setFont(undefined, 'normal')
-    
-    // Dividir concepto en líneas si es muy largo
-    const conceptoLineas = doc.splitTextToSize(concepto, pageWidth - 40)
-    conceptoLineas.forEach((linea) => {
-      doc.text(linea, 20, yPos)
+    doc.setFont(undefined, 'bold')
+    doc.text('Descripción', 20, yPos)
+    doc.text('Unidades', 90, yPos)
+    doc.text('P. Unit', 115, yPos)
+    doc.text('Precio Total (IVA Inc.)', pageWidth - 20, yPos, { align: 'right' })
+    yPos += 6
+    doc.setDrawColor(200, 200, 200)
+    doc.setLineWidth(0.2)
+    doc.line(20, yPos, pageWidth - 20, yPos)
+    yPos += 6
+
+    const fmtEuro = (n) => (parseFloat(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '€'
+    const lineas = datos.lineasFactura || []
+    if (lineas.length > 0) {
+      doc.setFontSize(9)
+      doc.setFont(undefined, 'normal')
+      lineas.forEach((l) => {
+        const unid = parseFloat(l.unid) || 0
+        const pUnit = parseFloat(l.pUnit) || 0
+        const tot = parseFloat(l.total) || 0
+        doc.text((l.concepto || '').substring(0, 50), 20, yPos)
+        doc.text(String(unid), 90, yPos)
+        doc.text(fmtEuro(pUnit), 115, yPos)
+        doc.text(fmtEuro(tot), pageWidth - 20, yPos, { align: 'right' })
+        yPos += 6
+      })
+    } else {
+      // Fallback: reconstruir desde calc
+      const paxP = parseFloat(calc.paxPago || 0) || 0
+      const pNeto = parseFloat(calc.precioNetoPax || 0) || 0
+      const totServ = parseFloat(calc.totalServiciosConIVA || 0) || 0
+      const destinoExp = datos.expediente?.destino || factura?.destino || ''
+      doc.setFontSize(9)
+      doc.setFont(undefined, 'normal')
+      doc.text(`Viaje a ${destinoExp || 'destino'} (Pasajeros)`.substring(0, 50), 20, yPos)
+      doc.text(String(paxP), 90, yPos)
+      doc.text(fmtEuro(pNeto), 115, yPos)
+      doc.text(fmtEuro(totServ), pageWidth - 20, yPos, { align: 'right' })
       yPos += 6
-    })
+      const totSup = parseFloat(calc.totalSuplementos || 0) || 0
+      if (totSup > 0) {
+        const supPax = Math.max(1, parseFloat(datos.sup_individual_pax || 1) || 1)
+        doc.text('Suplemento Habitación Individual', 20, yPos)
+        doc.text(String(supPax), 90, yPos)
+        doc.text(fmtEuro(totSup / supPax), 115, yPos)
+        doc.text(fmtEuro(totSup), pageWidth - 20, yPos, { align: 'right' })
+        yPos += 6
+      }
+    }
+
+    yPos += 6
+    doc.setFontSize(8)
+    doc.setTextColor(100, 100, 100)
+    doc.setFont(undefined, 'italic')
+    doc.text('Régimen Especial de Agencias de Viajes - IVA incluido', 20, yPos)
+    yPos += 8
     
     // Totales
-    yPos += 10
     doc.setDrawColor(200, 200, 200)
     doc.setLineWidth(0.3)
     doc.line(20, yPos, pageWidth - 20, yPos)
@@ -165,7 +208,7 @@ const generarFacturaPDFUnificado = async (factura) => {
     doc.setFont(undefined, 'bold')
     doc.text('TOTAL FACTURA (IVA INCLUIDO):', pageWidth - 60, yPos, { align: 'right' })
     doc.setTextColor(34, 197, 94) // Verde
-    doc.text(`${total.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+    doc.text(fmtEuro(total), pageWidth - 20, yPos, { align: 'right' })
     yPos += 10
 
     // Cláusula legal obligatoria (art 142 Ley 37/1992)

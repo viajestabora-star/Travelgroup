@@ -1994,22 +1994,69 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         yPos += 6
       }
       
-      // Concepto
+      // Tabla de conceptos: Descripción | Unidades | P. Unit | Precio Total (IVA Inc.)
       yPos += 10
-      doc.setFontSize(12)
-      doc.setFont(undefined, 'bold')
-      doc.text('CONCEPTO:', 20, yPos)
-      yPos += 8
       doc.setFontSize(10)
-      doc.setFont(undefined, 'normal')
-      const conceptoLineas = doc.splitTextToSize(concepto, pageWidth - 40)
-      conceptoLineas.forEach((linea) => {
-        doc.text(linea, 20, yPos)
+      doc.setFont(undefined, 'bold')
+      doc.text('Descripción', 20, yPos)
+      doc.text('Unidades', 90, yPos)
+      doc.text('P. Unit', 115, yPos)
+      doc.text('Precio Total (IVA Inc.)', pageWidth - 20, yPos, { align: 'right' })
+      yPos += 6
+      doc.setDrawColor(200, 200, 200)
+      doc.setLineWidth(0.2)
+      doc.line(20, yPos, pageWidth - 20, yPos)
+      yPos += 6
+
+      const fmtEuro = (n) => (parseFloat(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '€'
+      const lineas = datos.lineasFactura || []
+      if (lineas.length > 0) {
+        doc.setFontSize(9)
+        doc.setFont(undefined, 'normal')
+        lineas.forEach((l) => {
+          const unid = parseFloat(l.unid) || 0
+          const pUnit = parseFloat(l.pUnit) || 0
+          const tot = parseFloat(l.total) || 0
+          doc.text((l.concepto || '').substring(0, 50), 20, yPos)
+          doc.text(String(unid), 90, yPos)
+          doc.text(fmtEuro(pUnit), 115, yPos)
+          doc.text(fmtEuro(tot), pageWidth - 20, yPos, { align: 'right' })
+          yPos += 6
+        })
+      } else {
+        // Fallback si no hay lineasFactura: reconstruir desde calc
+        const paxP = parseFloat(calc.paxPago || 0) || 0
+        const pNeto = parseFloat(calc.precioNetoPax || 0) || 0
+        const totServ = parseFloat(calc.totalServiciosConIVA || 0) || 0
+        const destinoExp = datos.expediente?.destino || factura?.destino || ''
+        doc.setFontSize(9)
+        doc.setFont(undefined, 'normal')
+        doc.text(`Viaje a ${destinoExp || 'destino'} (Pasajeros)`.substring(0, 50), 20, yPos)
+        doc.text(String(paxP), 90, yPos)
+        doc.text(fmtEuro(pNeto), 115, yPos)
+        doc.text(fmtEuro(totServ), pageWidth - 20, yPos, { align: 'right' })
         yPos += 6
-      })
+        const totSup = parseFloat(calc.totalSuplementos || 0) || 0
+        if (totSup > 0) {
+          const supPax = parseFloat(datos.sup_individual_pax || 1) || 1
+          doc.text('Suplemento Habitación Individual', 20, yPos)
+          doc.text(String(supPax), 90, yPos)
+          doc.text(fmtEuro(totSup / supPax), 115, yPos)
+          doc.text(fmtEuro(totSup), pageWidth - 20, yPos, { align: 'right' })
+          yPos += 6
+        }
+      }
+
+      // Nota régimen especial
+      yPos += 6
+      doc.setFontSize(8)
+      doc.setTextColor(100, 100, 100)
+      doc.setFont(undefined, 'italic')
+      doc.text('Régimen Especial de Agencias de Viajes - IVA incluido', 20, yPos)
+      yPos += 8
       
       // Totales
-      yPos += 10
+      yPos += 4
       doc.setDrawColor(200, 200, 200)
       doc.setLineWidth(0.3)
       doc.line(20, yPos, pageWidth - 20, yPos)
@@ -2020,7 +2067,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.setFont(undefined, 'bold')
       doc.text('TOTAL FACTURA (IVA INCLUIDO):', pageWidth - 60, yPos, { align: 'right' })
       doc.setTextColor(34, 197, 94) // Verde
-      doc.text(`${total.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+      doc.text(fmtEuro(total), pageWidth - 20, yPos, { align: 'right' })
       yPos += 10
 
       // Cláusula legal obligatoria (art 142 Ley 37/1992)
@@ -2865,38 +2912,35 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const nombreGrupo = expediente?.nombre_grupo || grupo?.nombre || 'Sin nombre'
       const destino = expediente?.destino || 'Sin destino'
 
-      // Usar el concepto almacenado en la factura si existe; si no, usar fallback clásico
-      const conceptoFactura =
-        (datosFactura && datosFactura.concepto) ||
-        `Viaje a ${destino} (${nombreGrupo})`
+      // Formato numérico español (10.540,00)
+      const fmtEuro = (n) => (parseFloat(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '€'
 
-      doc.setFontSize(9)
-      doc.setFont(undefined, 'normal')
-
-      // Línea principal: Unidades = pasajeros de pago (excl. gratuidades)
+      // Línea 1: Viaje a {destino} (Pasajeros) | Unid: 31 | P. Unit: 340,00€ | Total: 10.540,00€
+      const conceptoLinea1 = destino ? `Viaje a ${destino} (Pasajeros)` : (datosFactura?.concepto || 'Viaje (Pasajeros)')
       const paxPagoFactura = parseFloat(calcularBaseFactura.paxPago || 0) || 0
       const precioNetoPaxNum = parseFloat(calcularBaseFactura.precioNetoPax || 0) || 0
       const totalConceptoPrincipal = paxPagoFactura * precioNetoPaxNum
 
-      doc.text(conceptoFactura.substring(0, 45), 20, yPos)
+      doc.setFontSize(9)
+      doc.setFont(undefined, 'normal')
+      doc.text(conceptoLinea1.substring(0, 50), 20, yPos)
       doc.text(String(paxPagoFactura), 90, yPos)
-      doc.text(`${precioNetoPaxNum.toFixed(2)}€`, 115, yPos)
-      doc.text(`${totalConceptoPrincipal.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+      doc.text(fmtEuro(precioNetoPaxNum), 115, yPos)
+      doc.text(fmtEuro(totalConceptoPrincipal), pageWidth - 20, yPos, { align: 'right' })
       yPos += 6
 
-      // Suplementos en líneas independientes (Unidades × P. Unit = Total cada una)
+      // Línea 2: Suplemento Habitación Individual | Unid: 3 | P. Unit: 90,00€ | Total: 270,00€
       const totalSupHabitacionNum = parseFloat(suplementos.totalSupHabitacion || 0) || 0
       if (totalSupHabitacionNum > 0) {
         const paxIndividualNum = Math.max(1, parseFloat(formData?.sup_individual_pax || 0) || 0)
-        // Unidades = pax con individual; P. Unit = total/pax (ej: 3 × 90€ = 270€)
         const cantidadHabitacion = paxIndividualNum
         const precioUnitHabitacion = totalSupHabitacionNum / paxIndividualNum
         const totalConceptoHabitacion = cantidadHabitacion * precioUnitHabitacion
 
-        doc.text('Habitación individual', 20, yPos)
+        doc.text('Suplemento Habitación Individual', 20, yPos)
         doc.text(String(cantidadHabitacion), 90, yPos)
-        doc.text(`${precioUnitHabitacion.toFixed(2)}€`, 115, yPos)
-        doc.text(`${totalConceptoHabitacion.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+        doc.text(fmtEuro(precioUnitHabitacion), 115, yPos)
+        doc.text(fmtEuro(totalConceptoHabitacion), pageWidth - 20, yPos, { align: 'right' })
         yPos += 6
       }
 
@@ -2911,8 +2955,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
         doc.text('Seguro de cancelación', 20, yPos)
         doc.text(String(cantidadSeguro), 90, yPos)
-        doc.text(`${precioUnitSeguro.toFixed(2)}€`, 115, yPos)
-        doc.text(`${totalConceptoSeguro.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+        doc.text(fmtEuro(precioUnitSeguro), 115, yPos)
+        doc.text(fmtEuro(totalConceptoSeguro), pageWidth - 20, yPos, { align: 'right' })
         yPos += 6
       }
 
@@ -2935,7 +2979,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.setFont(undefined, 'bold')
       doc.text('TOTAL FACTURA (IVA INCLUIDO):', pageWidth - 60, yPos, { align: 'right' })
       doc.setTextColor(34, 197, 94) // Verde
-      doc.text(`${calcularBaseFactura.totalFactura}€`, pageWidth - 20, yPos, { align: 'right' })
+      doc.text(fmtEuro(calcularBaseFactura.totalFactura), pageWidth - 20, yPos, { align: 'right' })
       yPos += 10
 
       // Cláusula legal obligatoria (art 142 Ley 37/1992)
@@ -3156,6 +3200,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               'Sin nombre'
         
         // Preparar datos_factura (JSON completo) — incluye numero_expediente para plantillas
+        const totalSupHab = parseFloat(suplementos.totalSupHabitacion || 0) || 0
+        const paxInd = Math.max(1, parseFloat(formData?.sup_individual_pax || 0) || 0)
         const datosFacturaCompletos = {
           ...datosFactura,
           numero_expediente: expediente?.numero_expediente || expediente?.numeroExpediente || '',
@@ -3170,6 +3216,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             iva: calcularBaseFactura.iva,
             totalFactura: calcularBaseFactura.totalFactura
           },
+          lineasFactura: [
+            { concepto: `Viaje a ${expediente?.destino || ''} (Pasajeros)`, unid: calcularBaseFactura.paxPago, pUnit: calcularBaseFactura.precioNetoPax, total: calcularBaseFactura.totalServiciosConIVA },
+            ...(totalSupHab > 0 ? [{ concepto: 'Suplemento Habitación Individual', unid: paxInd, pUnit: totalSupHab / paxInd, total: totalSupHab }] : []),
+            ...(parseFloat(suplementos.totalSupSeguro || 0) > 0 ? [{ concepto: 'Seguro de cancelación', unid: parseFloat(formData?.sup_seguro_pax || 0), pUnit: parseFloat(formData?.sup_seguro_precio_total || 0), total: suplementos.totalSupSeguro }] : [])
+          ],
           expediente: {
             id: expediente.id,
             nombre_grupo: expediente?.nombre_grupo || '',
