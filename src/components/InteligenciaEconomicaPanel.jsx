@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../supabase'
 import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3, Clock, User } from 'lucide-react'
 import ModalDesgloseInteligencia from './ModalDesgloseInteligencia'
@@ -12,6 +12,65 @@ const USUARIOS_CONTROL = [
   { email: 'grupos@viajestabora.com', nombre: 'Marisa' },
 ]
 const EMAILS_CONTROL = USUARIOS_CONTROL.map((u) => u.email)
+
+const toNum = (v) => (v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : 0)
+
+const formatEuro = (val) => {
+  const num = toNum(val)
+  const abs = Math.abs(num)
+  const [intPart, decPart] = abs.toFixed(2).split('.')
+  const formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  const sign = num < 0 ? '−' : ''
+  return `${sign}${formatted},${decPart} €`
+}
+
+const formatearHora = (iso) => {
+  if (!iso) return '—'
+  try {
+    const d = new Date(iso)
+    return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return '—'
+  }
+}
+
+const formatearFecha = (iso) => {
+  if (!iso) return '—'
+  try {
+    const d = new Date(iso)
+    return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  } catch {
+    return '—'
+  }
+}
+
+const formatearDuracion = (min) => {
+  if (min == null || min === '') return '—'
+  const m = parseInt(min, 10)
+  if (isNaN(m)) return '—'
+  const h = Math.floor(m / 60)
+  const mins = m % 60
+  return `${h}h ${mins}m`
+}
+
+const calcularMinutosTrabajados = (r) => {
+  if (r.duracion_minutos != null && r.duracion_minutos !== '' && !Number.isNaN(Number(r.duracion_minutos))) {
+    return Number(r.duracion_minutos)
+  }
+  if (!r.hora_entrada || !r.hora_salida) return null
+  try {
+    const entrada = new Date(r.hora_entrada).getTime()
+    const salida = new Date(r.hora_salida).getTime()
+    return Math.round((salida - entrada) / 60000)
+  } catch {
+    return null
+  }
+}
+
+const getIngresos = (e) => toNum(e.total_ingresos) || toNum(e.cierre_grupo?.ingresos_totales ?? e.cierre_grupo?.total_ingresos)
+const getGastos = (e) => toNum(e.total_gastos_reales) || toNum(e.cierre_grupo?.gastos_totales ?? e.cierre_grupo?.total_gastos)
+const getIva = (e) => toNum(e.cuota_iva) || toNum(e.cierre_grupo?.iva_pagado)
+const getBeneficioNeto = (e) => toNum(e.beneficio_neto_real) || toNum(e.cierre_grupo?.beneficio_limpio ?? e.cierre_grupo?.beneficio)
 
 /**
  * InteligenciaEconomicaPanel - Panel financiero dinámico desde Supabase.
@@ -29,6 +88,8 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   const [loadingControl, setLoadingControl] = useState(false)
   const [filtroEmpleado, setFiltroEmpleado] = useState('todos')
   const esAdmin = user?.rol === 'ADMIN'
+  const rol = user?.rol
+  const controlHorarioCargadoRef = useRef(false)
 
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
@@ -38,25 +99,41 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   }, [])
 
   useEffect(() => {
-    if (tabPrincipal !== 'controlPersonal' || !esAdmin) return
+    if (tabPrincipal !== 'controlPersonal' || rol !== 'ADMIN') {
+      if (tabPrincipal !== 'controlPersonal') controlHorarioCargadoRef.current = false
+      return
+    }
+    if (controlHorarioCargadoRef.current) return
+    controlHorarioCargadoRef.current = true
+
+    let cancelled = false
     const cargar = async () => {
       setLoadingControl(true)
-      const { data, error: err } = await supabase
-        .from('control_horario')
-        .select('id, user_email, fecha, hora_entrada, hora_salida, duracion_minutos')
-        .in('user_email', EMAILS_CONTROL)
-        .order('fecha', { ascending: false })
-        .order('hora_entrada', { ascending: false })
-        .limit(200)
-      if (!err && Array.isArray(data)) setControlHorario(data)
-      else setControlHorario([])
-      setLoadingControl(false)
+      try {
+        const { data, error: err } = await supabase
+          .from('control_horario')
+          .select('user_email, fecha, hora_entrada, hora_salida')
+          .in('user_email', ['andres@viajestabora.com', 'info@viajestabora.com', 'grupos@viajestabora.com'])
+          .order('fecha', { ascending: false })
+          .limit(200)
+        console.log('Datos recuperados:', data)
+        if (err) console.warn('Error control_horario:', err)
+        if (cancelled) return
+        if (!err && Array.isArray(data)) {
+          setControlHorario(data)
+        } else {
+          setControlHorario([])
+        }
+      } finally {
+        if (!cancelled) setLoadingControl(false)
+      }
     }
     cargar()
-  }, [tabPrincipal, esAdmin])
+    return () => { cancelled = true }
+  }, [tabPrincipal, rol])
 
   useEffect(() => {
-    if (!esAdmin) {
+    if (rol !== 'ADMIN') {
       setLoading(false)
       return
     }
@@ -83,68 +160,26 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     }
 
     fetchData()
-  }, [esAdmin])
+  }, [rol])
 
-  if (!esAdmin) {
-    return (
-      <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-medium">
-        Sin permisos para ver este panel.
-      </div>
-    )
-  }
-
-  if (loading) {
-    return (
-      <div className="p-8 text-center">
-        <div className="w-12 h-12 border-4 border-navy-200 border-t-navy-600 rounded-full animate-spin mx-auto" />
-        <p className="mt-3 text-gray-500">Cargando datos financieros...</p>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-red-700">
-        <span className="font-bold">Error al cargar datos:</span> {error}
-        <p className="text-sm mt-2 text-red-600">Comprueba la conexión y vuelve a intentarlo.</p>
-      </div>
-    )
-  }
-
-  const toNum = (v) => (v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : 0)
-  const getIngresos = (e) => toNum(e.total_ingresos) || toNum(e.cierre_grupo?.ingresos_totales ?? e.cierre_grupo?.total_ingresos)
-  const getGastos = (e) => toNum(e.total_gastos_reales) || toNum(e.cierre_grupo?.gastos_totales ?? e.cierre_grupo?.total_gastos)
-  const getIva = (e) => toNum(e.cuota_iva) || toNum(e.cierre_grupo?.iva_pagado)
-  const getBeneficioNeto = (e) => toNum(e.beneficio_neto_real) || toNum(e.cierre_grupo?.beneficio_limpio ?? e.cierre_grupo?.beneficio)
+  /** Registros filtrados por empleado - useMemo al inicio para Rules of Hooks */
+  const controlHorarioFiltrado = useMemo(() => {
+    if (filtroEmpleado === 'todos') return controlHorario
+    return controlHorario.filter((r) => r.user_email === filtroEmpleado)
+  }, [controlHorario, filtroEmpleado])
 
   const ingresosTotales = expedientes.reduce((acc, e) => acc + getIngresos(e), 0)
   const gastosTotales = expedientes.reduce((acc, e) => acc + getGastos(e), 0)
   const ivaAcumulado = expedientes.reduce((acc, e) => acc + getIva(e), 0)
   const beneficioNeto = expedientes.reduce((acc, e) => acc + getBeneficioNeto(e), 0)
   const margenBruto = ingresosTotales - gastosTotales
-
   const datosSinPersistir = expedientes.length > 0 && ingresosTotales === 0
-
-  /** Formato profesional: 1.234,56 € (punto miles, coma decimales, espacio + € al final) */
-  const formatEuro = (val) => {
-    const num = toNum(val)
-    const abs = Math.abs(num)
-    const [intPart, decPart] = abs.toFixed(2).split('.')
-    const formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-    const sign = num < 0 ? '−' : ''
-    return `${sign}${formatted},${decPart} €`
-  }
 
   const chartData = [
     { name: 'Ingresos Totales', valor: ingresosTotales, fill: '#059669' },
     { name: 'Gastos Totales', valor: gastosTotales, fill: '#dc2626' },
     { name: 'Beneficio Neto', valor: beneficioNeto, fill: beneficioNeto >= 0 ? '#7c3aed' : '#dc2626' },
   ]
-
-  const abrirModalConTab = (tab) => {
-    setTabInicialModal(tab)
-    setShowDesgloseModal(true)
-  }
 
   const cards = [
     { title: 'Ingresos Totales', value: formatEuro(ingresosTotales), subtitle: 'Suma de total_ingresos', icon: TrendingUp, bg: 'bg-emerald-50', border: 'border-emerald-200', iconBg: 'bg-emerald-500', iconColor: 'text-white', tabApertura: 'cobros' },
@@ -154,57 +189,34 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     { title: 'Beneficio Neto', value: formatEuro(beneficioNeto), subtitle: 'Suma de beneficio_neto_real', icon: PiggyBank, bg: beneficioNeto >= 0 ? 'bg-purple-50' : 'bg-red-50', border: beneficioNeto >= 0 ? 'border-purple-200' : 'border-red-300', iconBg: beneficioNeto >= 0 ? 'bg-purple-600' : 'bg-red-600', iconColor: 'text-white', valueClass: beneficioNeto < 0 ? 'text-red-700 font-black' : undefined, tabApertura: 'rentabilidad' },
   ]
 
-  const formatearHora = (iso) => {
-    if (!iso) return '—'
-    try {
-      const d = new Date(iso)
-      return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    } catch {
-      return '—'
-    }
+  const abrirModalConTab = (tab) => {
+    setTabInicialModal(tab)
+    setShowDesgloseModal(true)
   }
-
-  const formatearFecha = (iso) => {
-    if (!iso) return '—'
-    try {
-      const d = new Date(iso)
-      return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    } catch {
-      return '—'
-    }
-  }
-
-  /** Calcula minutos entre hora_entrada y hora_salida si duracion_minutos no está disponible */
-  const calcularMinutosTrabajados = (r) => {
-    if (r.duracion_minutos != null && r.duracion_minutos !== '' && !Number.isNaN(Number(r.duracion_minutos))) {
-      return Number(r.duracion_minutos)
-    }
-    if (!r.hora_entrada || !r.hora_salida) return null
-    try {
-      const entrada = new Date(r.hora_entrada).getTime()
-      const salida = new Date(r.hora_salida).getTime()
-      return Math.round((salida - entrada) / 60000)
-    } catch {
-      return null
-    }
-  }
-
-  const formatearDuracion = (min) => {
-    if (min == null || min === '') return '—'
-    const m = parseInt(min, 10)
-    if (isNaN(m)) return '—'
-    const h = Math.floor(m / 60)
-    const mins = m % 60
-    return `${h}h ${mins}m`
-  }
-
-  /** Registros filtrados por empleado (solo los 3 usuarios controlados) */
-  const controlHorarioFiltrado = useMemo(() => {
-    if (filtroEmpleado === 'todos') return controlHorario
-    return controlHorario.filter((r) => r.user_email === filtroEmpleado)
-  }, [controlHorario, filtroEmpleado])
 
   return (
+    <>
+      {!esAdmin && (
+        <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-medium">
+          Sin permisos para ver este panel.
+        </div>
+      )}
+
+      {esAdmin && loading && (
+        <div className="p-8 text-center">
+          <div className="w-12 h-12 border-4 border-navy-200 border-t-navy-600 rounded-full animate-spin mx-auto" />
+          <p className="mt-3 text-gray-500">Cargando datos financieros...</p>
+        </div>
+      )}
+
+      {esAdmin && !loading && error && (
+        <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-red-700">
+          <span className="font-bold">Error al cargar datos:</span> {error}
+          <p className="text-sm mt-2 text-red-600">Comprueba la conexión y vuelve a intentarlo.</p>
+        </div>
+      )}
+
+      {esAdmin && !loading && !error && (
     <div className="animate-in fade-in duration-500 space-y-8">
       {/* Tabs: Finanzas | Control de Personal (solo visible aquí, no en menú) */}
       <div className="flex gap-2 border-b border-slate-200 pb-2">
@@ -270,8 +282,8 @@ const InteligenciaEconomicaPanel = ({ user }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {controlHorarioFiltrado.map((r) => (
-                    <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50">
+                  {controlHorarioFiltrado.map((r, idx) => (
+                    <tr key={`${r.user_email}-${r.fecha}-${r.hora_entrada}-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="py-3 px-2">{formatearFecha(r.fecha)}</td>
                       <td className="py-3 px-2">
                         {USUARIOS_CONTROL.find((u) => u.email === r.user_email)?.nombre || r.user_email || '—'}
@@ -379,6 +391,8 @@ const InteligenciaEconomicaPanel = ({ user }) => {
         </>
       )}
     </div>
+      )}
+    </>
   )
 }
 
