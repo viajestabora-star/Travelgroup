@@ -25,20 +25,19 @@ const Layout = ({ user, onLogout }) => {
     return unsubscribe
   }, [])
 
-  // CONTROL HORARIO - Prioridad 1: ejecución inmediata al montar, identificación forzada vía getUser
+  // CONTROL HORARIO - Registro único por día, sesión existente, formatos en-CA/es-ES
   useEffect(() => {
     const ejecutarRegistro = async () => {
-      const { data: authUser } = await supabase.auth.getUser();
-      const email = authUser?.user?.email?.trim()?.toLowerCase() || '';
-      const usuarioId = authUser?.user?.id || null;
+      const { data: { session } } = await supabase.auth.getSession();
+      const email = session?.user?.email?.trim()?.toLowerCase() || '';
+      const usuarioId = session?.user?.id || null;
 
       if (!email || !usuarioId) return;
+      if (!EMAILS_CONTROL_HORARIO.includes(email)) return;
 
       const ahora = new Date();
       const f_actual = ahora.toLocaleDateString('en-CA');
       const h_actual = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-
-      alert('Iniciando registro para: ' + email);
 
       try {
         const { data: existe, error: errExiste } = await supabase
@@ -49,7 +48,7 @@ const Layout = ({ user, onLogout }) => {
           .maybeSingle();
 
         if (errExiste) {
-          alert('Error DB (buscar): ' + (errExiste.code || '') + ' - ' + (errExiste.message || String(errExiste)));
+          console.log('[Control Horario] Error buscar:', errExiste.code, errExiste.message);
           return;
         }
 
@@ -66,19 +65,20 @@ const Layout = ({ user, onLogout }) => {
             .single();
 
           if (errInsert) {
-            alert('Error DB (insert): ' + (errInsert.code || '') + ' - ' + (errInsert.message || String(errInsert)));
+            console.log('[Control Horario] Error insert:', errInsert.code, errInsert.message);
             return;
           }
           if (nuevo?.id) {
             localStorage.setItem(STORAGE_KEY_ENTRADA, nuevo.id);
             localStorage.setItem(STORAGE_KEY_FECHA, f_actual);
+            console.log('[Control Horario] Registro creado para:', email);
           }
         } else {
           localStorage.setItem(STORAGE_KEY_ENTRADA, existe.id);
           localStorage.setItem(STORAGE_KEY_FECHA, f_actual);
         }
       } catch (err) {
-        alert('Error DB (excepción): ' + (err?.message || String(err)));
+        console.log('[Control Horario] Excepción:', err?.message);
       }
     };
 
