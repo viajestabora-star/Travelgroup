@@ -322,45 +322,37 @@ const Cierres = ({ user, onClose }) => {
       const listaGlobal = Array.isArray(facturasGlobal) ? facturasGlobal : []
       const listaExpedientes = Array.isArray(facturasExpedientes) ? facturasExpedientes : []
 
-      // 3) Normalización de ambas fuentes a un shape uniforme
-      const normalizadasGlobal = listaGlobal.map((f) => {
-        return {
-          ...f,
-          display_num: f.numero_factura || '',
-          display_nombre: f.cliente_nombre || 'Sin nombre',
-          display_doc: f.cliente_documento || '-',
-          display_total: f.importe_total ?? 0
-        }
-      })
+      // 3) Normalización: marcar origen para preferir la que tiene desglose completo (datos_json)
+      const normalizadasGlobal = listaGlobal.map((f) => ({
+        ...f,
+        _origen: 'global',
+        display_num: f.numero_factura || '',
+        display_nombre: f.cliente_nombre || 'Sin nombre',
+        display_doc: f.cliente_documento || '-',
+        display_total: f.importe_total ?? 0
+      }))
 
-      const normalizadasExpedientes = listaExpedientes.map((f) => {
-        return {
-          ...f,
-          display_num: f.numero_factura || '',
-          display_nombre: f.nombre_receptor || 'Sin nombre',
-          display_doc: f.cif_receptor || '-',
-          display_total: f.total_factura ?? 0
-        }
-      })
+      const normalizadasExpedientes = listaExpedientes.map((f) => ({
+        ...f,
+        _origen: 'expedientes',
+        display_num: f.numero_factura || '',
+        display_nombre: f.nombre_receptor || 'Sin nombre',
+        display_doc: f.cif_receptor || '-',
+        display_total: f.total_factura ?? 0
+      }))
 
-      // 4) Unificación y eliminación de duplicados por numero_factura
+      // 4) Unificación: PREFERIR facturas_emitidas_global (tiene datos_json con lineasFactura para PDF)
       const porNumero = new Map()
-
       const candidatas = [...normalizadasGlobal, ...normalizadasExpedientes]
 
-      const score = (f) => {
-        let s = 0
-        if (f.display_nombre && f.display_nombre !== 'Sin nombre') s++
-        if (f.display_doc && f.display_doc !== '-') s++
-        if (f.display_total && Number(f.display_total) !== 0) s++
-        if (f.fecha_emision) s++
-        return s
+      const tieneDesglose = (f) => {
+        const d = f?.datos_factura || f?.datos_json || {}
+        return (Array.isArray(d.lineasFactura) && d.lineasFactura.length > 0) || (d.calcularBaseFactura && (d.calcularBaseFactura.paxPago != null || d.calcularBaseFactura.totalServiciosConIVA != null))
       }
 
       for (const f of candidatas) {
         const key = f.display_num || f.numero_factura || ''
         if (!key) {
-          // Sin número: igualmente lo dejamos entrar con clave única artificial
           porNumero.set(`__NO_NUM__${Math.random().toString(36).slice(2)}`, f)
           continue
         }
@@ -368,9 +360,20 @@ const Cierres = ({ user, onClose }) => {
         if (!existente) {
           porNumero.set(key, f)
         } else {
-          const sNuevo = score(f)
-          const sViejo = score(existente)
-          porNumero.set(key, sNuevo >= sViejo ? f : existente)
+          // CRÍTICO: Preferir facturas_emitidas_global (datos_json con lineasFactura) para PDF fiel al ERP
+          if (f._origen === 'global' && existente._origen === 'expedientes') {
+            porNumero.set(key, f)
+          } else if (f._origen === 'expedientes' && existente._origen === 'global') {
+            // mantener global
+          } else if (tieneDesglose(f) && !tieneDesglose(existente)) {
+            porNumero.set(key, f)
+          } else if (!tieneDesglose(f) && tieneDesglose(existente)) {
+            // mantener existente
+          } else {
+            const sNuevo = [f.display_nombre, f.display_doc, f.display_total, f.fecha_emision].filter(Boolean).length
+            const sViejo = [existente.display_nombre, existente.display_doc, existente.display_total, existente.fecha_emision].filter(Boolean).length
+            porNumero.set(key, sNuevo >= sViejo ? f : existente)
+          }
         }
       }
 
@@ -980,9 +983,13 @@ const Cierres = ({ user, onClose }) => {
       return
     }
 
-    // SIEMPRE generar PDF desde los datos de la factura (el objeto completo tiene toda la info)
-    // No hay validación de "si no hay datos" porque el botón solo aparece si hay factura
-    generarFacturaPDFUnificado(factura)
+    // Normalizar: asegurar datos_factura para que el PDF tenga acceso al desglose (lineasFactura)
+    const facturaNormalizada = {
+      ...factura,
+      datos_factura: factura.datos_factura || factura.datos_json || factura.datosFactura
+    }
+
+    generarFacturaPDFUnificado(facturaNormalizada)
   }
 
   const totalFacturado = useMemo(() => {

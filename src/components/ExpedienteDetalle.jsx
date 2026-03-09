@@ -3206,6 +3206,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           ...datosFactura,
           numero_expediente: expediente?.numero_expediente || expediente?.numeroExpediente || '',
           formFactura: { ...formFactura },
+          receptor: { nombre: formFactura.receptorNombre, cif_nif: formFactura.receptorCIF, direccion: formFactura.receptorDireccion, poblacion: formFactura.receptorPoblacion, provincia: formFactura.receptorProvincia, cp: formFactura.receptorCP },
+          sup_individual_pax: paxInd,
           calcularBaseFactura: {
             precioVentaPax: calcularBaseFactura.precioVentaPax,
             precioNetoPax: calcularBaseFactura.precioNetoPax,

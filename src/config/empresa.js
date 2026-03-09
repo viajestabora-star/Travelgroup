@@ -10,5 +10,5 @@ export const DATOS_EMISOR = {
   telefono: '',
   email: 'info@viajestabora.com',
   banco1: 'Caixabank: ES68 2100 2536 7913 0026 1158',
-  banco2: 'Santander: ES91 0049 0000 00 0000001737',
+  banco2: 'Santander: ES05 0049 1309 4720 1001 1737',
 }
