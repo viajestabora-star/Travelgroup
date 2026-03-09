@@ -314,43 +314,46 @@ const Cierres = ({ user, onClose }) => {
     }
   }, [tabActiva])
 
-  // ===================== LECTURA FACTURAS (UNIFICADA + NORMALIZADA + ÚNICA) =====================
-  // Historial dinámico: muestra facturas_emitidas_global ordenadas por fecha DESC
-  // Se actualiza automáticamente al borrar filas en Supabase (refrescar página)
+  // ===================== LECTURA FACTURAS (3 FUENTES, SIN FILTROS RESTRICTIVOS) =====================
+  // Consulta facturas_emitidas_global, facturas_emitidas y facturas. El PDF usa datos_json de global.
   const cargarFacturas = async () => {
     setCargandoFacturas(true)
     try {
-      // 1) Lectura de facturas globales (facturas_emitidas_global) - FUENTE PRINCIPAL
-      const { data: facturasGlobal, error: errorGlobal } = await supabase
-        .from('facturas_emitidas_global')
-        .select('*')
-        .order('fecha_emision', { ascending: false })
-      
-      // 2) Lectura de facturas de expedientes normales (tabla facturas) - COMPLEMENTARIA
-      const { data: facturasExpedientes, error: errorExpedientes } = await supabase
-        .from('facturas')
-        .select('*')
-        .order('fecha_emision', { ascending: false })
+      // Queries independientes: un fallo no bloquea las demás
+      const [resGlobal, resEmitidas, resFacturas] = await Promise.all([
+        supabase.from('facturas_emitidas_global').select('*'),
+        supabase.from('facturas_emitidas').select('*'),
+        supabase.from('facturas').select('*')
+      ])
 
-      if (errorGlobal) {
-      }
-      if (errorExpedientes) {
-      }
+      const listaGlobal = Array.isArray(resGlobal.data) ? resGlobal.data : []
+      const listaEmitidas = Array.isArray(resEmitidas.data) ? resEmitidas.data : []
+      const listaFacturas = Array.isArray(resFacturas.data) ? resFacturas.data : []
 
-      const listaGlobal = Array.isArray(facturasGlobal) ? facturasGlobal : []
-      const listaExpedientes = Array.isArray(facturasExpedientes) ? facturasExpedientes : []
-
-      // 3) Normalización: marcar origen para preferir la que tiene desglose completo (datos_json)
+      // Normalización: datos_factura/datos_json para PDF (prioridad global > emitidas)
       const normalizadasGlobal = listaGlobal.map((f) => ({
         ...f,
         _origen: 'global',
+        datos_factura: f.datos_json || f.datos_factura,
+        datos_json: f.datos_json || f.datos_factura,
         display_num: f.numero_factura || '',
         display_nombre: f.cliente_nombre || 'Sin nombre',
         display_doc: f.cliente_documento || '-',
         display_total: f.importe_total ?? 0
       }))
 
-      const normalizadasExpedientes = listaExpedientes.map((f) => ({
+      const normalizadasEmitidas = listaEmitidas.map((f) => ({
+        ...f,
+        _origen: 'emitidas',
+        datos_factura: f.datos_factura || f.datos_json,
+        datos_json: f.datos_json || f.datos_factura,
+        display_num: f.numero_factura || '',
+        display_nombre: f.cliente_nombre || 'Sin nombre',
+        display_doc: f.cliente_documento || '-',
+        display_total: f.importe_total ?? 0
+      }))
+
+      const normalizadasFacturas = listaFacturas.map((f) => ({
         ...f,
         _origen: 'expedientes',
         display_num: f.numero_factura || '',
@@ -359,9 +362,10 @@ const Cierres = ({ user, onClose }) => {
         display_total: f.total_factura ?? 0
       }))
 
-      // 4) Unificación: PREFERIR facturas_emitidas_global (tiene datos_json con lineasFactura para PDF)
+      // Unificación: preferir global (datos_json con lineasFactura) > emitidas > facturas
       const porNumero = new Map()
-      const candidatas = [...normalizadasGlobal, ...normalizadasExpedientes]
+      const candidatas = [...normalizadasGlobal, ...normalizadasEmitidas, ...normalizadasFacturas]
+      const prioridad = { global: 3, emitidas: 2, expedientes: 1 }
 
       const tieneDesglose = (f) => {
         const d = f?.datos_factura || f?.datos_json || {}
@@ -370,52 +374,28 @@ const Cierres = ({ user, onClose }) => {
 
       for (const f of candidatas) {
         const key = f.display_num || f.numero_factura || ''
-        if (!key) {
-          porNumero.set(`__NO_NUM__${Math.random().toString(36).slice(2)}`, f)
-          continue
-        }
-        const existente = porNumero.get(key)
+        const keyFinal = key || `__NO_NUM__${(f.id || Math.random()).toString()}`
+        const existente = porNumero.get(key || keyFinal)
         if (!existente) {
-          porNumero.set(key, f)
+          porNumero.set(key || keyFinal, f)
         } else {
-          // CRÍTICO: Preferir facturas_emitidas_global (datos_json con lineasFactura) para PDF fiel al ERP
-          if (f._origen === 'global' && existente._origen === 'expedientes') {
-            porNumero.set(key, f)
-          } else if (f._origen === 'expedientes' && existente._origen === 'global') {
-            // mantener global
-          } else if (tieneDesglose(f) && !tieneDesglose(existente)) {
-            porNumero.set(key, f)
-          } else if (!tieneDesglose(f) && tieneDesglose(existente)) {
-            // mantener existente
-          } else {
-            const sNuevo = [f.display_nombre, f.display_doc, f.display_total, f.fecha_emision].filter(Boolean).length
-            const sViejo = [existente.display_nombre, existente.display_doc, existente.display_total, existente.fecha_emision].filter(Boolean).length
-            porNumero.set(key, sNuevo >= sViejo ? f : existente)
-          }
+          const prefiereNuevo = prioridad[f._origen] > prioridad[existente._origen] ||
+            (prioridad[f._origen] === prioridad[existente._origen] && tieneDesglose(f) && !tieneDesglose(existente))
+          if (prefiereNuevo) porNumero.set(key || keyFinal, f)
         }
       }
 
-    const todasLasFacturas = Array.from(porNumero.values())
+      let todasLasFacturas = Array.from(porNumero.values())
+      todasLasFacturas.sort((a, b) => {
+        const fechaA = (a.fecha_emision || a.created_at) ? new Date(a.fecha_emision || a.created_at).getTime() : 0
+        const fechaB = (b.fecha_emision || b.created_at) ? new Date(b.fecha_emision || b.created_at).getTime() : 0
+        if (fechaA > 0 && fechaB > 0) return fechaB - fechaA
+        if (fechaA > 0) return -1
+        if (fechaB > 0) return 1
+        return 0
+      })
 
-    // 5) Orden cronológico estricto por fecha_emision descendente (más nuevas primero)
-    // Si no hay fecha, se colocan al final
-    todasLasFacturas.sort((a, b) => {
-      const fechaA = a.fecha_emision ? new Date(a.fecha_emision).getTime() : 0
-      const fechaB = b.fecha_emision ? new Date(b.fecha_emision).getTime() : 0
-      
-      // Si ambas tienen fecha, ordenar descendente
-      if (fechaA > 0 && fechaB > 0) {
-        return fechaB - fechaA
-      }
-      // Si solo una tiene fecha, la que tiene fecha va primero
-      if (fechaA > 0) return -1
-      if (fechaB > 0) return 1
-      // Si ninguna tiene fecha, mantener orden original
-      return 0
-    })
-
-
-    setFacturas(todasLasFacturas)
+      setFacturas(todasLasFacturas)
     } catch (err) {
       setFacturas([])
     } finally {
@@ -869,20 +849,33 @@ const Cierres = ({ user, onClose }) => {
         clienteSeleccionado.cif_nif || clienteSeleccionado.cif || ''
       ).trim()
 
-      const { error: errorInsert } = await supabase.from('facturas_emitidas_global').insert([
-        {
-          numero_factura: numeroFactura,
-          cliente_nombre: nombreCliente,
-          cliente_documento: documentoCliente || '',
-          importe_total: importeFinal,
-          fecha_emision: fechaEmisionISO,
-          datos_json
-        }
-      ])
+      // Sincronización: escribir en AMBAS tablas (facturas_emitidas y facturas_emitidas_global)
+      const registroGlobal = {
+        numero_factura: numeroFactura,
+        cliente_nombre: nombreCliente,
+        cliente_documento: documentoCliente || '',
+        importe_total: importeFinal,
+        fecha_emision: fechaEmisionISO,
+        datos_json
+      }
+      const registroEmitidas = {
+        expediente_id: null,
+        numero_factura: numeroFactura,
+        cliente_nombre: nombreCliente,
+        importe_total: importeFinal,
+        datos_factura: datos_json,
+        url_pdf: null
+      }
 
-      if (errorInsert) {
-        alert(`Error guardando factura directa: ${errorInsert.message}`)
+      const { error: errorGlobal } = await supabase.from('facturas_emitidas_global').insert([registroGlobal])
+      const { error: errorEmitidas } = await supabase.from('facturas_emitidas').insert([registroEmitidas])
+
+      if (errorGlobal) {
+        alert(`Error guardando factura directa: ${errorGlobal.message}`)
         return
+      }
+      if (errorEmitidas) {
+        // No bloquear: la factura ya está en global; emitidas puede fallar por schema
       }
 
       // Generar PDF básico inmediatamente (opcional pero profesional)
@@ -1258,8 +1251,8 @@ const Cierres = ({ user, onClose }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {(facturas || []).map((factura) => (
-                    <tr key={factura.id} className="hover:bg-slate-50 transition-colors">
+                  {(facturas || []).map((factura, idx) => (
+                    <tr key={factura.id ?? `factura-${factura.numero_factura || factura.display_num}-${idx}`} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-3 text-slate-700">
                         {factura.fecha_emision 
                           ? new Date(factura.fecha_emision).toLocaleDateString('es-ES', {
