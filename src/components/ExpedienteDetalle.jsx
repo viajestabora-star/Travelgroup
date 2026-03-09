@@ -6,6 +6,7 @@ import { supabase } from '../supabase'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { existeNumeroExpedienteEnSupabase, esNumeroExpedienteValido } from '../utils/expedienteNumero'
 import { normalizarMetodoPago } from '../utils/finanzasHelpers'
+import { DATOS_EMISOR } from '../config/empresa'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
 import TablaServiciosVariante from './TablaServiciosVariante'
@@ -1551,7 +1552,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       yPos += 10
       
       // Pie de página con datos fiscales
-      const footerY = pageHeight - 50
+      const footerY = pageHeight - 55
       doc.setFontSize(9)
       doc.setFont('helvetica', 'normal')
       doc.setTextColor(100, 100, 100)
@@ -1562,10 +1563,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
       
       // Datos fiscales
-      doc.text('Valservice Incoming S.L. (Viajes Tabora)', 20, footerY)
-      doc.text('CIF: B-98998107', 20, footerY + 8)
-      doc.text('Licencia: CVMm303V', 20, footerY + 16)
-      doc.text('Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)', 20, footerY + 24)
+      doc.text(datosEmisor.nombre, 20, footerY)
+      doc.text(`CIF: ${datosEmisor.cif}`, 20, footerY + 8)
+      doc.text(`Licencia: ${datosEmisor.licencia}`, 20, footerY + 16)
+      doc.text(datosEmisor.direccion, 20, footerY + 24)
+      doc.text(datosEmisor.banco1, 20, footerY + 32)
+      doc.text(datosEmisor.banco2, 20, footerY + 38)
       
       // Nombre del archivo (incluye nº recibo si existe)
       const nombreArchivo = numeroRecibo !== '—'
@@ -1906,17 +1909,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       year: 'numeric'
     })
     
-    // Datos del emisor
-    const datosEmisor = {
-      nombre: 'VALSERVICE INCOMING S.L.',
-      cif: 'B-12345678',
-      licencia: 'CV-1234',
-      direccion: 'C/ Santa Amalia, nº 2 Entresuelo 2º Of. L1, 46009 Valencia (ESP)',
-      telefono: '+34 96 339 04 64',
-      email: 'info@viajestabora.com',
-      banco1: 'ES12 1234 5678 9012 3456 7890',
-      banco2: 'ES98 9876 5432 1098 7654 3210'
-    }
+    const datosEmisorHistorial = DATOS_EMISOR
     
     const crearDocumento = (logoImg) => {
       const doc = new jsPDF()
@@ -1957,17 +1950,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.setFontSize(12)
       doc.setTextColor(0, 0, 0)
       doc.setFont(undefined, 'bold')
-      doc.text(datosEmisor.nombre, 20, yPos)
+      doc.text(datosEmisorHistorial.nombre, 20, yPos)
       yPos += 6
       doc.setFontSize(10)
       doc.setFont(undefined, 'normal')
-      doc.text(`CIF: ${datosEmisor.cif}`, 20, yPos)
+      doc.text(`CIF: ${datosEmisorHistorial.cif}`, 20, yPos)
       yPos += 6
-      doc.text(`Licencia: ${datosEmisor.licencia}`, 20, yPos)
+      doc.text(`Licencia: ${datosEmisorHistorial.licencia}`, 20, yPos)
       yPos += 6
-      doc.text(datosEmisor.direccion, 20, yPos)
+      doc.text(datosEmisorHistorial.direccion, 20, yPos)
       yPos += 6
-      doc.text(`Tel: ${datosEmisor.telefono} | Email: ${datosEmisor.email}`, 20, yPos)
+      doc.text(`Tel: ${datosEmisorHistorial.telefono} | Email: ${datosEmisorHistorial.email}`, 20, yPos)
+      yPos += 6
+      doc.text(datosEmisorHistorial.banco1, 20, yPos)
+      yPos += 6
+      doc.text(datosEmisorHistorial.banco2, 20, yPos)
       
       // Datos del receptor
       yPos += 15
@@ -2034,16 +2031,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       })
       
       // Pie de página
-      const footerY = pageHeight - 40
+      const footerY = pageHeight - 50
       doc.setDrawColor(200, 200, 200)
       doc.setLineWidth(0.3)
       doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
       
       doc.setFontSize(8)
       doc.setTextColor(100, 100, 100)
-      doc.text(datosEmisor.nombre, 20, footerY)
-      doc.text(`CIF: ${datosEmisor.cif} | Licencia: ${datosEmisor.licencia}`, 20, footerY + 6)
-      doc.text(datosEmisor.direccion, 20, footerY + 12)
+      doc.text(datosEmisorHistorial.nombre, 20, footerY)
+      doc.text(`CIF: ${datosEmisorHistorial.cif} | Licencia: ${datosEmisorHistorial.licencia}`, 20, footerY + 6)
+      doc.text(datosEmisorHistorial.direccion, 20, footerY + 12)
+      doc.text(datosEmisorHistorial.banco1, 20, footerY + 18)
+      doc.text(datosEmisorHistorial.banco2, 20, footerY + 24)
       
       const nombreArchivo = `Factura_${numeroFactura}_${clienteNombre.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
       doc.save(nombreArchivo)
@@ -2640,16 +2639,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }, [clienteIdPrincipal, expediente?.id, expediente?.nombre_grupo, expediente?.clienteNombre, clientes])
 
   // ============ DATOS DEL EMISOR (FIJOS) ============
-  const datosEmisor = {
-    nombre: 'Valservice Incoming S.L. (Viajes Tabora)',
-    cif: 'B-98998107',
-    licencia: 'CVMm303V',
-    direccion: 'Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)',
-    telefono: '961 60 60 60',
-    email: 'info@viajestabora.com',
-    banco1: 'Caixabank: ES12 2100 1234 5678 9012 3456',
-    banco2: 'Santander: ES34 0049 1234 5678 9012 3456',
-  }
+  const datosEmisor = DATOS_EMISOR
 
   // ============ CÁLCULO DE BASE IMPONIBLE PARA FACTURA ============
   // NOTA: El Precio Venta al Cliente YA INCLUYE IVA (Régimen Especial de Agencias de Viajes)
@@ -2964,7 +2954,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       })
 
       // Pie de página
-      const footerY = pageHeight - 40
+      const footerY = pageHeight - 50
       doc.setDrawColor(200, 200, 200)
       doc.setLineWidth(0.3)
       doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
@@ -2974,6 +2964,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.text(datosEmisor.nombre, 20, footerY)
       doc.text(`CIF: ${datosEmisor.cif} | Licencia: ${datosEmisor.licencia}`, 20, footerY + 6)
       doc.text(datosEmisor.direccion, 20, footerY + 12)
+      doc.text(datosEmisor.banco1, 20, footerY + 18)
+      doc.text(datosEmisor.banco2, 20, footerY + 24)
 
       // Nombre del archivo
       const nombreArchivo = `Factura_${numeroFactura}_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
@@ -5574,6 +5566,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         <p className="text-[10px] text-slate-600 leading-relaxed">
                           Régimen especial de las agencias de viaje. El IVA ya está incluido en todos los conceptos especificados en esta factura, de acuerdo con lo señalado en el art 142 de la Ley 37/1992, de 28 de diciembre, del Impuesto sobre el Valor Añadido.
                         </p>
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-slate-200 text-[10px] text-slate-600">
+                        <p className="font-semibold text-slate-700">{datosEmisor.nombre}</p>
+                        <p>CIF: {datosEmisor.cif} · Licencia: {datosEmisor.licencia}</p>
+                        <p>{datosEmisor.direccion}</p>
+                        <p>Tel: {datosEmisor.telefono} · {datosEmisor.email}</p>
+                        <p className="mt-1">Ingresos: {datosEmisor.banco1} · {datosEmisor.banco2}</p>
                       </div>
                     </div>
                   </div>

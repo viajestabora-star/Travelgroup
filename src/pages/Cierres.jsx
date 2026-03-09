@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
+import { DATOS_EMISOR } from '../config/empresa'
 
 // ===================== FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF =====================
 // Función compartida para generar PDFs de facturas con diseño profesional unificado
@@ -55,17 +56,7 @@ const generarFacturaPDFUnificado = async (factura) => {
     year: 'numeric'
   })
   
-  // Datos del emisor (Valservice Incoming S.L.)
-  const datosEmisor = {
-    nombre: 'VALSERVICE INCOMING S.L.',
-    cif: 'B-12345678',
-    licencia: 'CV-1234',
-    direccion: 'C/ Santa Amalia, nº 2 Entresuelo 2º Of. L1, 46009 Valencia (ESP)',
-    telefono: '+34 96 339 04 64',
-    email: 'info@viajestabora.com',
-    banco1: 'ES12 1234 5678 9012 3456 7890',
-    banco2: 'ES98 9876 5432 1098 7654 3210'
-  }
+  const datosEmisor = DATOS_EMISOR
   
   const crearDocumento = (logoImg) => {
     const doc = new jsPDF()
@@ -117,6 +108,10 @@ const generarFacturaPDFUnificado = async (factura) => {
     doc.text(datosEmisor.direccion, 20, yPos)
     yPos += 6
     doc.text(`Tel: ${datosEmisor.telefono} | Email: ${datosEmisor.email}`, 20, yPos)
+    yPos += 6
+    doc.text(datosEmisor.banco1, 20, yPos)
+    yPos += 6
+    doc.text(datosEmisor.banco2, 20, yPos)
     
     // Datos del receptor
     yPos += 15
@@ -185,7 +180,7 @@ const generarFacturaPDFUnificado = async (factura) => {
     })
     
     // Pie de página
-    const footerY = pageHeight - 40
+    const footerY = pageHeight - 50
     doc.setDrawColor(200, 200, 200)
     doc.setLineWidth(0.3)
     doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
@@ -195,6 +190,8 @@ const generarFacturaPDFUnificado = async (factura) => {
     doc.text(datosEmisor.nombre, 20, footerY)
     doc.text(`CIF: ${datosEmisor.cif} | Licencia: ${datosEmisor.licencia}`, 20, footerY + 6)
     doc.text(datosEmisor.direccion, 20, footerY + 12)
+    doc.text(datosEmisor.banco1, 20, footerY + 18)
+    doc.text(datosEmisor.banco2, 20, footerY + 24)
     
     // Nombre del archivo
     const nombreArchivo = `Factura_${numeroFactura}_${clienteNombre.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
@@ -828,13 +825,29 @@ const Cierres = ({ user, onClose }) => {
       try {
         const doc = new jsPDF()
         const pageWidth = doc.internal.pageSize.getWidth()
+        const pageHeight = doc.internal.pageSize.getHeight()
         
         doc.setFontSize(20)
         doc.setTextColor(33, 150, 243)
         doc.setFont(undefined, 'bold')
         doc.text(`FACTURA ${numeroFactura}`, pageWidth - 20, 25, { align: 'right' })
         
-        let yPos = 50
+        let yPos = 40
+        doc.setFontSize(10)
+        doc.setFont(undefined, 'normal')
+        doc.setTextColor(0, 0, 0)
+        doc.text(datosEmisor.nombre, 20, yPos)
+        yPos += 5
+        doc.text(`CIF: ${datosEmisor.cif} | Licencia: ${datosEmisor.licencia}`, 20, yPos)
+        yPos += 5
+        doc.text(datosEmisor.direccion, 20, yPos)
+        yPos += 5
+        doc.text(`Tel: ${datosEmisor.telefono} | ${datosEmisor.email}`, 20, yPos)
+        yPos += 5
+        doc.text(datosEmisor.banco1, 20, yPos)
+        yPos += 5
+        doc.text(datosEmisor.banco2, 20, yPos)
+        yPos += 15
         doc.setFontSize(12)
         doc.setFont(undefined, 'bold')
         doc.text('FACTURAR A:', 20, yPos)
@@ -881,6 +894,18 @@ const Cierres = ({ user, onClose }) => {
           doc.text(linea, 20, yPos)
           yPos += 4
         })
+        
+        const footerY = pageHeight - 50
+        doc.setDrawColor(200, 200, 200)
+        doc.setLineWidth(0.3)
+        doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
+        doc.setFontSize(8)
+        doc.setTextColor(100, 100, 100)
+        doc.text(datosEmisor.nombre, 20, footerY)
+        doc.text(`CIF: ${datosEmisor.cif} | Licencia: ${datosEmisor.licencia}`, 20, footerY + 6)
+        doc.text(datosEmisor.direccion, 20, footerY + 12)
+        doc.text(datosEmisor.banco1, 20, footerY + 18)
+        doc.text(datosEmisor.banco2, 20, footerY + 24)
         
         doc.save(`Factura_${numeroFactura}_Directa.pdf`)
       } catch (pdfError) {

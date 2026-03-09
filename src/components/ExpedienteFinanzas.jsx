@@ -4,6 +4,7 @@ import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
+import { DATOS_EMISOR } from '../config/empresa'
 
 /**
  * ============ DEFAULT_SERVICE_VALUES - DEFENSA CONTRA UNDEFINED ============
@@ -466,17 +467,19 @@ const ExpedienteFinanzas = ({
       doc.text(`Método de pago: ${cobro.metodo_pago || '-'}`, 20, yPos)
       yPos += 10
 
-      const footerY = pageHeight - 50
+      const footerY = pageHeight - 55
       doc.setFontSize(9)
       doc.setFont('helvetica', 'normal')
       doc.setTextColor(100, 100, 100)
       doc.setDrawColor(200, 200, 200)
       doc.setLineWidth(0.3)
       doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
-      doc.text('Valservice Incoming S.L. (Viajes Tabora)', 20, footerY)
-      doc.text('CIF: B-98998107', 20, footerY + 8)
-      doc.text('Licencia: CVMm303V', 20, footerY + 16)
-      doc.text('Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)', 20, footerY + 24)
+      doc.text(DATOS_EMISOR.nombre, 20, footerY)
+      doc.text(`CIF: ${DATOS_EMISOR.cif}`, 20, footerY + 8)
+      doc.text(`Licencia: ${DATOS_EMISOR.licencia}`, 20, footerY + 16)
+      doc.text(DATOS_EMISOR.direccion, 20, footerY + 24)
+      doc.text(DATOS_EMISOR.banco1, 20, footerY + 32)
+      doc.text(DATOS_EMISOR.banco2, 20, footerY + 38)
 
       const nombreArchivo = numeroRecibo !== '—'
         ? `Recibo_${numeroRecibo}_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
