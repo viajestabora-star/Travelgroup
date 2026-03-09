@@ -362,9 +362,6 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes = [], initialTab }) => {
   const cierreGrupo = expediente?.cierre_grupo || {}
 
-  // Modo de prueba temporal para facturación
-  const MODO_PRUEBA_FACTURACION = true
-
   // Estados
   const [tab, setTab] = useState('grupo')
   const [editandoCliente, setEditandoCliente] = useState(false)
@@ -5583,32 +5580,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
                   {/* Botón de Emisión */}
                   <div className="flex justify-between items-center">
-                    {MODO_PRUEBA_FACTURACION && (
-                      <button
-                        onClick={async () => {
-                          if (!window.confirm('¿Estás seguro de que quieres borrar TODAS las facturas de prueba (TEST-XXX)?')) {
-                            return
-                          }
-                          try {
-                            const { error } = await supabase
-                              .from('facturas')
-                              .delete()
-                              .ilike('numero_factura', 'TEST-%')
-                            if (error) {
-                              alert(`❌ Error borrando facturas de prueba: ${error.message}`)
-                            } else {
-                              alert('✅ Facturas de prueba eliminadas correctamente.')
-                            }
-                          } catch (e) {
-                            alert(`❌ Error inesperado borrando facturas de prueba: ${e.message}`)
-                          }
-                        }}
-                        className="px-4 py-3 rounded-lg border border-red-300 text-red-700 text-sm font-semibold bg-red-50 hover:bg-red-100 transition-colors"
-                      >
-                        Limpiar Facturas de Prueba
-                      </button>
-                    )}
-
                     <button
                       onClick={emitirFactura}
                       className="bg-green-600 hover:bg-green-700 text-white py-4 px-8 rounded-lg font-bold text-lg transition-colors shadow-lg flex items-center gap-2"
