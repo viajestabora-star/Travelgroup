@@ -32,26 +32,23 @@ const Layout = ({ user, onLogout }) => {
     return unsubscribe
   }, [])
 
-  // CONTROL HORARIO - BLOQUE UNIFICADO
+  // CONTROL HORARIO - BLOQUE UNIFICADO (fuerza bruta: busca siempre, insert inmediato si no existe)
   useEffect(() => {
     if (!user?.email) return;
 
     const gestionarFichaje = async () => {
       try {
-        const { data: { session: s } } = await supabase.auth.getSession();
-        const userEmail = s?.user?.email?.trim()?.toLowerCase();
-        if (!userEmail) return;
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return;
 
+        const usuarioId = session.user.id;
+        const userEmail = String(session.user.email || '').trim().toLowerCase();
+        if (!userEmail) return;
         if (!EMAILS_CONTROL_HORARIO.includes(userEmail)) return;
 
         const ahora = new Date();
         const f_actual = formatFechaYYYYMMDD(ahora);
-        const h_actual = formatHoraHHmm(ahora);
-        const horaEntradaValor = `${f_actual} ${h_actual}:00`;
-
-        if (sessionStorage.getItem(STORAGE_KEY_FECHA) === f_actual && sessionStorage.getItem('control_horario_entrada_id')) {
-          return;
-        }
+        const horaEntradaValor = `${f_actual} ${formatHoraHHmm(ahora)}:00`;
 
         const { data: existe, error: errExiste } = await supabase
           .from('control_horario')
@@ -61,24 +58,25 @@ const Layout = ({ user, onLogout }) => {
           .maybeSingle();
 
         if (errExiste) {
-          console.error('[Control Horario] Error al buscar:', errExiste);
-          throw errExiste;
+          console.error('ERROR DB:', errExiste);
+          return;
         }
 
         if (!existe) {
           const { data: nuevo, error: errInsert } = await supabase
             .from('control_horario')
             .insert([{
-              usuario_id: s.user.id,
+              usuario_id: usuarioId,
               user_email: userEmail,
               fecha: f_actual,
               hora_entrada: horaEntradaValor
             }])
-            .select('id').single();
+            .select('id')
+            .single();
 
           if (errInsert) {
-            console.error('[Control Horario] Error INSERT:', errInsert);
-            throw errInsert;
+            console.error('ERROR DB:', errInsert);
+            return;
           }
           if (nuevo?.id) {
             sessionStorage.setItem('control_horario_entrada_id', nuevo.id);
@@ -89,7 +87,7 @@ const Layout = ({ user, onLogout }) => {
           sessionStorage.setItem(STORAGE_KEY_FECHA, f_actual);
         }
       } catch (err) {
-        console.error('[Control Horario]:', err?.message || err);
+        console.error('ERROR DB:', err);
       }
     };
 
@@ -97,12 +95,12 @@ const Layout = ({ user, onLogout }) => {
 
     const intervalId = setInterval(() => {
       const entradaId = sessionStorage.getItem('control_horario_entrada_id');
-      if (entradaId) heartbeatSalida(entradaId);
+      if (entradaId) heartbeatSalida();
     }, HEARTBEAT_INTERVAL_MS);
 
     const handleUnload = () => {
       const entradaId = sessionStorage.getItem('control_horario_entrada_id');
-      if (entradaId) registrarSalidaOnUnload(entradaId);
+      if (entradaId) registrarSalidaOnUnload();
     };
 
     window.addEventListener('beforeunload', handleUnload);
