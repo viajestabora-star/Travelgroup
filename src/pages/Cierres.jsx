@@ -179,10 +179,28 @@ const generarFacturaPDFUnificado = async (factura) => {
       doc.text(fmtEuro(pNeto), 115, yPos)
       doc.text(fmtEuro(totServ), pageWidth - 20, yPos, { align: 'right' })
       yPos += 6
+      const totSupHab = parseFloat(datos.totalSupHabitacion || 0) || 0
+      const totSupSeg = parseFloat(datos.totalSupSeguro || 0) || 0
       const totSup = parseFloat(calc.totalSuplementos || 0) || 0
-      if (totSup > 0) {
+      if (totSupHab > 0) {
         const supPax = Math.max(1, parseFloat(datos.sup_individual_pax || 1) || 1)
         doc.text('Suplemento Habitación Individual', 20, yPos)
+        doc.text(String(supPax), 90, yPos)
+        doc.text(fmtEuro(totSupHab / supPax), 115, yPos)
+        doc.text(fmtEuro(totSupHab), pageWidth - 20, yPos, { align: 'right' })
+        yPos += 6
+      }
+      if (totSupSeg > 0) {
+        const paxSeg = Math.max(1, parseFloat(datos.sup_seguro_pax || 1) || 1)
+        const pUnitSeg = parseFloat(datos.sup_seguro_precio_total || totSupSeg / paxSeg) || 0
+        doc.text('Seguro de cancelación', 20, yPos)
+        doc.text(String(paxSeg), 90, yPos)
+        doc.text(fmtEuro(pUnitSeg), 115, yPos)
+        doc.text(fmtEuro(totSupSeg), pageWidth - 20, yPos, { align: 'right' })
+        yPos += 6
+      } else if (totSup > 0 && totSupHab === 0) {
+        const supPax = Math.max(1, parseFloat(datos.sup_individual_pax || 1) || 1)
+        doc.text('Suplementos', 20, yPos)
         doc.text(String(supPax), 90, yPos)
         doc.text(fmtEuro(totSup / supPax), 115, yPos)
         doc.text(fmtEuro(totSup), pageWidth - 20, yPos, { align: 'right' })

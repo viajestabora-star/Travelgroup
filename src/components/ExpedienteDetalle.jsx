@@ -2036,10 +2036,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         doc.text(fmtEuro(pNeto), 115, yPos)
         doc.text(fmtEuro(totServ), pageWidth - 20, yPos, { align: 'right' })
         yPos += 6
+        const totSupHab = parseFloat(datos.totalSupHabitacion || 0) || 0
+        const totSupSeg = parseFloat(datos.totalSupSeguro || 0) || 0
         const totSup = parseFloat(calc.totalSuplementos || 0) || 0
-        if (totSup > 0) {
-          const supPax = parseFloat(datos.sup_individual_pax || 1) || 1
+        if (totSupHab > 0) {
+          const supPax = Math.max(1, parseFloat(datos.sup_individual_pax || 1) || 1)
           doc.text('Suplemento Habitación Individual', 20, yPos)
+          doc.text(String(supPax), 90, yPos)
+          doc.text(fmtEuro(totSupHab / supPax), 115, yPos)
+          doc.text(fmtEuro(totSupHab), pageWidth - 20, yPos, { align: 'right' })
+          yPos += 6
+        }
+        if (totSupSeg > 0) {
+          const paxSeg = Math.max(1, parseFloat(datos.sup_seguro_pax || 1) || 1)
+          const pUnitSeg = parseFloat(datos.sup_seguro_precio_total || totSupSeg / paxSeg) || 0
+          doc.text('Seguro de cancelación', 20, yPos)
+          doc.text(String(paxSeg), 90, yPos)
+          doc.text(fmtEuro(pUnitSeg), 115, yPos)
+          doc.text(fmtEuro(totSupSeg), pageWidth - 20, yPos, { align: 'right' })
+          yPos += 6
+        } else if (totSup > 0 && totSupHab === 0) {
+          const supPax = Math.max(1, parseFloat(datos.sup_individual_pax || 1) || 1)
+          doc.text('Suplementos', 20, yPos)
           doc.text(String(supPax), 90, yPos)
           doc.text(fmtEuro(totSup / supPax), 115, yPos)
           doc.text(fmtEuro(totSup), pageWidth - 20, yPos, { align: 'right' })
@@ -2694,23 +2712,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // ============ CÁLCULO DE BASE IMPONIBLE PARA FACTURA ============
   // NOTA: El Precio Venta al Cliente YA INCLUYE IVA (Régimen Especial de Agencias de Viajes)
+  // Sincronizado con Desglose: usa formDataParaVariante (misma fuente que suplementos y paxPago)
   const calcularBaseFactura = useMemo(() => {
-    if (!formData) {
+    const fd = formDataParaVariante || formData
+    if (!fd) {
       return {
         precioVentaPax: 0,
         precioNetoPax: 0,
         totalServiciosConIVA: 0,
         baseImponible: 0,
         iva: 0,
-        totalFactura: 0
+        totalFactura: 0,
+        paxPago: 0
       }
     }
     // Precio Venta al Cliente (€/pax) - YA INCLUYE IVA
-    const precioVentaPax = parseFloat(formData?.precio_venta_cliente || 0) || 0
-    const bonificacion = parseFloat(formData?.bonificacion_pax || 0) || 0
+    const precioVentaPax = parseFloat(fd?.precio_venta_cliente || 0) || 0
+    const bonificacion = parseFloat(fd?.bonificacion_pax || 0) || 0
     const precioNetoPax = precioVentaPax - bonificacion
 
-    // Multiplicar por Clientes de Pago
+    // Multiplicar por Clientes de Pago (paxPago ya usa formDataParaVariante)
     const totalServiciosConIVA = precioNetoPax * paxPago
 
     // Sumar Suplementos (también con IVA incluido)
@@ -2726,7 +2747,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     // Base de servicios (sin suplementos) para desglose
     const baseServicios = totalServiciosConIVA / 1.21
 
-    // Consola de QA: desglose de cálculos
     return {
       precioVentaPax: precioVentaPax.toFixed(2),
       bonificacion: bonificacion.toFixed(2),
@@ -2739,7 +2759,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       iva: iva.toFixed(2),
       totalFactura: totalFactura.toFixed(2),
     }
-  }, [formData?.precio_venta_cliente, formData?.bonificacion_pax, paxPago, suplementos.totalSuplementos])
+  }, [formDataParaVariante?.precio_venta_cliente, formDataParaVariante?.bonificacion_pax, formData, paxPago, suplementos.totalSuplementos])
 
   // ============ OBTENER SIGUIENTE NÚMERO DE FACTURA (NUMERACIÓN GLOBAL ÚNICA) ============
   // SIEMPRE consulta AMBAS tablas (facturas_emitidas_global Y facturas) para garantizar numeración única
@@ -2929,10 +2949,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.text(fmtEuro(totalConceptoPrincipal), pageWidth - 20, yPos, { align: 'right' })
       yPos += 6
 
-      // Línea 2: Suplemento Habitación Individual | Unid: 3 | P. Unit: 90,00€ | Total: 270,00€
+      // Línea 2: Suplemento Habitación Individual (sincronizado con Desglose)
       const totalSupHabitacionNum = parseFloat(suplementos.totalSupHabitacion || 0) || 0
       if (totalSupHabitacionNum > 0) {
-        const paxIndividualNum = Math.max(1, parseFloat(formData?.sup_individual_pax || 0) || 0)
+        const paxIndividualNum = Math.max(1, parseFloat(formDataParaVariante?.sup_individual_pax || formData?.sup_individual_pax || 0) || 0)
         const cantidadHabitacion = paxIndividualNum
         const precioUnitHabitacion = totalSupHabitacionNum / paxIndividualNum
         const totalConceptoHabitacion = cantidadHabitacion * precioUnitHabitacion
@@ -2946,8 +2966,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
       const totalSupSeguroNum = parseFloat(suplementos.totalSupSeguro || 0) || 0
       if (totalSupSeguroNum > 0) {
-        const paxSeguroNum = parseFloat(formData?.sup_seguro_pax || 0) || 0
-        const precioSeguroTotalNum = parseFloat(formData?.sup_seguro_precio_total || 0) || 0
+        const paxSeguroNum = parseFloat(formDataParaVariante?.sup_seguro_pax || formData?.sup_seguro_pax || 0) || 0
+        const precioSeguroTotalNum = parseFloat(formDataParaVariante?.sup_seguro_precio_total || formData?.sup_seguro_precio_total || 0) || 0
 
         const cantidadSeguro = Math.max(0, paxSeguroNum)
         const precioUnitSeguro = Math.max(0, precioSeguroTotalNum)
@@ -3046,6 +3066,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
     if (!expediente?.id) {
       alert('❌ Error: El expediente no tiene ID.')
+      return
+    }
+
+    // Validar valores del Desglose (no aceptar ceros por defecto)
+    const paxP = Number(calcularBaseFactura.paxPago) || 0
+    const precioNeto = parseFloat(calcularBaseFactura.precioNetoPax) || 0
+    const totalF = parseFloat(calcularBaseFactura.totalFactura) || 0
+    if (paxP <= 0 || precioNeto <= 0) {
+      alert('⚠️ Revisa la cotización: Pasajeros de pago y Precio neto deben ser mayores que 0. Completa el Desglose antes de emitir.')
+      return
+    }
+    if (totalF <= 0) {
+      alert('⚠️ El total de la factura es 0. Revisa el Desglose (Pasajeros, Precio, Suplementos) antes de emitir.')
       return
     }
 
@@ -3201,13 +3234,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         
         // Preparar datos_factura (JSON completo) — incluye numero_expediente para plantillas
         const totalSupHab = parseFloat(suplementos.totalSupHabitacion || 0) || 0
-        const paxInd = Math.max(1, parseFloat(formData?.sup_individual_pax || 0) || 0)
+        const paxInd = Math.max(1, parseFloat(formDataParaVariante?.sup_individual_pax || formData?.sup_individual_pax || 0) || 0)
         const datosFacturaCompletos = {
           ...datosFactura,
           numero_expediente: expediente?.numero_expediente || expediente?.numeroExpediente || '',
           formFactura: { ...formFactura },
           receptor: { nombre: formFactura.receptorNombre, cif_nif: formFactura.receptorCIF, direccion: formFactura.receptorDireccion, poblacion: formFactura.receptorPoblacion, provincia: formFactura.receptorProvincia, cp: formFactura.receptorCP },
           sup_individual_pax: paxInd,
+          totalSupHabitacion: totalSupHab,
+          totalSupSeguro: parseFloat(suplementos.totalSupSeguro || 0) || 0,
+          sup_seguro_pax: parseFloat(formDataParaVariante?.sup_seguro_pax || formData?.sup_seguro_pax || 0) || 0,
+          sup_seguro_precio_total: parseFloat(formDataParaVariante?.sup_seguro_precio_total || formData?.sup_seguro_precio_total || 0) || 0,
           calcularBaseFactura: {
             precioVentaPax: calcularBaseFactura.precioVentaPax,
             precioNetoPax: calcularBaseFactura.precioNetoPax,
@@ -3219,9 +3256,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             totalFactura: calcularBaseFactura.totalFactura
           },
           lineasFactura: [
-            { concepto: `Viaje a ${expediente?.destino || ''} (Pasajeros)`, unid: calcularBaseFactura.paxPago, pUnit: calcularBaseFactura.precioNetoPax, total: calcularBaseFactura.totalServiciosConIVA },
-            ...(totalSupHab > 0 ? [{ concepto: 'Suplemento Habitación Individual', unid: paxInd, pUnit: totalSupHab / paxInd, total: totalSupHab }] : []),
-            ...(parseFloat(suplementos.totalSupSeguro || 0) > 0 ? [{ concepto: 'Seguro de cancelación', unid: parseFloat(formData?.sup_seguro_pax || 0), pUnit: parseFloat(formData?.sup_seguro_precio_total || 0), total: suplementos.totalSupSeguro }] : [])
+            { concepto: `Viaje a ${expediente?.destino || ''} (Pasajeros)`, unid: Number(calcularBaseFactura.paxPago), pUnit: Number(calcularBaseFactura.precioNetoPax), total: Number(calcularBaseFactura.totalServiciosConIVA) },
+            ...(totalSupHab > 0 ? [{ concepto: 'Suplemento Habitación Individual', unid: paxInd, pUnit: Number((totalSupHab / paxInd).toFixed(2)), total: totalSupHab }] : []),
+            ...(parseFloat(suplementos.totalSupSeguro || 0) > 0 ? [{ concepto: 'Seguro de cancelación', unid: Number(formDataParaVariante?.sup_seguro_pax || formData?.sup_seguro_pax || 0), pUnit: Number(formDataParaVariante?.sup_seguro_precio_total || formData?.sup_seguro_precio_total || 0), total: Number(suplementos.totalSupSeguro) }] : [])
           ],
           expediente: {
             id: expediente.id,
