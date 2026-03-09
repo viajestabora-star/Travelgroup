@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
-const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
+const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
@@ -29,21 +29,21 @@ const Layout = ({ user, onLogout }) => {
 
     const gestionarFichaje = async () => {
       try {
+        const { data: { session: s } } = await supabase.auth.getSession();
+        if (!s?.user?.email) return;
+
         const ahora = new Date();
         const f_actual = ahora.toLocaleDateString('sv-SE');
-        const h_actual = ahora.toLocaleTimeString('en-GB');
+        const horaEntradaISO = ahora.toISOString();
 
         if (sessionStorage.getItem(STORAGE_KEY_FECHA) === f_actual && sessionStorage.getItem('control_horario_entrada_id')) {
           return;
         }
 
-        const { data: { session: s } } = await supabase.auth.getSession();
-        if (!s?.user) return;
-
         const { data: existe, error: errExiste } = await supabase
           .from('control_horario')
           .select('id')
-          .eq('usuario_id', s.user.id)
+          .eq('user_email', s.user.email)
           .eq('fecha', f_actual)
           .maybeSingle();
 
@@ -56,12 +56,12 @@ const Layout = ({ user, onLogout }) => {
               usuario_id: s.user.id,
               user_email: s.user.email,
               fecha: f_actual,
-              hora_entrada: h_actual
+              hora_entrada: horaEntradaISO
             }])
             .select('id').single();
 
           if (errInsert) throw errInsert;
-          if (nuevo) {
+          if (nuevo?.id) {
             sessionStorage.setItem('control_horario_entrada_id', nuevo.id);
             sessionStorage.setItem(STORAGE_KEY_FECHA, f_actual);
           }
