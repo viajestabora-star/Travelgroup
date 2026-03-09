@@ -48,7 +48,6 @@ const Layout = ({ user, onLogout }) => {
 
         const ahora = new Date();
         const f_actual = formatFechaYYYYMMDD(ahora);
-        const horaEntradaValor = `${f_actual} ${formatHoraHHmm(ahora)}:00`;
 
         const { data: existe, error: errExiste } = await supabase
           .from('control_horario')
@@ -66,10 +65,10 @@ const Layout = ({ user, onLogout }) => {
           const { data: nuevo, error: errInsert } = await supabase
             .from('control_horario')
             .insert([{
-              usuario_id: usuarioId,
-              user_email: userEmail,
               fecha: f_actual,
-              hora_entrada: horaEntradaValor
+              hora_entrada: formatHoraHHmm(ahora),
+              user_email: userEmail,
+              usuario_id: usuarioId
             }])
             .select('id')
             .single();
