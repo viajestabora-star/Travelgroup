@@ -2865,59 +2865,49 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.setFontSize(9)
       doc.setFont(undefined, 'normal')
 
-      // Línea de plazas
-      const totalPaxFactura = parseFloat(expediente?.total_pax || calcularBaseFactura.paxPago || 0) || 0
-      const precioPaxNum = parseFloat(calcularBaseFactura.precioNetoPax || 0) || 0
-      const totalPlazasNum = totalPaxFactura * precioPaxNum
+      // Línea principal: Unidades = pasajeros de pago (excl. gratuidades)
+      const paxPagoFactura = parseFloat(calcularBaseFactura.paxPago || 0) || 0
+      const precioNetoPaxNum = parseFloat(calcularBaseFactura.precioNetoPax || 0) || 0
+      const totalConceptoPrincipal = paxPagoFactura * precioNetoPaxNum
 
       doc.text(conceptoFactura.substring(0, 45), 20, yPos)
-      doc.text(String(totalPaxFactura), 90, yPos)
-      doc.text(`${precioPaxNum.toFixed(2)}€`, 115, yPos)
-      doc.text(`${totalPlazasNum.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+      doc.text(String(paxPagoFactura), 90, yPos)
+      doc.text(`${precioNetoPaxNum.toFixed(2)}€`, 115, yPos)
+      doc.text(`${totalConceptoPrincipal.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
       yPos += 6
 
-      // Suplementos (si hay)
-      if (parseFloat(calcularBaseFactura.totalSuplementos) > 0) {
-        yPos += 4
-        doc.setFont(undefined, 'bold')
-        doc.text('Suplementos (IVA incluido):', 20, yPos)
+      // Suplementos en líneas independientes (Unidades × P. Unit = Total cada una)
+      const totalSupHabitacionNum = parseFloat(suplementos.totalSupHabitacion || 0) || 0
+      if (totalSupHabitacionNum > 0) {
+        const paxIndividualNum = parseFloat(formData?.sup_individual_pax || 0) || 0
+        const nochesSup = calcularNochesExpediente ? calcularNochesExpediente() : 1
+        const precioIndividualDiaNum = parseFloat(formData?.sup_individual_precio_dia || 0) || 0
+
+        const cantidadHabitacion = Math.max(0, paxIndividualNum * nochesSup)
+        const precioUnitHabitacion = Math.max(0, precioIndividualDiaNum)
+        const totalConceptoHabitacion = cantidadHabitacion * precioUnitHabitacion
+
+        doc.text('Habitación individual', 20, yPos)
+        doc.text(String(cantidadHabitacion), 90, yPos)
+        doc.text(`${precioUnitHabitacion.toFixed(2)}€`, 115, yPos)
+        doc.text(`${totalConceptoHabitacion.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
         yPos += 6
-        doc.setFont(undefined, 'normal')
+      }
 
-        // Habitaciones individuales
-        const totalSupHabitacionNum = parseFloat(suplementos.totalSupHabitacion || 0) || 0
-        if (totalSupHabitacionNum > 0) {
-          const paxIndividualNum = parseFloat(formData?.sup_individual_pax || 0) || 0
-          const nochesSup = calcularNochesExpediente ? calcularNochesExpediente() : 1
-          const precioIndividualDiaNum = parseFloat(formData?.sup_individual_precio_dia || 0) || 0
+      const totalSupSeguroNum = parseFloat(suplementos.totalSupSeguro || 0) || 0
+      if (totalSupSeguroNum > 0) {
+        const paxSeguroNum = parseFloat(formData?.sup_seguro_pax || 0) || 0
+        const precioSeguroTotalNum = parseFloat(formData?.sup_seguro_precio_total || 0) || 0
 
-          const cantidadHabitacion = Math.max(0, paxIndividualNum * nochesSup)
-          const precioUnitHabitacion = Math.max(0, precioIndividualDiaNum)
-          const totalConceptoHabitacion = cantidadHabitacion * precioUnitHabitacion
+        const cantidadSeguro = Math.max(0, paxSeguroNum)
+        const precioUnitSeguro = Math.max(0, precioSeguroTotalNum)
+        const totalConceptoSeguro = cantidadSeguro * precioUnitSeguro
 
-          doc.text('Total estancia (habitación individual)', 20, yPos)
-          doc.text(String(cantidadHabitacion), 90, yPos)
-          doc.text(`${precioUnitHabitacion.toFixed(2)}€`, 115, yPos)
-          doc.text(`${totalConceptoHabitacion.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
-          yPos += 6
-        }
-
-        // Seguro de cancelación
-        const totalSupSeguroNum = parseFloat(suplementos.totalSupSeguro || 0) || 0
-        if (totalSupSeguroNum > 0) {
-          const paxSeguroNum = parseFloat(formData?.sup_seguro_pax || 0) || 0
-          const precioSeguroTotalNum = parseFloat(formData?.sup_seguro_precio_total || 0) || 0
-
-          const cantidadSeguro = Math.max(0, paxSeguroNum)
-          const precioUnitSeguro = Math.max(0, precioSeguroTotalNum)
-          const totalConceptoSeguro = cantidadSeguro * precioUnitSeguro
-
-          doc.text('Seguro de cancelación', 20, yPos)
-          doc.text(String(cantidadSeguro), 90, yPos)
-          doc.text(`${precioUnitSeguro.toFixed(2)}€`, 115, yPos)
-          doc.text(`${totalConceptoSeguro.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
-          yPos += 6
-        }
+        doc.text('Seguro de cancelación', 20, yPos)
+        doc.text(String(cantidadSeguro), 90, yPos)
+        doc.text(`${precioUnitSeguro.toFixed(2)}€`, 115, yPos)
+        doc.text(`${totalConceptoSeguro.toFixed(2)}€`, pageWidth - 20, yPos, { align: 'right' })
+        yPos += 6
       }
 
       // Nota sobre régimen especial
@@ -5530,34 +5520,33 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         <span className="text-gray-700">Precio Final (€/pax):</span>
                         <span className="font-semibold text-navy-900">{calcularBaseFactura.precioNetoPax}€</span>
                       </div>
-                      <div className="flex justify-between py-2 border-b border-blue-200">
-                        <span className="text-gray-700">Plazas de Pago:</span>
-                        <span className="font-semibold text-navy-900">{calcularBaseFactura.paxPago}</span>
-                      </div>
-                      <div className="flex justify-between py-2 border-b border-blue-200">
-                        <span className="text-gray-700">Total Servicios (IVA incluido):</span>
-                        <span className="font-semibold text-navy-900">{calcularBaseFactura.totalServiciosConIVA}€</span>
-                      </div>
-                      {parseFloat(calcularBaseFactura.totalSuplementos) > 0 && (
-                        <>
-                          <div className="flex justify-between py-2 border-b border-blue-200">
-                            <span className="text-gray-700">Suplementos (IVA incluido):</span>
-                            <span className="font-semibold text-navy-900">{calcularBaseFactura.totalSuplementos}€</span>
+                      <div className="py-2 border-b border-blue-200">
+                        <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Detalle (Unid. × P. Unit = Total)</div>
+                        <div className="space-y-1.5 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">
+                              Viaje · {calcularBaseFactura.paxPago} × {calcularBaseFactura.precioNetoPax}€
+                            </span>
+                            <span className="font-semibold text-navy-900">{calcularBaseFactura.totalServiciosConIVA}€</span>
                           </div>
                           {parseFloat(suplementos.totalSupHabitacion) > 0 && (
-                            <div className="flex justify-between py-2 pl-4 text-sm text-gray-600">
-                              <span>• Total estancia (habitación individual):</span>
-                              <span>{suplementos.totalSupHabitacion}€</span>
+                            <div className="flex justify-between">
+                              <span className="text-gray-700">
+                                Habitación individual · {(parseFloat(formDataParaVariante?.sup_individual_pax || 0) * (suplementos.noches || 1)).toFixed(0)} × {formDataParaVariante?.sup_individual_precio_dia || 0}€
+                              </span>
+                              <span className="font-semibold text-navy-900">{suplementos.totalSupHabitacion}€</span>
                             </div>
                           )}
                           {parseFloat(suplementos.totalSupSeguro) > 0 && (
-                            <div className="flex justify-between py-2 pl-4 text-sm text-gray-600">
-                              <span>• Seguro de cancelación:</span>
-                              <span>{suplementos.totalSupSeguro}€</span>
+                            <div className="flex justify-between">
+                              <span className="text-gray-700">
+                                Seguro cancelación · {formDataParaVariante?.sup_seguro_pax || 0} × {formDataParaVariante?.sup_seguro_precio_total || 0}€
+                              </span>
+                              <span className="font-semibold text-navy-900">{suplementos.totalSupSeguro}€</span>
                             </div>
                           )}
-                        </>
-                      )}
+                        </div>
+                      </div>
                       <div className="flex justify-between py-3 bg-green-100 rounded-lg px-4 mt-3 border-2 border-green-400">
                         <span className="text-lg font-bold text-green-900">TOTAL FACTURA (IVA INCLUIDO):</span>
                         <span className="text-2xl font-bold text-green-900">{calcularBaseFactura.totalFactura}€</span>
