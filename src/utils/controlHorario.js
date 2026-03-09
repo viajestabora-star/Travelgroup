@@ -3,37 +3,52 @@ import { supabase } from '../supabase'
 const STORAGE_KEY_ENTRADA = 'control_horario_entrada_id'
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
 
+const formatFechaYYYYMMDD = (d) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+const formatHoraHHmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+const formatHoraSalida = (d) => `${formatFechaYYYYMMDD(d)} ${formatHoraHHmm(d)}:00`
+
 /**
  * Registro silencioso de entrada. Se llama automáticamente al iniciar sesión.
- * Objeto exacto para insert. Verifica existente antes de insertar.
+ * fecha: YYYY-MM-DD, hora_entrada: 'YYYY-MM-DD HH:mm:00'
  */
 export async function registrarEntradaSilencioso(session) {
   if (!session?.user?.email) return
 
+  const ahora = new Date()
+  const fecha = formatFechaYYYYMMDD(ahora)
   const objeto = {
     usuario_id: session.user.id,
-    user_email: session.user.email,
-    fecha: new Date().toISOString().split('T')[0],
-    hora_entrada: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+    user_email: session.user.email.trim().toLowerCase(),
+    fecha,
+    hora_entrada: formatHoraSalida(ahora),
   }
 
-  const { data: existente } = await supabase
+  const { data: existente, error: errBuscar } = await supabase
     .from('control_horario')
     .select('id')
-    .eq('usuario_id', session.user.id)
-    .eq('fecha', new Date().toISOString().split('T')[0])
-    .single()
+    .eq('user_email', objeto.user_email)
+    .eq('fecha', fecha)
+    .maybeSingle()
+
+  if (errBuscar) {
+    console.error('[Control Horario] Error al buscar:', errBuscar)
+    return
+  }
 
   if (!existente) {
     const { data, error } = await supabase.from('control_horario').insert([objeto]).select('id').single()
     if (error) {
-      console.dir(error)
+      console.error('[Control Horario] Error INSERT:', error)
       return
     }
     if (data?.id) {
       sessionStorage.setItem(STORAGE_KEY_ENTRADA, data.id)
       sessionStorage.setItem(STORAGE_KEY_FECHA, objeto.fecha)
-      console.log('Fichaje realizado con éxito')
     }
   } else {
     sessionStorage.setItem(STORAGE_KEY_ENTRADA, existente.id)
@@ -43,39 +58,43 @@ export async function registrarEntradaSilencioso(session) {
 
 /**
  * Heartbeat: actualiza hora_salida sin cerrar la sesión.
- * Usar cada 30 min para mantener el registro actualizado (cierre inesperado, pestaña olvidada).
+ * Usar cada 10 min para mantener el registro actualizado (cierre inesperado, pestaña olvidada).
+ * Formato hora_salida: 'YYYY-MM-DD HH:mm:00'
  */
 export async function heartbeatSalida() {
   const id = sessionStorage.getItem(STORAGE_KEY_ENTRADA)
   if (!id) return
 
-  const ahora = new Date().toISOString()
-  await supabase
+  const horaSalidaValor = formatHoraSalida(new Date())
+  const { error } = await supabase
     .from('control_horario')
-    .update({ hora_salida: ahora })
+    .update({ hora_salida: horaSalidaValor })
     .eq('id', id)
+
+  if (error) console.error('[Control Horario] Error UPDATE heartbeat:', error)
 }
 
 /**
  * Registra la hora de salida y cierra la sesión. El trigger en BD calcula duracion_minutos.
- * Usar en logout.
+ * Usar en logout. Formato hora_salida: 'YYYY-MM-DD HH:mm:00'
  */
 export async function registrarSalida() {
   const id = sessionStorage.getItem(STORAGE_KEY_ENTRADA)
   if (!id) return
 
-  const ahora = new Date().toISOString()
-  await supabase
+  const { error } = await supabase
     .from('control_horario')
-    .update({ hora_salida: ahora })
+    .update({ hora_salida: formatHoraSalida(new Date()) })
     .eq('id', id)
 
+  if (error) console.error('[Control Horario] Error UPDATE registrarSalida:', error)
   sessionStorage.removeItem(STORAGE_KEY_ENTRADA)
 }
 
 /**
  * Versión para beforeunload: fetch con keepalive para que la petición sobreviva al cierre.
  * El trigger en BD calcula duracion_minutos al actualizar hora_salida.
+ * Formato hora_salida: 'YYYY-MM-DD HH:mm:00'
  */
 export function registrarSalidaOnUnload() {
   const id = sessionStorage.getItem(STORAGE_KEY_ENTRADA)
@@ -92,9 +111,9 @@ export function registrarSalidaOnUnload() {
       'Authorization': `Bearer ${key}`,
       'Prefer': 'return=minimal',
     },
-    body: JSON.stringify({ hora_salida: new Date().toISOString() }),
+    body: JSON.stringify({ hora_salida: formatHoraSalida(new Date()) }),
     keepalive: true,
-  }).catch(() => {})
+  }).catch((err) => console.error('[Control Horario] Error PATCH onUnload:', err))
 
   sessionStorage.removeItem(STORAGE_KEY_ENTRADA)
 }

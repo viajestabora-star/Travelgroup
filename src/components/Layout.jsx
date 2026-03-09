@@ -10,6 +10,15 @@ import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejerci
 
 const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
+const EMAILS_CONTROL_HORARIO = ['andres@viajestabora.com', 'info@viajestabora.com', 'grupos@viajestabora.com']
+
+const formatFechaYYYYMMDD = (d) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+const formatHoraHHmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 const Layout = ({ user, onLogout }) => {
@@ -30,11 +39,15 @@ const Layout = ({ user, onLogout }) => {
     const gestionarFichaje = async () => {
       try {
         const { data: { session: s } } = await supabase.auth.getSession();
-        if (!s?.user?.email) return;
+        const userEmail = s?.user?.email?.trim()?.toLowerCase();
+        if (!userEmail) return;
+
+        if (!EMAILS_CONTROL_HORARIO.includes(userEmail)) return;
 
         const ahora = new Date();
-        const f_actual = ahora.toLocaleDateString('sv-SE');
-        const horaEntradaISO = ahora.toISOString();
+        const f_actual = formatFechaYYYYMMDD(ahora);
+        const h_actual = formatHoraHHmm(ahora);
+        const horaEntradaValor = `${f_actual} ${h_actual}:00`;
 
         if (sessionStorage.getItem(STORAGE_KEY_FECHA) === f_actual && sessionStorage.getItem('control_horario_entrada_id')) {
           return;
@@ -43,24 +56,30 @@ const Layout = ({ user, onLogout }) => {
         const { data: existe, error: errExiste } = await supabase
           .from('control_horario')
           .select('id')
-          .eq('user_email', s.user.email)
+          .eq('user_email', userEmail)
           .eq('fecha', f_actual)
           .maybeSingle();
 
-        if (errExiste) throw errExiste;
+        if (errExiste) {
+          console.error('[Control Horario] Error al buscar:', errExiste);
+          throw errExiste;
+        }
 
         if (!existe) {
           const { data: nuevo, error: errInsert } = await supabase
             .from('control_horario')
             .insert([{
               usuario_id: s.user.id,
-              user_email: s.user.email,
+              user_email: userEmail,
               fecha: f_actual,
-              hora_entrada: horaEntradaISO
+              hora_entrada: horaEntradaValor
             }])
             .select('id').single();
 
-          if (errInsert) throw errInsert;
+          if (errInsert) {
+            console.error('[Control Horario] Error INSERT:', errInsert);
+            throw errInsert;
+          }
           if (nuevo?.id) {
             sessionStorage.setItem('control_horario_entrada_id', nuevo.id);
             sessionStorage.setItem(STORAGE_KEY_FECHA, f_actual);
@@ -70,7 +89,7 @@ const Layout = ({ user, onLogout }) => {
           sessionStorage.setItem(STORAGE_KEY_FECHA, f_actual);
         }
       } catch (err) {
-        console.error('[Control Horario]:', err.message);
+        console.error('[Control Horario]:', err?.message || err);
       }
     };
 
