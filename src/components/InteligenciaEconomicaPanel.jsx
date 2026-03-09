@@ -1,9 +1,17 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabase'
-import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3, Clock } from 'lucide-react'
+import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3, Clock, User } from 'lucide-react'
 import ModalDesgloseInteligencia from './ModalDesgloseInteligencia'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
+
+/** Usuarios a controlar en Control de Personal */
+const USUARIOS_CONTROL = [
+  { email: 'andres@viajestabora.com', nombre: 'Andrés' },
+  { email: 'info@viajestabora.com', nombre: 'Germán' },
+  { email: 'grupos@viajestabora.com', nombre: 'Marisa' },
+]
+const EMAILS_CONTROL = USUARIOS_CONTROL.map((u) => u.email)
 
 /**
  * InteligenciaEconomicaPanel - Panel financiero dinámico desde Supabase.
@@ -19,6 +27,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   const [tabPrincipal, setTabPrincipal] = useState('finanzas')
   const [controlHorario, setControlHorario] = useState([])
   const [loadingControl, setLoadingControl] = useState(false)
+  const [filtroEmpleado, setFiltroEmpleado] = useState('todos')
   const esAdmin = user?.rol === 'ADMIN'
 
   useEffect(() => {
@@ -35,9 +44,10 @@ const InteligenciaEconomicaPanel = ({ user }) => {
       const { data, error: err } = await supabase
         .from('control_horario')
         .select('id, user_email, fecha, hora_entrada, hora_salida, duracion_minutos')
+        .in('user_email', EMAILS_CONTROL)
         .order('fecha', { ascending: false })
         .order('hora_entrada', { ascending: false })
-        .limit(100)
+        .limit(200)
       if (!err && Array.isArray(data)) setControlHorario(data)
       else setControlHorario([])
       setLoadingControl(false)
@@ -164,6 +174,21 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     }
   }
 
+  /** Calcula minutos entre hora_entrada y hora_salida si duracion_minutos no está disponible */
+  const calcularMinutosTrabajados = (r) => {
+    if (r.duracion_minutos != null && r.duracion_minutos !== '' && !Number.isNaN(Number(r.duracion_minutos))) {
+      return Number(r.duracion_minutos)
+    }
+    if (!r.hora_entrada || !r.hora_salida) return null
+    try {
+      const entrada = new Date(r.hora_entrada).getTime()
+      const salida = new Date(r.hora_salida).getTime()
+      return Math.round((salida - entrada) / 60000)
+    } catch {
+      return null
+    }
+  }
+
   const formatearDuracion = (min) => {
     if (min == null || min === '') return '—'
     const m = parseInt(min, 10)
@@ -172,6 +197,12 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     const mins = m % 60
     return `${h}h ${mins}m`
   }
+
+  /** Registros filtrados por empleado (solo los 3 usuarios controlados) */
+  const controlHorarioFiltrado = useMemo(() => {
+    if (filtroEmpleado === 'todos') return controlHorario
+    return controlHorario.filter((r) => r.user_email === filtroEmpleado)
+  }, [controlHorario, filtroEmpleado])
 
   return (
     <div className="animate-in fade-in duration-500 space-y-8">
@@ -197,15 +228,36 @@ const InteligenciaEconomicaPanel = ({ user }) => {
 
       {tabPrincipal === 'controlPersonal' && (
         <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-2">
-            <Clock size={22} className="text-navy-600" />
-            <h3 className="text-base font-bold text-slate-800">Control Horario</h3>
+          <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <Clock size={22} className="text-navy-600" />
+              <h3 className="text-base font-bold text-slate-800">Control Horario</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <User size={18} className="text-slate-500" />
+              <select
+                value={filtroEmpleado}
+                onChange={(e) => setFiltroEmpleado(e.target.value)}
+                className="rounded-lg border-2 border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-navy-500 focus:border-navy-500 transition-colors"
+              >
+                <option value="todos">Todos los empleados</option>
+                {USUARIOS_CONTROL.map((u) => (
+                  <option key={u.email} value={u.email}>
+                    {u.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="p-6 overflow-x-auto">
             {loadingControl ? (
               <div className="py-12 text-center text-slate-500">Cargando...</div>
-            ) : controlHorario.length === 0 ? (
-              <div className="py-12 text-center text-slate-500">No hay registros de control horario</div>
+            ) : controlHorarioFiltrado.length === 0 ? (
+              <div className="py-12 text-center text-slate-500">
+                {controlHorario.length === 0
+                  ? 'No hay registros de control horario para estos empleados'
+                  : 'No hay registros para el empleado seleccionado'}
+              </div>
             ) : (
               <table className="w-full text-sm">
                 <thead>
@@ -218,13 +270,15 @@ const InteligenciaEconomicaPanel = ({ user }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {controlHorario.map((r) => (
+                  {controlHorarioFiltrado.map((r) => (
                     <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="py-3 px-2">{formatearFecha(r.fecha)}</td>
-                      <td className="py-3 px-2">{r.user_email || '—'}</td>
+                      <td className="py-3 px-2">
+                        {USUARIOS_CONTROL.find((u) => u.email === r.user_email)?.nombre || r.user_email || '—'}
+                      </td>
                       <td className="py-3 px-2">{formatearHora(r.hora_entrada)}</td>
                       <td className="py-3 px-2">{formatearHora(r.hora_salida)}</td>
-                      <td className="py-3 px-2">{formatearDuracion(r.duracion_minutos)}</td>
+                      <td className="py-3 px-2">{formatearDuracion(calcularMinutosTrabajados(r))}</td>
                     </tr>
                   ))}
                 </tbody>
