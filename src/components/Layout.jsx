@@ -25,34 +25,31 @@ const Layout = ({ user, onLogout }) => {
     return unsubscribe
   }, [])
 
-  // CONTROL HORARIO - Alta disponibilidad (en-CA fecha, es-ES hora, localStorage para latido)
+  // CONTROL HORARIO - Prioridad 1: ejecución inmediata al montar, identificación forzada vía getUser
   useEffect(() => {
-    if (!user?.email) return;
+    const ejecutarRegistro = async () => {
+      const { data: authUser } = await supabase.auth.getUser();
+      const email = authUser?.user?.email?.trim()?.toLowerCase() || '';
+      const usuarioId = authUser?.user?.id || null;
 
-    const gestionarFichaje = async () => {
+      if (!email || !usuarioId) return;
+
+      const ahora = new Date();
+      const f_actual = ahora.toLocaleDateString('en-CA');
+      const h_actual = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+      alert('Iniciando registro para: ' + email);
+
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) return;
-
-        const usuarioId = session.user.id;
-        const userEmail = String(session.user.email || '').trim().toLowerCase();
-        if (!userEmail) return;
-        if (!EMAILS_CONTROL_HORARIO.includes(userEmail)) return;
-
-        const ahora = new Date();
-        const f_actual = ahora.toLocaleDateString('en-CA');
-        const h_actual = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-
         const { data: existe, error: errExiste } = await supabase
           .from('control_horario')
           .select('id')
-          .eq('user_email', userEmail)
+          .eq('user_email', email)
           .eq('fecha', f_actual)
           .maybeSingle();
 
         if (errExiste) {
-          console.error('CRITICAL_DB_ERROR:', errExiste);
-          alert('Error de Conexión DB: ' + (errExiste?.message || 'Error al buscar registro'));
+          alert('Error DB (buscar): ' + (errExiste.code || '') + ' - ' + (errExiste.message || String(errExiste)));
           return;
         }
 
@@ -62,15 +59,14 @@ const Layout = ({ user, onLogout }) => {
             .insert([{
               fecha: f_actual,
               hora_entrada: h_actual,
-              user_email: userEmail,
+              user_email: email,
               usuario_id: usuarioId
             }])
             .select('id')
             .single();
 
           if (errInsert) {
-            console.error('CRITICAL_DB_ERROR:', errInsert);
-            alert('Error de Conexión DB: ' + (errInsert?.message || 'Error al insertar registro'));
+            alert('Error DB (insert): ' + (errInsert.code || '') + ' - ' + (errInsert.message || String(errInsert)));
             return;
           }
           if (nuevo?.id) {
@@ -82,12 +78,11 @@ const Layout = ({ user, onLogout }) => {
           localStorage.setItem(STORAGE_KEY_FECHA, f_actual);
         }
       } catch (err) {
-        console.error('CRITICAL_DB_ERROR:', err);
-        alert('Error de Conexión DB: ' + (err?.message || 'Error inesperado'));
+        alert('Error DB (excepción): ' + (err?.message || String(err)));
       }
     };
 
-    gestionarFichaje();
+    ejecutarRegistro();
 
     const intervalId = setInterval(() => {
       const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA);
@@ -105,7 +100,7 @@ const Layout = ({ user, onLogout }) => {
       clearInterval(intervalId);
       window.removeEventListener('beforeunload', handleUnload);
     };
-  }, [user?.email]);
+  }, []);
 
   const esAdmin = user?.rol === 'ADMIN'
   const menuItems = useMemo(() => {
