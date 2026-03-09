@@ -107,7 +107,7 @@ const generarFacturaPDFUnificado = async (factura) => {
     yPos += 6
     doc.text(datosEmisor.direccion, 20, yPos)
     yPos += 6
-    doc.text(`Tel: ${datosEmisor.telefono} | Email: ${datosEmisor.email}`, 20, yPos)
+    doc.text(datosEmisor.telefono ? `Tel: ${datosEmisor.telefono} | Email: ${datosEmisor.email}` : `Email: ${datosEmisor.email}`, 20, yPos)
     yPos += 6
     doc.text(datosEmisor.banco1, 20, yPos)
     yPos += 6
@@ -842,7 +842,7 @@ const Cierres = ({ user, onClose }) => {
         yPos += 5
         doc.text(datosEmisor.direccion, 20, yPos)
         yPos += 5
-        doc.text(`Tel: ${datosEmisor.telefono} | ${datosEmisor.email}`, 20, yPos)
+        doc.text(datosEmisor.telefono ? `Tel: ${datosEmisor.telefono} | ${datosEmisor.email}` : datosEmisor.email, 20, yPos)
         yPos += 5
         doc.text(datosEmisor.banco1, 20, yPos)
         yPos += 5

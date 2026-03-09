@@ -1960,7 +1960,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       yPos += 6
       doc.text(datosEmisorHistorial.direccion, 20, yPos)
       yPos += 6
-      doc.text(`Tel: ${datosEmisorHistorial.telefono} | Email: ${datosEmisorHistorial.email}`, 20, yPos)
+      if (datosEmisorHistorial.telefono) {
+        doc.text(`Tel: ${datosEmisorHistorial.telefono} | Email: ${datosEmisorHistorial.email}`, 20, yPos)
+      } else {
+        doc.text(`Email: ${datosEmisorHistorial.email}`, 20, yPos)
+      }
       yPos += 6
       doc.text(datosEmisorHistorial.banco1, 20, yPos)
       yPos += 6
@@ -2806,7 +2810,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       yPos += 6
       doc.text(datosEmisor.direccion, 20, yPos)
       yPos += 6
-      doc.text(`Tel: ${datosEmisor.telefono} | Email: ${datosEmisor.email}`, 20, yPos)
+      if (datosEmisor.telefono) {
+        doc.text(`Tel: ${datosEmisor.telefono} | Email: ${datosEmisor.email}`, 20, yPos)
+      } else {
+        doc.text(`Email: ${datosEmisor.email}`, 20, yPos)
+      }
       yPos += 6
       doc.text(`Bancos: ${datosEmisor.banco1}`, 20, yPos)
       yPos += 6
@@ -2879,12 +2887,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       // Suplementos en líneas independientes (Unidades × P. Unit = Total cada una)
       const totalSupHabitacionNum = parseFloat(suplementos.totalSupHabitacion || 0) || 0
       if (totalSupHabitacionNum > 0) {
-        const paxIndividualNum = parseFloat(formData?.sup_individual_pax || 0) || 0
-        const nochesSup = calcularNochesExpediente ? calcularNochesExpediente() : 1
-        const precioIndividualDiaNum = parseFloat(formData?.sup_individual_precio_dia || 0) || 0
-
-        const cantidadHabitacion = Math.max(0, paxIndividualNum * nochesSup)
-        const precioUnitHabitacion = Math.max(0, precioIndividualDiaNum)
+        const paxIndividualNum = Math.max(1, parseFloat(formData?.sup_individual_pax || 0) || 0)
+        // Unidades = pax con individual; P. Unit = total/pax (ej: 3 × 90€ = 270€)
+        const cantidadHabitacion = paxIndividualNum
+        const precioUnitHabitacion = totalSupHabitacionNum / paxIndividualNum
         const totalConceptoHabitacion = cantidadHabitacion * precioUnitHabitacion
 
         doc.text('Habitación individual', 20, yPos)
@@ -4591,7 +4597,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <p className="mt-2 text-xs text-slate-500">
                         Total estancia: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
                         <span className="text-slate-400">
-                          ({formDataParaVariante?.sup_individual_pax || 0} pax × {formDataParaVariante?.sup_individual_precio_dia || 0}€ × {suplementos.noches} noches)
+                          ({formDataParaVariante?.sup_individual_pax || 0} pax × {(parseFloat(suplementos.totalSupHabitacion) / Math.max(1, parseFloat(formDataParaVariante?.sup_individual_pax || 0))).toFixed(2)}€)
                         </span>
                       </p>
                     </div>
@@ -5532,7 +5538,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           {parseFloat(suplementos.totalSupHabitacion) > 0 && (
                             <div className="flex justify-between">
                               <span className="text-gray-700">
-                                Habitación individual · {(parseFloat(formDataParaVariante?.sup_individual_pax || 0) * (suplementos.noches || 1)).toFixed(0)} × {formDataParaVariante?.sup_individual_precio_dia || 0}€
+                                Habitación individual · {formDataParaVariante?.sup_individual_pax || 0} × {(parseFloat(suplementos.totalSupHabitacion) / Math.max(1, parseFloat(formDataParaVariante?.sup_individual_pax || 0))).toFixed(2)}€
                               </span>
                               <span className="font-semibold text-navy-900">{suplementos.totalSupHabitacion}€</span>
                             </div>
@@ -5560,7 +5566,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         <p className="font-semibold text-slate-700">{datosEmisor.nombre}</p>
                         <p>CIF: {datosEmisor.cif} · Licencia: {datosEmisor.licencia}</p>
                         <p>{datosEmisor.direccion}</p>
-                        <p>Tel: {datosEmisor.telefono} · {datosEmisor.email}</p>
+                        <p>{datosEmisor.telefono ? `Tel: ${datosEmisor.telefono} · ` : ''}{datosEmisor.email}</p>
                         <p className="mt-1">Ingresos: {datosEmisor.banco1} · {datosEmisor.banco2}</p>
                       </div>
                     </div>
