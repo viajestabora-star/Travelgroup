@@ -62,7 +62,7 @@ export async function registrarEntradaSilencioso(session) {
  * Formato hora_salida: 'YYYY-MM-DD HH:mm:00'
  */
 export async function heartbeatSalida() {
-  const id = sessionStorage.getItem(STORAGE_KEY_ENTRADA)
+  const id = localStorage.getItem(STORAGE_KEY_ENTRADA) || sessionStorage.getItem(STORAGE_KEY_ENTRADA)
   if (!id) return
 
   const horaSalidaValor = formatHoraSalida(new Date())
@@ -97,7 +97,7 @@ export async function registrarSalida() {
  * Formato hora_salida: 'YYYY-MM-DD HH:mm:00'
  */
 export function registrarSalidaOnUnload() {
-  const id = sessionStorage.getItem(STORAGE_KEY_ENTRADA)
+  const id = localStorage.getItem(STORAGE_KEY_ENTRADA) || sessionStorage.getItem(STORAGE_KEY_ENTRADA)
   if (!id) return
 
   const url = import.meta.env.VITE_SUPABASE_URL || 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
@@ -115,5 +115,6 @@ export function registrarSalidaOnUnload() {
     keepalive: true,
   }).catch((err) => console.error('[Control Horario] Error PATCH onUnload:', err))
 
+  localStorage.removeItem(STORAGE_KEY_ENTRADA)
   sessionStorage.removeItem(STORAGE_KEY_ENTRADA)
 }

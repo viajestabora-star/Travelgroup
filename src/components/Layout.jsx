@@ -9,16 +9,9 @@ import {
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
 const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000
+const STORAGE_KEY_ENTRADA = 'control_horario_entrada_id'
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
 const EMAILS_CONTROL_HORARIO = ['andres@viajestabora.com', 'info@viajestabora.com', 'grupos@viajestabora.com']
-
-const formatFechaYYYYMMDD = (d) => {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-const formatHoraHHmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 const Layout = ({ user, onLogout }) => {
@@ -32,7 +25,7 @@ const Layout = ({ user, onLogout }) => {
     return unsubscribe
   }, [])
 
-  // CONTROL HORARIO - BLOQUE UNIFICADO (fuerza bruta: busca siempre, insert inmediato si no existe)
+  // CONTROL HORARIO - Alta disponibilidad (en-CA fecha, es-ES hora, localStorage para latido)
   useEffect(() => {
     if (!user?.email) return;
 
@@ -47,7 +40,8 @@ const Layout = ({ user, onLogout }) => {
         if (!EMAILS_CONTROL_HORARIO.includes(userEmail)) return;
 
         const ahora = new Date();
-        const f_actual = formatFechaYYYYMMDD(ahora);
+        const f_actual = ahora.toLocaleDateString('en-CA');
+        const h_actual = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
         const { data: existe, error: errExiste } = await supabase
           .from('control_horario')
@@ -57,7 +51,8 @@ const Layout = ({ user, onLogout }) => {
           .maybeSingle();
 
         if (errExiste) {
-          console.error('ERROR DB:', errExiste);
+          console.error('CRITICAL_DB_ERROR:', errExiste);
+          alert('Error de Conexión DB: ' + (errExiste?.message || 'Error al buscar registro'));
           return;
         }
 
@@ -66,7 +61,7 @@ const Layout = ({ user, onLogout }) => {
             .from('control_horario')
             .insert([{
               fecha: f_actual,
-              hora_entrada: formatHoraHHmm(ahora),
+              hora_entrada: h_actual,
               user_email: userEmail,
               usuario_id: usuarioId
             }])
@@ -74,31 +69,33 @@ const Layout = ({ user, onLogout }) => {
             .single();
 
           if (errInsert) {
-            console.error('ERROR DB:', errInsert);
+            console.error('CRITICAL_DB_ERROR:', errInsert);
+            alert('Error de Conexión DB: ' + (errInsert?.message || 'Error al insertar registro'));
             return;
           }
           if (nuevo?.id) {
-            sessionStorage.setItem('control_horario_entrada_id', nuevo.id);
-            sessionStorage.setItem(STORAGE_KEY_FECHA, f_actual);
+            localStorage.setItem(STORAGE_KEY_ENTRADA, nuevo.id);
+            localStorage.setItem(STORAGE_KEY_FECHA, f_actual);
           }
         } else {
-          sessionStorage.setItem('control_horario_entrada_id', existe.id);
-          sessionStorage.setItem(STORAGE_KEY_FECHA, f_actual);
+          localStorage.setItem(STORAGE_KEY_ENTRADA, existe.id);
+          localStorage.setItem(STORAGE_KEY_FECHA, f_actual);
         }
       } catch (err) {
-        console.error('ERROR DB:', err);
+        console.error('CRITICAL_DB_ERROR:', err);
+        alert('Error de Conexión DB: ' + (err?.message || 'Error inesperado'));
       }
     };
 
     gestionarFichaje();
 
     const intervalId = setInterval(() => {
-      const entradaId = sessionStorage.getItem('control_horario_entrada_id');
+      const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA);
       if (entradaId) heartbeatSalida();
     }, HEARTBEAT_INTERVAL_MS);
 
     const handleUnload = () => {
-      const entradaId = sessionStorage.getItem('control_horario_entrada_id');
+      const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA);
       if (entradaId) registrarSalidaOnUnload();
     };
 
