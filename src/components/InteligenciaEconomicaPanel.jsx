@@ -112,12 +112,14 @@ const InteligenciaEconomicaPanel = ({ user }) => {
       try {
         const { data, error: err } = await supabase
           .from('control_horario')
-          .select('user_email, fecha, hora_entrada, hora_salida')
-          .in('user_email', ['andres@viajestabora.com', 'info@viajestabora.com', 'grupos@viajestabora.com'])
+          .select('*')
           .order('fecha', { ascending: false })
           .limit(200)
         console.log('Datos recuperados:', data)
         if (err) console.warn('Error control_horario:', err)
+        if (Array.isArray(data) && data.length === 0) {
+          console.log('Conexión exitosa pero tabla vacía en este cliente')
+        }
         if (cancelled) return
         if (!err && Array.isArray(data)) {
           setControlHorario(data)
