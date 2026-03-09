@@ -2845,8 +2845,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.setFontSize(10)
       doc.setFont(undefined, 'bold')
       doc.text('Descripción', 20, yPos)
-      doc.text('Unid.', 90, yPos)
-      doc.text('P. Unit.', 115, yPos)
+      doc.text('Unidades', 90, yPos)
+      doc.text('P. Unit', 115, yPos)
       doc.text('Precio Total (IVA Inc.)', pageWidth - 20, yPos, { align: 'right' })
       yPos += 6
       doc.setDrawColor(200, 200, 200)

@@ -9,6 +9,6 @@ export const DATOS_EMISOR = {
   direccion: 'Apartado de correos 58, 46185 La Pobla de Vallbona (Valencia)',
   telefono: '961 60 60 60',
   email: 'info@viajestabora.com',
-  banco1: 'Caixabank: ES12 2100 1234 5678 9012 3456',
-  banco2: 'Santander: ES34 0049 1234 5678 9012 3456',
+  banco1: 'Caixabank: ES68 2100 2536 7913 0026 1158',
+  banco2: 'Santander: ES91 0049 0000 00 0000001737',
 }
