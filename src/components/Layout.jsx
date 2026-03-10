@@ -18,89 +18,90 @@ const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
 
+  // CONTROL HORARIO - Primer useEffect, prioridad máxima, sin filtros previos
+  useEffect(() => {
+    console.log('--- SISTEMA DE CONTROL HORARIO ACTIVADO ---')
+
+    const ejecutarRegistro = async () => {
+      const { data: authData } = await supabase.auth.getUser()
+      const email = authData?.user?.email?.trim()?.toLowerCase() || ''
+      const usuarioId = authData?.user?.id || null
+
+      if (!email || !usuarioId) return
+      if (!EMAILS_CONTROL_HORARIO.includes(email)) return
+
+      const ahora = new Date()
+      const f_actual = ahora.toLocaleDateString('en-CA')
+      const h_actual = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+
+      try {
+        const { data: upserted, error: errUpsert } = await supabase
+          .from('control_horario')
+          .upsert(
+            [{
+              user_email: email,
+              fecha: f_actual,
+              hora_entrada: h_actual,
+              usuario_id: usuarioId
+            }],
+            {
+              onConflict: 'user_email,fecha',
+              ignoreDuplicates: false
+            }
+          )
+          .select('id')
+          .single()
+
+        if (errUpsert) {
+          console.log('[Control Horario] Error upsert:', errUpsert.code, errUpsert.message)
+          const { data: existe } = await supabase
+            .from('control_horario')
+            .select('id')
+            .eq('user_email', email)
+            .eq('fecha', f_actual)
+            .maybeSingle()
+          if (existe?.id) {
+            localStorage.setItem(STORAGE_KEY_ENTRADA, existe.id)
+            localStorage.setItem(STORAGE_KEY_FECHA, f_actual)
+          }
+          return
+        }
+        if (upserted?.id) {
+          localStorage.setItem(STORAGE_KEY_ENTRADA, upserted.id)
+          localStorage.setItem(STORAGE_KEY_FECHA, f_actual)
+          console.log('[Control Horario] Registro creado/actualizado para:', email)
+        }
+      } catch (err) {
+        console.log('[Control Horario] Excepción:', err?.message)
+      }
+    }
+
+    ejecutarRegistro()
+
+    const intervalId = setInterval(() => {
+      const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA)
+      if (entradaId) heartbeatSalida()
+    }, HEARTBEAT_INTERVAL_MS)
+
+    const handleUnload = () => {
+      const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA)
+      if (entradaId) registrarSalidaOnUnload()
+    }
+
+    window.addEventListener('beforeunload', handleUnload)
+
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener('beforeunload', handleUnload)
+    }
+  }, [])
+
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
       setEjercicioActual(nuevoEjercicio)
     })
     return unsubscribe
   }, [])
-
-  // CONTROL HORARIO - Registro único por día, sesión existente, formatos en-CA/es-ES
-  useEffect(() => {
-    const ejecutarRegistro = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const email = session?.user?.email?.trim()?.toLowerCase() || '';
-      const usuarioId = session?.user?.id || null;
-
-      if (!email || !usuarioId) return;
-      if (!EMAILS_CONTROL_HORARIO.includes(email)) return;
-
-      const ahora = new Date();
-      const f_actual = ahora.toLocaleDateString('en-CA');
-      const h_actual = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-
-      try {
-        const { data: existe, error: errExiste } = await supabase
-          .from('control_horario')
-          .select('id')
-          .eq('user_email', email)
-          .eq('fecha', f_actual)
-          .maybeSingle();
-
-        if (errExiste) {
-          console.log('[Control Horario] Error buscar:', errExiste.code, errExiste.message);
-          return;
-        }
-
-        if (!existe) {
-          const { data: nuevo, error: errInsert } = await supabase
-            .from('control_horario')
-            .insert([{
-              fecha: f_actual,
-              hora_entrada: h_actual,
-              user_email: email,
-              usuario_id: usuarioId
-            }])
-            .select('id')
-            .single();
-
-          if (errInsert) {
-            console.log('[Control Horario] Error insert:', errInsert.code, errInsert.message);
-            return;
-          }
-          if (nuevo?.id) {
-            localStorage.setItem(STORAGE_KEY_ENTRADA, nuevo.id);
-            localStorage.setItem(STORAGE_KEY_FECHA, f_actual);
-            console.log('[Control Horario] Registro creado para:', email);
-          }
-        } else {
-          localStorage.setItem(STORAGE_KEY_ENTRADA, existe.id);
-          localStorage.setItem(STORAGE_KEY_FECHA, f_actual);
-        }
-      } catch (err) {
-        console.log('[Control Horario] Excepción:', err?.message);
-      }
-    };
-
-    ejecutarRegistro();
-
-    const intervalId = setInterval(() => {
-      const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA);
-      if (entradaId) heartbeatSalida();
-    }, HEARTBEAT_INTERVAL_MS);
-
-    const handleUnload = () => {
-      const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA);
-      if (entradaId) registrarSalidaOnUnload();
-    };
-
-    window.addEventListener('beforeunload', handleUnload);
-
-    return () => {
-      clearInterval(intervalId);
-      window.removeEventListener('beforeunload', handleUnload);
-    };
-  }, []);
 
   const esAdmin = user?.rol === 'ADMIN'
   const menuItems = useMemo(() => {
