@@ -17,18 +17,20 @@ const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
 
-  // CONTROL HORARIO - Dinámico, sin duplicados, silencioso, depende de user.id
+  // CONTROL HORARIO - Dinámico, sin duplicados, usuario_id solo si existe
   useEffect(() => {
-    if (!user?.email) return
-
     const ejecutarRegistro = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      const emailActivo = user?.email || session?.user?.email
+      if (!emailActivo) return
+
       const f_actual = new Date().toISOString().split('T')[0]
       const h_actual = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
       const { data: existe } = await supabase
         .from('control_horario')
         .select('id')
-        .eq('user_email', user.email)
+        .eq('user_email', emailActivo)
         .eq('fecha', f_actual)
         .maybeSingle()
 
@@ -38,14 +40,16 @@ const Layout = ({ user, onLogout }) => {
         return
       }
 
+      const fila = {
+        user_email: emailActivo,
+        fecha: f_actual,
+        hora_entrada: h_actual
+      }
+      if (user?.id) fila.usuario_id = user.id
+
       const { data: nuevo, error } = await supabase
         .from('control_horario')
-        .insert([{
-          usuario_id: user.id || null,
-          user_email: user.email,
-          fecha: f_actual,
-          hora_entrada: h_actual
-        }])
+        .insert([fila])
         .select('id')
         .single()
 
