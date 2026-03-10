@@ -16,72 +16,73 @@ const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/
 const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
+  const [authSession, setAuthSession] = useState(null)
 
-  // CONTROL HORARIO - Dinámico, sin duplicados, usuario_id solo si existe
   useEffect(() => {
-    const ejecutarRegistro = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      const emailActivo = user?.email || session?.user?.email
-      if (!emailActivo) return
+    supabase.auth.getSession().then(({ data: { session } }) => setAuthSession(session))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => setAuthSession(session))
+    return () => subscription?.unsubscribe()
+  }, [])
 
-      const f_actual = new Date().toISOString().split('T')[0]
-      const h_actual = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  // CONTROL HORARIO - Validación de identidad, select previo, inserción atómica
+  useEffect(() => {
+    const emailActivo = authSession?.user?.email || user?.email
+    if (emailActivo == null || emailActivo === '') return
+
+    const ejecutarRegistro = async () => {
+      const fecha = new Date().toISOString().split('T')[0]
+      const horaEntrada = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
       const { data: existe } = await supabase
         .from('control_horario')
         .select('id')
         .eq('user_email', emailActivo)
-        .eq('fecha', f_actual)
+        .eq('fecha', fecha)
         .maybeSingle()
 
       if (existe?.id) {
         localStorage.setItem(STORAGE_KEY_ENTRADA, existe.id)
-        localStorage.setItem(STORAGE_KEY_FECHA, f_actual)
+        localStorage.setItem(STORAGE_KEY_FECHA, fecha)
         return
       }
 
-      const fila = {
-        user_email: emailActivo,
-        fecha: f_actual,
-        hora_entrada: h_actual
-      }
-      if (user?.id) fila.usuario_id = user.id
-
       const { data: nuevo, error } = await supabase
         .from('control_horario')
-        .insert([fila])
+        .insert([{
+          usuario_id: user?.id ?? null,
+          user_email: emailActivo,
+          fecha,
+          hora_entrada: horaEntrada
+        }])
         .select('id')
         .single()
 
       if (error) {
-        console.error('[Control Horario] Error DB:', error.message)
+        console.error('[Control Horario]', error.message)
         return
       }
       if (nuevo?.id) {
         localStorage.setItem(STORAGE_KEY_ENTRADA, nuevo.id)
-        localStorage.setItem(STORAGE_KEY_FECHA, f_actual)
+        localStorage.setItem(STORAGE_KEY_FECHA, fecha)
       }
     }
 
     ejecutarRegistro()
 
     const intervalId = setInterval(() => {
-      const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA)
-      if (entradaId) heartbeatSalida()
+      if (localStorage.getItem(STORAGE_KEY_ENTRADA)) heartbeatSalida()
     }, HEARTBEAT_INTERVAL_MS)
 
     const handleUnload = () => {
-      const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA)
-      if (entradaId) registrarSalidaOnUnload()
+      if (localStorage.getItem(STORAGE_KEY_ENTRADA)) registrarSalidaOnUnload()
     }
-
     window.addEventListener('beforeunload', handleUnload)
 
     return () => {
       clearInterval(intervalId)
       window.removeEventListener('beforeunload', handleUnload)
     }
-  }, [user?.id ?? user?.email])
+  }, [authSession?.user?.email, user?.email])
 
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
