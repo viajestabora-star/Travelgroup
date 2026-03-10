@@ -58,18 +58,20 @@ export async function registrarEntradaSilencioso(session) {
 
 /**
  * Heartbeat: actualiza hora_salida sin cerrar la sesión.
- * Usar cada 10 min para mantener el registro actualizado (cierre inesperado, pestaña olvidada).
- * Formato hora_salida: 'YYYY-MM-DD HH:mm:00'
+ * Usar cada 30 min para mantener el registro actualizado (cierre inesperado, pestaña olvidada).
+ * Filtra por user_email y fecha de hoy. Formato hora_salida: HH:mm
  */
-export async function heartbeatSalida() {
-  const id = localStorage.getItem(STORAGE_KEY_ENTRADA) || sessionStorage.getItem(STORAGE_KEY_ENTRADA)
-  if (!id) return
+export async function heartbeatSalida(email) {
+  if (!email) return
 
-  const horaSalidaValor = formatHoraSalida(new Date())
+  const fecha = new Date().toISOString().split('T')[0]
+  const horaSalida = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
+
   const { error } = await supabase
     .from('control_horario')
-    .update({ hora_salida: horaSalidaValor })
-    .eq('id', id)
+    .update({ hora_salida: horaSalida })
+    .eq('user_email', email)
+    .eq('fecha', fecha)
 
   if (error) console.error('[Control Horario] Error UPDATE heartbeat:', error)
 }

@@ -60,10 +60,11 @@ const Dashboard = ({ user = null }) => {
     return () => window.removeEventListener('beforeunload', registrarSalidaOnUnload)
   }, [esMarisa])
   useEffect(() => {
-    if (!esMarisa) return
-    const id = setInterval(heartbeatSalida, HEARTBEAT_INTERVAL_MS)
+    if (!esMarisa || !user?.email) return
+    const tick = () => heartbeatSalida(user.email)
+    const id = setInterval(tick, HEARTBEAT_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [esMarisa])
+  }, [esMarisa, user?.email])
 
   const cargarClientes = async () => {
     try {

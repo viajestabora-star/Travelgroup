@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
-const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000
+const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
 const STORAGE_KEY_ENTRADA = 'control_horario_entrada_id'
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
@@ -72,7 +72,8 @@ const Layout = ({ user, onLogout }) => {
     ejecutarRegistro()
 
     const intervalId = setInterval(() => {
-      if (localStorage.getItem(STORAGE_KEY_ENTRADA)) heartbeatSalida()
+      const sessionEmail = authSession?.user?.email || user?.email
+      if (sessionEmail) heartbeatSalida(sessionEmail)
     }, HEARTBEAT_INTERVAL_MS)
 
     const handleUnload = () => {

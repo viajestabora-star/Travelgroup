@@ -48,11 +48,11 @@ const TimeTrackerProvider = ({ user, children }) => {
   }, [esMarisa])
 
   useEffect(() => {
-    if (!esMarisa) return
-    const tick = () => heartbeatSalida()
+    if (!esMarisa || !user?.email) return
+    const tick = () => heartbeatSalida(user.email)
     const id = setInterval(tick, HEARTBEAT_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [esMarisa])
+  }, [esMarisa, user?.email])
 
   return children
 }
