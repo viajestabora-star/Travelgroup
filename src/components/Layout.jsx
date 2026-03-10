@@ -18,37 +18,37 @@ const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
 
-  // CONTROL HORARIO - Versión emergencia: insert directo, sin filtros
+  // CONTROL HORARIO - Ejecución síncrona inmediata, user de props, .then/.catch
   useEffect(() => {
     console.log('--- SISTEMA DE CONTROL HORARIO ACTIVADO ---')
+    if (!user?.email) return
 
-    const ejecutarRegistro = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) return
+    window.alert('ESTOY ENVIANDO LOS DATOS AHORA MISMO')
 
-      const { data, error } = await supabase
-        .from('control_horario')
-        .insert([{
-          usuario_id: session.user.id,
-          user_email: session.user.email,
-          fecha: new Date().toISOString().split('T')[0],
-          hora_entrada: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-        }])
-        .select('id')
-        .single()
-
-      if (error) {
-        window.alert('FALLO REAL DB: ' + error.message)
-        return
-      }
-      console.log('REGISTRO CONFIRMADO EN DB')
-      if (data?.id) {
-        localStorage.setItem(STORAGE_KEY_ENTRADA, data.id)
-        localStorage.setItem(STORAGE_KEY_FECHA, new Date().toISOString().split('T')[0])
-      }
-    }
-
-    ejecutarRegistro()
+    supabase
+      .from('control_horario')
+      .insert([{
+        usuario_id: user.id || null,
+        user_email: user.email,
+        fecha: new Date().toISOString().split('T')[0],
+        hora_entrada: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+      }])
+      .select('id')
+      .single()
+      .then(({ data, error }) => {
+        if (error) {
+          window.alert('ERROR FATAL ENVÍO: ' + error.message)
+          return
+        }
+        console.log('REGISTRO CONFIRMADO EN DB')
+        if (data?.id) {
+          localStorage.setItem(STORAGE_KEY_ENTRADA, data.id)
+          localStorage.setItem(STORAGE_KEY_FECHA, new Date().toISOString().split('T')[0])
+        }
+      })
+      .catch((err) => {
+        window.alert('ERROR FATAL ENVÍO: ' + (err?.message || String(err)))
+      })
 
     const intervalId = setInterval(() => {
       const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA)
