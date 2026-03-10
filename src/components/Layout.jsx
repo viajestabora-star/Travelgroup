@@ -11,44 +11,55 @@ import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejerci
 const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000
 const STORAGE_KEY_ENTRADA = 'control_horario_entrada_id'
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
-const EMAILS_CONTROL_HORARIO = ['andres@viajestabora.com', 'info@viajestabora.com', 'grupos@viajestabora.com']
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
 
-  // CONTROL HORARIO - Ejecución síncrona inmediata, user de props, .then/.catch
+  // CONTROL HORARIO - Dinámico, sin duplicados, silencioso, depende de user.id
   useEffect(() => {
-    console.log('--- SISTEMA DE CONTROL HORARIO ACTIVADO ---')
     if (!user?.email) return
 
-    window.alert('ESTOY ENVIANDO LOS DATOS AHORA MISMO')
+    const ejecutarRegistro = async () => {
+      const f_actual = new Date().toISOString().split('T')[0]
+      const h_actual = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
-    supabase
-      .from('control_horario')
-      .insert([{
-        usuario_id: user.id || null,
-        user_email: user.email,
-        fecha: new Date().toISOString().split('T')[0],
-        hora_entrada: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-      }])
-      .select('id')
-      .single()
-      .then(({ data, error }) => {
-        if (error) {
-          window.alert('ERROR FATAL ENVÍO: ' + error.message)
-          return
-        }
-        console.log('REGISTRO CONFIRMADO EN DB')
-        if (data?.id) {
-          localStorage.setItem(STORAGE_KEY_ENTRADA, data.id)
-          localStorage.setItem(STORAGE_KEY_FECHA, new Date().toISOString().split('T')[0])
-        }
-      })
-      .catch((err) => {
-        window.alert('ERROR FATAL ENVÍO: ' + (err?.message || String(err)))
-      })
+      const { data: existe } = await supabase
+        .from('control_horario')
+        .select('id')
+        .eq('user_email', user.email)
+        .eq('fecha', f_actual)
+        .maybeSingle()
+
+      if (existe?.id) {
+        localStorage.setItem(STORAGE_KEY_ENTRADA, existe.id)
+        localStorage.setItem(STORAGE_KEY_FECHA, f_actual)
+        return
+      }
+
+      const { data: nuevo, error } = await supabase
+        .from('control_horario')
+        .insert([{
+          usuario_id: user.id || null,
+          user_email: user.email,
+          fecha: f_actual,
+          hora_entrada: h_actual
+        }])
+        .select('id')
+        .single()
+
+      if (error) {
+        console.error('[Control Horario] Error DB:', error.message)
+        return
+      }
+      if (nuevo?.id) {
+        localStorage.setItem(STORAGE_KEY_ENTRADA, nuevo.id)
+        localStorage.setItem(STORAGE_KEY_FECHA, f_actual)
+      }
+    }
+
+    ejecutarRegistro()
 
     const intervalId = setInterval(() => {
       const entradaId = localStorage.getItem(STORAGE_KEY_ENTRADA)
@@ -66,7 +77,7 @@ const Layout = ({ user, onLogout }) => {
       clearInterval(intervalId)
       window.removeEventListener('beforeunload', handleUnload)
     }
-  }, [])
+  }, [user?.id ?? user?.email])
 
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
