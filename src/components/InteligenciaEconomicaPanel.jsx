@@ -280,7 +280,6 @@ const InteligenciaEconomicaPanel = ({ user }) => {
                     <th className="text-left py-3 px-2 font-semibold text-slate-700">Usuario</th>
                     <th className="text-left py-3 px-2 font-semibold text-slate-700">Hora Entrada</th>
                     <th className="text-left py-3 px-2 font-semibold text-slate-700">Hora Salida</th>
-                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Tiempo Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -290,9 +289,8 @@ const InteligenciaEconomicaPanel = ({ user }) => {
                       <td className="py-3 px-2">
                         {USUARIOS_CONTROL.find((u) => u.email === r.user_email)?.nombre || r.user_email || '—'}
                       </td>
-                      <td className="py-3 px-2">{formatearHora(r.hora_entrada)}</td>
-                      <td className="py-3 px-2">{formatearHora(r.hora_salida)}</td>
-                      <td className="py-3 px-2">{formatearDuracion(calcularMinutosTrabajados(r))}</td>
+                      <td className="py-3 px-2">{r.hora_entrada ?? '—'}</td>
+                      <td className="py-3 px-2">{r.hora_salida ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
