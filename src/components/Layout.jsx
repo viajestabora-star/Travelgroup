@@ -18,62 +18,33 @@ const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
 
-  // CONTROL HORARIO - Primer useEffect, prioridad máxima, sin filtros previos
+  // CONTROL HORARIO - Versión emergencia: insert directo, sin filtros
   useEffect(() => {
     console.log('--- SISTEMA DE CONTROL HORARIO ACTIVADO ---')
 
     const ejecutarRegistro = async () => {
-      const { data: authData } = await supabase.auth.getUser()
-      const userEmail = authData?.user?.email?.trim()?.toLowerCase() || ''
-      const usuarioId = authData?.user?.id || null
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) return
 
-      if (!userEmail || !usuarioId) return
-      console.log('EMAIL DETECTADO:', userEmail)
-      // if (!EMAILS_CONTROL_HORARIO.includes(userEmail)) return
+      const { data, error } = await supabase
+        .from('control_horario')
+        .insert([{
+          usuario_id: session.user.id,
+          user_email: session.user.email,
+          fecha: new Date().toISOString().split('T')[0],
+          hora_entrada: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        }])
+        .select('id')
+        .single()
 
-      const ahora = new Date()
-      const f_actual = ahora.toLocaleDateString('en-CA')
-      const h_actual = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-
-      try {
-        const { data: upserted, error: errUpsert } = await supabase
-          .from('control_horario')
-          .upsert(
-            [{
-              usuario_id: usuarioId,
-              user_email: userEmail,
-              fecha: f_actual,
-              hora_entrada: h_actual
-            }],
-            {
-              onConflict: 'user_email,fecha',
-              ignoreDuplicates: false
-            }
-          )
-          .select('id')
-          .single()
-
-        if (errUpsert) {
-          alert('ERROR SUPABASE: ' + (errUpsert.message || '') + ' - ' + (errUpsert.details || ''))
-          const { data: existe } = await supabase
-            .from('control_horario')
-            .select('id')
-            .eq('user_email', userEmail)
-            .eq('fecha', f_actual)
-            .maybeSingle()
-          if (existe?.id) {
-            localStorage.setItem(STORAGE_KEY_ENTRADA, existe.id)
-            localStorage.setItem(STORAGE_KEY_FECHA, f_actual)
-          }
-          return
-        }
-        if (upserted?.id) {
-          localStorage.setItem(STORAGE_KEY_ENTRADA, upserted.id)
-          localStorage.setItem(STORAGE_KEY_FECHA, f_actual)
-          console.log('[Control Horario] Registro creado/actualizado para:', userEmail)
-        }
-      } catch (err) {
-        console.log('[Control Horario] Excepción:', err?.message)
+      if (error) {
+        window.alert('FALLO REAL DB: ' + error.message)
+        return
+      }
+      console.log('REGISTRO CONFIRMADO EN DB')
+      if (data?.id) {
+        localStorage.setItem(STORAGE_KEY_ENTRADA, data.id)
+        localStorage.setItem(STORAGE_KEY_FECHA, new Date().toISOString().split('T')[0])
       }
     }
 
