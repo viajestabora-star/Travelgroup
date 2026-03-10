@@ -24,19 +24,21 @@ const Layout = ({ user, onLogout }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
-  // CONTROL HORARIO - Validación de identidad, select previo, inserción atómica
+  // CONTROL HORARIO - Proceso genérico y robusto, hora_entrada obligatoria
   useEffect(() => {
-    const emailActivo = authSession?.user?.email || user?.email
-    if (emailActivo == null || emailActivo === '') return
+    const currentEmail = user?.email || authSession?.user?.email
+    if (!currentEmail) return
 
     const ejecutarRegistro = async () => {
       const fecha = new Date().toISOString().split('T')[0]
-      const horaEntrada = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+      const horaString = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
+
+      console.log('[Control Horario] Intentando registro para:', currentEmail, 'Hora:', horaString)
 
       const { data: existe } = await supabase
         .from('control_horario')
         .select('id')
-        .eq('user_email', emailActivo)
+        .eq('user_email', currentEmail)
         .eq('fecha', fecha)
         .maybeSingle()
 
@@ -50,9 +52,9 @@ const Layout = ({ user, onLogout }) => {
         .from('control_horario')
         .insert([{
           usuario_id: user?.id ?? null,
-          user_email: emailActivo,
+          user_email: currentEmail,
           fecha,
-          hora_entrada: horaEntrada
+          hora_entrada: horaString
         }])
         .select('id')
         .single()
