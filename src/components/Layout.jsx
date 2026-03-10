@@ -24,11 +24,12 @@ const Layout = ({ user, onLogout }) => {
 
     const ejecutarRegistro = async () => {
       const { data: authData } = await supabase.auth.getUser()
-      const email = authData?.user?.email?.trim()?.toLowerCase() || ''
+      const userEmail = authData?.user?.email?.trim()?.toLowerCase() || ''
       const usuarioId = authData?.user?.id || null
 
-      if (!email || !usuarioId) return
-      if (!EMAILS_CONTROL_HORARIO.includes(email)) return
+      if (!userEmail || !usuarioId) return
+      console.log('EMAIL DETECTADO:', userEmail)
+      // if (!EMAILS_CONTROL_HORARIO.includes(userEmail)) return
 
       const ahora = new Date()
       const f_actual = ahora.toLocaleDateString('en-CA')
@@ -39,10 +40,10 @@ const Layout = ({ user, onLogout }) => {
           .from('control_horario')
           .upsert(
             [{
-              user_email: email,
+              usuario_id: usuarioId,
+              user_email: userEmail,
               fecha: f_actual,
-              hora_entrada: h_actual,
-              usuario_id: usuarioId
+              hora_entrada: h_actual
             }],
             {
               onConflict: 'user_email,fecha',
@@ -53,11 +54,11 @@ const Layout = ({ user, onLogout }) => {
           .single()
 
         if (errUpsert) {
-          console.log('[Control Horario] Error upsert:', errUpsert.code, errUpsert.message)
+          alert('ERROR SUPABASE: ' + (errUpsert.message || '') + ' - ' + (errUpsert.details || ''))
           const { data: existe } = await supabase
             .from('control_horario')
             .select('id')
-            .eq('user_email', email)
+            .eq('user_email', userEmail)
             .eq('fecha', f_actual)
             .maybeSingle()
           if (existe?.id) {
@@ -69,7 +70,7 @@ const Layout = ({ user, onLogout }) => {
         if (upserted?.id) {
           localStorage.setItem(STORAGE_KEY_ENTRADA, upserted.id)
           localStorage.setItem(STORAGE_KEY_FECHA, f_actual)
-          console.log('[Control Horario] Registro creado/actualizado para:', email)
+          console.log('[Control Horario] Registro creado/actualizado para:', userEmail)
         }
       } catch (err) {
         console.log('[Control Horario] Excepción:', err?.message)
