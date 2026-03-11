@@ -942,39 +942,111 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return last && formData && !formDataCotizacionIgual(formData, last)
   }, [formData, versiones])
 
-  const recargarInformeDesdeCotizacion = () => {
-    if (!servicios?.length) return
+  const recargarInformeDesdeCotizacion = async () => {
+    if (!expediente?.id) return
     informeLiquidacionInicializadoRef.current = false
-    const precioViaje = paxPago * toNum(formData?.precio_venta_cliente)
+
+    // Fetch paralelo: servicios (todos los campos) + expediente fresco
+    const [{ data: serviciosDB, error: errServicios }, { data: expFresco }] = await Promise.all([
+      supabase
+        .from('servicios_cotizacion')
+        .select('*')
+        .eq('id_expediente', String(expediente.id).trim())
+        .order('orden', { ascending: true })
+        .order('id', { ascending: true }),
+      supabase
+        .from('expedientes')
+        .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
+        .eq('id', expediente.id)
+        .single(),
+    ])
+
+    if (errServicios) {
+      console.error('[Cotización] Error al recargar servicios:', errServicios.message)
+      return
+    }
+
+    const serviciosActualizados = Array.isArray(serviciosDB) ? serviciosDB : (servicios || [])
+
+    // Resolver nombres de proveedor directamente desde la BD para evitar caché obsoleta
+    const idsNecesarios = [...new Set(
+      serviciosActualizados.map(s => s.proveedor_id_int).filter(Boolean)
+    )]
+    let proveedoresMap = {}
+    if (idsNecesarios.length > 0) {
+      const { data: provsDB } = await supabase
+        .from('proveedores')
+        .select('id, nombre_comercial')
+        .in('id', idsNecesarios)
+      if (Array.isArray(provsDB)) {
+        provsDB.forEach(p => { proveedoresMap[p.id] = p.nombre_comercial })
+      }
+    }
+
+    // Datos frescos del expediente
+    const paxTotalFresco = toNum(expFresco?.total_pax) || toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0
+    const gratuidadesFrescas = toNum(expFresco?.gratuidades) || toNum(expediente?.gratuidades) || toNum(formData?.gratuidades) || 0
+    const paxPagoFresco = toNum(expFresco?.pax_pago) || Math.max(0, paxTotalFresco - gratuidadesFrescas) || paxPago
+    const precioVentaFresco = toNum(expFresco?.precio_venta_cliente) || toNum(expediente?.precio_venta_cliente) || toNum(formData?.precio_venta_cliente) || 0
+    const bonificacionFresco = toNum(expFresco?.bonificacion_pax) || toNum(expediente?.bonificacion_pax) || toNum(formData?.bonificacion_pax) || 0
+
+    const precioViaje = paxPagoFresco * precioVentaFresco
     const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
-    const descuentosVal = toNum(formData?.bonificacion_pax) * paxPago
+    const descuentosVal = bonificacionFresco * paxPagoFresco
+
     const savedCostesReales = (informeLiquidacion.costesReales || []).reduce((acc, c) => {
       acc[c.id_servicio] = c.coste_real
       return acc
     }, {})
-    const costesRealesIniciales = servicios.map((s) => {
-      const prov = obtenerProveedorPorId(s?.proveedorId)
-      const proveedor = prov?.nombreComercial || s?.proveedorNombreTemporal || '—'
+
+    const costesRealesIniciales = serviciosActualizados.map((s) => {
+      const nombreComercialCache = obtenerProveedorPorId ? obtenerProveedorPorId(s?.proveedor_id_int)?.nombreComercial : null
+      const proveedor = nombreComercialCache
+        || proveedoresMap[s?.proveedor_id_int]
+        || s?.nombre_proveedor_texto
+        || s?.nombre_proveedor_manual
+        || s?.proveedorNombreTemporal
+        || '—'
       const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
-      const nombre = s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo
-      const concepto = nombre
-      const fila = { ...DEFAULT_SERVICE_VALUES, ...s }
-      const costeCotizado = calcularTotalFilaUI(s)
+      const nombre = s?.nombre_especifico ? `${tipo} ${s.nombre_especifico}` : (s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo)
+      const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
       const costeReal = savedCostesReales[s?.id] ?? costeCotizado
       return {
         id_servicio: s?.id || generarUUID(),
-        concepto,
+        concepto: nombre,
         proveedor,
         coste_cotizado: costeCotizado,
         coste_real: costeReal,
       }
     })
+
     setInformeLiquidacion(prev => ({
       ...prev,
       ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal },
       costesReales: costesRealesIniciales,
       gastosImprevistos: prev.gastosImprevistos || [],
     }))
+
+    // Actualizar paxPorAsociacion con datos frescos si no hay distribución manual guardada
+    const guardado = expediente?.cierre_grupo?.pax_por_asociacion
+    if (!Array.isArray(guardado) || guardado.length === 0) {
+      if (expedienteClientes.length > 0) {
+        const paxPorCliente = paxTotalFresco > 0 ? Math.floor(paxTotalFresco / expedienteClientes.length) : null
+        setPaxPorAsociacion(expedienteClientes.map(ec => ({
+          cliente_id: ec.cliente_id,
+          cliente_nombre: ec.cliente_nombre,
+          pax: paxPorCliente,
+        })))
+      } else if (clienteIdPrincipal) {
+        const nombrePrincipal = grupo?.nombre || expediente?.cliente_nombre || expediente?.nombre_grupo || '—'
+        setPaxPorAsociacion([{
+          cliente_id: clienteIdPrincipal,
+          cliente_nombre: nombrePrincipal,
+          pax: paxTotalFresco || null,
+        }])
+      }
+    }
+
     informeLiquidacionInicializadoRef.current = true
   }
 
