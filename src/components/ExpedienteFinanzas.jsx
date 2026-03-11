@@ -139,22 +139,39 @@ const ExpedienteFinanzas = ({
     }
   }, [expediente?.id, expediente?.cierre_grupo])
 
-  // Effect: paxPorAsociacion init
+  // Effect: paxPorAsociacion init — si hay guardado en cierre_grupo, usarlo; si no, distribuir total_pax
   useEffect(() => {
     const guardado = cierreGrupo?.pax_por_asociacion
+    const paxTotalExpediente = toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0
+
     if (Array.isArray(guardado) && guardado.length > 0) {
       setPaxPorAsociacion(guardado)
     } else if (expedienteClientes.length > 0) {
+      const paxPorCliente = expedienteClientes.length > 0 && paxTotalExpediente > 0
+        ? Math.floor(paxTotalExpediente / expedienteClientes.length)
+        : null
       setPaxPorAsociacion(prev => {
         const idsPrev = new Set(prev.map(p => String(p.cliente_id)))
-        const nuevos = expedienteClientes.filter(ec => !idsPrev.has(String(ec.cliente_id))).map(ec => ({ cliente_id: ec.cliente_id, cliente_nombre: ec.cliente_nombre, pax: null }))
-        return prev.length > 0 ? [...prev, ...nuevos] : expedienteClientes.map(ec => ({ cliente_id: ec.cliente_id, cliente_nombre: ec.cliente_nombre, pax: null }))
+        const nuevos = expedienteClientes.filter(ec => !idsPrev.has(String(ec.cliente_id))).map(ec => ({
+          cliente_id: ec.cliente_id,
+          cliente_nombre: ec.cliente_nombre,
+          pax: paxPorCliente,
+        }))
+        return prev.length > 0 ? [...prev, ...nuevos] : expedienteClientes.map(ec => ({
+          cliente_id: ec.cliente_id,
+          cliente_nombre: ec.cliente_nombre,
+          pax: paxPorCliente,
+        }))
       })
     } else if (clienteIdPrincipal) {
       const nombrePrincipal = grupo?.nombre || expediente?.cliente_nombre || expediente?.nombre_grupo || '—'
-      setPaxPorAsociacion(prev => prev.length > 0 ? prev : [{ cliente_id: clienteIdPrincipal, cliente_nombre: nombrePrincipal, pax: null }])
+      setPaxPorAsociacion(prev => prev.length > 0 ? prev : [{
+        cliente_id: clienteIdPrincipal,
+        cliente_nombre: nombrePrincipal,
+        pax: paxTotalExpediente || null,
+      }])
     }
-  }, [expediente?.id, expediente?.cierre_grupo?.pax_por_asociacion, expedienteClientes, clienteIdPrincipal, grupo?.nombre])
+  }, [expediente?.id, expediente?.total_pax, expediente?.cierre_grupo?.pax_por_asociacion, expedienteClientes, clienteIdPrincipal, grupo?.nombre])
 
   // Effect: load cobros when activeTab is cobros (call onCobrosReload)
   useEffect(() => {
@@ -537,9 +554,24 @@ const ExpedienteFinanzas = ({
     return toNum(total_servicio)
   }
 
-  const recargarInformeDesdeCotizacion = () => {
-    if (!servicios?.length) return
+  const recargarInformeDesdeCotizacion = async () => {
+    if (!expediente?.id) return
     informeLiquidacionInicializadoRef.current = false
+
+    // Refetch servicios desde Supabase para incluir proveedores recién añadidos
+    const { data: serviciosDB, error } = await supabase
+      .from('servicios_cotizacion')
+      .select('id, tipo_servicio, tipo, nombre_especifico, proveedor_id_int, nombre_proveedor_texto, nombre_proveedor_manual, coste_unitario, noches, dias_guia, cantidad, tipo_calculo, total_servicio, total_servicio_manual')
+      .eq('id_expediente', expediente.id)
+      .order('id', { ascending: true })
+
+    if (error) {
+      console.error('[Cotización] Error al recargar servicios:', error.message)
+      return
+    }
+
+    const serviciosActualizados = Array.isArray(serviciosDB) ? serviciosDB : (servicios || [])
+
     const precioViaje = paxPago * toNum(formData?.precio_venta_cliente)
     const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
     const descuentosVal = toNum(formData?.bonificacion_pax) * paxPago
@@ -547,23 +579,24 @@ const ExpedienteFinanzas = ({
       acc[c.id_servicio] = c.coste_real
       return acc
     }, {})
-    const costesRealesIniciales = servicios.map((s) => {
-      const prov = obtenerProveedorPorId ? obtenerProveedorPorId(s?.proveedorId) : null
-      const proveedor = prov?.nombreComercial || s?.proveedorNombreTemporal || '—'
+
+    const costesRealesIniciales = serviciosActualizados.map((s) => {
+      const prov = obtenerProveedorPorId ? obtenerProveedorPorId(s?.proveedor_id_int ?? s?.proveedorId) : null
+      const proveedor = prov?.nombreComercial || s?.nombre_proveedor_texto || s?.nombre_proveedor_manual || s?.proveedorNombreTemporal || '—'
       const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
-      const nombre = s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo
-      const concepto = nombre
+      const nombre = s?.nombre_especifico ? `${tipo} ${s.nombre_especifico}` : (s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo)
       const fila = { ...DEFAULT_SERVICE_VALUES, ...s }
-      const costeCotizado = calcularTotalFilaUI(s)
+      const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI(s)
       const costeReal = savedCostesReales[s?.id] ?? costeCotizado
       return {
         id_servicio: s?.id || generarUUID(),
-        concepto,
+        concepto: nombre,
         proveedor,
         coste_cotizado: costeCotizado,
         coste_real: costeReal,
       }
     })
+
     setInformeLiquidacion(prev => ({
       ...prev,
       ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal },
@@ -1316,8 +1349,14 @@ const ExpedienteFinanzas = ({
 
             {(expedienteClientes.length > 0 || paxPorAsociacion.length > 0) && (
               <section className="mb-6">
-                <h2 className="text-base font-bold text-slate-800 uppercase mb-3 border-b border-slate-300 pb-1">Pax por asociación</h2>
-                <p className="text-sm text-slate-500 mb-3">Opcional: anota cuántas personas vienen de cada asociación vinculada.</p>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-slate-300 pb-1">
+                  <h2 className="text-base font-bold text-slate-800 uppercase">Pax por asociación</h2>
+                  <span className="text-xs text-slate-500 font-medium">
+                    Total expediente: <strong className="text-slate-700">{toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0} pax</strong>
+                    {' · '}Confirmados en cotización: <strong className="text-slate-700">{paxPago} pax pago</strong>
+                  </span>
+                </div>
+                <p className="text-sm text-slate-500 mb-3">Distribución de pasajeros por asociación. Datos cargados desde la cotización.</p>
                 <div className="space-y-2">
                   {(expedienteClientes.length > 0 ? expedienteClientes : (paxPorAsociacion || []).map(p => ({ cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre }))).map((item, idx) => {
                     const clienteId = item.cliente_id
@@ -1340,6 +1379,11 @@ const ExpedienteFinanzas = ({
                       </div>
                     )
                   })}
+                  {paxPorAsociacion.length > 0 && (
+                    <div className="text-right text-xs text-slate-500 pt-1 font-medium">
+                      Total declarado: <strong className="text-slate-700">{paxPorAsociacion.reduce((s, p) => s + (toNum(p.pax) || 0), 0)} pax</strong>
+                    </div>
+                  )}
                 </div>
               </section>
             )}
