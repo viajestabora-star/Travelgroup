@@ -946,27 +946,43 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (!expediente?.id) return
     informeLiquidacionInicializadoRef.current = false
 
-    // Fetch paralelo: servicios (todos los campos) + expediente fresco
-    const [{ data: serviciosDB, error: errServicios }, { data: expFresco }] = await Promise.all([
-      supabase
+    console.log('[Cierre] Recargando servicios desde Supabase para expediente', expediente.id)
+
+    // Fetch directo a Supabase — nunca usa el prop servicios (puede estar desactualizado)
+    let serviciosQuery = await supabase
+      .from('servicios_cotizacion')
+      .select('*')
+      .eq('id_expediente', String(expediente.id).trim())
+      .order('orden', { ascending: true })
+      .order('id', { ascending: true })
+
+    // Fallback: si orden no existe aún en esta instancia de la BD
+    if (serviciosQuery.error) {
+      serviciosQuery = await supabase
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', String(expediente.id).trim())
-        .order('orden', { ascending: true })
-        .order('id', { ascending: true }),
-      supabase
-        .from('expedientes')
-        .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
-        .eq('id', expediente.id)
-        .single(),
-    ])
+        .order('id', { ascending: true })
+    }
+
+    const { data: serviciosDB, error: errServicios } = serviciosQuery
+
+    const { data: expFresco } = await supabase
+      .from('expedientes')
+      .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
+      .eq('id', expediente.id)
+      .single()
 
     if (errServicios) {
-      console.error('[Cotización] Error al recargar servicios:', errServicios.message)
+      console.error('[Cierre] Error al recargar servicios:', errServicios.message)
       return
     }
 
-    const serviciosActualizados = Array.isArray(serviciosDB) ? serviciosDB : (servicios || [])
+    console.log('[Cierre] Servicios cargados:', serviciosDB?.length ?? 0)
+
+    const serviciosActualizados = Array.isArray(serviciosDB) && serviciosDB.length > 0
+      ? serviciosDB
+      : []
 
     // Resolver nombres de proveedor directamente desde la BD para evitar caché obsoleta
     const idsNecesarios = [...new Set(
