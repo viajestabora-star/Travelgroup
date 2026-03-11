@@ -18,7 +18,7 @@ const Layout = ({ user, onLogout }) => {
   const [authSession, setAuthSession] = useState(null)
   const [currentSessionId, setCurrentSessionId] = useState(null)
   const currentSessionIdRef = useRef(null)
-  const insertLockRef = useRef(false)
+  const isProcessing = useRef(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthSession(session))
@@ -26,51 +26,55 @@ const Layout = ({ user, onLogout }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
-  // CONTROL HORARIO - Blindaje de sesión: evita falsos cierres y duplicidad al refrescar
+  // CONTROL HORARIO - Orden lógico estricto para evitar duplicados al refrescar
   useEffect(() => {
     const sessionEmail = authSession?.user?.email || user?.email
     if (!sessionEmail) return
 
-    const attendanceId = sessionStorage.getItem(STORAGE_ATTENDANCE_ID)
-
-    if (attendanceId) {
-      setCurrentSessionId(attendanceId)
-      currentSessionIdRef.current = attendanceId
-    } else {
-      if (insertLockRef.current) return
-      insertLockRef.current = true
-
-      const ejecutarRegistro = async () => {
-        const hoy = new Date()
-        const fechaDDMMYYYY = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`
-        const horaEntrada = hoy.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-
-        const { data: nuevo, error } = await supabase
-          .from('control_horario')
-          .insert([{
-            usuario_id: user?.id ?? null,
-            user_email: sessionEmail,
-            fecha: fechaDDMMYYYY,
-            hora_entrada: horaEntrada
-          }])
-          .select('id')
-          .single()
-
-        if (error) {
-          console.error('[Control Horario]', error.message)
-          insertLockRef.current = false
-          return
-        }
-        if (nuevo?.id) {
-          sessionStorage.setItem(STORAGE_ATTENDANCE_ID, nuevo.id)
-          setCurrentSessionId(nuevo.id)
-          currentSessionIdRef.current = nuevo.id
-        }
-        insertLockRef.current = false
+    const activeId = sessionStorage.getItem(STORAGE_ATTENDANCE_ID)
+    if (activeId) {
+      setCurrentSessionId(activeId)
+      currentSessionIdRef.current = activeId
+      const handleUnload = () => {
+        if (currentSessionIdRef.current) registrarSalidaOnUnload(currentSessionIdRef.current)
       }
-
-      ejecutarRegistro()
+      window.addEventListener('beforeunload', handleUnload)
+      return () => window.removeEventListener('beforeunload', handleUnload)
     }
+    if (isProcessing.current) return
+
+    isProcessing.current = true
+
+    const ejecutarRegistro = async () => {
+      const hoy = new Date()
+      const fechaDDMMYYYY = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`
+      const horaEntrada = hoy.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+
+      const { data, error } = await supabase
+        .from('control_horario')
+        .insert([{
+          usuario_id: user?.id ?? null,
+          user_email: sessionEmail,
+          fecha: fechaDDMMYYYY,
+          hora_entrada: horaEntrada
+        }])
+        .select('id')
+        .single()
+
+      if (error) {
+        console.error('[Control Horario]', error.message)
+        isProcessing.current = false
+        return
+      }
+      if (data?.id) {
+        sessionStorage.setItem(STORAGE_ATTENDANCE_ID, data.id)
+        setCurrentSessionId(data.id)
+        currentSessionIdRef.current = data.id
+      }
+      isProcessing.current = false
+    }
+
+    ejecutarRegistro()
 
     const handleUnload = () => {
       if (currentSessionIdRef.current) registrarSalidaOnUnload(currentSessionIdRef.current)
