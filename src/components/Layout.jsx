@@ -41,16 +41,16 @@ const Layout = ({ user, onLogout }) => {
       insertLockRef.current = true
 
       const ejecutarRegistro = async () => {
-        const ahora = new Date()
-        const fecha = ahora.toLocaleDateString('es-ES')
-        const horaEntrada = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        const hoy = new Date()
+        const fechaDDMMYYYY = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`
+        const horaEntrada = hoy.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 
         const { data: nuevo, error } = await supabase
           .from('control_horario')
           .insert([{
             usuario_id: user?.id ?? null,
             user_email: sessionEmail,
-            fecha,
+            fecha: fechaDDMMYYYY,
             hora_entrada: horaEntrada
           }])
           .select('id')

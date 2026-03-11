@@ -285,7 +285,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
                 <tbody>
                   {controlHorarioFiltrado.map((r, idx) => (
                     <tr key={`${r.user_email}-${r.fecha}-${r.hora_entrada}-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-3 px-2">{formatearFecha(r.fecha)}</td>
+                      <td className="py-3 px-2">{r.fecha ?? '—'}</td>
                       <td className="py-3 px-2">
                         {USUARIOS_CONTROL.find((u) => u.email === r.user_email)?.nombre || r.user_email || '—'}
                       </td>
