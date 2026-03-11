@@ -392,7 +392,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         gastosImprevistos: Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : (prev.gastosImprevistos || []),
       }))
     }
-  }, [expediente?.id])
+  }, [expediente?.id, expediente?.cierre_grupo])
   
   const informeLiquidacionInicializadoRef = useRef(false)
 
@@ -1367,6 +1367,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         beneficio_neto_real: beneficioCalculado,
         cuota_iva: ivaCalculado,
         estado: 'Cerrado',
+        cierre_grupo: cierreGrupoJson,
       }
 
       const { error } = await supabase

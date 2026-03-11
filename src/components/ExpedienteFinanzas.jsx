@@ -125,7 +125,7 @@ const ExpedienteFinanzas = ({
   const [guardandoCierre, setGuardandoCierre] = useState(false)
   const informeLiquidacionInicializadoRef = useRef(false)
 
-  // Effect: restore informeLiquidacion from expediente.cierre_grupo when expediente.id changes
+  // Effect: restore informeLiquidacion from expediente.cierre_grupo when modal opens or cierre_grupo loads
   useEffect(() => {
     const cg = expediente?.cierre_grupo
     if (typeof cg !== 'object' || cg === null) return
@@ -137,7 +137,7 @@ const ExpedienteFinanzas = ({
         gastosImprevistos: Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : (prev.gastosImprevistos || []),
       }))
     }
-  }, [expediente?.id])
+  }, [expediente?.id, expediente?.cierre_grupo])
 
   // Effect: paxPorAsociacion init
   useEffect(() => {
@@ -676,6 +676,7 @@ const ExpedienteFinanzas = ({
         beneficio_neto_real: beneficioCalculado,
         cuota_iva: ivaCalculado,
         estado: 'Cerrado',
+        cierre_grupo: cierreGrupoJson,
       }
 
       const { error } = await supabase
