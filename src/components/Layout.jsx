@@ -9,6 +9,7 @@ import {
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
+const STORAGE_ACTIVE_SESSION = 'active_session_id'
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 const Layout = ({ user, onLogout }) => {
@@ -17,6 +18,7 @@ const Layout = ({ user, onLogout }) => {
   const [authSession, setAuthSession] = useState(null)
   const [currentSessionId, setCurrentSessionId] = useState(null)
   const currentSessionIdRef = useRef(null)
+  const insertLockRef = useRef(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthSession(session))
@@ -24,38 +26,51 @@ const Layout = ({ user, onLogout }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
-  // CONTROL HORARIO - Inserción de sesión al montar cuando hay session.user.email
+  // CONTROL HORARIO - Candado de persistencia: evita duplicados al refrescar o en Strict Mode
   useEffect(() => {
     const sessionEmail = authSession?.user?.email || user?.email
     if (!sessionEmail) return
 
-    const ejecutarRegistro = async () => {
-      const ahora = new Date()
-      const fecha = ahora.toLocaleDateString('es-ES')
-      const horaEntrada = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+    const existingId = sessionStorage.getItem(STORAGE_ACTIVE_SESSION)
 
-      const { data: nuevo, error } = await supabase
-        .from('control_horario')
-        .insert([{
-          usuario_id: user?.id ?? null,
-          user_email: sessionEmail,
-          fecha,
-          hora_entrada: horaEntrada
-        }])
-        .select('id')
-        .single()
+    if (existingId) {
+      setCurrentSessionId(existingId)
+      currentSessionIdRef.current = existingId
+    } else {
+      if (insertLockRef.current) return
+      insertLockRef.current = true
 
-      if (error) {
-        console.error('[Control Horario]', error.message)
-        return
+      const ejecutarRegistro = async () => {
+        const ahora = new Date()
+        const fecha = ahora.toLocaleDateString('es-ES')
+        const horaEntrada = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+
+        const { data: nuevo, error } = await supabase
+          .from('control_horario')
+          .insert([{
+            usuario_id: user?.id ?? null,
+            user_email: sessionEmail,
+            fecha,
+            hora_entrada: horaEntrada
+          }])
+          .select('id')
+          .single()
+
+        if (error) {
+          console.error('[Control Horario]', error.message)
+          insertLockRef.current = false
+          return
+        }
+        if (nuevo?.id) {
+          sessionStorage.setItem(STORAGE_ACTIVE_SESSION, nuevo.id)
+          setCurrentSessionId(nuevo.id)
+          currentSessionIdRef.current = nuevo.id
+        }
+        insertLockRef.current = false
       }
-      if (nuevo?.id) {
-        setCurrentSessionId(nuevo.id)
-        currentSessionIdRef.current = nuevo.id
-      }
+
+      ejecutarRegistro()
     }
-
-    ejecutarRegistro()
 
     const handleUnload = () => {
       if (currentSessionIdRef.current) registrarSalidaOnUnload(currentSessionIdRef.current)
@@ -126,7 +141,13 @@ const Layout = ({ user, onLogout }) => {
             </NavLink>
           ))}
           {onLogout && (
-            <button onClick={onLogout} className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-4 border-t border-slate-700">
+            <button
+              onClick={() => {
+                sessionStorage.removeItem(STORAGE_ACTIVE_SESSION)
+                onLogout()
+              }}
+              className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-4 border-t border-slate-700"
+            >
               <LogOut size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
               {sidebarOpen && <span className="text-sm font-medium">Cerrar sesión</span>}
             </button>
