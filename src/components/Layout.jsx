@@ -15,8 +15,8 @@ const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [authSession, setAuthSession] = useState(null)
-  const [currentRegistroId, setCurrentRegistroId] = useState(null)
-  const currentRegistroIdRef = useRef(null)
+  const [currentSessionId, setCurrentSessionId] = useState(null)
+  const currentSessionIdRef = useRef(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthSession(session))
@@ -24,21 +24,21 @@ const Layout = ({ user, onLogout }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
-  // CONTROL HORARIO - Registro de entrada al montar (sin comprobar existencia)
+  // CONTROL HORARIO - Inserción de sesión al montar cuando hay session.user.email
   useEffect(() => {
-    const currentEmail = user?.email || authSession?.user?.email
-    if (!currentEmail) return
+    const sessionEmail = authSession?.user?.email || user?.email
+    if (!sessionEmail) return
 
     const ejecutarRegistro = async () => {
       const ahora = new Date()
-      const fecha = ahora.toISOString().split('T')[0]
-      const horaEntrada = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
+      const fecha = ahora.toLocaleDateString('es-ES')
+      const horaEntrada = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 
       const { data: nuevo, error } = await supabase
         .from('control_horario')
         .insert([{
           usuario_id: user?.id ?? null,
-          user_email: currentEmail,
+          user_email: sessionEmail,
           fecha,
           hora_entrada: horaEntrada
         }])
@@ -50,31 +50,31 @@ const Layout = ({ user, onLogout }) => {
         return
       }
       if (nuevo?.id) {
-        setCurrentRegistroId(nuevo.id)
-        currentRegistroIdRef.current = nuevo.id
+        setCurrentSessionId(nuevo.id)
+        currentSessionIdRef.current = nuevo.id
       }
     }
 
     ejecutarRegistro()
 
     const handleUnload = () => {
-      if (currentRegistroIdRef.current) registrarSalidaOnUnload(currentRegistroIdRef.current)
+      if (currentSessionIdRef.current) registrarSalidaOnUnload(currentSessionIdRef.current)
     }
     window.addEventListener('beforeunload', handleUnload)
 
     return () => window.removeEventListener('beforeunload', handleUnload)
   }, [authSession?.user?.email, user?.email])
 
-  // Latido 30 min: solo si currentRegistroId no es nulo; primer tick a los 30 min (hora_salida null hasta entonces)
+  // Latido 30 min: .update() hora_salida filtrando exclusivamente por currentSessionId
   useEffect(() => {
-    if (!currentRegistroId) return
+    if (!currentSessionId) return
 
     const intervalId = setInterval(() => {
-      heartbeatSalidaById(currentRegistroId)
+      heartbeatSalidaById(currentSessionId)
     }, HEARTBEAT_INTERVAL_MS)
 
     return () => clearInterval(intervalId)
-  }, [currentRegistroId])
+  }, [currentSessionId])
 
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {

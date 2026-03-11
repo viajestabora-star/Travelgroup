@@ -63,7 +63,7 @@ export async function registrarEntradaSilencioso(session) {
 export async function heartbeatSalidaById(id) {
   if (!id) return
 
-  const horaSalida = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const horaSalida = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
   const { error } = await supabase
     .from('control_horario')
     .update({ hora_salida: horaSalida })
@@ -80,7 +80,7 @@ export async function heartbeatSalida(email) {
   if (!email) return
 
   const fecha = new Date().toISOString().split('T')[0]
-  const horaSalida = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const horaSalida = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 
   const { error } = await supabase
     .from('control_horario')
@@ -117,7 +117,7 @@ export function registrarSalidaOnUnload(idFromRef) {
   const id = idFromRef || localStorage.getItem(STORAGE_KEY_ENTRADA) || sessionStorage.getItem(STORAGE_KEY_ENTRADA)
   if (!id) return
 
-  const horaSalida = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const horaSalida = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
   const url = import.meta.env.VITE_SUPABASE_URL || 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
