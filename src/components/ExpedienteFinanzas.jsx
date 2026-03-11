@@ -558,12 +558,13 @@ const ExpedienteFinanzas = ({
     if (!expediente?.id) return
     informeLiquidacionInicializadoRef.current = false
 
-    // Fetch paralelo: servicios + expediente fresco + proveedores relevantes
-    const [{ data: serviciosDB, error: errServicios }, { data: expFresco, error: errExp }] = await Promise.all([
+    // Fetch paralelo: servicios (todos los campos) + expediente fresco
+    const [{ data: serviciosDB, error: errServicios }, { data: expFresco }] = await Promise.all([
       supabase
         .from('servicios_cotizacion')
-        .select('id, tipo_servicio, tipo, nombre_especifico, proveedor_id_int, nombre_proveedor_texto, nombre_proveedor_manual, coste_unitario, noches, dias_guia, cantidad, tipo_calculo, total_servicio, total_servicio_manual')
-        .eq('id_expediente', expediente.id)
+        .select('*')
+        .eq('id_expediente', String(expediente.id).trim())
+        .order('orden', { ascending: true })
         .order('id', { ascending: true }),
       supabase
         .from('expedientes')
