@@ -57,9 +57,24 @@ export async function registrarEntradaSilencioso(session) {
 }
 
 /**
- * Heartbeat: actualiza hora_salida sin cerrar la sesión.
- * Usar cada 30 min para mantener el registro actualizado (cierre inesperado, pestaña olvidada).
- * Filtra por user_email y fecha de hoy. Formato hora_salida: HH:mm
+ * Heartbeat por id: actualiza hora_salida solo en la fila identificada.
+ * Evita pisar registros de otros usuarios. Formato hora_salida: HH:mm
+ */
+export async function heartbeatSalidaById(id) {
+  if (!id) return
+
+  const horaSalida = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const { error } = await supabase
+    .from('control_horario')
+    .update({ hora_salida: horaSalida })
+    .eq('id', id)
+
+  if (error) console.error('[Control Horario] Error UPDATE heartbeat:', error)
+}
+
+/**
+ * Heartbeat por email (legacy): actualiza hora_salida filtrando por user_email y fecha.
+ * Formato hora_salida: HH:mm
  */
 export async function heartbeatSalida(email) {
   if (!email) return
@@ -95,13 +110,14 @@ export async function registrarSalida() {
 
 /**
  * Versión para beforeunload: fetch con keepalive para que la petición sobreviva al cierre.
- * El trigger en BD calcula duracion_minutos al actualizar hora_salida.
- * Formato hora_salida: 'YYYY-MM-DD HH:mm:00'
+ * Acepta id opcional; si no se pasa, usa localStorage/sessionStorage.
+ * Formato hora_salida: HH:mm (consistente con heartbeat)
  */
-export function registrarSalidaOnUnload() {
-  const id = localStorage.getItem(STORAGE_KEY_ENTRADA) || sessionStorage.getItem(STORAGE_KEY_ENTRADA)
+export function registrarSalidaOnUnload(idFromRef) {
+  const id = idFromRef || localStorage.getItem(STORAGE_KEY_ENTRADA) || sessionStorage.getItem(STORAGE_KEY_ENTRADA)
   if (!id) return
 
+  const horaSalida = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
   const url = import.meta.env.VITE_SUPABASE_URL || 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
@@ -113,7 +129,7 @@ export function registrarSalidaOnUnload() {
       'Authorization': `Bearer ${key}`,
       'Prefer': 'return=minimal',
     },
-    body: JSON.stringify({ hora_salida: formatHoraSalida(new Date()) }),
+    body: JSON.stringify({ hora_salida: horaSalida }),
     keepalive: true,
   }).catch((err) => console.error('[Control Horario] Error PATCH onUnload:', err))
 

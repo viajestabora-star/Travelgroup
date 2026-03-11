@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Outlet, NavLink } from 'react-router-dom'
 import { supabase } from '../supabase'
-import { registrarSalidaOnUnload, heartbeatSalida } from '../utils/controlHorario'
+import { registrarSalidaOnUnload, heartbeatSalidaById } from '../utils/controlHorario'
 import { 
   LayoutDashboard, Users, Calculator, Calendar, Briefcase, 
   FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut 
@@ -9,14 +9,13 @@ import {
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
 const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
-const STORAGE_KEY_ENTRADA = 'control_horario_entrada_id'
-const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [authSession, setAuthSession] = useState(null)
+  const currentRegistroId = useRef(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthSession(session))
@@ -24,29 +23,15 @@ const Layout = ({ user, onLogout }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
-  // CONTROL HORARIO - Proceso genérico y robusto, hora_entrada obligatoria
+  // CONTROL HORARIO - Entrada única por pestaña, heartbeat por id tras 30 min
   useEffect(() => {
     const currentEmail = user?.email || authSession?.user?.email
     if (!currentEmail) return
 
     const ejecutarRegistro = async () => {
-      const fecha = new Date().toISOString().split('T')[0]
-      const horaString = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
-
-      console.log('[Control Horario] Intentando registro para:', currentEmail, 'Hora:', horaString)
-
-      const { data: existe } = await supabase
-        .from('control_horario')
-        .select('id')
-        .eq('user_email', currentEmail)
-        .eq('fecha', fecha)
-        .maybeSingle()
-
-      if (existe?.id) {
-        localStorage.setItem(STORAGE_KEY_ENTRADA, existe.id)
-        localStorage.setItem(STORAGE_KEY_FECHA, fecha)
-        return
-      }
+      const ahora = new Date()
+      const fecha = ahora.toISOString().split('T')[0]
+      const horaEntrada = ahora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
 
       const { data: nuevo, error } = await supabase
         .from('control_horario')
@@ -54,7 +39,7 @@ const Layout = ({ user, onLogout }) => {
           usuario_id: user?.id ?? null,
           user_email: currentEmail,
           fecha,
-          hora_entrada: horaString
+          hora_entrada: horaEntrada
         }])
         .select('id')
         .single()
@@ -64,25 +49,27 @@ const Layout = ({ user, onLogout }) => {
         return
       }
       if (nuevo?.id) {
-        localStorage.setItem(STORAGE_KEY_ENTRADA, nuevo.id)
-        localStorage.setItem(STORAGE_KEY_FECHA, fecha)
+        currentRegistroId.current = nuevo.id
       }
     }
 
     ejecutarRegistro()
 
-    const intervalId = setInterval(() => {
-      const sessionEmail = authSession?.user?.email || user?.email
-      if (sessionEmail) heartbeatSalida(sessionEmail)
-    }, HEARTBEAT_INTERVAL_MS)
-
     const handleUnload = () => {
-      if (localStorage.getItem(STORAGE_KEY_ENTRADA)) registrarSalidaOnUnload()
+      if (currentRegistroId.current) registrarSalidaOnUnload(currentRegistroId.current)
     }
     window.addEventListener('beforeunload', handleUnload)
 
+    let intervalId = null
+    const delayId = setTimeout(() => {
+      intervalId = setInterval(() => {
+        if (currentRegistroId.current) heartbeatSalidaById(currentRegistroId.current)
+      }, HEARTBEAT_INTERVAL_MS)
+    }, HEARTBEAT_INTERVAL_MS)
+
     return () => {
-      clearInterval(intervalId)
+      clearTimeout(delayId)
+      if (intervalId) clearInterval(intervalId)
       window.removeEventListener('beforeunload', handleUnload)
     }
   }, [authSession?.user?.email, user?.email])
