@@ -8,14 +8,15 @@ import {
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
-const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
+const HEARTBEAT_INTERVAL_MS = 1800000
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [authSession, setAuthSession] = useState(null)
-  const currentRegistroId = useRef(null)
+  const [currentRegistroId, setCurrentRegistroId] = useState(null)
+  const currentRegistroIdRef = useRef(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthSession(session))
@@ -23,7 +24,7 @@ const Layout = ({ user, onLogout }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
-  // CONTROL HORARIO - Entrada única por pestaña, heartbeat por id tras 30 min
+  // CONTROL HORARIO - Registro de entrada al montar (sin comprobar existencia)
   useEffect(() => {
     const currentEmail = user?.email || authSession?.user?.email
     if (!currentEmail) return
@@ -49,30 +50,31 @@ const Layout = ({ user, onLogout }) => {
         return
       }
       if (nuevo?.id) {
-        currentRegistroId.current = nuevo.id
+        setCurrentRegistroId(nuevo.id)
+        currentRegistroIdRef.current = nuevo.id
       }
     }
 
     ejecutarRegistro()
 
     const handleUnload = () => {
-      if (currentRegistroId.current) registrarSalidaOnUnload(currentRegistroId.current)
+      if (currentRegistroIdRef.current) registrarSalidaOnUnload(currentRegistroIdRef.current)
     }
     window.addEventListener('beforeunload', handleUnload)
 
-    let intervalId = null
-    const delayId = setTimeout(() => {
-      intervalId = setInterval(() => {
-        if (currentRegistroId.current) heartbeatSalidaById(currentRegistroId.current)
-      }, HEARTBEAT_INTERVAL_MS)
+    return () => window.removeEventListener('beforeunload', handleUnload)
+  }, [authSession?.user?.email, user?.email])
+
+  // Latido 30 min: solo si currentRegistroId no es nulo; primer tick a los 30 min (hora_salida null hasta entonces)
+  useEffect(() => {
+    if (!currentRegistroId) return
+
+    const intervalId = setInterval(() => {
+      heartbeatSalidaById(currentRegistroId)
     }, HEARTBEAT_INTERVAL_MS)
 
-    return () => {
-      clearTimeout(delayId)
-      if (intervalId) clearInterval(intervalId)
-      window.removeEventListener('beforeunload', handleUnload)
-    }
-  }, [authSession?.user?.email, user?.email])
+    return () => clearInterval(intervalId)
+  }, [currentRegistroId])
 
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
