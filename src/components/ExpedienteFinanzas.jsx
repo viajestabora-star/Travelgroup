@@ -558,35 +558,70 @@ const ExpedienteFinanzas = ({
     if (!expediente?.id) return
     informeLiquidacionInicializadoRef.current = false
 
-    // Refetch servicios desde Supabase para incluir proveedores recién añadidos
-    const { data: serviciosDB, error } = await supabase
-      .from('servicios_cotizacion')
-      .select('id, tipo_servicio, tipo, nombre_especifico, proveedor_id_int, nombre_proveedor_texto, nombre_proveedor_manual, coste_unitario, noches, dias_guia, cantidad, tipo_calculo, total_servicio, total_servicio_manual')
-      .eq('id_expediente', expediente.id)
-      .order('id', { ascending: true })
+    // Fetch paralelo: servicios + expediente fresco + proveedores relevantes
+    const [{ data: serviciosDB, error: errServicios }, { data: expFresco, error: errExp }] = await Promise.all([
+      supabase
+        .from('servicios_cotizacion')
+        .select('id, tipo_servicio, tipo, nombre_especifico, proveedor_id_int, nombre_proveedor_texto, nombre_proveedor_manual, coste_unitario, noches, dias_guia, cantidad, tipo_calculo, total_servicio, total_servicio_manual')
+        .eq('id_expediente', expediente.id)
+        .order('id', { ascending: true }),
+      supabase
+        .from('expedientes')
+        .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
+        .eq('id', expediente.id)
+        .single(),
+    ])
 
-    if (error) {
-      console.error('[Cotización] Error al recargar servicios:', error.message)
+    if (errServicios) {
+      console.error('[Cotización] Error al recargar servicios:', errServicios.message)
       return
     }
 
     const serviciosActualizados = Array.isArray(serviciosDB) ? serviciosDB : (servicios || [])
 
-    const precioViaje = paxPago * toNum(formData?.precio_venta_cliente)
+    // Resolver IDs de proveedor que no estén en caché
+    const idsNecesarios = [...new Set(
+      serviciosActualizados
+        .map(s => s.proveedor_id_int)
+        .filter(Boolean)
+    )]
+    let proveedoresMap = {}
+    if (idsNecesarios.length > 0) {
+      const { data: provsDB } = await supabase
+        .from('proveedores')
+        .select('id, nombre_comercial')
+        .in('id', idsNecesarios)
+      if (Array.isArray(provsDB)) {
+        provsDB.forEach(p => { proveedoresMap[p.id] = p.nombre_comercial })
+      }
+    }
+
+    // Datos frescos del expediente (total_pax, pax_pago)
+    const paxTotalFresco = toNum(expFresco?.total_pax) || toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0
+    const gratuidades = toNum(expFresco?.gratuidades) || toNum(expediente?.gratuidades) || toNum(formData?.gratuidades) || 0
+    const paxPagoFresco = toNum(expFresco?.pax_pago) || Math.max(0, paxTotalFresco - gratuidades) || paxPago
+    const precioVentaFresco = toNum(expFresco?.precio_venta_cliente) || toNum(expediente?.precio_venta_cliente) || toNum(formData?.precio_venta_cliente) || 0
+    const bonificacionFresco = toNum(expFresco?.bonificacion_pax) || toNum(expediente?.bonificacion_pax) || toNum(formData?.bonificacion_pax) || 0
+
+    const precioViaje = paxPagoFresco * precioVentaFresco
     const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
-    const descuentosVal = toNum(formData?.bonificacion_pax) * paxPago
+    const descuentosVal = bonificacionFresco * paxPagoFresco
+
     const savedCostesReales = (informeLiquidacion.costesReales || []).reduce((acc, c) => {
       acc[c.id_servicio] = c.coste_real
       return acc
     }, {})
 
     const costesRealesIniciales = serviciosActualizados.map((s) => {
-      const prov = obtenerProveedorPorId ? obtenerProveedorPorId(s?.proveedor_id_int ?? s?.proveedorId) : null
-      const proveedor = prov?.nombreComercial || s?.nombre_proveedor_texto || s?.nombre_proveedor_manual || s?.proveedorNombreTemporal || '—'
+      const nombreComercialCache = obtenerProveedorPorId ? obtenerProveedorPorId(s?.proveedor_id_int)?.nombreComercial : null
+      const proveedor = nombreComercialCache
+        || proveedoresMap[s?.proveedor_id_int]
+        || s?.nombre_proveedor_texto
+        || s?.nombre_proveedor_manual
+        || '—'
       const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
-      const nombre = s?.nombre_especifico ? `${tipo} ${s.nombre_especifico}` : (s?.nombreEspecifico ? `${tipo} ${s.nombreEspecifico}` : tipo)
-      const fila = { ...DEFAULT_SERVICE_VALUES, ...s }
-      const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI(s)
+      const nombre = s?.nombre_especifico ? `${tipo} ${s.nombre_especifico}` : tipo
+      const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
       const costeReal = savedCostesReales[s?.id] ?? costeCotizado
       return {
         id_servicio: s?.id || generarUUID(),
@@ -603,6 +638,29 @@ const ExpedienteFinanzas = ({
       costesReales: costesRealesIniciales,
       gastosImprevistos: prev.gastosImprevistos || [],
     }))
+
+    // Actualizar paxPorAsociacion con datos frescos si no hay guardado manual
+    const guardado = expediente?.cierre_grupo?.pax_por_asociacion
+    if (!Array.isArray(guardado) || guardado.length === 0) {
+      if (expedienteClientes.length > 0) {
+        const paxPorCliente = expedienteClientes.length > 0 && paxTotalFresco > 0
+          ? Math.floor(paxTotalFresco / expedienteClientes.length)
+          : null
+        setPaxPorAsociacion(expedienteClientes.map(ec => ({
+          cliente_id: ec.cliente_id,
+          cliente_nombre: ec.cliente_nombre,
+          pax: paxPorCliente,
+        })))
+      } else if (clienteIdPrincipal) {
+        const nombrePrincipal = grupo?.nombre || expediente?.cliente_nombre || expediente?.nombre_grupo || '—'
+        setPaxPorAsociacion([{
+          cliente_id: clienteIdPrincipal,
+          cliente_nombre: nombrePrincipal,
+          pax: paxTotalFresco || null,
+        }])
+      }
+    }
+
     informeLiquidacionInicializadoRef.current = true
   }
 
