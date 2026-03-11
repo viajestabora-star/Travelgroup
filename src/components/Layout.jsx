@@ -9,7 +9,7 @@ import {
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
-const STORAGE_ACTIVE_ATTENDANCE = 'active_attendance_id'
+const STORAGE_ATTENDANCE_ID = 'attendance_id'
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 const Layout = ({ user, onLogout }) => {
@@ -26,16 +26,16 @@ const Layout = ({ user, onLogout }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
-  // CONTROL HORARIO - Persistencia universal: evita duplicidad masiva al refrescar
+  // CONTROL HORARIO - Blindaje de sesión: evita falsos cierres y duplicidad al refrescar
   useEffect(() => {
     const sessionEmail = authSession?.user?.email || user?.email
     if (!sessionEmail) return
 
-    const storedSessionId = sessionStorage.getItem(STORAGE_ACTIVE_ATTENDANCE)
+    const attendanceId = sessionStorage.getItem(STORAGE_ATTENDANCE_ID)
 
-    if (storedSessionId) {
-      setCurrentSessionId(storedSessionId)
-      currentSessionIdRef.current = storedSessionId
+    if (attendanceId) {
+      setCurrentSessionId(attendanceId)
+      currentSessionIdRef.current = attendanceId
     } else {
       if (insertLockRef.current) return
       insertLockRef.current = true
@@ -62,7 +62,7 @@ const Layout = ({ user, onLogout }) => {
           return
         }
         if (nuevo?.id) {
-          sessionStorage.setItem(STORAGE_ACTIVE_ATTENDANCE, nuevo.id)
+          sessionStorage.setItem(STORAGE_ATTENDANCE_ID, nuevo.id)
           setCurrentSessionId(nuevo.id)
           currentSessionIdRef.current = nuevo.id
         }
@@ -80,7 +80,7 @@ const Layout = ({ user, onLogout }) => {
     return () => window.removeEventListener('beforeunload', handleUnload)
   }, [authSession?.user?.email, user?.email])
 
-  // Latido 30 min: .update() hora_salida filtrando exclusivamente por currentSessionId
+  // Latido 30 min (1.800.000 ms): no actualiza hora_salida antes de ese tiempo
   useEffect(() => {
     if (!currentSessionId) return
 
@@ -143,7 +143,7 @@ const Layout = ({ user, onLogout }) => {
           {onLogout && (
             <button
               onClick={() => {
-                sessionStorage.removeItem(STORAGE_ACTIVE_ATTENDANCE)
+                sessionStorage.removeItem(STORAGE_ATTENDANCE_ID)
                 onLogout()
               }}
               className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-4 border-t border-slate-700"
