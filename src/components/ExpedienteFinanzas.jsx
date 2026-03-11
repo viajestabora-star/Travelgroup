@@ -636,6 +636,14 @@ const ExpedienteFinanzas = ({
     (cierreGrupo.ingresos_totales != null || cierreGrupo.total_ingresos != null || cierreGrupo.beneficio_limpio != null || cierreGrupo.beneficio != null)
   )
 
+  const estadoExp = expediente?.estado || ''
+  const esFinalizado = estadoExp === 'Finalizado'
+  const esCerrado = estadoExp === 'Cerrado' || estadoExp.toLowerCase() === 'cerrado'
+  // Campos bloqueados SOLO si el cierre está guardado Y el estado es Cerrado o Finalizado
+  // En cualquier otro estado (Confirmado, Petición, En curso) siempre editables
+  const [edicionHabilitada, setEdicionHabilitada] = useState(false)
+  const camposBloqueados = isCierreGuardado && (esCerrado || esFinalizado) && !edicionHabilitada
+
   const handleGuardarCierre = async () => {
     if (!expediente?.id) return
     if (!window.confirm('¿Confirmar cierre? Se consolidarán los costes para el análisis financiero.')) return
@@ -1192,9 +1200,25 @@ const ExpedienteFinanzas = ({
                 Liquidación de Beneficios
               </h1>
               {isCierreGuardado && (
-                <span className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-sm uppercase tracking-wide">
-                  CERRADO
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-sm uppercase tracking-wide">
+                    CERRADO
+                  </span>
+                  {camposBloqueados && (
+                    <button
+                      type="button"
+                      onClick={() => setEdicionHabilitada(true)}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-amber-400 text-amber-700 hover:bg-amber-50 font-semibold"
+                    >
+                      Habilitar Edición
+                    </button>
+                  )}
+                  {edicionHabilitada && (
+                    <span className="text-xs px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 font-semibold">
+                      Edición habilitada
+                    </span>
+                  )}
+                </div>
               )}
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
@@ -1222,7 +1246,7 @@ const ExpedienteFinanzas = ({
             <section className="mb-6">
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3">
                 <h2 className="text-base font-bold text-slate-800 uppercase border-b border-slate-300 pb-1">Costes Reales (factura proveedor)</h2>
-                {!isCierreGuardado && (
+                {!camposBloqueados && (
                   <button type="button" onClick={recargarInformeDesdeCotizacion} className="text-sm border border-slate-400 px-3 py-1.5 rounded-lg hover:bg-slate-50 font-medium self-start sm:self-auto">
                     Cargar desde Cotización
                   </button>
@@ -1250,7 +1274,7 @@ const ExpedienteFinanzas = ({
                           <td className="px-3 py-2 text-slate-600 hidden sm:table-cell">{c.proveedor || '—'}</td>
                           <td className="px-3 py-2 text-right text-slate-500">{Number(c.coste_cotizado || 0).toFixed(2)} €</td>
                           <td className="px-3 py-2">
-                            <input type="number" step="0.01" value={c.coste_real ?? ''} onChange={(e) => actualizarCosteReal(c.id_servicio, e.target.value)} disabled={isCierreGuardado} readOnly={isCierreGuardado} className={`w-full min-w-[80px] border rounded-lg px-2 py-1 text-right font-medium ${isCierreGuardado ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300 focus:ring-2 focus:ring-blue-500'}`} placeholder="0" />
+                            <input type="number" step="0.01" value={c.coste_real ?? ''} onChange={(e) => actualizarCosteReal(c.id_servicio, e.target.value)} disabled={camposBloqueados} readOnly={camposBloqueados} className={`w-full min-w-[80px] border rounded-lg px-2 py-1 text-right font-medium ${camposBloqueados ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300 focus:ring-2 focus:ring-blue-500'}`} placeholder="0" />
                           </td>
                         </tr>
                       ))}
@@ -1266,7 +1290,7 @@ const ExpedienteFinanzas = ({
             <section className="mb-6">
               <div className="flex justify-between items-center mb-3">
                 <h2 className="text-base font-bold text-slate-800 uppercase border-b border-slate-300 pb-1">Gastos Imprevistos</h2>
-                {!isCierreGuardado && (
+                {!camposBloqueados && (
                   <button type="button" onClick={agregarGastoImprevisto} className="text-sm border border-amber-500 text-amber-700 px-3 py-1.5 rounded-lg hover:bg-amber-50 font-medium flex items-center gap-1">
                     <Plus size={14} /> Añadir Gasto Extra
                   </button>
@@ -1278,9 +1302,9 @@ const ExpedienteFinanzas = ({
                 <div className="space-y-2">
                   {(informeLiquidacion.gastosImprevistos || []).map((g, idx) => (
                     <div key={g.id || `gi-${idx}`} className="flex gap-2 items-center">
-                      <input type="text" value={g.concepto || ''} onChange={(e) => actualizarGastoImprevisto(g.id, 'concepto', e.target.value)} placeholder="Concepto" disabled={isCierreGuardado} readOnly={isCierreGuardado} className={`flex-1 border rounded-lg px-2 py-1.5 text-sm ${isCierreGuardado ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300'}`} />
-                      <input type="number" step="0.01" value={g.importe ?? ''} onChange={(e) => actualizarGastoImprevisto(g.id, 'importe', e.target.value)} placeholder="0" disabled={isCierreGuardado} readOnly={isCierreGuardado} className={`w-24 border rounded-lg px-2 py-1.5 text-right text-sm ${isCierreGuardado ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300'}`} />
-                      {!isCierreGuardado && <button type="button" onClick={() => eliminarGastoImprevisto(g.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button>}
+                      <input type="text" value={g.concepto || ''} onChange={(e) => actualizarGastoImprevisto(g.id, 'concepto', e.target.value)} placeholder="Concepto" disabled={camposBloqueados} readOnly={camposBloqueados} className={`flex-1 border rounded-lg px-2 py-1.5 text-sm ${camposBloqueados ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300'}`} />
+                      <input type="number" step="0.01" value={g.importe ?? ''} onChange={(e) => actualizarGastoImprevisto(g.id, 'importe', e.target.value)} placeholder="0" disabled={camposBloqueados} readOnly={camposBloqueados} className={`w-24 border rounded-lg px-2 py-1.5 text-right text-sm ${camposBloqueados ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300'}`} />
+                      {!camposBloqueados && <button type="button" onClick={() => eliminarGastoImprevisto(g.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button>}
                     </div>
                   ))}
                   <div className="text-right font-semibold text-slate-700 text-sm">
@@ -1308,8 +1332,8 @@ const ExpedienteFinanzas = ({
                           step="1"
                           value={paxVal}
                           onChange={(e) => actualizarPaxAsociacion(clienteId, e.target.value)}
-                          disabled={isCierreGuardado}
-                          className="w-20 border border-slate-300 rounded-lg px-2 py-1 text-right"
+                          disabled={camposBloqueados}
+                          className={`w-20 border rounded-lg px-2 py-1 text-right ${camposBloqueados ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300'}`}
                           placeholder="0"
                         />
                         <span className="text-slate-500 text-sm">pax</span>
@@ -1349,7 +1373,7 @@ const ExpedienteFinanzas = ({
             })()}
 
             <div className="mt-6 flex flex-wrap gap-3">
-              {!isCierreGuardado && (
+              {!camposBloqueados && (
                 <button type="button" onClick={handleGuardarCierre} disabled={guardandoCierre} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 text-white font-bold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed">
                   <Save size={18} /> {guardandoCierre ? 'Guardando…' : 'Guardar Cierre'}
                 </button>
