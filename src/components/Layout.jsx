@@ -9,7 +9,7 @@ import {
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
-const STORAGE_ACTIVE_SESSION = 'active_session_id'
+const STORAGE_ACTIVE_ATTENDANCE = 'active_attendance_id'
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 const Layout = ({ user, onLogout }) => {
@@ -26,16 +26,16 @@ const Layout = ({ user, onLogout }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
-  // CONTROL HORARIO - Candado de persistencia: evita duplicados al refrescar o en Strict Mode
+  // CONTROL HORARIO - Persistencia universal: evita duplicidad masiva al refrescar
   useEffect(() => {
     const sessionEmail = authSession?.user?.email || user?.email
     if (!sessionEmail) return
 
-    const existingId = sessionStorage.getItem(STORAGE_ACTIVE_SESSION)
+    const storedSessionId = sessionStorage.getItem(STORAGE_ACTIVE_ATTENDANCE)
 
-    if (existingId) {
-      setCurrentSessionId(existingId)
-      currentSessionIdRef.current = existingId
+    if (storedSessionId) {
+      setCurrentSessionId(storedSessionId)
+      currentSessionIdRef.current = storedSessionId
     } else {
       if (insertLockRef.current) return
       insertLockRef.current = true
@@ -62,7 +62,7 @@ const Layout = ({ user, onLogout }) => {
           return
         }
         if (nuevo?.id) {
-          sessionStorage.setItem(STORAGE_ACTIVE_SESSION, nuevo.id)
+          sessionStorage.setItem(STORAGE_ACTIVE_ATTENDANCE, nuevo.id)
           setCurrentSessionId(nuevo.id)
           currentSessionIdRef.current = nuevo.id
         }
@@ -143,7 +143,7 @@ const Layout = ({ user, onLogout }) => {
           {onLogout && (
             <button
               onClick={() => {
-                sessionStorage.removeItem(STORAGE_ACTIVE_SESSION)
+                sessionStorage.removeItem(STORAGE_ACTIVE_ATTENDANCE)
                 onLogout()
               }}
               className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-4 border-t border-slate-700"
