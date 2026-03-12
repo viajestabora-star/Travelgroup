@@ -83,6 +83,7 @@ const ExpedienteFinanzas = ({
   versiones = [],
   versionActiva = 0,
   onVersionChange,
+  desgloseGrupos = [],
 }) => {
   const cierreGrupo = expediente?.cierre_grupo || {}
 
@@ -1462,6 +1463,75 @@ const ExpedienteFinanzas = ({
                 </div>
               </section>
             )}
+
+            {/* ── BENEFICIO POR GRUPO (solo visible si hay grupos configurados) ── */}
+            {Array.isArray(desgloseGrupos) && desgloseGrupos.length > 0 && (() => {
+              try {
+                const { ingresosTotales, gastosTotales } = calcularCierreFinanciero()
+                const precioVenta = toNum(expediente?.precio_venta_cliente ?? formData?.precio_venta_cliente ?? 0)
+                const totalPaxPagoGlobal = Math.max(1, desgloseGrupos.reduce((s, g) => {
+                  return s + Math.max(0, (Number(g.pax) || 0) - (Number(g.gratuidades) || 0))
+                }, 0))
+                return (
+                  <section className="mb-6">
+                    <h2 className="text-base font-bold text-slate-800 uppercase mb-3 border-b border-slate-300 pb-1">
+                      Beneficio por Grupo
+                    </h2>
+                    <div className="overflow-x-auto rounded-xl border border-slate-200">
+                      <table className="w-full text-sm min-w-[520px]">
+                        <thead>
+                          <tr className="bg-slate-100">
+                            <th className="px-3 py-2 text-left font-bold text-slate-700">Grupo</th>
+                            <th className="px-3 py-2 text-center font-bold text-slate-700">Pax Pago</th>
+                            <th className="px-3 py-2 text-right font-bold text-slate-700">Bonif. €/pax</th>
+                            <th className="px-3 py-2 text-right font-bold text-slate-700">Ingresos</th>
+                            <th className="px-3 py-2 text-right font-bold text-slate-700">Costes prorrat.</th>
+                            <th className="px-3 py-2 text-right font-bold text-slate-700">Beneficio</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {desgloseGrupos.map((g, idx) => {
+                            const paxPagoGrupo = Math.max(0, (Number(g.pax) || 0) - (Number(g.gratuidades) || 0))
+                            const bonif = Number(g.bonificacion_pax) || 0
+                            const ingresoGrupo = paxPagoGrupo * precioVenta - paxPagoGrupo * bonif
+                            const proporcion = paxPagoGrupo / totalPaxPagoGlobal
+                            const costesGrupo = gastosTotales * proporcion
+                            const beneficioGrupo = ingresoGrupo - costesGrupo
+                            return (
+                              <tr key={g.id || idx} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
+                                <td className="px-3 py-2 font-medium text-slate-800">{g.nombre_grupo || `Grupo ${idx + 1}`}</td>
+                                <td className="px-3 py-2 text-center text-slate-700">{paxPagoGrupo}</td>
+                                <td className="px-3 py-2 text-right text-slate-600">{bonif > 0 ? `${bonif.toFixed(2)} €` : '—'}</td>
+                                <td className="px-3 py-2 text-right text-slate-800">{ingresoGrupo.toFixed(2)} €</td>
+                                <td className="px-3 py-2 text-right text-red-600">−{costesGrupo.toFixed(2)} €</td>
+                                <td className={`px-3 py-2 text-right font-bold ${beneficioGrupo >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                  {beneficioGrupo.toFixed(2)} €
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-slate-100 border-t-2 border-slate-300 font-bold text-sm">
+                            <td className="px-3 py-2 text-slate-700">TOTAL</td>
+                            <td className="px-3 py-2 text-center">{totalPaxPagoGlobal}</td>
+                            <td></td>
+                            <td className="px-3 py-2 text-right text-slate-800">{ingresosTotales.toFixed(2)} €</td>
+                            <td className="px-3 py-2 text-right text-red-600">−{gastosTotales.toFixed(2)} €</td>
+                            <td className={`px-3 py-2 text-right font-extrabold text-base ${(ingresosTotales - gastosTotales) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                              {(ingresosTotales - gastosTotales).toFixed(2)} €
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Costes prorrateados por proporción de pax de pago de cada grupo.
+                    </p>
+                  </section>
+                )
+              } catch { return null }
+            })()}
 
             {(() => {
               const { ingresosTotales: ingresoTotal, gastosTotales: gastosTotales, beneficioBruto, ivaPagado: ivaSobreBeneficio, beneficioLimpio: beneficioNeto } = calcularCierreFinanciero()

@@ -423,6 +423,59 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     sup_seguro_precio_total: 0,
   })
   
+  // ── MULTIGRUPO ────────────────────────────────────────────────────────────────────
+  // Per-row search state for the client selector: { [rowId]: string }
+  const [busquedaGrupo, setBusquedaGrupo] = useState({})
+  // Per-row dropdown visibility: { [rowId]: boolean }
+  const [dropdownGrupo, setDropdownGrupo] = useState({})
+
+  // ── MULTIGRUPO: safe init from prop (select('*') already fetches desglose_grupos) ──
+  const [desgloseGrupos, setDesgloseGrupos] = useState(() => {
+    try {
+      return Array.isArray(expediente?.desglose_grupos) && expediente.desglose_grupos.length > 0
+        ? expediente.desglose_grupos
+        : []
+    } catch { return [] }
+  })
+
+  // Re-sync when parent refreshes the expediente prop (e.g. after save)
+  useEffect(() => {
+    try {
+      if (Array.isArray(expediente?.desglose_grupos) && expediente.desglose_grupos.length > 0) {
+        setDesgloseGrupos(expediente.desglose_grupos)
+      }
+    } catch { /* silent */ }
+  }, [expediente?.id, expediente?.desglose_grupos])
+
+  // Sync totals into formData from group table — only when groups have real pax data
+  // Fallback: keeps previous manual total_pax if groups sum to 0
+  useEffect(() => {
+    try {
+      if (!desgloseGrupos.length) return
+      const sumPax = desgloseGrupos.reduce((s, g) => s + (Number(g.pax) || 0), 0)
+      const sumGratis = desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0)
+      if (sumPax === 0) return // no groups filled yet — keep manual value
+      const totalPaxPago = Math.max(1, sumPax - sumGratis)
+      const bonifPond = desgloseGrupos.reduce((s, g) => {
+        const gPago = Math.max(0, (Number(g.pax) || 0) - (Number(g.gratuidades) || 0))
+        return s + (Number(g.bonificacion_pax) || 0) * gPago
+      }, 0) / totalPaxPago
+      setFormData(prev => ({
+        ...prev,
+        total_pax: sumPax,
+        gratuidades: sumGratis,
+        bonificacion_pax: Math.round(bonifPond * 100) / 100,
+      }))
+      if (versiones.length > 0) {
+        setVersiones(prev => prev.map((v, i) =>
+          i === versionActiva
+            ? { ...v, cabecera: { ...(v.cabecera || {}), total_pax: sumPax, gratuidades: sumGratis } }
+            : v
+        ))
+      }
+    } catch { /* silent — never crash load */ }
+  }, [desgloseGrupos])
+
   // Estado de carga: bloquea guardados hasta que los datos estén cargados
   const [datosCargados, setDatosCargados] = useState(false)
 
@@ -3460,6 +3513,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         sup_individual_precio_dia: toNum(fd?.sup_individual_precio_dia),
         sup_seguro_pax: toNum(fd?.sup_seguro_pax),
         sup_seguro_precio_total: toNum(fd?.sup_seguro_precio_total),
+        // Multigrupo: guardar solo filas con datos; array vacío si no hay grupos
+        desglose_grupos: Array.isArray(desgloseGrupos)
+          ? desgloseGrupos.filter(g => g.nombre_grupo || Number(g.pax) > 0)
+          : [],
       }
       let versionesGuardadas = null
       if (versiones?.length > 0) {
@@ -4658,6 +4715,212 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   </div>
                 </div>
 
+                {/* ── CONFIGURACIÓN DE GRUPOS ─────────────────────────────── */}
+                <div className="bg-white rounded-xl shadow-md border border-blue-200 overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-6 py-4 bg-blue-600 text-white">
+                    <div>
+                      <h3 className="text-lg font-bold">Configuración de Grupos</h3>
+                      <p className="text-blue-100 text-xs mt-0.5">
+                        Define una fila por asociación. El total de pasajeros se calcula automáticamente.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDesgloseGrupos(prev => [
+                        ...prev,
+                        {
+                          id: `grp-${Date.now()}`,
+                          cliente_id: null,
+                          nombre_grupo: '',
+                          pax: 0,
+                          gratuidades: 0,
+                          bonificacion_pax: 0,
+                        }
+                      ])}
+                      className="flex items-center gap-2 bg-white text-blue-700 font-semibold text-sm px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors shadow"
+                    >
+                      <Plus size={15} />
+                      Añadir Asociación/Grupo
+                    </button>
+                  </div>
+
+                  {desgloseGrupos.length === 0 ? (
+                    <div className="px-6 py-8 text-center text-slate-400 text-sm">
+                      Sin grupos configurados. Pulsa «Añadir Asociación/Grupo» para empezar.
+                      <br />
+                      <span className="text-xs text-slate-400 mt-1 block">Si no añades grupos, el total de pasajeros se toma del campo manual de arriba.</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm min-w-[540px]">
+                          <thead>
+                            <tr className="bg-blue-50 border-b border-blue-200">
+                              <th className="px-4 py-2.5 text-left font-semibold text-blue-800 w-[35%]">Nombre del Grupo</th>
+                              <th className="px-4 py-2.5 text-center font-semibold text-blue-800 w-[15%]">Pasajeros</th>
+                              <th className="px-4 py-2.5 text-center font-semibold text-blue-800 w-[15%]">Gratuidades</th>
+                              <th className="px-4 py-2.5 text-center font-semibold text-blue-800 w-[20%]">Bonos €/pax</th>
+                              <th className="px-4 py-2.5 w-[15%]"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {desgloseGrupos.map((g, idx) => (
+                              <tr
+                                key={g.id || idx}
+                                className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}`}
+                              >
+                                <td className="px-3 py-2">
+                                  {/* Client selector with live search */}
+                                  <div className="relative">
+                                    <input
+                                      type="text"
+                                      value={busquedaGrupo[g.id] !== undefined ? busquedaGrupo[g.id] : (g.nombre_grupo || '')}
+                                      placeholder="Buscar cliente…"
+                                      autoComplete="off"
+                                      onChange={e => {
+                                        const q = e.target.value
+                                        setBusquedaGrupo(prev => ({ ...prev, [g.id]: q }))
+                                        setDropdownGrupo(prev => ({ ...prev, [g.id]: true }))
+                                        // If user clears the field, remove the linked client
+                                        if (!q) setDesgloseGrupos(prev =>
+                                          prev.map((r, i) => i === idx ? { ...r, cliente_id: null, nombre_grupo: '' } : r)
+                                        )
+                                      }}
+                                      onFocus={() => setDropdownGrupo(prev => ({ ...prev, [g.id]: true }))}
+                                      onBlur={() => setTimeout(() => setDropdownGrupo(prev => ({ ...prev, [g.id]: false })), 200)}
+                                      className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                                    />
+                                    {/* Dropdown */}
+                                    {dropdownGrupo[g.id] && (() => {
+                                      const q = (busquedaGrupo[g.id] || '').toLowerCase().trim()
+                                      const matches = clientes.filter(c =>
+                                        !q || (c.nombre || '').toLowerCase().includes(q)
+                                      ).slice(0, 8)
+                                      if (!matches.length) return null
+                                      return (
+                                        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-52 overflow-y-auto">
+                                          {matches.map(c => (
+                                            <button
+                                              key={c.id}
+                                              type="button"
+                                              onMouseDown={e => {
+                                                e.preventDefault()
+                                                setDesgloseGrupos(prev =>
+                                                  prev.map((r, i) => i === idx
+                                                    ? { ...r, cliente_id: c.id, nombre_grupo: c.nombre }
+                                                    : r
+                                                  )
+                                                )
+                                                setBusquedaGrupo(prev => ({ ...prev, [g.id]: undefined }))
+                                                setDropdownGrupo(prev => ({ ...prev, [g.id]: false }))
+                                              }}
+                                              className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors"
+                                            >
+                                              <span className="font-medium text-slate-800">{c.nombre}</span>
+                                              {c.responsable && (
+                                                <span className="text-xs text-slate-400 ml-2">{c.responsable}</span>
+                                              )}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )
+                                    })()}
+                                    {/* Badge when a client is linked */}
+                                    {g.cliente_id && (
+                                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">
+                                        ✓
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={g.pax || ''}
+                                    placeholder="0"
+                                    onChange={e => setDesgloseGrupos(prev =>
+                                      prev.map((r, i) => i === idx ? { ...r, pax: Math.max(0, parseInt(e.target.value, 10) || 0) } : r)
+                                    )}
+                                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-center font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={g.gratuidades || ''}
+                                    placeholder="0"
+                                    onChange={e => setDesgloseGrupos(prev =>
+                                      prev.map((r, i) => i === idx ? { ...r, gratuidades: Math.max(0, parseInt(e.target.value, 10) || 0) } : r)
+                                    )}
+                                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={g.bonificacion_pax || ''}
+                                    placeholder="0.00"
+                                    onChange={e => setDesgloseGrupos(prev =>
+                                      prev.map((r, i) => i === idx ? { ...r, bonificacion_pax: Math.max(0, parseFloat(e.target.value) || 0) } : r)
+                                    )}
+                                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                                  />
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => setDesgloseGrupos(prev => prev.filter((_, i) => i !== idx))}
+                                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                    title="Eliminar fila"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="bg-blue-50 border-t-2 border-blue-300 font-bold text-blue-900">
+                              <td className="px-4 py-2.5 text-sm">TOTALES</td>
+                              <td className="px-4 py-2.5 text-center text-blue-700 text-base">
+                                {desgloseGrupos.reduce((s, g) => s + (Number(g.pax) || 0), 0)}
+                              </td>
+                              <td className="px-4 py-2.5 text-center text-blue-700">
+                                {desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0)}
+                              </td>
+                              <td className="px-4 py-2.5 text-center text-slate-400 text-xs font-normal">media pond.</td>
+                              <td></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+
+                      {/* Summary pill */}
+                      <div className="px-6 py-3 bg-blue-50 border-t border-blue-100 flex flex-wrap gap-6 text-sm">
+                        <span className="font-semibold text-blue-900">
+                          Total Pax:&nbsp;
+                          <strong className="text-xl">
+                            {desgloseGrupos.reduce((s, g) => s + (Number(g.pax) || 0), 0)}
+                          </strong>
+                        </span>
+                        <span className="font-semibold text-slate-700">
+                          Gratuidades:&nbsp;
+                          <strong>{desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0)}</strong>
+                        </span>
+                        <span className="font-semibold text-emerald-700">
+                          Pax de Pago:&nbsp;
+                          <strong>{Math.max(0, desgloseGrupos.reduce((s, g) => s + (Number(g.pax) || 0), 0) - desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0))}</strong>
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 {/* Card de Suplementos */}
                 <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
                   <div className="flex items-center justify-between mb-4">
@@ -5503,6 +5766,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 versiones={versiones}
                 versionActiva={versionActiva}
                 onVersionChange={cambiarVersionActiva}
+                desgloseGrupos={desgloseGrupos}
               />
           )}
 
