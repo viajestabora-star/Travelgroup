@@ -4727,17 +4727,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     </div>
                     <button
                       type="button"
-                      onClick={() => setDesgloseGrupos(prev => [
-                        ...prev,
-                        {
-                          id: `grp-${Date.now()}`,
-                          cliente_id: null,
-                          nombre_grupo: '',
-                          pax: 0,
-                          gratuidades: 0,
-                          bonificacion_pax: 0,
-                        }
-                      ])}
+                      onClick={() => {
+                        setDesgloseGrupos(prev => {
+                          const blankRow = { id: `grp-${Date.now() + 1}`, cliente_id: null, nombre_grupo: '', pax: 0, gratuidades: 0 }
+                          // First click on empty table → seed with existing cotización values so no data is lost
+                          if (prev.length === 0) {
+                            const nombreActual = expediente?.cliente_nombre || expediente?.nombre_grupo || ''
+                            const idActual = clienteIdPrincipal || null
+                            const paxActual = Number(formDataParaVariante?.total_pax) || 0
+                            const gratisActual = Number(formDataParaVariante?.gratuidades) || 0
+                            return [
+                              { id: `grp-${Date.now()}-main`, cliente_id: idActual, nombre_grupo: nombreActual, pax: paxActual, gratuidades: gratisActual },
+                              blankRow,
+                            ]
+                          }
+                          return [...prev, blankRow]
+                        })
+                      }}
                       className="flex items-center gap-2 bg-white text-blue-700 font-semibold text-sm px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors shadow"
                     >
                       <Plus size={15} />
@@ -4749,7 +4755,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     <div className="px-6 py-8 text-center text-slate-400 text-sm">
                       Sin grupos configurados. Pulsa «Añadir Asociación/Grupo» para empezar.
                       <br />
-                      <span className="text-xs text-slate-400 mt-1 block">Si no añades grupos, el total de pasajeros se toma del campo manual de arriba.</span>
+                      <span className="text-xs text-slate-400 mt-1 block">
+                        El primer clic creará automáticamente una fila con los datos actuales del expediente (cliente, pax y gratuidades).
+                        Si no añades grupos, los campos de pasajeros siguen siendo editables manualmente.
+                      </span>
                     </div>
                   ) : (
                     <>
