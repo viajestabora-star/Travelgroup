@@ -332,6 +332,9 @@ const Expedientes = () => {
           // Cierre de Grupo - pasar tal cual, sin parsear (JSONB en Supabase)
           cierre_grupo: exp?.cierre_grupo ?? null,
 
+          // Configuración de Grupos Compartidos - pasar tal cual (JSONB array en Supabase)
+          desglose_grupos: Array.isArray(exp?.desglose_grupos) ? exp.desglose_grupos : (exp?.desglose_grupos ?? null),
+
           // Campos por defecto para compatibilidad
           pasajeros: [],
           cobros: [],

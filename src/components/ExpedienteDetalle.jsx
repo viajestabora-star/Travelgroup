@@ -438,34 +438,27 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     } catch { return [] }
   })
 
-  // Re-sync when parent refreshes the expediente prop (e.g. after save)
+  // Re-sync from parent prop whenever the expediente changes (open/reopen/save refresh).
+  // Always overwrites local state with DB truth so groups are never stale.
   useEffect(() => {
     try {
-      if (Array.isArray(expediente?.desglose_grupos) && expediente.desglose_grupos.length > 0) {
-        setDesgloseGrupos(expediente.desglose_grupos)
+      const grupos = expediente?.desglose_grupos
+      if (Array.isArray(grupos)) {
+        setDesgloseGrupos(grupos) // covers both non-empty (load) and [] (cleared)
       }
     } catch { /* silent */ }
   }, [expediente?.id, expediente?.desglose_grupos])
 
-  // Sync totals into formData from group table — only when groups have real pax data
-  // Fallback: keeps previous manual total_pax if groups sum to 0
+  // Sync ONLY total_pax + gratuidades from group table when groups have pax data.
+  // bonificacion_pax is intentionally NOT touched — it stays on the main cotización field.
+  // If all groups have pax === 0, the manual fields remain editable and unchanged.
   useEffect(() => {
     try {
       if (!desgloseGrupos.length) return
       const sumPax = desgloseGrupos.reduce((s, g) => s + (Number(g.pax) || 0), 0)
       const sumGratis = desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0)
-      if (sumPax === 0) return // no groups filled yet — keep manual value
-      const totalPaxPago = Math.max(1, sumPax - sumGratis)
-      const bonifPond = desgloseGrupos.reduce((s, g) => {
-        const gPago = Math.max(0, (Number(g.pax) || 0) - (Number(g.gratuidades) || 0))
-        return s + (Number(g.bonificacion_pax) || 0) * gPago
-      }, 0) / totalPaxPago
-      setFormData(prev => ({
-        ...prev,
-        total_pax: sumPax,
-        gratuidades: sumGratis,
-        bonificacion_pax: Math.round(bonifPond * 100) / 100,
-      }))
+      if (sumPax === 0) return // groups exist but no pax entered yet — keep manual value
+      setFormData(prev => ({ ...prev, total_pax: sumPax, gratuidades: sumGratis }))
       if (versiones.length > 0) {
         setVersiones(prev => prev.map((v, i) =>
           i === versionActiva
