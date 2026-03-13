@@ -555,131 +555,158 @@ const ExpedienteFinanzas = ({
     return toNum(total_servicio)
   }
 
+  const [cargandoCotizacion, setCargandoCotizacion] = React.useState(false)
+  const [errorCargaCotizacion, setErrorCargaCotizacion] = React.useState(null)
+
   const recargarInformeDesdeCotizacion = async () => {
     if (!expediente?.id) return
+    setCargandoCotizacion(true)
+    setErrorCargaCotizacion(null)
     informeLiquidacionInicializadoRef.current = false
 
-    console.log('[Cierre] Recargando servicios desde Supabase para expediente', expediente.id)
+    try {
+      // ── 1. Single DB call: PAX data + versiones_json (primary service storage) ────
+      const { data: expFresco, error: errExp } = await supabase
+        .from('expedientes')
+        .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, versiones_json')
+        .eq('id', expediente.id)
+        .single()
+      if (errExp) console.warn('[Cierre] No se pudo cargar expediente fresco:', errExp.message)
 
-    // Fetch directo a Supabase — nunca usa el prop servicios (puede estar desactualizado)
-    let serviciosQuery = await supabase
-      .from('servicios_cotizacion')
-      .select('*')
-      .eq('id_expediente', String(expediente.id).trim())
-      .order('orden', { ascending: true })
-      .order('id', { ascending: true })
+      // ── 2. Resolve services — versiones_json is the primary store for new expedientes ──
+      let serviciosActualizados = []
 
-    // Fallback: si orden no existe aún en esta instancia de la BD
-    if (serviciosQuery.error) {
-      serviciosQuery = await supabase
-        .from('servicios_cotizacion')
-        .select('*')
-        .eq('id_expediente', String(expediente.id).trim())
-        .order('id', { ascending: true })
-    }
+      const vj = expFresco?.versiones_json ?? expediente?.versiones_json
+      const versionesGuardadas = Array.isArray(vj?.versiones) ? vj.versiones : null
 
-    const { data: serviciosDB, error: errServicios } = serviciosQuery
-
-    const { data: expFresco } = await supabase
-      .from('expedientes')
-      .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
-      .eq('id', expediente.id)
-      .single()
-
-    if (errServicios) {
-      console.error('[Cierre] Error al recargar servicios:', errServicios.message)
-      return
-    }
-
-    console.log('[Cierre] Servicios cargados:', serviciosDB?.length ?? 0)
-
-    const serviciosActualizados = Array.isArray(serviciosDB) && serviciosDB.length > 0
-      ? serviciosDB
-      : []
-
-    // Resolver IDs de proveedor que no estén en caché
-    const idsNecesarios = [...new Set(
-      serviciosActualizados
-        .map(s => s.proveedor_id_int)
-        .filter(Boolean)
-    )]
-    let proveedoresMap = {}
-    if (idsNecesarios.length > 0) {
-      const { data: provsDB } = await supabase
-        .from('proveedores')
-        .select('id, nombre_comercial')
-        .in('id', idsNecesarios)
-      if (Array.isArray(provsDB)) {
-        provsDB.forEach(p => { proveedoresMap[p.id] = p.nombre_comercial })
+      if (versionesGuardadas && versionesGuardadas.length > 0) {
+        // Prefer confirmed version → versionActiva index → first version
+        const confirmed = versionesGuardadas.find(v => v.confirmada)
+        const targetIdx = versionActiva >= 0 && versionActiva < versionesGuardadas.length ? versionActiva : 0
+        const target = confirmed || versionesGuardadas[targetIdx]
+        const servs = target?.servicios
+        if (Array.isArray(servs) && servs.length > 0) {
+          serviciosActualizados = servs
+          console.log('[Cierre] Servicios desde versiones_json:', serviciosActualizados.length)
+        }
       }
-    }
 
-    // Datos frescos del expediente (total_pax, pax_pago)
-    const paxTotalFresco = toNum(expFresco?.total_pax) || toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0
-    const gratuidades = toNum(expFresco?.gratuidades) || toNum(expediente?.gratuidades) || toNum(formData?.gratuidades) || 0
-    const paxPagoFresco = toNum(expFresco?.pax_pago) || Math.max(0, paxTotalFresco - gratuidades) || paxPago
-    const precioVentaFresco = toNum(expFresco?.precio_venta_cliente) || toNum(expediente?.precio_venta_cliente) || toNum(formData?.precio_venta_cliente) || 0
-    const bonificacionFresco = toNum(expFresco?.bonificacion_pax) || toNum(expediente?.bonificacion_pax) || toNum(formData?.bonificacion_pax) || 0
-
-    const precioViaje = paxPagoFresco * precioVentaFresco
-    const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
-    const descuentosVal = bonificacionFresco * paxPagoFresco
-
-    const savedCostesReales = (informeLiquidacion.costesReales || []).reduce((acc, c) => {
-      acc[c.id_servicio] = c.coste_real
-      return acc
-    }, {})
-
-    const costesRealesIniciales = serviciosActualizados.map((s) => {
-      const nombreComercialCache = obtenerProveedorPorId ? obtenerProveedorPorId(s?.proveedor_id_int)?.nombreComercial : null
-      const proveedor = nombreComercialCache
-        || proveedoresMap[s?.proveedor_id_int]
-        || s?.nombre_proveedor_texto
-        || s?.nombre_proveedor_manual
-        || '—'
-      const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
-      const nombre = s?.nombre_especifico ? `${tipo} ${s.nombre_especifico}` : tipo
-      const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
-      const costeReal = savedCostesReales[s?.id] ?? costeCotizado
-      return {
-        id_servicio: s?.id || generarUUID(),
-        concepto: nombre,
-        proveedor,
-        coste_cotizado: costeCotizado,
-        coste_real: costeReal,
+      // ── 3. Legacy fallback: servicios_cotizacion table (for older expedientes) ─────
+      if (serviciosActualizados.length === 0) {
+        let sq = await supabase
+          .from('servicios_cotizacion')
+          .select('*')
+          .eq('id_expediente', String(expediente.id).trim())
+          .order('orden', { ascending: true })
+          .order('id', { ascending: true })
+        if (sq.error) {
+          sq = await supabase
+            .from('servicios_cotizacion')
+            .select('*')
+            .eq('id_expediente', String(expediente.id).trim())
+            .order('id', { ascending: true })
+        }
+        if (!sq.error && Array.isArray(sq.data) && sq.data.length > 0) {
+          serviciosActualizados = sq.data
+          console.log('[Cierre] Servicios desde servicios_cotizacion:', serviciosActualizados.length)
+        }
       }
-    })
 
-    setInformeLiquidacion(prev => ({
-      ...prev,
-      ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal },
-      costesReales: costesRealesIniciales,
-      gastosImprevistos: prev.gastosImprevistos || [],
-    }))
-
-    // Actualizar paxPorAsociacion con datos frescos si no hay guardado manual
-    const guardado = expediente?.cierre_grupo?.pax_por_asociacion
-    if (!Array.isArray(guardado) || guardado.length === 0) {
-      if (expedienteClientes.length > 0) {
-        const paxPorCliente = expedienteClientes.length > 0 && paxTotalFresco > 0
-          ? Math.floor(paxTotalFresco / expedienteClientes.length)
-          : null
-        setPaxPorAsociacion(expedienteClientes.map(ec => ({
-          cliente_id: ec.cliente_id,
-          cliente_nombre: ec.cliente_nombre,
-          pax: paxPorCliente,
-        })))
-      } else if (clienteIdPrincipal) {
-        const nombrePrincipal = grupo?.nombre || expediente?.cliente_nombre || expediente?.nombre_grupo || '—'
-        setPaxPorAsociacion([{
-          cliente_id: clienteIdPrincipal,
-          cliente_nombre: nombrePrincipal,
-          pax: paxTotalFresco || null,
-        }])
+      // ── 4. In-memory fallback: servicios prop already passed by the parent ─────────
+      if (serviciosActualizados.length === 0 && Array.isArray(servicios) && servicios.length > 0) {
+        serviciosActualizados = servicios
+        console.log('[Cierre] Servicios desde prop (fallback):', serviciosActualizados.length)
       }
-    }
 
-    informeLiquidacionInicializadoRef.current = true
+      console.log('[Cierre] Total servicios a cargar en Cierre:', serviciosActualizados.length)
+
+      // ── 5. Resolve provider names for rows that carry a numeric proveedor_id_int ───
+      const idsNecesarios = [...new Set(
+        serviciosActualizados.map(s => s.proveedor_id_int).filter(Boolean)
+      )]
+      let proveedoresMap = {}
+      if (idsNecesarios.length > 0) {
+        const { data: provsDB } = await supabase
+          .from('proveedores')
+          .select('id, nombre_comercial')
+          .in('id', idsNecesarios)
+        if (Array.isArray(provsDB)) provsDB.forEach(p => { proveedoresMap[p.id] = p.nombre_comercial })
+      }
+
+      // ── 6. PAX figures — DB → props → formData. desglose_grupos has no effect here ─
+      const paxTotalFresco = toNum(expFresco?.total_pax) || toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0
+      const gratuidadesFrescas = toNum(expFresco?.gratuidades) || toNum(expediente?.gratuidades) || toNum(formData?.gratuidades) || 0
+      const paxPagoFresco = toNum(expFresco?.pax_pago) || Math.max(0, paxTotalFresco - gratuidadesFrescas) || paxPago
+      const precioVentaFresco = toNum(expFresco?.precio_venta_cliente) || toNum(expediente?.precio_venta_cliente) || toNum(formData?.precio_venta_cliente) || 0
+      const bonificacionFresco = toNum(expFresco?.bonificacion_pax) || toNum(expediente?.bonificacion_pax) || toNum(formData?.bonificacion_pax) || 0
+
+      const precioViaje = paxPagoFresco * precioVentaFresco
+      const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
+      const descuentosVal = bonificacionFresco * paxPagoFresco
+
+      // ── 7. Build coste rows — preserve manually edited coste_real values ───────────
+      const savedCostesReales = (informeLiquidacion.costesReales || []).reduce((acc, c) => {
+        acc[c.id_servicio] = c.coste_real
+        return acc
+      }, {})
+
+      const costesRealesIniciales = serviciosActualizados.map((s) => {
+        const nombreComercialCache = obtenerProveedorPorId ? obtenerProveedorPorId(s?.proveedor_id_int)?.nombreComercial : null
+        const proveedor = nombreComercialCache
+          || proveedoresMap[s?.proveedor_id_int]
+          || s?.nombre_proveedor_texto
+          || s?.nombre_proveedor_manual
+          || '—'
+        const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
+        const nombre = s?.nombre_especifico ? `${tipo} – ${s.nombre_especifico}` : tipo
+        const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
+        const costeReal = savedCostesReales[s?.id] ?? costeCotizado
+        return {
+          id_servicio: s?.id || generarUUID(),
+          concepto: nombre,
+          proveedor,
+          coste_cotizado: costeCotizado,
+          coste_real: costeReal,
+        }
+      })
+
+      // ── 8. Commit state ────────────────────────────────────────────────────────────
+      setInformeLiquidacion(prev => ({
+        ...prev,
+        ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal },
+        costesReales: costesRealesIniciales,
+        gastosImprevistos: prev.gastosImprevistos || [],
+      }))
+
+      // ── 9. PAX por asociación — only update when no saved manual distribution ──────
+      const guardado = expediente?.cierre_grupo?.pax_por_asociacion
+      if (!Array.isArray(guardado) || guardado.length === 0) {
+        if (expedienteClientes.length > 0) {
+          const paxPorCliente = paxTotalFresco > 0
+            ? Math.floor(paxTotalFresco / expedienteClientes.length)
+            : null
+          setPaxPorAsociacion(expedienteClientes.map(ec => ({
+            cliente_id: ec.cliente_id,
+            cliente_nombre: ec.cliente_nombre,
+            pax: paxPorCliente,
+          })))
+        } else if (clienteIdPrincipal) {
+          const nombrePrincipal = grupo?.nombre || expediente?.cliente_nombre || expediente?.nombre_grupo || '—'
+          setPaxPorAsociacion([{
+            cliente_id: clienteIdPrincipal,
+            cliente_nombre: nombrePrincipal,
+            pax: paxTotalFresco || null,
+          }])
+        }
+      }
+
+      informeLiquidacionInicializadoRef.current = true
+    } catch (err) {
+      console.error('[Cierre] Error al cargar cotización:', err)
+      setErrorCargaCotizacion(err?.message || 'Error desconocido al cargar los datos')
+    } finally {
+      setCargandoCotizacion(false)
+    }
   }
 
   const actualizarCosteReal = (idServicio, costeReal) => {
@@ -1356,11 +1383,23 @@ const ExpedienteFinanzas = ({
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3">
                 <h2 className="text-base font-bold text-slate-800 uppercase border-b border-slate-300 pb-1">Costes Reales (factura proveedor)</h2>
                 {!camposBloqueados && (
-                  <button type="button" onClick={recargarInformeDesdeCotizacion} className="text-sm border border-slate-400 px-3 py-1.5 rounded-lg hover:bg-slate-50 font-medium self-start sm:self-auto">
-                    Cargar desde Cotización
+                  <button
+                    type="button"
+                    onClick={recargarInformeDesdeCotizacion}
+                    disabled={cargandoCotizacion}
+                    className={`text-sm border px-3 py-1.5 rounded-lg font-medium self-start sm:self-auto transition-colors ${cargandoCotizacion ? 'border-blue-300 bg-blue-50 text-blue-500 cursor-wait' : 'border-slate-400 hover:bg-slate-50'}`}
+                  >
+                    {cargandoCotizacion ? '⏳ Cargando…' : '↺ Cargar desde Cotización'}
                   </button>
                 )}
               </div>
+              {errorCargaCotizacion && (
+                <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+                  <span>⚠️</span>
+                  <span>{errorCargaCotizacion}</span>
+                  <button type="button" onClick={() => setErrorCargaCotizacion(null)} className="ml-auto text-red-400 hover:text-red-600 font-bold">✕</button>
+                </div>
+              )}
               {(informeLiquidacion.costesReales || []).length === 0 ? (
                 <div className="py-6 text-center text-slate-500 text-sm border border-slate-200 rounded-lg bg-slate-50">
                   No hay servicios. Abre la pestaña Cotización, añade servicios y pulsa «Cargar desde Cotización».
