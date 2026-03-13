@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Users, Calculator, Calendar, Briefcase, AlertTriangle, Clock, CheckCircle, Globe, X } from 'lucide-react'
+import { Users, Calculator, Calendar, Briefcase, AlertTriangle, Clock, CheckCircle, Globe, X, StickyNote, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import { supabase } from '../supabase'
@@ -21,6 +21,27 @@ const Dashboard = ({ user = null }) => {
     visitasPendientes: 0,
   })
   const [proximosReleases, setProximosReleases] = useState([])
+  const [notasPendientes, setNotasPendientes] = useState([])
+  const [cargandoNotas, setCargandoNotas] = useState(true)
+
+  useEffect(() => {
+    const fetchNotas = async () => {
+      try {
+        const { data } = await supabase
+          .from('notas')
+          .select('*')
+          .is('expediente_id', null)
+          .eq('estado', 'Pendiente')
+          .order('fecha_plazo', { ascending: true })
+        setNotasPendientes(data || [])
+      } catch (_) {
+        setNotasPendientes([])
+      } finally {
+        setCargandoNotas(false)
+      }
+    }
+    fetchNotas()
+  }, [])
 
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
@@ -346,8 +367,100 @@ const Dashboard = ({ user = null }) => {
           )}
         </div>
 
-        <div className="card">
-          <ResumenPipeline />
+        <div className="card flex flex-col" style={{ minHeight: '360px' }}>
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-navy-900 flex items-center gap-2">
+              <StickyNote size={22} className="text-red-500" />
+              Notas Pendientes
+            </h2>
+            <button
+              onClick={() => navigate('/notas')}
+              className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+            >
+              Ver todas <ChevronRight size={16} />
+            </button>
+          </div>
+
+          {/* Body */}
+          {cargandoNotas ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : notasPendientes.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+              <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <CheckCircle className="text-green-600" size={28} />
+              </div>
+              <p className="text-gray-500 text-sm font-medium">¡Sin notas pendientes!</p>
+              <p className="text-gray-400 text-xs mt-1">Todo el equipo está al día</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+              {notasPendientes.map((nota) => {
+                const colorBorde = {
+                  'Todos':   '#9ca3af',
+                  'Andres':  '#3b82f6',
+                  'Marisa':  '#10b981',
+                  'German':  '#f59e0b',
+                }[nota.destinatario] || '#9ca3af'
+
+                const fechaTexto = nota.fecha_plazo
+                  ? new Date(nota.fecha_plazo).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+                  : null
+
+                const preview = nota.contenido
+                  ? nota.contenido.length > 80
+                    ? nota.contenido.slice(0, 80) + '…'
+                    : nota.contenido
+                  : null
+
+                return (
+                  <div
+                    key={nota.id}
+                    onClick={() => navigate('/notas', { state: { notaId: nota.id } })}
+                    className="p-3 rounded-lg border-l-4 bg-red-50 hover:bg-red-100 cursor-pointer transition-all group"
+                    style={{ borderLeftColor: colorBorde }}
+                  >
+                    {/* Title row */}
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <span className="font-semibold text-sm text-gray-900 leading-tight line-clamp-1 flex-1">
+                        {nota.titulo || 'Sin título'}
+                      </span>
+                      <span className="shrink-0 px-1.5 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700 border border-red-200">
+                        Pendiente
+                      </span>
+                    </div>
+
+                    {/* Sender / recipient */}
+                    {nota.destinatario && (
+                      <p className="text-xs text-gray-500 mb-1">
+                        Para: <span className="font-medium" style={{ color: colorBorde }}>{nota.destinatario}</span>
+                      </p>
+                    )}
+
+                    {/* Content preview */}
+                    {preview && (
+                      <p className="text-xs text-gray-600 leading-relaxed mb-1 line-clamp-2">{preview}</p>
+                    )}
+
+                    {/* Date + deep-link hint */}
+                    <div className="flex items-center justify-between mt-1">
+                      {fechaTexto && (
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                          <Clock size={11} />
+                          {fechaTexto}
+                        </span>
+                      )}
+                      <span className="ml-auto text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity font-medium">
+                        Editar →
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

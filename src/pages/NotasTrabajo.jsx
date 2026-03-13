@@ -8,6 +8,8 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   // Obtener expediente_id de props o del estado de navegación
   const expedienteIdFromState = location?.state?.expedienteId;
   const expedienteIdFinal = expedienteId || expedienteIdFromState;
+  // Deep-link: open a specific note's edit form on mount (from Dashboard widget click)
+  const notaIdFromState = location?.state?.notaId || null;
 
   const [notas, setNotas] = useState([]);
   const [editando, setEditando] = useState(null);
@@ -41,6 +43,24 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   useEffect(() => {
     cargarNotas();
   }, [mostrarCompletadas]);
+
+  // Deep-link: when arriving from Dashboard with a notaId, open that note for editing.
+  // Runs whenever notas loads (cargando flips to false) and a target ID is present.
+  useEffect(() => {
+    if (cargando || !notaIdFromState) return;
+    const notaObjetivo = notas.find(n => n.id === notaIdFromState);
+    if (notaObjetivo) {
+      setEditando(notaObjetivo);
+      // Scroll the form into view after React paints
+      setTimeout(() => {
+        document.getElementById('nota-edit-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    } else {
+      // The note may be Completado — fetch it directly so the form still opens
+      supabase.from('notas').select('*').eq('id', notaIdFromState).single()
+        .then(({ data }) => { if (data) setEditando(data); });
+    }
+  }, [cargando, notaIdFromState]);
 
   const cargarNotas = async () => {
     try {
@@ -376,7 +396,7 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
 
       {/* FORMULARIO */}
       {(mostrarForm || editando) && (
-        <div className="bg-gray-50 p-6 rounded-xl border-2 border-blue-500 mb-6">
+        <div id="nota-edit-form" className="bg-gray-50 p-6 rounded-xl border-2 border-blue-500 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input 
               type="text" 
