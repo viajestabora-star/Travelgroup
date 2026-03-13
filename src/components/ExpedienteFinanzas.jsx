@@ -620,9 +620,12 @@ const ExpedienteFinanzas = ({
 
       console.log('[Cierre] Total servicios a cargar en Cierre:', serviciosActualizados.length)
 
-      // ── 5. Resolve provider names for rows that carry a numeric proveedor_id_int ───
+      // ── 5. Resolve provider names ─────────────────────────────────────────────────
+      // Services from versiones_json use proveedorId; DB rows use proveedor_id_int.
       const idsNecesarios = [...new Set(
-        serviciosActualizados.map(s => s.proveedor_id_int).filter(Boolean)
+        serviciosActualizados
+          .map(s => s.proveedor_id_int || s.proveedorId)
+          .filter(id => id != null && id !== '')
       )]
       let proveedoresMap = {}
       if (idsNecesarios.length > 0) {
@@ -651,12 +654,17 @@ const ExpedienteFinanzas = ({
       }, {})
 
       const costesRealesIniciales = serviciosActualizados.map((s) => {
-        const nombreComercialCache = obtenerProveedorPorId ? obtenerProveedorPorId(s?.proveedor_id_int)?.nombreComercial : null
+        // versiones_json → proveedorId; servicios_cotizacion → proveedor_id_int
+        const provId = s?.proveedor_id_int || s?.proveedorId || null
+        const nombreComercialCache = obtenerProveedorPorId && provId != null
+          ? obtenerProveedorPorId(provId)?.nombreComercial
+          : null
         const proveedor = nombreComercialCache
-          || proveedoresMap[s?.proveedor_id_int]
+          || (provId != null ? proveedoresMap[provId] : null)
           || s?.nombre_proveedor_texto
+          || s?.proveedorNombreTemporal  // versiones_json manual name
           || s?.nombre_proveedor_manual
-          || '—'
+          || 'Sin asignar'
         const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
         const nombre = s?.nombre_especifico ? `${tipo} – ${s.nombre_especifico}` : tipo
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
