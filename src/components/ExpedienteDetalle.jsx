@@ -4763,14 +4763,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   ) : (
                     <>
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm min-w-[540px]">
+                        <table className="w-full text-sm min-w-[400px]">
                           <thead>
                             <tr className="bg-blue-50 border-b border-blue-200">
-                              <th className="px-4 py-2.5 text-left font-semibold text-blue-800 w-[35%]">Nombre del Grupo</th>
-                              <th className="px-4 py-2.5 text-center font-semibold text-blue-800 w-[15%]">Pasajeros</th>
-                              <th className="px-4 py-2.5 text-center font-semibold text-blue-800 w-[15%]">Gratuidades</th>
-                              <th className="px-4 py-2.5 text-center font-semibold text-blue-800 w-[20%]">Bonos €/pax</th>
-                              <th className="px-4 py-2.5 w-[15%]"></th>
+                              <th className="px-4 py-2.5 text-left font-semibold text-blue-800 w-[50%]">Cliente / Asociación</th>
+                              <th className="px-4 py-2.5 text-center font-semibold text-blue-800 w-[18%]">Pasajeros</th>
+                              <th className="px-4 py-2.5 text-center font-semibold text-blue-800 w-[18%]">Gratuidades</th>
+                              <th className="px-4 py-2.5 w-[14%]"></th>
                             </tr>
                           </thead>
                           <tbody>
@@ -4779,8 +4778,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 key={g.id || idx}
                                 className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}`}
                               >
+                                {/* ── Cliente selector ── */}
                                 <td className="px-3 py-2">
-                                  {/* Client selector with live search */}
                                   <div className="relative">
                                     <input
                                       type="text"
@@ -4791,7 +4790,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                         const q = e.target.value
                                         setBusquedaGrupo(prev => ({ ...prev, [g.id]: q }))
                                         setDropdownGrupo(prev => ({ ...prev, [g.id]: true }))
-                                        // If user clears the field, remove the linked client
                                         if (!q) setDesgloseGrupos(prev =>
                                           prev.map((r, i) => i === idx ? { ...r, cliente_id: null, nombre_grupo: '' } : r)
                                         )
@@ -4800,7 +4798,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       onBlur={() => setTimeout(() => setDropdownGrupo(prev => ({ ...prev, [g.id]: false })), 200)}
                                       className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
                                     />
-                                    {/* Dropdown */}
                                     {dropdownGrupo[g.id] && (() => {
                                       const q = (busquedaGrupo[g.id] || '').toLowerCase().trim()
                                       const matches = clientes.filter(c =>
@@ -4827,59 +4824,46 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                               className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors"
                                             >
                                               <span className="font-medium text-slate-800">{c.nombre}</span>
-                                              {c.responsable && (
-                                                <span className="text-xs text-slate-400 ml-2">{c.responsable}</span>
-                                              )}
+                                              {c.responsable && <span className="text-xs text-slate-400 ml-2">{c.responsable}</span>}
                                             </button>
                                           ))}
                                         </div>
                                       )
                                     })()}
-                                    {/* Badge when a client is linked */}
                                     {g.cliente_id && (
-                                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">
-                                        ✓
-                                      </span>
+                                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium pointer-events-none">✓</span>
                                     )}
                                   </div>
                                 </td>
+                                {/* ── Pasajeros ── */}
                                 <td className="px-3 py-2">
                                   <input
                                     type="number"
                                     min="0"
                                     value={g.pax || ''}
                                     placeholder="0"
+                                    onWheel={e => e.target.blur()}
                                     onChange={e => setDesgloseGrupos(prev =>
                                       prev.map((r, i) => i === idx ? { ...r, pax: Math.max(0, parseInt(e.target.value, 10) || 0) } : r)
                                     )}
                                     className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-center font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
                                   />
                                 </td>
+                                {/* ── Gratuidades ── */}
                                 <td className="px-3 py-2">
                                   <input
                                     type="number"
                                     min="0"
                                     value={g.gratuidades || ''}
                                     placeholder="0"
+                                    onWheel={e => e.target.blur()}
                                     onChange={e => setDesgloseGrupos(prev =>
                                       prev.map((r, i) => i === idx ? { ...r, gratuidades: Math.max(0, parseInt(e.target.value, 10) || 0) } : r)
                                     )}
                                     className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
                                   />
                                 </td>
-                                <td className="px-3 py-2">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={g.bonificacion_pax || ''}
-                                    placeholder="0.00"
-                                    onChange={e => setDesgloseGrupos(prev =>
-                                      prev.map((r, i) => i === idx ? { ...r, bonificacion_pax: Math.max(0, parseFloat(e.target.value) || 0) } : r)
-                                    )}
-                                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
-                                  />
-                                </td>
+                                {/* ── Eliminar ── */}
                                 <td className="px-3 py-2 text-center">
                                   <button
                                     type="button"
@@ -4902,7 +4886,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               <td className="px-4 py-2.5 text-center text-blue-700">
                                 {desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0)}
                               </td>
-                              <td className="px-4 py-2.5 text-center text-slate-400 text-xs font-normal">media pond.</td>
                               <td></td>
                             </tr>
                           </tfoot>
@@ -4910,21 +4893,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       </div>
 
                       {/* Summary pill */}
-                      <div className="px-6 py-3 bg-blue-50 border-t border-blue-100 flex flex-wrap gap-6 text-sm">
+                      <div className="px-6 py-3 bg-blue-50 border-t border-blue-100 flex flex-wrap items-center gap-6 text-sm">
                         <span className="font-semibold text-blue-900">
-                          Total Pax:&nbsp;
-                          <strong className="text-xl">
-                            {desgloseGrupos.reduce((s, g) => s + (Number(g.pax) || 0), 0)}
-                          </strong>
+                          Total Pax:&nbsp;<strong className="text-xl">{desgloseGrupos.reduce((s, g) => s + (Number(g.pax) || 0), 0)}</strong>
                         </span>
                         <span className="font-semibold text-slate-700">
-                          Gratuidades:&nbsp;
-                          <strong>{desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0)}</strong>
+                          Gratuidades:&nbsp;<strong>{desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0)}</strong>
                         </span>
                         <span className="font-semibold text-emerald-700">
-                          Pax de Pago:&nbsp;
-                          <strong>{Math.max(0, desgloseGrupos.reduce((s, g) => s + (Number(g.pax) || 0), 0) - desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0))}</strong>
+                          Pax de Pago:&nbsp;<strong>{Math.max(0, desgloseGrupos.reduce((s, g) => s + (Number(g.pax) || 0), 0) - desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0))}</strong>
                         </span>
+                        <span className="text-xs text-slate-400 italic">La bonificación se aplica globalmente desde el campo superior.</span>
                       </div>
                     </>
                   )}
