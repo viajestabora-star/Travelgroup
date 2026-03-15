@@ -5,6 +5,7 @@ import { storage } from '../utils/storage'
 import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { registrarSalidaOnUnload, heartbeatSalida, registrarEntradaSilencioso } from '../utils/controlHorario'
+import { esUsuarioGestoria } from '../App'
 
 const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
@@ -12,19 +13,24 @@ import CentralDeInteligencia from '../components/CentralDeInteligencia'
 import ResumenPipeline from '../components/ResumenPipeline'
 
 const Dashboard = ({ user = null }) => {
-  const navigate = useNavigate()
-  const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
+  const navigate    = useNavigate()
+  const esGestoria  = esUsuarioGestoria(user)
+  const [ejercicioActual, setEjercicioActual]   = useState(getEjercicioActual())
   const [showIntelligenceHub, setShowIntelligenceHub] = useState(false)
   const [stats, setStats] = useState({
     totalClientes: 0,
     totalCotizaciones: 0,
     visitasPendientes: 0,
   })
-  const [proximosReleases, setProximosReleases] = useState([])
-  const [notasPendientes, setNotasPendientes] = useState([])
-  const [cargandoNotas, setCargandoNotas] = useState(true)
+  const [proximosReleases, setProximosReleases]  = useState([])
+  const [notasPendientes, setNotasPendientes]    = useState([])
+  const [cargandoNotas, setCargandoNotas]        = useState(true)
+  const [ultimasFacturas, setUltimasFacturas]    = useState([])
+  const [cargandoFacturas, setCargandoFacturas]  = useState(true)
 
+  // Notas pendientes — solo usuarios internos
   useEffect(() => {
+    if (esGestoria) { setCargandoNotas(false); return }
     const fetchNotas = async () => {
       try {
         const { data } = await supabase
@@ -41,7 +47,27 @@ const Dashboard = ({ user = null }) => {
       }
     }
     fetchNotas()
-  }, [])
+  }, [esGestoria])
+
+  // Últimas facturas — solo gestoría
+  useEffect(() => {
+    if (!esGestoria) { setCargandoFacturas(false); return }
+    const fetchFacturas = async () => {
+      try {
+        const { data } = await supabase
+          .from('facturas_emitidas_global')
+          .select('id, numero_factura, cliente_nombre, importe_total, created_at, datos_json')
+          .order('created_at', { ascending: false })
+          .limit(10)
+        setUltimasFacturas(data || [])
+      } catch (_) {
+        setUltimasFacturas([])
+      } finally {
+        setCargandoFacturas(false)
+      }
+    }
+    fetchFacturas()
+  }, [esGestoria])
 
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
@@ -367,101 +393,137 @@ const Dashboard = ({ user = null }) => {
           )}
         </div>
 
-        <div className="card flex flex-col" style={{ minHeight: '360px' }}>
-          {/* Header */}
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-navy-900 flex items-center gap-2">
-              <StickyNote size={22} className="text-red-500" />
-              Notas Pendientes
-            </h2>
-            <button
-              onClick={() => navigate('/notas')}
-              className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
-            >
-              Ver todas <ChevronRight size={16} />
-            </button>
-          </div>
-
-          {/* Body */}
-          {cargandoNotas ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+        {esGestoria ? (
+          /* ── GESTORÍA: últimas facturas emitidas ── */
+          <div className="card flex flex-col" style={{ minHeight: '360px' }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-navy-900 flex items-center gap-2">
+                <Calculator size={22} className="text-blue-600" />
+                Últimas Facturas Emitidas
+              </h2>
+              <button
+                onClick={() => navigate('/cierres')}
+                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+              >
+                Ver todas <ChevronRight size={16} />
+              </button>
             </div>
-          ) : notasPendientes.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
-              <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <CheckCircle className="text-green-600" size={28} />
+            {cargandoFacturas ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
               </div>
-              <p className="text-gray-500 text-sm font-medium">¡Sin notas pendientes!</p>
-              <p className="text-gray-400 text-xs mt-1">Todo el equipo está al día</p>
+            ) : ultimasFacturas.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+                <Calculator className="text-blue-300 mb-3" size={40} />
+                <p className="text-gray-500 text-sm font-medium">Sin facturas emitidas aún</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      <th className="pb-2 pr-3">Nº Factura</th>
+                      <th className="pb-2 pr-3">Cliente</th>
+                      <th className="pb-2 pr-3 text-right">Importe</th>
+                      <th className="pb-2 text-right">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {ultimasFacturas.map((f) => {
+                      const total = parseFloat(f.importe_total ?? f.datos_json?.totalFactura ?? 0)
+                      const fecha = f.created_at
+                        ? new Date(f.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+                        : '—'
+                      return (
+                        <tr
+                          key={f.id}
+                          onClick={() => navigate('/cierres')}
+                          className="hover:bg-blue-50 cursor-pointer transition-colors"
+                        >
+                          <td className="py-2 pr-3 font-mono font-semibold text-blue-700 text-xs">{f.numero_factura || '—'}</td>
+                          <td className="py-2 pr-3 text-gray-800 truncate max-w-[130px] text-xs">{f.cliente_nombre || 'Sin nombre'}</td>
+                          <td className="py-2 pr-3 text-right font-semibold text-gray-900 text-xs">{total.toFixed(2)} €</td>
+                          <td className="py-2 text-right text-gray-400 text-xs whitespace-nowrap">{fecha}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* ── USUARIOS INTERNOS: notas pendientes ── */
+          <div className="card flex flex-col" style={{ minHeight: '360px' }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-navy-900 flex items-center gap-2">
+                <StickyNote size={22} className="text-red-500" />
+                Notas Pendientes
+              </h2>
+              <button
+                onClick={() => navigate('/notas')}
+                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+              >
+                Ver todas <ChevronRight size={16} />
+              </button>
             </div>
-          ) : (
-            <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-              {notasPendientes.map((nota) => {
-                const colorBorde = {
-                  'Todos':   '#9ca3af',
-                  'Andres':  '#3b82f6',
-                  'Marisa':  '#10b981',
-                  'German':  '#f59e0b',
-                }[nota.destinatario] || '#9ca3af'
-
-                const fechaTexto = nota.fecha_plazo
-                  ? new Date(nota.fecha_plazo).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
-                  : null
-
-                const preview = nota.contenido
-                  ? nota.contenido.length > 80
-                    ? nota.contenido.slice(0, 80) + '…'
-                    : nota.contenido
-                  : null
-
-                return (
-                  <div
-                    key={nota.id}
-                    onClick={() => navigate('/notas', { state: { notaId: nota.id } })}
-                    className="p-3 rounded-lg border-l-4 bg-red-50 hover:bg-red-100 cursor-pointer transition-all group"
-                    style={{ borderLeftColor: colorBorde }}
-                  >
-                    {/* Title row */}
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <span className="font-semibold text-sm text-gray-900 leading-tight line-clamp-1 flex-1">
-                        {nota.titulo || 'Sin título'}
-                      </span>
-                      <span className="shrink-0 px-1.5 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700 border border-red-200">
-                        Pendiente
-                      </span>
-                    </div>
-
-                    {/* Sender / recipient */}
-                    {nota.destinatario && (
-                      <p className="text-xs text-gray-500 mb-1">
-                        Para: <span className="font-medium" style={{ color: colorBorde }}>{nota.destinatario}</span>
-                      </p>
-                    )}
-
-                    {/* Content preview */}
-                    {preview && (
-                      <p className="text-xs text-gray-600 leading-relaxed mb-1 line-clamp-2">{preview}</p>
-                    )}
-
-                    {/* Date + deep-link hint */}
-                    <div className="flex items-center justify-between mt-1">
-                      {fechaTexto && (
-                        <span className="flex items-center gap-1 text-xs text-gray-400">
-                          <Clock size={11} />
-                          {fechaTexto}
-                        </span>
+            {cargandoNotas ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : notasPendientes.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+                <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <CheckCircle className="text-green-600" size={28} />
+                </div>
+                <p className="text-gray-500 text-sm font-medium">¡Sin notas pendientes!</p>
+                <p className="text-gray-400 text-xs mt-1">Todo el equipo está al día</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                {notasPendientes.map((nota) => {
+                  const colorBorde = {
+                    'Todos':  '#9ca3af',
+                    'Andres': '#3b82f6',
+                    'Marisa': '#10b981',
+                    'German': '#f59e0b',
+                  }[nota.destinatario] || '#9ca3af'
+                  const fechaTexto = nota.fecha_plazo
+                    ? new Date(nota.fecha_plazo).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+                    : null
+                  const preview = nota.contenido
+                    ? nota.contenido.length > 80 ? nota.contenido.slice(0, 80) + '…' : nota.contenido
+                    : null
+                  return (
+                    <div
+                      key={nota.id}
+                      onClick={() => navigate('/notas', { state: { notaId: nota.id } })}
+                      className="p-3 rounded-lg border-l-4 bg-red-50 hover:bg-red-100 cursor-pointer transition-all group"
+                      style={{ borderLeftColor: colorBorde }}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <span className="font-semibold text-sm text-gray-900 leading-tight line-clamp-1 flex-1">{nota.titulo || 'Sin título'}</span>
+                        <span className="shrink-0 px-1.5 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700 border border-red-200">Pendiente</span>
+                      </div>
+                      {nota.destinatario && (
+                        <p className="text-xs text-gray-500 mb-1">Para: <span className="font-medium" style={{ color: colorBorde }}>{nota.destinatario}</span></p>
                       )}
-                      <span className="ml-auto text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity font-medium">
-                        Editar →
-                      </span>
+                      {preview && <p className="text-xs text-gray-600 leading-relaxed mb-1 line-clamp-2">{preview}</p>}
+                      <div className="flex items-center justify-between mt-1">
+                        {fechaTexto && (
+                          <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <Clock size={11} />{fechaTexto}
+                          </span>
+                        )}
+                        <span className="ml-auto text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity font-medium">Editar →</span>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

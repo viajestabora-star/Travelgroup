@@ -17,13 +17,27 @@ import Composer from './pages/Composer';
 import InteligenciaEconomica from './pages/InteligenciaEconomica';
 import AdminRouteGuard from './components/AdminRouteGuard';
 
+// ─── Auth ────────────────────────────────────────────────────────────────────
 const USUARIOS_AUTORIZADOS = {
-  'andres@viajestabora.com': { nombre: 'Andrés', rol: 'ADMIN' },
-  'info@viajestabora.com': { nombre: 'Germán', rol: 'ADMIN' },
-  'grupos@viajestabora.com': { nombre: 'Marisa', rol: 'STAFF' }
+  'andres@viajestabora.com': { nombre: 'Andrés',        rol: 'ADMIN'    },
+  'info@viajestabora.com':   { nombre: 'Germán',         rol: 'ADMIN'    },
+  'grupos@viajestabora.com': { nombre: 'Marisa',         rol: 'STAFF'    },
+  'alcor@asesores.com':      { nombre: 'Gestoria Alcor', rol: 'GESTORIA' },
 };
 const CLAVE_MAESTRA = 'tabora';
 
+// ─── Helpers de rol ──────────────────────────────────────────────────────────
+// La condición se resuelve por email (string) además del rol, como capa de seguridad extra.
+export const esUsuarioGestoria = (user) =>
+  user?.rol === 'GESTORIA' || user?.email === 'alcor@asesores.com';
+
+// Bloquea a usuarios GESTORIA de rutas internas que no les corresponden
+const GestoriaBlockGuard = ({ user, children }) => {
+  if (esUsuarioGestoria(user)) return <Navigate to="/cierres" replace />;
+  return children;
+};
+
+// ─── App ─────────────────────────────────────────────────────────────────────
 function App() {
   const [user, setUser] = useState(() => {
     try {
@@ -36,13 +50,14 @@ function App() {
     }
   });
   const [email, setEmail] = useState('');
-  const [pass, setPass] = useState('');
+  const [pass, setPass]   = useState('');
 
   const handleLogin = (e) => {
     e.preventDefault();
-    const usuarioEncontrado = USUARIOS_AUTORIZADOS[email.toLowerCase()];
+    const emailNorm        = email.toLowerCase().trim();
+    const usuarioEncontrado = USUARIOS_AUTORIZADOS[emailNorm];
     if (usuarioEncontrado && pass === CLAVE_MAESTRA) {
-      const datosSesion = { email, ...usuarioEncontrado };
+      const datosSesion = { email: emailNorm, ...usuarioEncontrado };
       localStorage.setItem('sesion_tabora', JSON.stringify(datosSesion));
       setUser(datosSesion);
     } else {
@@ -57,20 +72,35 @@ function App() {
     window.location.href = '/';
   };
 
-  window.confirmarAccionBorrar = (item) => {
-    return window.confirm(`¿Estás seguro de que quieres borrar ${item}?`);
-  };
+  window.confirmarAccionBorrar = (item) =>
+    window.confirm(`¿Estás seguro de que quieres borrar ${item}?`);
 
-  // REGLA DE ORO: Sin sesión = SOLO Login. No renderizar nada más.
+  // REGLA DE ORO: Sin sesión = SOLO Login.
   const session = user;
-  if (!session || session === null || session === undefined || !session.email) {
+  if (!session || !session.email) {
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5', fontFamily: 'sans-serif' }}>
         <form onSubmit={handleLogin} style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '320px' }}>
           <h2 style={{ textAlign: 'center', color: '#1a73e8' }}>Viajes Tabora ERP</h2>
-          <input type="email" placeholder="Correo electrónico" value={email} onChange={e => setEmail(e.target.value)} style={{ width: '100%', padding: '12px', marginBottom: '15px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} required />
-          <input type="password" placeholder="Contraseña" value={pass} onChange={e => setPass(e.target.value)} style={{ width: '100%', padding: '12px', marginBottom: '20px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} required />
-          <button type="submit" style={{ width: '100%', padding: '12px', background: '#1a73e8', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Entrar</button>
+          <input
+            type="email"
+            placeholder="Correo electrónico"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            style={{ width: '100%', padding: '12px', marginBottom: '15px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+            required
+          />
+          <input
+            type="password"
+            placeholder="Contraseña"
+            value={pass}
+            onChange={e => setPass(e.target.value)}
+            style={{ width: '100%', padding: '12px', marginBottom: '20px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+            required
+          />
+          <button type="submit" style={{ width: '100%', padding: '12px', background: '#1a73e8', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+            Entrar
+          </button>
         </form>
       </div>
     );
@@ -85,17 +115,28 @@ function App() {
               <Layout user={session} onLogout={handleLogout} />
             </ProtectedRoute>
           }>
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard user={session} />} />
-            <Route path="clientes" element={<ProtectedRoute user={session}><Clientes user={session} /></ProtectedRoute>} />
-            <Route path="expedientes" element={<ProtectedRoute user={session}><Expedientes user={session} /></ProtectedRoute>} />
-            <Route path="proveedores" element={<ProtectedRoute user={session}><Proveedores user={session} /></ProtectedRoute>} />
-            <Route path="planning" element={<ProtectedRoute user={session}><Planning user={session} /></ProtectedRoute>} />
-            <Route path="crm" element={<ProtectedRoute user={session}><CRM user={session} /></ProtectedRoute>} />
-            <Route path="notas" element={<ProtectedRoute user={session}><NotasTrabajo user={session} /></ProtectedRoute>} />
-            <Route path="composer" element={<ProtectedRoute user={session}><Composer user={session} /></ProtectedRoute>} />
-            <Route path="cierres" element={<ProtectedRoute user={session}><Cierres user={session} /></ProtectedRoute>} />
+            {/* Redirección inicial según perfil */}
+            <Route index element={
+              esUsuarioGestoria(session)
+                ? <Navigate to="/cierres" replace />
+                : <Navigate to="/dashboard" replace />
+            } />
+
+            {/* ── Accesibles a todos ── */}
+            <Route path="dashboard"         element={<Dashboard user={session} />} />
+            <Route path="cierres"           element={<ProtectedRoute user={session}><Cierres user={session} /></ProtectedRoute>} />
             <Route path="historial-cierres" element={<ProtectedRoute user={session}><HistorialCierres user={session} /></ProtectedRoute>} />
+            <Route path="proveedores"       element={<ProtectedRoute user={session}><Proveedores user={session} /></ProtectedRoute>} />
+
+            {/* ── Bloqueadas para GESTORIA ── */}
+            <Route path="clientes"    element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Clientes user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
+            <Route path="expedientes" element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Expedientes user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
+            <Route path="planning"    element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Planning user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
+            <Route path="crm"         element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><CRM user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
+            <Route path="notas"       element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><NotasTrabajo user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
+            <Route path="composer"    element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Composer user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
+
+            {/* ── Inteligencia Económica: ADMIN + GESTORIA ── */}
             <Route
               path="inteligencia-economica"
               element={

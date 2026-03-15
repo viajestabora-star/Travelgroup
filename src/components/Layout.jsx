@@ -7,6 +7,7 @@ import {
   FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut 
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
+import { esUsuarioGestoria } from '../App'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
 const STORAGE_ATTENDANCE_ID = 'attendance_id'
@@ -102,25 +103,32 @@ const Layout = ({ user, onLogout }) => {
     return unsubscribe
   }, [])
 
-  const esAdmin = user?.rol === 'ADMIN'
+  const esAdmin    = user?.rol === 'ADMIN'
+  const esGestoria = esUsuarioGestoria(user)
+
   const menuItems = useMemo(() => {
     const base = [
-      { path: '/dashboard', icon: LayoutDashboard, label: 'Panel de Control' },
-      { path: '/clientes', icon: Users, label: 'Clientes' },
-      { path: '/notas', icon: Briefcase, label: 'NOTAS DE TRABAJO' },
-      { path: '/expedientes', icon: FileText, label: `Expedientes ${ejercicioActual}` },
-      { path: '/proveedores', icon: Truck, label: 'Proveedores' },
-      { path: '/planning', icon: Calendar, label: `Planning ${ejercicioActual}` },
-      { path: '/crm', icon: Plane, label: 'CRM / Captación' },
-      { path: '/composer', icon: Edit3, label: 'Composer' },
-      { path: '/cierres', icon: Calculator, label: 'Cierres' },
-      { path: '/historial-cierres', icon: History, label: 'Historial de Cierres' }
+      { path: '/dashboard',         icon: LayoutDashboard, label: 'Panel de Control' },
+      { path: '/clientes',          icon: Users,           label: 'Clientes' },
+      { path: '/notas',             icon: Briefcase,       label: 'NOTAS DE TRABAJO' },
+      { path: '/expedientes',       icon: FileText,        label: `Expedientes ${ejercicioActual}` },
+      { path: '/proveedores',       icon: Truck,           label: 'Proveedores' },
+      { path: '/planning',          icon: Calendar,        label: `Planning ${ejercicioActual}` },
+      { path: '/crm',               icon: Plane,           label: 'CRM / Captación' },
+      { path: '/composer',          icon: Edit3,           label: 'Composer' },
+      { path: '/cierres',           icon: Calculator,      label: 'Facturación' },
+      { path: '/historial-cierres', icon: History,         label: 'Historial de Facturación' },
     ]
-    if (esAdmin) {
+    if (esAdmin || esGestoria) {
       base.push({ path: '/inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })
     }
+    // Gestoría: filtrar solo secciones autorizadas
+    if (esGestoria) {
+      const permitidas = new Set(['/cierres', '/historial-cierres', '/proveedores', '/inteligencia-economica'])
+      return base.filter(item => permitidas.has(item.path))
+    }
     return base
-  }, [ejercicioActual, esAdmin])
+  }, [ejercicioActual, esAdmin, esGestoria])
 
   return (
     <div className="flex h-screen bg-gray-50">

@@ -1,14 +1,14 @@
 import React from 'react'
 import { Navigate } from 'react-router-dom'
+import { esUsuarioGestoria } from '../App'
 
 /**
- * AdminRouteGuard - Protege rutas que requieren nivel_acceso === 'ADMIN'.
- * Redirige a Expedientes si el usuario no tiene permiso.
- * Basado en roles_usuarios.nivel_acceso (o user.rol en sesión).
+ * AdminRouteGuard — Permite acceso a ADMIN y GESTORIA.
+ * Cualquier otro rol es redirigido a /expedientes.
  */
 const AdminRouteGuard = ({ user, children }) => {
-  const esAdmin = user?.rol === 'ADMIN'
-  if (!esAdmin) {
+  const tieneAcceso = user?.rol === 'ADMIN' || esUsuarioGestoria(user)
+  if (!tieneAcceso) {
     return <Navigate to="/expedientes" replace />
   }
   return children

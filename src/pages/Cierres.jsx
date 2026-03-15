@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { esUsuarioGestoria } from '../App'
 import {
   FileText,
   Eye,
@@ -282,6 +283,7 @@ const generarFacturaPDFUnificado = async (factura) => {
 }
 
 const Cierres = ({ user, onClose }) => {
+  const esGestoria = esUsuarioGestoria(user)
   const [tabActiva, setTabActiva] = useState('facturas')
 
   // Facturas ya emitidas (lectura unificada desde facturas_emitidas_global)
@@ -1021,10 +1023,12 @@ const Cierres = ({ user, onClose }) => {
       <div className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">
-            Cierres &amp; Facturación
+            Facturación
           </h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
-            Control global de facturas y cierres de ejercicio
+            {esGestoria
+              ? 'Vista de solo lectura — facturas y cierres de ejercicio'
+              : 'Control global de facturas y cierres de ejercicio'}
           </p>
         </div>
       </div>
@@ -1187,17 +1191,18 @@ const Cierres = ({ user, onClose }) => {
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                   />
                 </div>
-                <div className="flex justify-end mt-1">
-                  {/* ✅ BOTÓN PRINCIPAL APPLY */}
-                  <button
-                    type="button"
-                    onClick={handleApplyFacturacionDirecta}
-                    disabled={aplicandoFacturaDirecta}
-                    className="inline-flex items-center justify-center px-8 py-3 rounded-xl bg-slate-900 hover:bg-blue-700 text-white text-sm font-extrabold tracking-[0.25em] uppercase shadow-md transition disabled:bg-slate-400 disabled:cursor-not-allowed"
-                  >
-                    APPLY
-                  </button>
-                </div>
+                {!esGestoria && (
+                  <div className="flex justify-end mt-1">
+                    <button
+                      type="button"
+                      onClick={handleApplyFacturacionDirecta}
+                      disabled={aplicandoFacturaDirecta}
+                      className="inline-flex items-center justify-center px-8 py-3 rounded-xl bg-slate-900 hover:bg-blue-700 text-white text-sm font-extrabold tracking-[0.25em] uppercase shadow-md transition disabled:bg-slate-400 disabled:cursor-not-allowed"
+                    >
+                      APPLY
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1479,14 +1484,16 @@ const Cierres = ({ user, onClose }) => {
                     <FileText size={14} />
                     Exportar PDF
                   </button>
-                  <button
-                    type="button"
-                    onClick={guardarInformeHacienda}
-                    disabled={!expedienteSeleccionado || lineasInforme.length === 0 || guardandoInforme}
-                    className="px-6 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase tracking-[0.18em] hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {guardandoInforme ? 'Guardando...' : 'Guardar Informe'}
-                  </button>
+                  {!esGestoria && (
+                    <button
+                      type="button"
+                      onClick={guardarInformeHacienda}
+                      disabled={!expedienteSeleccionado || lineasInforme.length === 0 || guardandoInforme}
+                      className="px-6 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase tracking-[0.18em] hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {guardandoInforme ? 'Guardando...' : 'Guardar Informe'}
+                    </button>
+                  )}
                 </div>
               </div>
 
