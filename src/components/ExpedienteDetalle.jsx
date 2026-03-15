@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown, CheckCircle, CreditCard } from 'lucide-react'
+import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown, CheckCircle, CreditCard, Paperclip, ExternalLink } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { supabase } from '../supabase'
@@ -494,6 +494,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [pagosProveedores, setPagosProveedores] = useState([])
   const [cargandoPagosProveedores, setCargandoPagosProveedores] = useState(false)
   const [formPago, setFormPago] = useState({ servicio_id: '', fecha_pago: '', importe_pagado: '' })
+
+  // Lista inteligente de servicios (solo activa en la pestaña de pagos)
+  const [serviciosCot,     setServiciosCot]     = useState([])
+  const [cargandoCot,      setCargandoCot]       = useState(false)
+  const [errorCot,         setErrorCot]          = useState(null)
+  const [inlineId,         setInlineId]          = useState(null)   // ID del servicio con form abierto
+  const [fInline,          setFInline]           = useState({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '' })
+  const [pdfInline,        setPdfInline]         = useState(null)
+  const [subiendoPdfCot,   setSubiendoPdfCot]    = useState(false)
+  const [showGastoExtra,   setShowGastoExtra]    = useState(false)
+  const [fExtra,           setFExtra]            = useState({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '' })
+  const [pdfExtra,         setPdfExtra]          = useState(null)
 
   // Cliente(s) del expediente: relación directa expedientes.cliente_id → clientes (tabla expediente_clientes NO existe)
   const expedienteClientes = useMemo(() => {
@@ -1841,6 +1853,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [tab, expediente?.id])
 
+  // Carga servicios_cotizacion solo cuando la pestaña de pagos está activa
+  // Siguiendo el mismo patrón que el useEffect anterior: deps primitivas estables
+  useEffect(() => {
+    if (tab !== 'pagosProveedores' || !expediente?.id) return
+    setCargandoCot(true)
+    setErrorCot(null)
+    supabase
+      .from('servicios_cotizacion')
+      .select('id, tipo_servicio, nombre_especifico, nombre_proveedor_manual, coste_unitario, total_servicio')
+      .eq('id_expediente', String(expediente.id))
+      .order('orden', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) throw error
+        setServiciosCot((data || []).filter(s => {
+          const t = (s.tipo_servicio || '').toLowerCase().trim()
+          return t !== 'guía' && t !== 'guia'
+        }))
+      })
+      .catch(() => setErrorCot('No se pudieron cargar los servicios de la cotización.'))
+      .finally(() => setCargandoCot(false))
+  }, [tab, expediente?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ============ CARGAR VERSIONES DE FACTURAS ============
   // ============ CARGAR VERSIONES DE FACTURA (SINCRONIZADO) ============
   // Historial dinámico: se actualiza automáticamente al borrar facturas en Supabase
@@ -2763,6 +2797,73 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     } catch (e) {
       alert('Error inesperado al registrar el pago.')
     }
+  }
+
+  // ── Facturación documental ─────────────────────────────────────────────────
+
+  const subirPdfFacturaCot = async (file) => {
+    if (!file || !expediente?.id) return null
+    const nombre = `${expediente.id}/${Date.now()}_${file.name.replace(/\s+/g, '_')}`
+    const { error } = await supabase.storage
+      .from('facturas_proveedores')
+      .upload(nombre, file, { upsert: true })
+    if (error) throw new Error(error.message)
+    const { data: u } = supabase.storage.from('facturas_proveedores').getPublicUrl(nombre)
+    return u?.publicUrl || null
+  }
+
+  const guardarFacturaCot = async (servicio) => {
+    if (!fInline.fecha_pago || !fInline.importe_pagado) { alert('Completa Fecha e Importe.'); return }
+    const importe = parseFloat(String(fInline.importe_pagado).replace(',', '.'))
+    if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
+    setSubiendoPdfCot(true)
+    try {
+      const urlPdf = pdfInline ? await subirPdfFacturaCot(pdfInline) : null
+      const { error } = await supabase.from('pagos_proveedores').insert([{
+        expediente_id:         expediente.id,
+        servicio_cotizacion_id: servicio.id,
+        servicio_id:           servicio.id,
+        numero_factura:        fInline.numero_factura || null,
+        fecha_pago:            fInline.fecha_pago,
+        importe_pagado:        importe,
+        concepto:              [servicio.tipo_servicio, servicio.nombre_especifico].filter(Boolean).join(' — '),
+        proveedor_nombre:      servicio.nombre_proveedor_manual || null,
+        url_pdf:               urlPdf,
+        es_extra:              false,
+      }])
+      if (error) { alert('Error al guardar: ' + error.message); return }
+      setInlineId(null)
+      setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '' })
+      setPdfInline(null)
+      await cargarPagosProveedores()
+    } catch (e) { alert(e.message || 'Error inesperado.')
+    } finally { setSubiendoPdfCot(false) }
+  }
+
+  const guardarGastoExtra = async () => {
+    if (!fExtra.concepto || !fExtra.importe_pagado || !fExtra.fecha_pago) { alert('Completa Concepto, Fecha e Importe.'); return }
+    const importe = parseFloat(String(fExtra.importe_pagado).replace(',', '.'))
+    if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
+    setSubiendoPdfCot(true)
+    try {
+      const urlPdf = pdfExtra ? await subirPdfFacturaCot(pdfExtra) : null
+      const { error } = await supabase.from('pagos_proveedores').insert([{
+        expediente_id:    expediente.id,
+        numero_factura:   fExtra.numero_factura || null,
+        fecha_pago:       fExtra.fecha_pago,
+        importe_pagado:   importe,
+        concepto:         fExtra.concepto,
+        proveedor_nombre: fExtra.proveedor_nombre || null,
+        url_pdf:          urlPdf,
+        es_extra:         true,
+      }])
+      if (error) { alert('Error: ' + error.message); return }
+      setShowGastoExtra(false)
+      setFExtra({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '' })
+      setPdfExtra(null)
+      await cargarPagosProveedores()
+    } catch (e) { alert(e.message || 'Error inesperado.')
+    } finally { setSubiendoPdfCot(false) }
   }
 
   // Helper: noches del expediente (prioriza campo en BD, si no, calcula por fechas)
@@ -5636,84 +5737,262 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           {/* TAB: Pagos a Proveedores */}
           {tab === 'pagosProveedores' && (
             <div className="max-w-4xl mx-auto space-y-6">
+
+              {/* ── Sección inteligente: registrar factura por servicio ──────── */}
               <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
-                <h3 className="text-xl font-bold text-navy-900 mb-4">Registrar nuevo pago</h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Servicio</label>
-                    <select
-                      value={formPago.servicio_id}
-                      onChange={(e) => setFormPago({ ...formPago, servicio_id: e.target.value })}
-                      className="w-full p-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-900"
-                    >
-                      <option value="">— Seleccionar —</option>
-                      {servicios.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.tipo || 'Servicio'} {s.nombreEspecifico ? `- ${s.nombreEspecifico}` : ''}
-                        </option>
-                      ))}
-                    </select>
+                <h3 className="text-xl font-bold text-navy-900 mb-5">Registrar Factura por Servicio</h3>
+
+                {/* Error de carga de servicios — no bloquea nada más */}
+                {errorCot && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-red-700 text-sm mb-4 flex items-center gap-2">
+                    <span>⚠</span> {errorCot}
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fecha de Pago</label>
-                    <input
-                      type="date"
-                      value={formPago.fecha_pago}
-                      onChange={(e) => setFormPago({ ...formPago, fecha_pago: e.target.value })}
-                      className="w-full p-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-900"
-                    />
+                )}
+
+                {cargandoCot && (
+                  <p className="text-gray-400 text-sm mb-4">Cargando servicios de la cotización…</p>
+                )}
+
+                {!cargandoCot && !errorCot && serviciosCot.length === 0 && (
+                  <p className="text-gray-400 text-sm mb-4">No hay servicios en la cotización de este expediente.</p>
+                )}
+
+                {/* Tarjetas de servicios */}
+                {serviciosCot.length > 0 && (
+                  <div className="space-y-3 mb-6">
+                    {serviciosCot.map(s => {
+                      const pago = pagosProveedores.find(p =>
+                        p.servicio_cotizacion_id === s.id || p.servicio_id === s.id
+                      )
+                      const abierto = inlineId === s.id
+                      return (
+                        <div key={s.id} className={`rounded-xl border transition-all ${abierto ? 'border-blue-400 bg-blue-50' : pago ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+                          {/* Fila principal */}
+                          <div className="flex items-center justify-between px-4 py-3">
+                            <div>
+                              <p className="font-semibold text-slate-800 text-sm">
+                                {s.tipo_servicio || 'Servicio'}
+                                {s.nombre_especifico ? ` — ${s.nombre_especifico}` : ''}
+                              </p>
+                              {s.nombre_proveedor_manual && (
+                                <p className="text-xs text-gray-500">{s.nombre_proveedor_manual}</p>
+                              )}
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                Presupuestado: <span className="font-medium text-gray-700">{Number(s.total_servicio || s.coste_unitario || 0).toFixed(2)} €</span>
+                              </p>
+                            </div>
+                            <div className="shrink-0 ml-4">
+                              {pago ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="flex items-center gap-1.5 text-green-700 font-semibold text-sm">
+                                    <CheckCircle size={17} /> Documentado
+                                  </span>
+                                  {pago.url_pdf && (
+                                    <a href={pago.url_pdf} target="_blank" rel="noopener noreferrer"
+                                       className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-semibold ml-1">
+                                      <ExternalLink size={12} /> PDF
+                                    </a>
+                                  )}
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setInlineId(s.id)
+                                    setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: s.total_servicio || s.coste_unitario || '' })
+                                    setPdfInline(null)
+                                  }}
+                                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
+                                >
+                                  <Paperclip size={14} /> Registrar Factura
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Formulario inline */}
+                          {abierto && (
+                            <div className="px-4 pb-4 pt-1 border-t border-blue-200 mt-1">
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Nº Factura</label>
+                                  <input type="text" placeholder="F2024-001"
+                                    className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                                    value={fInline.numero_factura}
+                                    onChange={e => setFInline({ ...fInline, numero_factura: e.target.value })}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fecha *</label>
+                                  <input type="date"
+                                    className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                                    value={fInline.fecha_pago}
+                                    onChange={e => setFInline({ ...fInline, fecha_pago: e.target.value })}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Importe Final (€) *</label>
+                                  <input type="number" step="0.01" min="0" placeholder="0.00"
+                                    className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                                    value={fInline.importe_pagado}
+                                    onChange={e => setFInline({ ...fInline, importe_pagado: e.target.value })}
+                                    onWheel={e => e.target.blur()}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                                    <Paperclip size={10} className="inline mr-1" />PDF Factura
+                                  </label>
+                                  <input type="file" accept=".pdf,.PDF"
+                                    className="w-full text-xs text-gray-600 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700"
+                                    onChange={e => setPdfInline(e.target.files?.[0] || null)}
+                                  />
+                                  {pdfInline && <p className="text-xs text-green-600 mt-0.5">✓ {pdfInline.name}</p>}
+                                </div>
+                              </div>
+                              <div className="flex gap-3 mt-3">
+                                <button onClick={() => guardarFacturaCot(s)} disabled={subiendoPdfCot}
+                                  className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm disabled:opacity-50 transition-colors">
+                                  <CreditCard size={14} />
+                                  {subiendoPdfCot ? 'Guardando…' : 'Guardar Factura'}
+                                </button>
+                                <button onClick={() => { setInlineId(null); setPdfInline(null) }}
+                                  className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-100">
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Importe Pagado (€)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formPago.importe_pagado}
-                      onChange={(e) => setFormPago({ ...formPago, importe_pagado: e.target.value })}
-                      className="w-full p-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-900"
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <button
-                      type="button"
-                      onClick={registrarPagoProveedor}
-                      className="btn-primary w-full flex items-center justify-center gap-2 py-3"
-                    >
-                      <CreditCard size={18} />
-                      Registrar Pago
-                    </button>
-                  </div>
+                )}
+
+                {/* Botón: Añadir Gasto Extra */}
+                <div className="border-t border-gray-100 pt-4">
+                  <button onClick={() => setShowGastoExtra(v => !v)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50 text-sm font-semibold transition-colors">
+                    <Plus size={15} /> {showGastoExtra ? 'Cerrar Gasto Extra' : 'Añadir Gasto Extra'}
+                  </button>
                 </div>
+
+                {/* Formulario Gasto Extra */}
+                {showGastoExtra && (
+                  <div className="mt-4 bg-emerald-50 rounded-xl border border-emerald-300 p-4">
+                    <h4 className="font-semibold text-slate-800 text-sm mb-3 flex items-center gap-2">
+                      <Plus size={14} className="text-emerald-600" /> Gasto Extra — No cotizado
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Proveedor</label>
+                        <input type="text" placeholder="Nombre del proveedor"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fExtra.proveedor_nombre}
+                          onChange={e => setFExtra({ ...fExtra, proveedor_nombre: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Concepto *</label>
+                        <input type="text" placeholder="Descripción del gasto"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fExtra.concepto}
+                          onChange={e => setFExtra({ ...fExtra, concepto: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Nº Factura</label>
+                        <input type="text" placeholder="F2024-099"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fExtra.numero_factura}
+                          onChange={e => setFExtra({ ...fExtra, numero_factura: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fecha *</label>
+                        <input type="date"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fExtra.fecha_pago}
+                          onChange={e => setFExtra({ ...fExtra, fecha_pago: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Importe (€) *</label>
+                        <input type="number" step="0.01" min="0" placeholder="0.00"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fExtra.importe_pagado}
+                          onChange={e => setFExtra({ ...fExtra, importe_pagado: e.target.value })}
+                          onWheel={e => e.target.blur()}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                          <Paperclip size={10} className="inline mr-1" />PDF Factura
+                        </label>
+                        <input type="file" accept=".pdf,.PDF"
+                          className="w-full text-xs text-gray-600 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700"
+                          onChange={e => setPdfExtra(e.target.files?.[0] || null)}
+                        />
+                        {pdfExtra && <p className="text-xs text-green-600 mt-0.5">✓ {pdfExtra.name}</p>}
+                      </div>
+                    </div>
+                    <div className="flex gap-3 mt-4">
+                      <button onClick={guardarGastoExtra} disabled={subiendoPdfCot}
+                        className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm disabled:opacity-50 transition-colors">
+                        <Plus size={14} />{subiendoPdfCot ? 'Guardando…' : 'Guardar Gasto Extra'}
+                      </button>
+                      <button onClick={() => { setShowGastoExtra(false); setPdfExtra(null) }}
+                        className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-100">
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* ── Facturas y pagos registrados ──────────────────────────── */}
               <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
-                <h3 className="text-xl font-bold text-navy-900 mb-4">Pagos realizados</h3>
+                <h3 className="text-xl font-bold text-navy-900 mb-4">Facturas registradas</h3>
                 {cargandoPagosProveedores ? (
                   <p className="text-gray-500">Cargando...</p>
                 ) : pagosProveedores.length === 0 ? (
-                  <p className="text-gray-500">No hay pagos registrados.</p>
+                  <p className="text-gray-500">No hay facturas registradas.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-gray-200 text-left text-gray-600 font-semibold">
-                          <th className="py-2 pr-4">Fecha</th>
-                          <th className="py-2 pr-4">Servicio</th>
-                          <th className="py-2 pr-4">Importe</th>
+                        <tr className="border-b border-gray-200 text-left text-gray-500 text-xs uppercase tracking-wider">
+                          <th className="pb-2 pr-3">Tipo</th>
+                          <th className="pb-2 pr-3">Nº Factura</th>
+                          <th className="pb-2 pr-3">Concepto</th>
+                          <th className="pb-2 pr-3">Fecha</th>
+                          <th className="pb-2 pr-3 text-right">Importe</th>
+                          <th className="pb-2 text-center">PDF</th>
                         </tr>
                       </thead>
-                      <tbody>
-                        {pagosProveedores.map((p) => {
-                          const servicio = servicios.find((s) => s.id === (p.servicio_id || p.id_servicio))
-                          return (
-                            <tr key={p.id || `${p.servicio_id}-${p.fecha_pago}-${p.importe_pagado}`} className="border-b border-gray-100">
-                              <td className="py-2 pr-4">{p.fecha_pago || '—'}</td>
-                              <td className="py-2 pr-4">{servicio ? `${servicio.tipo || ''} ${servicio.nombreEspecifico || ''}`.trim() || '—' : '—'}</td>
-                              <td className="py-2 pr-4 font-medium">{Number(p.importe_pagado || 0).toFixed(2)} €</td>
-                            </tr>
-                          )
-                        })}
+                      <tbody className="divide-y divide-gray-100">
+                        {pagosProveedores.map((p) => (
+                          <tr key={p.id || `${p.servicio_id}-${p.fecha_pago}`} className="hover:bg-gray-50 transition-colors">
+                            <td className="py-2.5 pr-3">
+                              {p.es_extra
+                                ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Extra</span>
+                                : <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Cotizado</span>
+                              }
+                            </td>
+                            <td className="py-2.5 pr-3 font-mono text-xs text-gray-700">{p.numero_factura || '—'}</td>
+                            <td className="py-2.5 pr-3 font-medium text-gray-900">{p.concepto || '—'}</td>
+                            <td className="py-2.5 pr-3 text-gray-500 text-xs whitespace-nowrap">{p.fecha_pago || '—'}</td>
+                            <td className="py-2.5 pr-3 text-right font-semibold">{Number(p.importe_pagado || 0).toFixed(2)} €</td>
+                            <td className="py-2.5 text-center">
+                              {p.url_pdf
+                                ? <a href={p.url_pdf} target="_blank" rel="noopener noreferrer"
+                                     className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-semibold">
+                                    <ExternalLink size={11} /> PDF
+                                  </a>
+                                : <span className="text-gray-400 text-xs">—</span>
+                              }
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
