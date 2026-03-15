@@ -564,8 +564,9 @@ const CRM = () => {
     let prospectoIdFinal = null
 
     if (agendaProspectoId.startsWith('cliente-')) {
-      const clienteId = Number(agendaProspectoId.replace('cliente-', ''))
-      const cliente = clientes.find(c => c.id === clienteId)
+      // IDs son UUID — usar string comparison, nunca Number()
+      const clienteId = agendaProspectoId.replace('cliente-', '')
+      const cliente = clientes.find(c => String(c.id) === clienteId)
       if (!cliente) {
         alert('Cliente no encontrado')
         return
@@ -596,9 +597,10 @@ const CRM = () => {
         await refrescarDatos()
       }
     } else if (agendaProspectoId.startsWith('prospecto-')) {
-      prospectoIdFinal = Number(agendaProspectoId.replace('prospecto-', ''))
+      // UUID — no convertir a Number
+      prospectoIdFinal = agendaProspectoId.replace('prospecto-', '')
     } else {
-      prospectoIdFinal = Number(agendaProspectoId)
+      prospectoIdFinal = agendaProspectoId
     }
 
     const { error } = await supabase.from('visitas').insert({
