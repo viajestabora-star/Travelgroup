@@ -2819,23 +2819,46 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     setSubiendoPdfCot(true)
     try {
       const urlPdf = pdfInline ? await subirPdfFacturaCot(pdfInline) : null
-      const { error } = await supabase.from('pagos_proveedores').insert([{
-        expediente_id:         expediente.id,
-        servicio_cotizacion_id: servicio.id,
-        servicio_id:           servicio.id,
-        numero_factura:        fInline.numero_factura || null,
-        fecha_pago:            fInline.fecha_pago,
-        importe_pagado:        importe,
-        concepto:              [servicio.tipo_servicio, servicio.nombre_especifico].filter(Boolean).join(' — '),
-        proveedor_nombre:      servicio.nombre_proveedor_manual || null,
-        url_pdf:               urlPdf,
-        es_extra:              false,
-      }])
-      if (error) { alert('Error al guardar: ' + error.message); return }
+
+      // Si ya existe un registro para este servicio, hacemos UPDATE; si no, INSERT
+      const existente = pagosProveedores.find(p =>
+        p.servicio_cotizacion_id === servicio.id || p.servicio_id === servicio.id
+      )
+
+      let dbError
+      if (existente?.id) {
+        // Actualizar registro existente (caso: pago sin PDF → adjuntar PDF ahora)
+        const campos = {
+          numero_factura: fInline.numero_factura || existente.numero_factura || null,
+          fecha_pago:     fInline.fecha_pago,
+          importe_pagado: importe,
+        }
+        if (urlPdf) campos.url_pdf = urlPdf  // solo sobreescribir url si se sube un PDF nuevo
+        ;({ error: dbError } = await supabase
+          .from('pagos_proveedores')
+          .update(campos)
+          .eq('id', existente.id))
+      } else {
+        // Insertar nuevo registro
+        ;({ error: dbError } = await supabase.from('pagos_proveedores').insert([{
+          expediente_id:          expediente.id,
+          servicio_cotizacion_id: servicio.id,
+          servicio_id:            servicio.id,
+          numero_factura:         fInline.numero_factura || null,
+          fecha_pago:             fInline.fecha_pago,
+          importe_pagado:         importe,
+          concepto:               [servicio.tipo_servicio, servicio.nombre_especifico].filter(Boolean).join(' — '),
+          proveedor_nombre:       servicio.nombre_proveedor_manual || null,
+          url_pdf:                urlPdf,
+          es_extra:               false,
+        }]))
+      }
+
+      if (dbError) { alert('Error al guardar: ' + dbError.message); return }
       setInlineId(null)
       setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '' })
       setPdfInline(null)
-      await cargarPagosProveedores()
+      await cargarPagosProveedores()  // refresca la lista → la UI se actualiza sola
     } catch (e) { alert(e.message || 'Error inesperado.')
     } finally { setSubiendoPdfCot(false) }
   }
@@ -5761,12 +5784,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 {serviciosCot.length > 0 && (
                   <div className="space-y-3 mb-6">
                     {serviciosCot.map(s => {
-                      const pago = pagosProveedores.find(p =>
-                        p.servicio_cotizacion_id === s.id || p.servicio_id === s.id
+                      const pagoRegistrado = pagosProveedores.find(p =>
+                        (p.servicio_cotizacion_id === s.id || p.servicio_id === s.id)
                       )
+                      // "Documentado" requiere pago + url_pdf con contenido real
+                      const urlPdf = pagoRegistrado?.url_pdf?.trim() || ''
+                      const documentado = Boolean(pagoRegistrado && urlPdf.length > 0)
                       const abierto = inlineId === s.id
                       return (
-                        <div key={s.id} className={`rounded-xl border transition-all ${abierto ? 'border-blue-400 bg-blue-50' : pago ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+                        <div key={s.id} className={`rounded-xl border transition-all ${
+                          abierto         ? 'border-blue-400 bg-blue-50'
+                          : documentado   ? 'border-green-300 bg-green-50'
+                          : pagoRegistrado? 'border-amber-300 bg-amber-50'
+                          :                 'border-gray-200 bg-gray-50'
+                        }`}>
                           {/* Fila principal */}
                           <div className="flex items-center justify-between px-4 py-3">
                             <div>
@@ -5782,19 +5813,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               </p>
                             </div>
                             <div className="shrink-0 ml-4">
-                              {pago ? (
+                              {documentado ? (
+                                /* ✅ Pago + PDF confirmados */
                                 <div className="flex items-center gap-2">
                                   <span className="flex items-center gap-1.5 text-green-700 font-semibold text-sm">
                                     <CheckCircle size={17} /> Documentado
                                   </span>
-                                  {pago.url_pdf && (
-                                    <a href={pago.url_pdf} target="_blank" rel="noopener noreferrer"
-                                       className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-semibold ml-1">
-                                      <ExternalLink size={12} /> PDF
-                                    </a>
-                                  )}
+                                  <a href={urlPdf} target="_blank" rel="noopener noreferrer"
+                                     className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-semibold border border-blue-200 rounded px-2 py-0.5 hover:bg-blue-50 transition-colors">
+                                    <ExternalLink size={11} /> Descargar PDF
+                                  </a>
+                                </div>
+                              ) : pagoRegistrado ? (
+                                /* ⚠ Pago registrado pero sin PDF adjunto */
+                                <div className="flex items-center gap-2">
+                                  <span className="text-amber-600 text-sm font-semibold">⚠ Sin factura PDF</span>
+                                  <button
+                                    onClick={() => {
+                                      setInlineId(s.id)
+                                      setFInline({ numero_factura: pagoRegistrado.numero_factura || '', fecha_pago: pagoRegistrado.fecha_pago || new Date().toISOString().split('T')[0], importe_pagado: pagoRegistrado.importe_pagado || s.total_servicio || s.coste_unitario || '' })
+                                      setPdfInline(null)
+                                    }}
+                                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold transition-colors"
+                                  >
+                                    <Paperclip size={12} /> Adjuntar PDF
+                                  </button>
                                 </div>
                               ) : (
+                                /* Sin registro — botón principal */
                                 <button
                                   onClick={() => {
                                     setInlineId(s.id)
