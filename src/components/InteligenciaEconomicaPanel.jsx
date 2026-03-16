@@ -4,6 +4,7 @@ import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3, Clock, User } from '
 import ModalDesgloseInteligencia from './ModalDesgloseInteligencia'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
+import { esUsuarioGestoria } from '../App'
 
 /** Usuarios a controlar en Control de Personal */
 const USUARIOS_CONTROL = [
@@ -87,7 +88,9 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   const [controlHorario, setControlHorario] = useState([])
   const [loadingControl, setLoadingControl] = useState(false)
   const [filtroEmpleado, setFiltroEmpleado] = useState('todos')
-  const esAdmin = user?.rol === 'ADMIN'
+  // esAdmin: ADMIN puro + Gestoría (alcor@asesores.com) tienen acceso a los datos financieros
+  const esAdmin = user?.rol === 'ADMIN' || esUsuarioGestoria(user)
+  const esAdminPuro = user?.rol === 'ADMIN'   // solo para tabs exclusivos como Control de Personal
   const rol = user?.rol
   const controlHorarioCargadoRef = useRef(false)
 
@@ -99,7 +102,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   }, [])
 
   useEffect(() => {
-    if (tabPrincipal !== 'controlPersonal' || rol !== 'ADMIN') {
+    if (tabPrincipal !== 'controlPersonal' || !esAdminPuro) {
       if (tabPrincipal !== 'controlPersonal') controlHorarioCargadoRef.current = false
       return
     }
@@ -135,7 +138,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   }, [tabPrincipal, rol])
 
   useEffect(() => {
-    if (rol !== 'ADMIN') {
+    if (!esAdmin) {
       setLoading(false)
       return
     }
@@ -162,7 +165,7 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     }
 
     fetchData()
-  }, [rol])
+  }, [esAdmin]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Registros filtrados por empleado - useMemo al inicio para Rules of Hooks */
   const controlHorarioFiltrado = useMemo(() => {
@@ -230,14 +233,16 @@ const InteligenciaEconomicaPanel = ({ user }) => {
           <TrendingUp size={18} className="inline mr-2 align-middle" />
           Resumen Financiero
         </button>
-        <button
-          type="button"
-          onClick={() => setTabPrincipal('controlPersonal')}
-          className={`px-4 py-2 rounded-lg font-medium transition-colors ${tabPrincipal === 'controlPersonal' ? 'bg-navy-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-        >
-          <Clock size={18} className="inline mr-2 align-middle" />
-          Control de Personal
-        </button>
+        {esAdminPuro && (
+          <button
+            type="button"
+            onClick={() => setTabPrincipal('controlPersonal')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${tabPrincipal === 'controlPersonal' ? 'bg-navy-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >
+            <Clock size={18} className="inline mr-2 align-middle" />
+            Control de Personal
+          </button>
+        )}
       </div>
 
       {tabPrincipal === 'controlPersonal' && (
