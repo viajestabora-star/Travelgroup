@@ -367,36 +367,61 @@ const ServiciosCotizacionPanel = ({
   /** Delete-then-insert for servicios_cotizacion to avoid 406 errors. Called only from manual Guardar. */
   const guardarTodosServiciosEnSupabase = async () => {
     const id = expedienteId || expediente?.id
-    if (!id || !servicios?.length) return { ok: true }
+    if (!id) {
+      console.error('[Guardar Servicios] ❌ Sin ID de expediente — imposible guardar.')
+      return { ok: false, error: 'Sin ID de expediente' }
+    }
+    if (!servicios?.length) {
+      console.warn('[Guardar Servicios] Lista vacía — nada que guardar.')
+      return { ok: true }
+    }
+
+    const expIdStr = String(id).trim()
+    console.log('[Guardar Servicios] Iniciando guardado para expediente:', expIdStr, '| Servicios:', servicios.length)
 
     try {
+      // 1. Borrar filas existentes
       const { error: deleteError } = await supabase
         .from('servicios_cotizacion')
         .delete()
-        .eq('id_expediente', String(id).trim())
+        .eq('id_expediente', expIdStr)
 
       if (deleteError) {
-        alert('Error al guardar servicios. Inténtalo de nuevo.')
-        return { ok: false }
+        console.error('[Guardar Servicios] ❌ Error en DELETE:', deleteError.message, deleteError)
+        alert(`Error al limpiar servicios previos:\n${deleteError.message}`)
+        return { ok: false, error: deleteError.message }
       }
+      console.log('[Guardar Servicios] DELETE OK')
 
+      // 2. Preparar filas — usar expIdStr para id_expediente (no expediente?.id que puede variar)
       const rowsToInsert = servicios.map((s, index) => {
         const datos = buildDatosParaSupabase(s)
         return {
           ...datos,
+          id_expediente: expIdStr,   // forzar el ID correcto en cada fila
           id: s.id && typeof s.id === 'string' && s.id.length > 10 ? s.id : generarUUID(),
           orden: index,
         }
       })
+      console.log('[Guardar Servicios] Filas a insertar:', rowsToInsert.length, '| Primer id_expediente:', rowsToInsert[0]?.id_expediente)
 
+      // 3. Insertar
       const { data, error: insertError } = await supabase
         .from('servicios_cotizacion')
         .insert(rowsToInsert)
         .select('id')
 
       if (insertError) {
-        alert('No se pudieron guardar los servicios. Inténtalo de nuevo.')
-        return { ok: false }
+        console.error('[Guardar Servicios] ❌ Error en INSERT:', insertError.message, insertError)
+        alert(`Error al guardar los servicios:\n${insertError.message}\n\nCódigo: ${insertError.code || 'N/A'}`)
+        return { ok: false, error: insertError.message }
+      }
+
+      console.log('[Guardar Servicios] INSERT OK — filas confirmadas:', data?.length)
+
+      // 4. Verificar que Supabase devolvió el mismo número de filas
+      if (data && Array.isArray(data) && data.length !== servicios.length) {
+        console.warn(`[Guardar Servicios] ⚠ Discrepancia: se enviaron ${servicios.length} pero se confirmaron ${data.length}`)
       }
 
       if (data && Array.isArray(data) && data.length === servicios.length) {
@@ -406,9 +431,10 @@ const ServiciosCotizacionPanel = ({
       }
       if (typeof onRefresh === 'function') onRefresh()
       return { ok: true }
-    } catch (_) {
-      alert('No se pudieron guardar los servicios. Inténtalo de nuevo.')
-      return { ok: false }
+    } catch (err) {
+      console.error('[Guardar Servicios] ❌ Excepción inesperada:', err)
+      alert(`Error inesperado al guardar:\n${err?.message || String(err)}`)
+      return { ok: false, error: err?.message || String(err) }
     }
   }
 
@@ -423,21 +449,38 @@ const ServiciosCotizacionPanel = ({
     if (isSaving) return
     setIsSaving(true)
     try {
-      const resultadoForm = await persistirCambios()
+      const resultadoForm      = await persistirCambios()
       const resultadoServicios = await guardarTodosServiciosEnSupabase()
+
       if (resultadoForm?.ok && resultadoServicios?.ok) {
+        console.log('[Guardar] ✅ Cotización y servicios guardados correctamente.')
         alert('✅ Cotización guardada correctamente')
       } else if (!resultadoForm?.ok) {
-        alert('No se pudo guardar. Inténtalo de nuevo.')
+        const msg = resultadoForm?.error || 'Error desconocido'
+        console.error('[Guardar] ❌ Error en persistirCambios:', msg)
+        alert(`No se pudo guardar el formulario:\n${msg}`)
       } else if (!resultadoServicios?.ok) {
-        alert('No se pudieron guardar los servicios. Inténtalo de nuevo.')
+        // El error específico ya fue mostrado dentro de guardarTodosServiciosEnSupabase
+        console.error('[Guardar] ❌ Error en servicios:', resultadoServicios?.error)
       }
-    } catch {
-      alert('No se pudo guardar. Inténtalo de nuevo.')
+    } catch (err) {
+      console.error('[Guardar] ❌ Excepción en handleGuardar:', err)
+      alert(`Error inesperado al guardar:\n${err?.message || String(err)}`)
     } finally {
       setIsSaving(false)
     }
   }
+
+  // Aviso de cambios sin guardar al intentar cerrar/navegar fuera
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isSaving) return  // está guardando, no interrumpir
+      e.preventDefault()
+      e.returnValue = 'Tienes cambios sin guardar en la cotización. ¿Seguro que quieres salir?'
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isSaving])
 
   return (
     <>
