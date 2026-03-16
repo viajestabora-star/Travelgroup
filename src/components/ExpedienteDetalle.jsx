@@ -1896,10 +1896,43 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         console.log('[Pagos] id_expediente:', expId, '| estado:', estadoActual, '→', res.data?.length ?? 0, 'filas', res.error || '')
         if (res.error) throw res.error
 
-        setServiciosCot((res.data || []).filter(s => {
+        const serviciosFiltrados = (res.data || []).filter(s => {
           const t = (s.tipo_servicio || '').toLowerCase().trim()
           return t !== 'guía' && t !== 'guia'
-        }))
+        })
+
+        // Resolver nombres de proveedor desde la tabla proveedores usando proveedor_id_int
+        const idsNumericos = [...new Set(
+          serviciosFiltrados
+            .map(s => s.proveedor_id_int)
+            .filter(id => id != null && id !== '' && !isNaN(Number(id)))
+            .map(id => Number(id))
+        )]
+
+        let proveedoresMap = {}
+        if (idsNumericos.length > 0) {
+          const { data: provsDB } = await supabase
+            .from('proveedores')
+            .select('id, nombre_comercial')
+            .in('id', idsNumericos)
+          if (Array.isArray(provsDB)) {
+            provsDB.forEach(p => { proveedoresMap[p.id] = p.nombre_comercial })
+          }
+        }
+
+        // Enriquecer cada servicio con _proveedorNombre resuelto
+        const enriquecidos = serviciosFiltrados.map(s => {
+          const provId = s.proveedor_id_int != null ? Number(s.proveedor_id_int) : null
+          const _proveedorNombre =
+            (provId && proveedoresMap[provId])
+            || s.nombre_proveedor_texto
+            || s.proveedorNombreTemporal
+            || s.nombre_proveedor_manual
+            || null
+          return { ...s, _proveedorNombre }
+        })
+
+        setServiciosCot(enriquecidos)
       } catch (err) {
         console.error('[Pagos] Error cargando servicios:', err)
         setErrorCot('No se pudieron cargar los servicios de la cotización.')
@@ -2882,7 +2915,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           fecha_pago:             fInline.fecha_pago,
           importe_pagado:         importe,
           concepto:               [servicio.tipo_servicio, servicio.nombre_especifico].filter(Boolean).join(' — '),
-          proveedor_nombre:       servicio.nombre_proveedor_manual || null,
+          proveedor_nombre:       servicio._proveedorNombre || servicio.nombre_proveedor_manual || null,
           url_pdf:                urlPdf,
           es_extra:               false,
         }]))
@@ -5834,16 +5867,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         }`}>
                           {/* Fila principal */}
                           <div className="flex items-center justify-between px-4 py-3">
-                            <div>
-                              <p className="font-semibold text-slate-800 text-sm">
+                            <div className="min-w-0">
+                              {/* Tipo + nombre específico */}
+                              <p className="font-semibold text-slate-800 text-sm leading-snug">
                                 {s.tipo_servicio || 'Servicio'}
                                 {s.nombre_especifico ? ` — ${s.nombre_especifico}` : ''}
                               </p>
-                              {s.nombre_proveedor_manual && (
-                                <p className="text-xs text-gray-500">{s.nombre_proveedor_manual}</p>
-                              )}
-                              <p className="text-xs text-gray-500 mt-0.5">
-                                Presupuestado: <span className="font-medium text-gray-700">{Number(s.total_servicio_manual || s.total_servicio || s.coste_unitario || 0).toFixed(2)} €</span>
+                              {/* Proveedor resuelto (DB lookup → texto manual → fallback) */}
+                              <p className={`text-xs mt-0.5 font-medium ${s._proveedorNombre ? 'text-indigo-700' : 'text-gray-400 italic'}`}>
+                                {s._proveedorNombre || 'Sin proveedor asignado'}
+                              </p>
+                              {/* Importe presupuestado */}
+                              <p className="text-xs text-gray-400 mt-1">
+                                Presupuestado: <span className="font-semibold text-gray-600">{Number(s.total_servicio_manual || s.total_servicio || s.coste_unitario || 0).toFixed(2)} €</span>
                               </p>
                             </div>
                             <div className="shrink-0 ml-4">
