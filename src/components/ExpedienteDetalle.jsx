@@ -1853,27 +1853,61 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [tab, expediente?.id])
 
-  // Carga servicios_cotizacion solo cuando la pestaña de pagos está activa
-  // Siguiendo el mismo patrón que el useEffect anterior: deps primitivas estables
+  // Carga servicios_cotizacion cuando la pestaña de pagos está activa.
+  // Dependencia en expediente.estado → se re-ejecuta si el expediente pasa a Confirmado/Cerrado/Finalizado.
   useEffect(() => {
     if (tab !== 'pagosProveedores' || !expediente?.id) return
+
+    const estadoActual = String(expediente?.estado || '').trim().toLowerCase()
+    const esPeticion   = estadoActual === 'petición' || estadoActual === 'peticion'
+
+    // Expedientes en estado Petición no tienen servicios confirmados aún
+    if (esPeticion) {
+      setServiciosCot([])
+      setCargandoCot(false)
+      return
+    }
+
+    const expId = String(expediente.id).trim()
     setCargandoCot(true)
     setErrorCot(null)
-    supabase
-      .from('servicios_cotizacion')
-      .select('id, tipo_servicio, nombre_especifico, nombre_proveedor_manual, coste_unitario, total_servicio')
-      .eq('id_expediente', String(expediente.id))
-      .order('orden', { ascending: true })
-      .then(({ data, error }) => {
-        if (error) throw error
-        setServiciosCot((data || []).filter(s => {
+
+    ;(async () => {
+      try {
+        // select('*') evita errores por columnas inexistentes en distintos entornos
+        let res = await supabase
+          .from('servicios_cotizacion')
+          .select('*')
+          .eq('id_expediente', expId)
+          .order('orden', { ascending: true })
+          .order('created_at', { ascending: true, nullsFirst: false })
+          .order('id', { ascending: true })
+
+        // Fallback si created_at no existe en esta BD
+        if (res.error && (res.error.code === 'PGRST204' || String(res.error.message || '').includes('created_at'))) {
+          res = await supabase
+            .from('servicios_cotizacion')
+            .select('*')
+            .eq('id_expediente', expId)
+            .order('orden', { ascending: true })
+            .order('id', { ascending: true })
+        }
+
+        console.log('[Pagos] id_expediente:', expId, '| estado:', estadoActual, '→', res.data?.length ?? 0, 'filas', res.error || '')
+        if (res.error) throw res.error
+
+        setServiciosCot((res.data || []).filter(s => {
           const t = (s.tipo_servicio || '').toLowerCase().trim()
           return t !== 'guía' && t !== 'guia'
         }))
-      })
-      .catch(() => setErrorCot('No se pudieron cargar los servicios de la cotización.'))
-      .finally(() => setCargandoCot(false))
-  }, [tab, expediente?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+      } catch (err) {
+        console.error('[Pagos] Error cargando servicios:', err)
+        setErrorCot('No se pudieron cargar los servicios de la cotización.')
+      } finally {
+        setCargandoCot(false)
+      }
+    })()
+  }, [tab, expediente?.id, expediente?.estado]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ============ CARGAR VERSIONES DE FACTURAS ============
   // ============ CARGAR VERSIONES DE FACTURA (SINCRONIZADO) ============
@@ -5809,7 +5843,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 <p className="text-xs text-gray-500">{s.nombre_proveedor_manual}</p>
                               )}
                               <p className="text-xs text-gray-500 mt-0.5">
-                                Presupuestado: <span className="font-medium text-gray-700">{Number(s.total_servicio || s.coste_unitario || 0).toFixed(2)} €</span>
+                                Presupuestado: <span className="font-medium text-gray-700">{Number(s.total_servicio_manual || s.total_servicio || s.coste_unitario || 0).toFixed(2)} €</span>
                               </p>
                             </div>
                             <div className="shrink-0 ml-4">
@@ -5831,7 +5865,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   <button
                                     onClick={() => {
                                       setInlineId(s.id)
-                                      setFInline({ numero_factura: pagoRegistrado.numero_factura || '', fecha_pago: pagoRegistrado.fecha_pago || new Date().toISOString().split('T')[0], importe_pagado: pagoRegistrado.importe_pagado || s.total_servicio || s.coste_unitario || '' })
+                                      setFInline({ numero_factura: pagoRegistrado.numero_factura || '', fecha_pago: pagoRegistrado.fecha_pago || new Date().toISOString().split('T')[0], importe_pagado: pagoRegistrado.importe_pagado || s.total_servicio_manual || s.total_servicio || s.coste_unitario || '' })
                                       setPdfInline(null)
                                     }}
                                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold transition-colors"
@@ -5844,7 +5878,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 <button
                                   onClick={() => {
                                     setInlineId(s.id)
-                                    setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: s.total_servicio || s.coste_unitario || '' })
+                                    setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: s.total_servicio_manual || s.total_servicio || s.coste_unitario || '' })
                                     setPdfInline(null)
                                   }}
                                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
