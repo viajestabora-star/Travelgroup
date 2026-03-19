@@ -1,22 +1,25 @@
 import React, { useEffect, useState } from 'react'
-import { Users, Calculator, Calendar, Briefcase, AlertTriangle, Clock, CheckCircle, Globe, X, StickyNote, ChevronRight } from 'lucide-react'
+import { Users, Calculator, Calendar, Briefcase, AlertTriangle, Clock, CheckCircle, Globe, X, StickyNote, ChevronRight, ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { registrarSalidaOnUnload, heartbeatSalida, registrarEntradaSilencioso } from '../utils/controlHorario'
 import { esUsuarioGestoria } from '../App'
+import CentralDeInteligencia from '../components/CentralDeInteligencia'
+import ResumenPipeline from '../components/ResumenPipeline'
+import IntegrityPanel from '../components/IntegrityPanel'
 
 const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
-import CentralDeInteligencia from '../components/CentralDeInteligencia'
-import ResumenPipeline from '../components/ResumenPipeline'
 
 const Dashboard = ({ user = null }) => {
   const navigate    = useNavigate()
   const esGestoria  = esUsuarioGestoria(user)
   const [ejercicioActual, setEjercicioActual]   = useState(getEjercicioActual())
   const [showIntelligenceHub, setShowIntelligenceHub] = useState(false)
+  const [showIntegrityPanel, setShowIntegrityPanel]   = useState(false)
+  const esAdmin = user?.rol === 'ADMIN'
   const [stats, setStats] = useState({
     totalClientes: 0,
     totalCotizaciones: 0,
@@ -260,15 +263,31 @@ const Dashboard = ({ user = null }) => {
           <h1 className="text-3xl font-bold text-navy-900 mb-2">Panel de Control</h1>
           <p className="text-gray-600">Bienvenido a Viajes Tabora ERP</p>
         </div>
-        <button
-          onClick={() => setShowIntelligenceHub(true)}
-          className="flex items-center gap-2 px-5 py-2.5 bg-navy-700 hover:bg-navy-800 text-white rounded-xl font-semibold transition-colors shadow-md"
-          aria-label="Globo de Inteligencia"
-        >
-          <Globe size={20} />
-          Globo de Inteligencia
-        </button>
+        <div className="flex items-center gap-3">
+          {esAdmin && (
+            <button
+              onClick={() => setShowIntegrityPanel(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-semibold transition-colors shadow-md"
+              aria-label="Escáner de Integridad"
+            >
+              <ShieldCheck size={20} />
+              Integridad
+            </button>
+          )}
+          <button
+            onClick={() => setShowIntelligenceHub(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-navy-700 hover:bg-navy-800 text-white rounded-xl font-semibold transition-colors shadow-md"
+            aria-label="Globo de Inteligencia"
+          >
+            <Globe size={20} />
+            Globo de Inteligencia
+          </button>
+        </div>
       </div>
+
+      {showIntegrityPanel && (
+        <IntegrityPanel onClose={() => setShowIntegrityPanel(false)} />
+      )}
 
       {showIntelligenceHub && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

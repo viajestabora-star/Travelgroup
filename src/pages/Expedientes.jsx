@@ -8,6 +8,8 @@ import { getEjercicioActual, subscribeToEjercicioChanges, setEjercicioActual as 
 import { supabase } from '../supabase'
 import { existeNumeroExpedienteEnSupabase } from '../utils/expedienteNumero'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
+import { DURACION_VIAJE_OPTIONS, TIPO_COLECTIVO_OPTIONS } from '../constants/viaje'
+import { validarExpedienteParaDB, formatearErroresValidacion } from '../utils/constraintValidator'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -625,6 +627,15 @@ const Expedientes = () => {
         throw new Error('cliente_id en datosInsertar no es válido');
       }
 
+      // ESCÁNER DE CONSTRAINTS: detener datos inválidos antes de que la DB los rechace
+      const validacion = validarExpedienteParaDB(datosInsertar);
+      if (!validacion.ok) {
+        const mensajeErrores = formatearErroresValidacion(validacion.errores);
+        alert(`🚨 El escáner de integridad ha detenido el guardado:\n\n${mensajeErrores}\n\nCorrige los campos indicados antes de continuar.`);
+        throw new Error('Validación de constraints fallida');
+      }
+      Object.assign(datosInsertar, validacion.datosSanitizados);
+
       // Obtener número de expediente correlativo (obligatorio) - NUNCA vacío ni UUID
       const añoExpediente = expedienteForm.fechaInicio
         ? (parsearFecha(expedienteForm.fechaInicio)?.getFullYear?.() || new Date().getFullYear())
@@ -851,7 +862,18 @@ const Expedientes = () => {
       if (numeroExpParaSupabase) {
         expedienteActualizadoParaSupabase.numero_expediente = numeroExpParaSupabase
       }
-      
+
+      // ESCÁNER DE CONSTRAINTS: detener datos inválidos antes de que la DB los rechace
+      const validacionUpdate = validarExpedienteParaDB(expedienteActualizadoParaSupabase);
+      if (!validacionUpdate.ok) {
+        const mensajeErrores = formatearErroresValidacion(validacionUpdate.errores);
+        alert(`🚨 El escáner de integridad ha detenido la actualización:\n\n${mensajeErrores}\n\nCorrige los campos indicados antes de continuar.`);
+        setExpedientes(prevExpedientes)
+        storage.set('expedientes', prevExpedientes)
+        return;
+      }
+      Object.assign(expedienteActualizadoParaSupabase, validacionUpdate.datosSanitizados);
+
       const { error } = await supabase
         .from('expedientes')
         .update(expedienteActualizadoParaSupabase)
@@ -1705,9 +1727,9 @@ const Expedientes = () => {
                     style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   >
                     <option value="">— Seleccionar —</option>
-                    <option value="Jubilados">Jubilados</option>
-                    <option value="Amas de Casa">Amas de Casa</option>
-                    <option value="Otros">Otros</option>
+                    {TIPO_COLECTIVO_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -1719,9 +1741,9 @@ const Expedientes = () => {
                     style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                   >
                     <option value="">— Seleccionar —</option>
-                    <option value="Día completo">Día completo</option>
-                    <option value="Finde">Finde</option>
-                    <option value="Gran viaje">Gran viaje</option>
+                    {DURACION_VIAJE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="md:col-span-2">
