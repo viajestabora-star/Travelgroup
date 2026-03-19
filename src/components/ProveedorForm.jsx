@@ -161,6 +161,7 @@ const ProveedorForm = ({
                 <option value="guialocal">Guía Local</option>
                 <option value="entradas">Tickets</option>
                 <option value="seguro">Seguro</option>
+                <option value="barco">Barco</option>
                 <option value="otros">Otro</option>
               </select>
             </div>
