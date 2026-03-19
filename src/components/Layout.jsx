@@ -116,8 +116,8 @@ const Layout = ({ user, onLogout }) => {
       { path: '/planning',          icon: Calendar,        label: `Planning ${ejercicioActual}` },
       { path: '/crm',               icon: Plane,           label: 'CRM / Captación' },
       { path: '/composer',          icon: Edit3,           label: 'Composer' },
-      { path: '/cierres',           icon: Calculator,      label: 'Facturación' },
-      { path: '/historial-cierres', icon: History,         label: 'Historial de Facturación' },
+      { path: '/cierres',           icon: Calculator,      label: 'Cierres' },
+      { path: '/historial-cierres', icon: History,         label: 'Historial de Cierres' },
     ]
     if (esAdmin || esGestoria) {
       base.push({ path: '/inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })

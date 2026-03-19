@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Users, Calculator, Calendar, Briefcase, AlertTriangle, Clock, CheckCircle, Globe, X, StickyNote, ChevronRight, ShieldCheck } from 'lucide-react'
+import { Users, Calculator, Calendar, Briefcase, AlertTriangle, Clock, CheckCircle, Globe, X, StickyNote, ChevronRight, ShieldCheck, Archive } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import { supabase } from '../supabase'
@@ -44,6 +44,7 @@ const Dashboard = ({ user = null }) => {
     totalClientes: 0,
     totalCotizaciones: 0,
     visitasPendientes: 0,
+    totalCierres: 0,
   })
   const [proximosReleases, setProximosReleases]  = useState([])
   const [notasPendientes, setNotasPendientes]    = useState([])
@@ -183,6 +184,23 @@ const Dashboard = ({ user = null }) => {
     }
   }
 
+  const cargarCierresCount = async () => {
+    try {
+      const inicio = `${ejercicioActual}-01-01T00:00:00`
+      const fin    = `${ejercicioActual + 1}-01-01T00:00:00`
+      const { count, error } = await supabase
+        .from('expedientes')
+        .select('*', { count: 'exact', head: true })
+        .or('estado.ilike.cerrado,estado.ilike.finalizado')
+        .gte('created_at', inicio)
+        .lt('created_at', fin)
+      if (error) return 0
+      return count ?? 0
+    } catch {
+      return 0
+    }
+  }
+
   const cargarProximosReleases = async () => {
     try {
       const { data: serviciosData, error: serviciosError } = await supabase
@@ -235,13 +253,14 @@ const Dashboard = ({ user = null }) => {
   useEffect(() => {
     const cargarDatos = async () => {
       try {
-        const [totalClientes, totalExpedientes, visitasPendientes, releases] = await Promise.all([
+        const [totalClientes, totalExpedientes, visitasPendientes, totalCierres, releases] = await Promise.all([
           cargarClientes(),
           cargarExpedientesCount(),
           cargarVisitasPendientesCount(),
+          cargarCierresCount(),
           cargarProximosReleases(),
         ])
-        setStats({ totalClientes, totalCotizaciones: totalExpedientes, visitasPendientes })
+        setStats({ totalClientes, totalCotizaciones: totalExpedientes, visitasPendientes, totalCierres })
         setProximosReleases(releases)
       } catch {
         // Mantener estado previo
@@ -270,10 +289,10 @@ const Dashboard = ({ user = null }) => {
   }
 
   const cards = [
-    { title: 'Total Clientes', value: stats.totalClientes, icon: Users, color: 'bg-blue-500', link: '/clientes' },
-    { title: 'Expedientes', value: stats.totalCotizaciones, icon: Calculator, color: 'bg-green-500', link: '/expedientes' },
-    { title: 'Planificación', value: null, icon: Calendar, color: 'bg-purple-500', link: '/planning' },
-    { title: 'Visitas Pendientes', value: stats.visitasPendientes, icon: Briefcase, color: 'bg-orange-500', link: '/crm' },
+    { title: 'Total Clientes',    value: stats.totalClientes,     icon: Users,     color: 'bg-blue-500',   link: '/clientes'          },
+    { title: 'Expedientes',       value: stats.totalCotizaciones, icon: Calculator, color: 'bg-green-500', link: '/expedientes'        },
+    { title: 'Cierres',           value: stats.totalCierres,      icon: Archive,   color: 'bg-slate-600',  link: '/historial-cierres'  },
+    { title: 'Visitas Pendientes',value: stats.visitasPendientes, icon: Briefcase, color: 'bg-orange-500', link: '/crm'                },
   ]
 
   return (

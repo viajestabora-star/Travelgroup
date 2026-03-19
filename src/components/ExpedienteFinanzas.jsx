@@ -664,7 +664,7 @@ const ExpedienteFinanzas = ({
           || s?.nombre_proveedor_texto
           || s?.proveedorNombreTemporal  // versiones_json manual name
           || s?.nombre_proveedor_manual
-          || 'Proveedor no asignado'
+          || 'Pendiente de asignar'
         const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
         const nombre = s?.nombre_especifico ? `${tipo} – ${s.nombre_especifico}` : tipo
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
@@ -1428,9 +1428,9 @@ const ExpedienteFinanzas = ({
                         <tr key={c.id_servicio || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
                           <td className="px-3 py-2 font-medium text-slate-800">{c.concepto || '—'}</td>
                           <td className="px-3 py-2 hidden sm:table-cell">
-                            {c.proveedor && c.proveedor !== 'Proveedor no asignado'
+                            {c.proveedor && c.proveedor !== 'Pendiente de asignar'
                               ? <span className="text-slate-600">{c.proveedor}</span>
-                              : <span className="text-slate-400 italic text-xs">Proveedor no asignado</span>
+                              : <span className="text-slate-400 italic text-xs">Pendiente de asignar</span>
                             }
                           </td>
                           <td className="px-3 py-2 text-right text-slate-500">{Number(c.coste_cotizado || 0).toFixed(2)} €</td>

@@ -35,8 +35,9 @@ export const sanitizarExpedienteParaDB = (datos) => {
       datosSanitizados.duracion_viaje = corregido
       advertencias.push(`Duración "${durRaw}" corregida automáticamente a "${corregido}"`)
     } else {
-      datosSanitizados.duracion_viaje = null
-      advertencias.push(`Duración "${durRaw}" no reconocida — guardada como vacía`)
+      // Valor desconocido: asignar 'Día completo' como valor por defecto seguro
+      datosSanitizados.duracion_viaje = 'Día completo'
+      advertencias.push(`Duración "${durRaw}" no reconocida — asignada "Día completo" por defecto`)
     }
   }
 
@@ -80,7 +81,7 @@ export const detectarCamposPendientes = (expediente, servicios = []) => {
     (s) => !s.proveedorId && !s.proveedor_id_int && !s.proveedorNombreTemporal && !s.nombre_proveedor_texto
   )
   if (serviciosSinProveedor.length > 0) {
-    pendientes.push(`${serviciosSinProveedor.length} servicio${serviciosSinProveedor.length > 1 ? 's' : ''} sin proveedor`)
+    pendientes.push(`${serviciosSinProveedor.length} proveedor${serviciosSinProveedor.length > 1 ? 'es' : ''} pendiente${serviciosSinProveedor.length > 1 ? 's' : ''} de asignar`)
   }
 
   return pendientes
