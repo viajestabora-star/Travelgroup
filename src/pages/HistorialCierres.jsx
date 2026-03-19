@@ -1,366 +1,373 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2 } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
+import { categorizarPago } from '../utils/finanzasHelpers'
 
-// ─── Helpers numéricos ────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Convierte cualquier valor a número seguro (0 si no es numérico) */
-const n = (v) => {
-  if (v == null) return 0
-  const num = Number(v)
-  return Number.isFinite(num) ? num : 0
-}
+const n = (v) => { const num = Number(v ?? 0); return Number.isFinite(num) ? num : 0 }
+
+const esc = (str) => String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+
+const fmtEur = (v) => n(v).toFixed(2)
 
 /**
- * Extrae los datos financieros canónicos de un expediente.
- * Lee en cascada desde la fuente más fiable a la más degradada:
- *   1. cierre_grupo (el JSON guardado al cerrar) — fuente primaria
- *   2. columnas directas total_ingresos / total_gastos_reales
- *   3. 0 como último recurso (nunca da error)
+ * Extrae finanzas canónicas de un expediente.
+ * Cascade: cierre_grupo → columnas directas → 0
  */
 const extraerFinanzas = (exp) => {
   const cg = exp.cierre_grupo || {}
 
-  // ── Ingresos ────────────────────────────────────────────────────────────────
-  const ingresoTotal = n(
-    cg.ingresos_totales ??
-    cg.total_ingresos ??
-    exp.total_ingresos
-  )
+  const ingresoTotal  = n(cg.ingresos_totales ?? cg.total_ingresos ?? exp.total_ingresos)
+  const ivaPagado     = n(cg.iva_pagado)
+  const beneficioNeto = n(cg.beneficio_limpio ?? cg.beneficio_neto ?? cg.beneficio ?? exp.beneficio_neto_real ?? exp.liquidacion_final_beneficio)
 
-  // ── Gastos: leer cierre_grupo.gastos_totales primero; si no, sumar costesReales ──
+  // Gastos: gastos_totales → sum(costesReales) → total_gastos_reales
   let gastoTotal = n(cg.gastos_totales ?? cg.gastos_reales ?? exp.total_gastos_reales)
-  if (gastoTotal === 0 && Array.isArray(cg.costesReales) && cg.costesReales.length > 0) {
-    gastoTotal = cg.costesReales.reduce((sum, c) => sum + n(c.coste_real), 0)
-  }
-  if (gastoTotal === 0 && Array.isArray(cg.gastosImprevistos)) {
-    // Sumar también gastos imprevistos si los hay
-    const imprev = cg.gastosImprevistos.reduce((sum, g) => sum + n(g.importe), 0)
-    gastoTotal += imprev
+  const costesReales     = Array.isArray(cg.costesReales)      ? cg.costesReales      : []
+  const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
+  if (gastoTotal === 0 && costesReales.length > 0) {
+    gastoTotal = costesReales.reduce((s, c) => s + n(c.coste_real), 0)
+      + gastosImprevistos.reduce((s, g) => s + n(g.importe), 0)
   }
 
-  // ── Beneficio: preferir el guardado; si no, calcularlo ───────────────────
-  const beneficioNeto = n(
-    cg.beneficio_limpio ??
-    cg.beneficio_neto ??
-    cg.beneficio ??
-    exp.beneficio_neto_real ??
-    exp.liquidacion_final_beneficio ??
-    (ingresoTotal - gastoTotal)
-  )
+  const beneficioBruto = n(cg.beneficio_bruto ?? (beneficioNeto + ivaPagado))
 
-  // ── Fecha de cierre ──────────────────────────────────────────────────────
   const fechaCierre = cg.fecha
     ? new Date(cg.fecha)
-    : exp.fecha_inicio
-      ? new Date(exp.fecha_inicio)
-      : null
+    : exp.fecha_inicio ? new Date(exp.fecha_inicio) : null
 
-  // ── Desglose de proveedores ──────────────────────────────────────────────
-  const costesReales = Array.isArray(cg.costesReales) ? cg.costesReales : []
-
-  return { ingresoTotal, gastoTotal, beneficioNeto, fechaCierre, costesReales }
+  return { ingresoTotal, gastoTotal, ivaPagado, beneficioBruto, beneficioNeto, fechaCierre, costesReales, gastosImprevistos }
 }
 
-// ─── Constantes de UI ─────────────────────────────────────────────────────────
+// ─── Constantes UI ────────────────────────────────────────────────────────────
 
-const getQuarter = (date) => date ? Math.floor(date.getMonth() / 3) + 1 : null
+const getQuarter = (d) => d ? Math.floor(d.getMonth() / 3) + 1 : null
+const CATEGORIAS = ['Bus', 'Hotel', 'Restaurante', 'Guía', 'Otros']
 
 const TRIMESTRES = [
   { value: 'all', label: 'Todos los trimestres' },
-  { value: '1',   label: 'Q1 — Ene / Feb / Mar' },
-  { value: '2',   label: 'Q2 — Abr / May / Jun' },
-  { value: '3',   label: 'Q3 — Jul / Ago / Sep' },
-  { value: '4',   label: 'Q4 — Oct / Nov / Dic' },
+  { value: '1',   label: 'Q1 — Ene / Feb / Mar'  },
+  { value: '2',   label: 'Q2 — Abr / May / Jun'  },
+  { value: '3',   label: 'Q3 — Jul / Ago / Sep'  },
+  { value: '4',   label: 'Q4 — Oct / Nov / Dic'  },
 ]
-
 const añoActual = new Date().getFullYear()
-const AÑOS_DISPONIBLES = Array.from({ length: 6 }, (_, i) => añoActual - i)
+const AÑOS = Array.from({ length: 6 }, (_, i) => añoActual - i)
 
-// ─── Componente principal ────────────────────────────────────────────────────
+// ─── Generador del Cuaderno HTML-Excel ────────────────────────────────────────
+
+/**
+ * Construye el contenido HTML del Cuaderno de Cierres.
+ * Excel y Numbers abren este formato respetando estilos inline.
+ */
+const construirHTMLCuaderno = (cierresEnriquecidos, etiquetaPeriodo) => {
+  const totPeriodo = {
+    ingresos:  cierresEnriquecidos.reduce((s, c) => s + c.ingresoTotal,  0),
+    gastos:    cierresEnriquecidos.reduce((s, c) => s + c.gastoTotal,    0),
+    beneficio: cierresEnriquecidos.reduce((s, c) => s + c.beneficioNeto, 0),
+  }
+
+  const CSS = `
+    body  { font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #1e293b; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 4pt; }
+    td, th { padding: 5pt 8pt; border: 1px solid #cbd5e1; vertical-align: middle; }
+    .periodo-title { font-size: 16pt; font-weight: bold; background: #0f172a; color: #ffffff; }
+    .periodo-meta  { font-size: 10pt; background: #1e293b; color: #94a3b8; }
+    .resumen-head  { font-size: 10pt; font-weight: bold; background: #334155; color: #f8fafc; }
+    .resumen-val   { font-size: 11pt; font-weight: bold; text-align: right; }
+    .exp-title     { font-size: 13pt; font-weight: bold; background: #1d4ed8; color: #ffffff; }
+    .exp-meta      { font-size: 9pt; background: #eff6ff; color: #1e3a8a; }
+    .section-head  { font-size: 9pt; font-weight: bold; background: #475569; color: #f8fafc; }
+    .col-head      { font-size: 9pt; font-weight: bold; background: #64748b; color: #ffffff; text-align: center; }
+    .cat-label     { font-size: 9pt; font-weight: bold; color: #475569; background: #f1f5f9; }
+    .num           { text-align: right; font-variant-numeric: tabular-nums; }
+    .total-gastos  { font-weight: bold; background: #fef2f2; }
+    .num-neg       { text-align: right; color: #b91c1c; }
+    .row-ing       { background: #f0fdf4; }
+    .row-gas       { background: #fef2f2; }
+    .row-bruto     { font-weight: bold; background: #eff6ff; }
+    .row-iva       { background: #fff7ed; color: #92400e; }
+    .row-neto      { font-size: 13pt; font-weight: bold; background: #dcfce7; color: #15803d; }
+    .separador td  { border: none; background: transparent; height: 16pt; }
+    .linea-sep td  { border: none; border-top: 2px solid #94a3b8; height: 4pt; background: transparent; }
+  `
+
+  let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+    xmlns:x="urn:schemas-microsoft-com:office:excel"
+    xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta http-equiv="Content-Type" content="application/vnd.ms-excel; charset=UTF-8">
+  <style>${CSS}</style>
+</head>
+<body>`
+
+  // ── Portada / Resumen del periodo ─────────────────────────────────────────
+  html += `
+<table>
+  <tr><td colspan="4" class="periodo-title">Cuaderno de Cierres — ${esc(etiquetaPeriodo)}</td></tr>
+  <tr><td colspan="4" class="periodo-meta">Generado el ${new Date().toLocaleDateString('es-ES', { day:'2-digit', month:'long', year:'numeric' })} · ${cierresEnriquecidos.length} expediente${cierresEnriquecidos.length !== 1 ? 's' : ''} cerrado${cierresEnriquecidos.length !== 1 ? 's' : ''}</td></tr>
+</table>
+<table>
+  <tr>
+    <th class="resumen-head">Total Ingresos (€)</th>
+    <th class="resumen-head">Total Gastos Prov. (€)</th>
+    <th class="resumen-head">Beneficio Neto (€)</th>
+  </tr>
+  <tr>
+    <td class="resumen-val" style="color:#15803d">${fmtEur(totPeriodo.ingresos)}</td>
+    <td class="resumen-val" style="color:#b91c1c">${fmtEur(totPeriodo.gastos)}</td>
+    <td class="resumen-val" style="color:${totPeriodo.beneficio >= 0 ? '#1d4ed8' : '#b91c1c'}">${fmtEur(totPeriodo.beneficio)}</td>
+  </tr>
+</table>`
+
+  // ── Bloque por expediente ─────────────────────────────────────────────────
+  for (const c of cierresEnriquecidos) {
+    const grupo  = esc(c.nombre_grupo || c.cliente_nombre || 'Sin grupo')
+    const viaje  = esc(c.destino || 'Sin destino')
+    const numExp = esc(c.numero_expediente || '—')
+    const fecha  = c.fechaCierre
+      ? c.fechaCierre.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' })
+      : '—'
+
+    // Agrupar costesReales por categoría
+    const porCat = Object.fromEntries(CATEGORIAS.map(cat => [cat, []]))
+    for (const d of c.detalle) {
+      const cat = categorizarPago(d.concepto)
+      ;(porCat[cat] || porCat.Otros).push(d)
+    }
+
+    html += `
+<table class="separador"><tr><td colspan="4"></td></tr></table>
+<table class="linea-sep"><tr><td colspan="4"></td></tr></table>
+
+<table>
+  <tr><td colspan="4" class="exp-title">📋 ${grupo} — ${viaje}</td></tr>
+  <tr>
+    <td class="exp-meta"><b>Nº Expediente:</b> ${numExp}</td>
+    <td class="exp-meta"><b>Fecha de Cierre:</b> ${fecha}</td>
+    <td class="exp-meta"><b>Ingresos:</b> ${fmtEur(c.ingresoTotal)} €</td>
+    <td class="exp-meta"><b>Gastos:</b> ${fmtEur(c.gastoTotal)} €</td>
+  </tr>
+</table>
+
+<table>
+  <tr><td colspan="4" class="section-head">DESGLOSE DE PAGOS A PROVEEDORES</td></tr>
+  <tr>
+    <th class="col-head" style="width:12%">Categoría</th>
+    <th class="col-head" style="width:36%">Concepto</th>
+    <th class="col-head" style="width:32%">Proveedor</th>
+    <th class="col-head" style="width:20%">Importe (€)</th>
+  </tr>`
+
+    let hayFilas = false
+    for (const cat of CATEGORIAS) {
+      for (const d of porCat[cat]) {
+        hayFilas = true
+        html += `  <tr>
+    <td class="cat-label">${esc(cat)}</td>
+    <td>${esc(d.concepto || '—')}</td>
+    <td>${esc(d.proveedor || 'Pendiente de asignar')}</td>
+    <td class="num">${fmtEur(d.coste_real)}</td>
+  </tr>`
+      }
+    }
+
+    // Imprevistos
+    for (const g of c.gastosImprevistos || []) {
+      hayFilas = true
+      html += `  <tr>
+    <td class="cat-label">Imprevisto</td>
+    <td colspan="2">${esc(g.concepto || '—')}</td>
+    <td class="num">${fmtEur(g.importe)}</td>
+  </tr>`
+    }
+
+    if (!hayFilas) {
+      html += `  <tr><td colspan="4" style="text-align:center; color:#94a3b8; font-style:italic">Sin desglose de proveedores registrado</td></tr>`
+    }
+
+    html += `  <tr class="total-gastos">
+    <td colspan="3"><b>TOTAL GASTOS PROVEEDORES</b></td>
+    <td class="num"><b>${fmtEur(c.gastoTotal)}</b></td>
+  </tr>
+</table>
+
+<table>
+  <tr><td colspan="2" class="section-head">RESUMEN DE RESULTADOS</td></tr>
+  <tr class="row-ing">
+    <td>Total Ingresos</td>
+    <td class="num" style="color:#15803d; font-weight:bold">${fmtEur(c.ingresoTotal)} €</td>
+  </tr>
+  <tr class="row-gas">
+    <td>Total Gastos Proveedores</td>
+    <td class="num" style="color:#b91c1c; font-weight:bold">${fmtEur(c.gastoTotal)} €</td>
+  </tr>
+  <tr class="row-bruto">
+    <td>Beneficio Bruto</td>
+    <td class="num">${fmtEur(c.beneficioBruto)} €</td>
+  </tr>
+  <tr class="row-iva">
+    <td>IVA sobre Beneficio (21%)</td>
+    <td class="num-neg">− ${fmtEur(c.ivaPagado)} €</td>
+  </tr>
+  <tr class="row-neto">
+    <td><b>BENEFICIO NETO</b></td>
+    <td class="num"><b>${fmtEur(c.beneficioNeto)} €</b></td>
+  </tr>
+</table>`
+  }
+
+  html += `</body></html>`
+  return html
+}
+
+// ─── Componente ───────────────────────────────────────────────────────────────
 
 const HistorialCierres = () => {
   const navigate = useNavigate()
-
-  const [cierres,      setCierres]      = useState([])
-  const [cargando,     setCargando]     = useState(true)
-  const [exportando,   setExportando]   = useState(false)
-  const [trimestre,    setTrimestre]    = useState('all')
-  const [año,          setAño]          = useState(String(añoActual))
+  const [cierres,    setCierres]    = useState([])
+  const [cargando,   setCargando]   = useState(true)
+  const [exportando, setExportando] = useState(false)
+  const [trimestre,  setTrimestre]  = useState('all')
+  const [año,        setAño]        = useState(String(añoActual))
 
   useEffect(() => { cargarCierres() }, [])
 
-  // ── Carga de datos ──────────────────────────────────────────────────────────
   const cargarCierres = async () => {
     setCargando(true)
     try {
       const { data, error } = await supabase
         .from('expedientes')
-        .select(`
-          id,
-          numero_expediente,
-          nombre_grupo,
-          cliente_nombre,
-          destino,
-          fecha_inicio,
-          total_ingresos,
-          total_gastos_reales,
-          beneficio_neto_real,
-          liquidacion_final_beneficio,
-          cierre_grupo,
-          informe_gastos_hacienda
-        `)
+        .select(`id, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio,
+                 total_ingresos, total_gastos_reales, beneficio_neto_real,
+                 liquidacion_final_beneficio, cierre_grupo, informe_gastos_hacienda`)
         .or('estado.eq.Cerrado,estado.ilike.cerrado,estado.ilike.finalizado')
         .order('fecha_inicio', { ascending: false, nullsFirst: false })
 
       if (error) { setCierres([]); return }
 
-      const mapeados = (data || []).map((exp) => ({
-        ...exp,
-        ...extraerFinanzas(exp),
-      }))
-
+      const mapeados = (data || []).map((exp) => ({ ...exp, ...extraerFinanzas(exp) }))
       mapeados.sort((a, b) => (b.fechaCierre?.getTime() ?? 0) - (a.fechaCierre?.getTime() ?? 0))
       setCierres(mapeados)
-    } catch {
-      setCierres([])
-    } finally {
-      setCargando(false)
-    }
+    } catch { setCierres([]) }
+    finally   { setCargando(false) }
   }
 
-  // ── Filtrado por año y trimestre ──────────────────────────────────────────
-  const cierresFiltrados = useMemo(() => {
-    return cierres.filter((c) => {
-      const fecha = c.fechaCierre
-      if (!fecha) return true
-      if (String(fecha.getFullYear()) !== año) return false
-      if (trimestre === 'all') return true
-      return getQuarter(fecha) === parseInt(trimestre, 10)
-    })
-  }, [cierres, año, trimestre])
+  const cierresFiltrados = useMemo(() => cierres.filter((c) => {
+    const f = c.fechaCierre
+    if (!f) return true
+    if (String(f.getFullYear()) !== año) return false
+    return trimestre === 'all' || getQuarter(f) === parseInt(trimestre, 10)
+  }), [cierres, año, trimestre])
 
-  // ── Totales del periodo ───────────────────────────────────────────────────
   const totales = useMemo(() => ({
-    ingresos:  cierresFiltrados.reduce((s, c) => s + c.ingresoTotal, 0),
-    gastos:    cierresFiltrados.reduce((s, c) => s + c.gastoTotal,   0),
+    ingresos:  cierresFiltrados.reduce((s, c) => s + c.ingresoTotal,  0),
+    gastos:    cierresFiltrados.reduce((s, c) => s + c.gastoTotal,    0),
     beneficio: cierresFiltrados.reduce((s, c) => s + c.beneficioNeto, 0),
   }), [cierresFiltrados])
 
-  // ── Exportar XLSX ─────────────────────────────────────────────────────────
-  /**
-   * Genera un XLSX con dos hojas:
-   *  1. Resumen — una fila por expediente + fila de totales
-   *  2. Desglose de Proveedores — una fila por concepto/proveedor
-   *
-   * Para expedientes sin cierre_grupo.costesReales, hace un fallback a
-   * servicios_cotizacion.coste_real_proveedor (deep-fetch al exportar).
-   */
-  const exportarExcel = async () => {
+  // ── Exportar Cuaderno de Cierres ──────────────────────────────────────────
+  const exportarCuaderno = async () => {
     if (cierresFiltrados.length === 0) return
     setExportando(true)
-
     try {
-      // ── Deep-fetch: coste_real_proveedor de servicios_cotizacion ───────────
-      // Para expedientes cuyo cierre_grupo no tiene costesReales
+      // Deep-fetch: obtener costesReales de servicios_cotizacion para expedientes sin cierre_grupo
       const idsNecesitanFetch = cierresFiltrados
         .filter((c) => c.costesReales.length === 0)
         .map((c) => c.id)
 
-      let serviciosPorExpediente = {}
+      const detallesPorExpediente = {}
 
       if (idsNecesitanFetch.length > 0) {
         const { data: serviciosDB } = await supabase
           .from('servicios_cotizacion')
-          .select(`
-            id,
-            id_expediente,
-            tipo_servicio,
-            nombre_especifico,
-            coste_real_proveedor,
-            coste_unitario,
-            total_servicio_manual,
-            proveedor_id_int,
-            nombre_proveedor_texto
-          `)
+          .select('id, id_expediente, tipo_servicio, nombre_especifico, coste_real_proveedor, coste_unitario, total_servicio_manual, proveedor_id_int, nombre_proveedor_texto')
           .in('id_expediente', idsNecesitanFetch)
 
-        // Resolver nombres de proveedor
-        const provIds = [...new Set(
-          (serviciosDB || []).map((s) => s.proveedor_id_int).filter(Boolean)
-        )]
+        const provIds = [...new Set((serviciosDB || []).map(s => s.proveedor_id_int).filter(Boolean))]
         let provNombres = {}
         if (provIds.length > 0) {
           const { data: provsDB } = await supabase
-            .from('proveedores')
-            .select('id, nombre_comercial')
-            .in('id', provIds)
-          ;(provsDB || []).forEach((p) => { provNombres[p.id] = p.nombre_comercial })
+            .from('proveedores').select('id, nombre_comercial').in('id', provIds)
+          ;(provsDB || []).forEach(p => { provNombres[p.id] = p.nombre_comercial })
         }
 
-        // Agrupar por expediente
-        ;(serviciosDB || []).forEach((s) => {
-          if (!serviciosPorExpediente[s.id_expediente]) {
-            serviciosPorExpediente[s.id_expediente] = []
-          }
-          const proveedor = (s.proveedor_id_int && provNombres[s.proveedor_id_int])
-            || s.nombre_proveedor_texto
-            || 'Pendiente de asignar'
-          const tipo    = s.tipo_servicio || 'Servicio'
-          const nombre  = s.nombre_especifico ? `${tipo} – ${s.nombre_especifico}` : tipo
-          // Prioridad: coste_real_proveedor → coste unitario/manual como fallback
-          const costeReal = n(s.coste_real_proveedor ?? s.total_servicio_manual ?? s.coste_unitario)
-          serviciosPorExpediente[s.id_expediente].push({
-            concepto:        nombre,
-            proveedor:       proveedor,
-            coste_cotizado:  n(s.total_servicio_manual ?? s.coste_unitario),
-            coste_real:      costeReal,
+        ;(serviciosDB || []).forEach(s => {
+          if (!detallesPorExpediente[s.id_expediente]) detallesPorExpediente[s.id_expediente] = []
+          const proveedor = (s.proveedor_id_int && provNombres[s.proveedor_id_int]) || s.nombre_proveedor_texto || 'Pendiente de asignar'
+          const tipo      = s.tipo_servicio || 'Servicio'
+          const concepto  = s.nombre_especifico ? `${tipo} – ${s.nombre_especifico}` : tipo
+          detallesPorExpediente[s.id_expediente].push({
+            concepto,
+            proveedor,
+            coste_cotizado: n(s.total_servicio_manual ?? s.coste_unitario),
+            coste_real:     n(s.coste_real_proveedor ?? s.total_servicio_manual ?? s.coste_unitario),
           })
         })
       }
 
-      // ── Construir datos enriquecidos para el Excel ─────────────────────────
-      const cierresEnriquecidos = cierresFiltrados.map((c) => {
-        // Si ya tiene costesReales del cierre_grupo, usarlos; si no, usar los de servicios_cotizacion
+      // Enriquecer: fusionar costesReales con deep-fetch
+      const cierresEnriquecidos = cierresFiltrados.map(c => {
         const detalle = c.costesReales.length > 0
           ? c.costesReales
-          : (serviciosPorExpediente[c.id] || [])
+          : (detallesPorExpediente[c.id] || [])
 
-        // Re-calcular gastos si el cierre no los tenía (sumamos los del deep-fetch)
-        const gastoRecalculado = c.gastoTotal > 0
+        const gastoReal = c.gastoTotal > 0
           ? c.gastoTotal
-          : detalle.reduce((sum, d) => sum + n(d.coste_real), 0)
+          : detalle.reduce((s, d) => s + n(d.coste_real), 0)
+            + (c.gastosImprevistos || []).reduce((s, g) => s + n(g.importe), 0)
 
-        const beneficioRecalculado = c.ingresoTotal - gastoRecalculado
+        const beneficioNeto = c.ingresoTotal - gastoReal
+        const beneficioBruto = beneficioNeto > 0 ? beneficioNeto + c.ivaPagado : beneficioNeto
 
-        return { ...c, gastoTotal: gastoRecalculado, beneficioNeto: beneficioRecalculado, detalle }
+        return {
+          ...c,
+          detalle,
+          gastoTotal:    gastoReal,
+          beneficioNeto,
+          beneficioBruto,
+        }
       })
 
-      // ─── Hoja 1: Resumen ───────────────────────────────────────────────────
-      const labelPeriodo = trimestre === 'all'
-        ? año
-        : `${año}_Q${trimestre}`
+      const etiquetaPeriodo = trimestre === 'all'
+        ? `Todo ${año}`
+        : `${TRIMESTRES.find(t => t.value === trimestre)?.label ?? ''} · ${año}`
 
-      const filasCabecera = [
-        ['ID Expediente', 'Cliente', 'Destino', 'Fecha de Cierre', 'Total Ingresos (€)', 'Total Gastos Proveedores (€)', 'Beneficio Neto (€)'],
-      ]
+      const htmlContent = construirHTMLCuaderno(cierresEnriquecidos, etiquetaPeriodo)
+      const fileName    = `Cuaderno_Cierres_${trimestre === 'all' ? año : `${año}_Q${trimestre}`}.xls`
 
-      const filasResumen = cierresEnriquecidos.map((c) => [
-        c.numero_expediente || c.id?.substring(0, 8) || '—',
-        c.cliente_nombre || c.nombre_grupo || '—',
-        c.destino || '—',
-        c.fechaCierre ? c.fechaCierre.toLocaleDateString('es-ES') : '—',
-        Number(c.ingresoTotal.toFixed(2)),      // número nativo → sumable en Excel
-        Number(c.gastoTotal.toFixed(2)),
-        Number(c.beneficioNeto.toFixed(2)),
-      ])
-
-      // Fila de totales (en negrita vía cellStyle)
-      const filaTotales = [
-        'TOTALES',
-        '',
-        '',
-        `${cierresEnriquecidos.length} expediente${cierresEnriquecidos.length !== 1 ? 's' : ''}`,
-        Number(cierresEnriquecidos.reduce((s, c) => s + c.ingresoTotal,  0).toFixed(2)),
-        Number(cierresEnriquecidos.reduce((s, c) => s + c.gastoTotal,    0).toFixed(2)),
-        Number(cierresEnriquecidos.reduce((s, c) => s + c.beneficioNeto, 0).toFixed(2)),
-      ]
-
-      const wsResumen = XLSX.utils.aoa_to_sheet([
-        ...filasCabecera,
-        ...filasResumen,
-        [],           // fila vacía separadora
-        filaTotales,
-      ])
-
-      // Anchos de columna
-      wsResumen['!cols'] = [
-        { wch: 14 }, // ID
-        { wch: 30 }, // Cliente
-        { wch: 22 }, // Destino
-        { wch: 14 }, // Fecha
-        { wch: 22 }, // Ingresos
-        { wch: 28 }, // Gastos
-        { wch: 20 }, // Beneficio
-      ]
-
-      // ─── Hoja 2: Desglose de Proveedores ──────────────────────────────────
-      const filasDesglose = []
-      filasDesglose.push([
-        'Nº Expediente', 'Cliente', 'Proveedor', 'Concepto', 'Coste Cotizado (€)', 'Coste Real / Factura (€)',
-      ])
-
-      let expedienteAnterior = null
-      for (const c of cierresEnriquecidos) {
-        if (c.detalle.length === 0) {
-          // Sin detalle: insertar fila de marcador
-          filasDesglose.push([
-            c.numero_expediente || '—',
-            c.cliente_nombre || c.nombre_grupo || '—',
-            '—', 'Sin desglose registrado', 0, 0,
-          ])
-        } else {
-          for (let i = 0; i < c.detalle.length; i++) {
-            const d = c.detalle[i]
-            filasDesglose.push([
-              i === 0 ? (c.numero_expediente || '—') : '',   // mostrar nº solo en 1ª fila del grupo
-              i === 0 ? (c.cliente_nombre || c.nombre_grupo || '—') : '',
-              d.proveedor || 'Pendiente de asignar',
-              d.concepto  || '—',
-              Number(n(d.coste_cotizado).toFixed(2)),
-              Number(n(d.coste_real).toFixed(2)),
-            ])
-          }
-        }
-        expedienteAnterior = c.id
-      }
-
-      const wsDesglose = XLSX.utils.aoa_to_sheet(filasDesglose)
-      wsDesglose['!cols'] = [
-        { wch: 14 }, // Nº Exp
-        { wch: 28 }, // Cliente
-        { wch: 28 }, // Proveedor
-        { wch: 38 }, // Concepto
-        { wch: 22 }, // Cotizado
-        { wch: 24 }, // Real
-      ]
-
-      // ─── Workbook ──────────────────────────────────────────────────────────
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, wsResumen,  'Resumen')
-      XLSX.utils.book_append_sheet(wb, wsDesglose, 'Desglose de Proveedores')
-
-      XLSX.writeFile(wb, `Historial_Cierres_${labelPeriodo}.xlsx`)
+      const blob = new Blob(['\uFEFF' + htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8' })
+      const a    = document.createElement('a')
+      a.href     = URL.createObjectURL(blob)
+      a.download = fileName
+      a.click()
+      URL.revokeObjectURL(a.href)
 
     } catch (err) {
-      console.error('[Excel] Error al generar:', err)
-      alert('Error al generar el Excel. Revisa la consola para más detalles.')
+      console.error('[Cuaderno] Error al generar:', err)
+      alert('Error al generar el cuaderno. Revisa la consola.')
     } finally {
       setExportando(false)
     }
   }
 
-  // ── Helpers de formato ────────────────────────────────────────────────────
-  const formatearFecha = (fecha) => {
-    if (!fecha) return '—'
-    return fecha.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
-  }
+  const formatearFecha = (f) => f
+    ? f.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : '—'
 
-  const verDetalle = (exp) => {
-    navigate('/expedientes', { state: { abrirExpedienteId: exp.id, tabInicial: 'cierre' } })
-  }
+  const verDetalle = (exp) => navigate('/expedientes', { state: { abrirExpedienteId: exp.id, tabInicial: 'cierre' } })
 
   const etiquetaPeriodo = trimestre === 'all'
     ? `Todo ${año}`
-    : `${TRIMESTRES.find((t) => t.value === trimestre)?.label ?? ''} · ${año}`
+    : `${TRIMESTRES.find(t => t.value === trimestre)?.label ?? ''} · ${año}`
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 sm:p-8 max-w-[1400px] mx-auto">
 
-      {/* ── Cabecera ────────────────────────────────────────────────────────── */}
+      {/* Cabecera */}
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
@@ -371,53 +378,39 @@ const HistorialCierres = () => {
           </p>
         </div>
 
-        {/* ── Controles ─────────────────────────────────────────────────────── */}
+        {/* Controles */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <Filter size={15} className="text-slate-400 shrink-0" />
-            <select
-              value={año}
-              onChange={(e) => setAño(e.target.value)}
-              className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            >
-              {AÑOS_DISPONIBLES.map((a) => (
-                <option key={a} value={String(a)}>{a}</option>
-              ))}
+            <select value={año} onChange={e => setAño(e.target.value)}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400">
+              {AÑOS.map(a => <option key={a} value={String(a)}>{a}</option>)}
             </select>
           </div>
-
-          <select
-            value={trimestre}
-            onChange={(e) => setTrimestre(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          >
-            {TRIMESTRES.map((t) => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
+          <select value={trimestre} onChange={e => setTrimestre(e.target.value)}
+            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400">
+            {TRIMESTRES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
-
-          <button
-            type="button"
-            onClick={exportarExcel}
+          <button type="button" onClick={exportarCuaderno}
             disabled={cierresFiltrados.length === 0 || exportando}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold shadow-sm transition-colors text-sm"
           >
             {exportando
-              ? <><Loader2 size={16} className="animate-spin" /> Generando…</>
-              : <><FileSpreadsheet size={16} /> Exportar Excel</>
+              ? <><Loader2 size={16} className="animate-spin" />Generando…</>
+              : <><FileSpreadsheet size={16} />Cuaderno Trimestral</>
             }
           </button>
         </div>
       </div>
 
-      {/* ── Tarjetas de resumen del periodo ─────────────────────────────────── */}
+      {/* Tarjetas de resumen */}
       {!cargando && cierresFiltrados.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           {[
-            { label: 'Total Ingresos',           value: totales.ingresos,  color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
-            { label: 'Total Gastos Proveedores',  value: totales.gastos,   color: 'text-red-700',     bg: 'bg-red-50 border-red-200'         },
-            { label: 'Beneficio Neto',            value: totales.beneficio, color: totales.beneficio >= 0 ? 'text-blue-700' : 'text-red-700', bg: totales.beneficio >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200' },
-          ].map((card) => (
+            { label:'Total Ingresos',          value:totales.ingresos,  color:'text-emerald-700', bg:'bg-emerald-50 border-emerald-200' },
+            { label:'Total Gastos Proveedores', value:totales.gastos,   color:'text-red-700',     bg:'bg-red-50 border-red-200'         },
+            { label:'Beneficio Neto',           value:totales.beneficio, color:totales.beneficio>=0?'text-blue-700':'text-red-700', bg:totales.beneficio>=0?'bg-blue-50 border-blue-200':'bg-red-50 border-red-200' },
+          ].map(card => (
             <div key={card.label} className={`rounded-xl border p-4 ${card.bg}`}>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{card.label}</p>
               <p className={`text-2xl font-extrabold ${card.color}`}>{card.value.toFixed(2)} €</p>
@@ -427,13 +420,12 @@ const HistorialCierres = () => {
         </div>
       )}
 
-      {/* ── Estado de carga / vacío ──────────────────────────────────────────── */}
+      {/* Tabla / estado */}
       {cargando ? (
         <div className="py-16 text-center text-slate-500">
           <TrendingUp className="mx-auto text-slate-300 mb-4 animate-pulse" size={48} />
           <p>Cargando cierres...</p>
         </div>
-
       ) : cierresFiltrados.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-md border border-slate-200 p-12 text-center">
           <FileText className="mx-auto text-slate-300 mb-4" size={56} />
@@ -443,55 +435,41 @@ const HistorialCierres = () => {
           <p className="text-slate-500 text-sm max-w-md mx-auto">
             {cierres.length === 0
               ? 'Los expedientes aparecerán aquí cuando tengan estado Cerrado.'
-              : 'Prueba a cambiar el año o el trimestre para ver otros períodos.'}
+              : 'Prueba a cambiar el año o el trimestre.'}
           </p>
         </div>
-
       ) : (
         <>
-          {/* ── Tabla desktop ───────────────────────────────────────────────── */}
+          {/* Tabla desktop */}
           <div className="hidden md:block bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-slate-900 text-white">
                 <tr>
-                  <th className="px-4 py-3 text-left font-black uppercase tracking-[0.12em] text-xs">Nº Exp.</th>
-                  <th className="px-4 py-3 text-left font-black uppercase tracking-[0.12em] text-xs">Cliente</th>
-                  <th className="px-4 py-3 text-left font-black uppercase tracking-[0.12em] text-xs">Destino</th>
-                  <th className="px-4 py-3 text-left font-black uppercase tracking-[0.12em] text-xs">Fecha Cierre</th>
-                  <th className="px-4 py-3 text-right font-black uppercase tracking-[0.12em] text-xs">Ingresos</th>
-                  <th className="px-4 py-3 text-right font-black uppercase tracking-[0.12em] text-xs">Gastos Prov.</th>
-                  <th className="px-4 py-3 text-right font-black uppercase tracking-[0.12em] text-xs">Beneficio</th>
-                  <th className="px-4 py-3 text-center font-black uppercase tracking-[0.12em] text-xs">Acción</th>
+                  {['Nº Exp.','Cliente','Destino','Fecha Cierre','Ingresos','Gastos Prov.','Beneficio',''].map((h,i) => (
+                    <th key={i} className={`px-4 py-3 font-black uppercase tracking-[0.12em] text-xs ${i>=4?'text-right':''} ${i===7?'text-center':''}`}>{h||'Acción'}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {cierresFiltrados.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.numero_expediente || '—'}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-800">{c.cliente_nombre || c.nombre_grupo || '—'}</td>
-                    <td className="px-4 py-3 text-slate-600">{c.destino || '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.numero_expediente||'—'}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-800">{c.cliente_nombre||c.nombre_grupo||'—'}</td>
+                    <td className="px-4 py-3 text-slate-600">{c.destino||'—'}</td>
                     <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{formatearFecha(c.fechaCierre)}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-emerald-700 whitespace-nowrap">
-                      {c.ingresoTotal.toFixed(2)} €
-                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-emerald-700 whitespace-nowrap">{c.ingresoTotal.toFixed(2)} €</td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       {c.gastoTotal > 0
                         ? <span className="font-medium text-red-600">{c.gastoTotal.toFixed(2)} €</span>
                         : <span className="text-slate-300 text-xs italic">sin datos</span>}
                     </td>
                     <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">
-                      <span className={c.beneficioNeto >= 0 ? 'text-blue-700' : 'text-red-600'}>
-                        {c.beneficioNeto.toFixed(2)} €
-                      </span>
+                      <span className={c.beneficioNeto>=0?'text-blue-700':'text-red-600'}>{c.beneficioNeto.toFixed(2)} €</span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => verDetalle(c)}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors"
-                      >
-                        <Eye size={14} />
-                        Ver
+                      <button type="button" onClick={() => verDetalle(c)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors">
+                        <Eye size={14} />Ver
                       </button>
                     </td>
                   </tr>
@@ -499,15 +477,11 @@ const HistorialCierres = () => {
               </tbody>
               <tfoot className="bg-slate-100 border-t-2 border-slate-300">
                 <tr>
-                  <td colSpan={4} className="px-4 py-3 font-black text-slate-700 uppercase text-xs tracking-widest">
-                    TOTALES ({cierresFiltrados.length})
-                  </td>
+                  <td colSpan={4} className="px-4 py-3 font-black text-slate-700 uppercase text-xs tracking-widest">TOTALES ({cierresFiltrados.length})</td>
                   <td className="px-4 py-3 text-right font-black text-emerald-700">{totales.ingresos.toFixed(2)} €</td>
                   <td className="px-4 py-3 text-right font-black text-red-600">{totales.gastos.toFixed(2)} €</td>
                   <td className="px-4 py-3 text-right font-black">
-                    <span className={totales.beneficio >= 0 ? 'text-blue-700' : 'text-red-600'}>
-                      {totales.beneficio.toFixed(2)} €
-                    </span>
+                    <span className={totales.beneficio>=0?'text-blue-700':'text-red-600'}>{totales.beneficio.toFixed(2)} €</span>
                   </td>
                   <td />
                 </tr>
@@ -515,42 +489,32 @@ const HistorialCierres = () => {
             </table>
           </div>
 
-          {/* ── Tarjetas móvil ──────────────────────────────────────────────── */}
+          {/* Tarjetas móvil */}
           <div className="md:hidden space-y-4">
             {cierresFiltrados.map((c) => (
               <div key={c.id} className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
                 <div className="p-4 border-b border-slate-100">
                   <div className="flex justify-between items-start gap-2">
                     <div>
-                      <p className="text-xs font-mono text-slate-400 mb-0.5">{c.numero_expediente || '—'}</p>
-                      <h3 className="font-bold text-slate-900">{c.cliente_nombre || c.nombre_grupo || '—'}</h3>
-                      <p className="text-sm text-slate-500">{c.destino || '—'}</p>
+                      <p className="text-xs font-mono text-slate-400 mb-0.5">{c.numero_expediente||'—'}</p>
+                      <h3 className="font-bold text-slate-900">{c.cliente_nombre||c.nombre_grupo||'—'}</h3>
+                      <p className="text-sm text-slate-500">{c.destino||'—'}</p>
                     </div>
                     <span className="text-xs text-slate-500 whitespace-nowrap">{formatearFecha(c.fechaCierre)}</span>
                   </div>
                 </div>
                 <div className="p-4 grid grid-cols-3 gap-2 text-sm">
-                  <div className="text-center">
-                    <p className="text-xs text-slate-400 mb-0.5">Ingresos</p>
-                    <p className="font-bold text-emerald-700">{c.ingresoTotal.toFixed(2)} €</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-slate-400 mb-0.5">Gastos</p>
-                    <p className={`font-bold ${c.gastoTotal > 0 ? 'text-red-600' : 'text-slate-400'}`}>{c.gastoTotal.toFixed(2)} €</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-slate-400 mb-0.5">Beneficio</p>
-                    <p className={`font-bold ${c.beneficioNeto >= 0 ? 'text-blue-700' : 'text-red-600'}`}>{c.beneficioNeto.toFixed(2)} €</p>
-                  </div>
+                  {[['Ingresos',c.ingresoTotal,'text-emerald-700'],['Gastos',c.gastoTotal,c.gastoTotal>0?'text-red-600':'text-slate-400'],['Beneficio',c.beneficioNeto,c.beneficioNeto>=0?'text-blue-700':'text-red-600']].map(([l,v,col])=>(
+                    <div key={l} className="text-center">
+                      <p className="text-xs text-slate-400 mb-0.5">{l}</p>
+                      <p className={`font-bold ${col}`}>{v.toFixed(2)} €</p>
+                    </div>
+                  ))}
                 </div>
                 <div className="p-4 bg-slate-50 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => verDetalle(c)}
-                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm transition-colors"
-                  >
-                    <Eye size={18} />
-                    Ver Detalle
+                  <button type="button" onClick={() => verDetalle(c)}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm transition-colors">
+                    <Eye size={18} />Ver Detalle
                   </button>
                 </div>
               </div>
@@ -559,11 +523,10 @@ const HistorialCierres = () => {
         </>
       )}
 
-      {/* Nota informativa para la gestoría */}
       {!cargando && cierresFiltrados.length > 0 && (
         <p className="mt-4 text-xs text-slate-400 text-center">
-          El Excel incluye dos hojas: <strong>Resumen</strong> (una fila por expediente) y <strong>Desglose de Proveedores</strong> (una fila por concepto / factura).
-          Los valores monetarios son numéricos para poder hacer sumatorios directamente en Excel o Numbers.
+          El cuaderno trimestral incluye un bloque por expediente con cabecera, desglose por proveedor y resumen financiero.
+          Categorías: Bus · Hotel · Restaurante · Guía · Otros · Imprevistos.
         </p>
       )}
     </div>
