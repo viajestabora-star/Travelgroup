@@ -76,6 +76,130 @@ const finalizarCalculoModulo = (servicio, paxPago = 31, paxTotal = 35) => {
   return { ...s, coste_pax: Number(costePorPersona.toFixed(2)), total_servicio: Number(totalFinal.toFixed(2)) }
 }
 
+// ─── Helpers de filtrado de proveedores ──────────────────────────────────────
+
+/**
+ * Divide la lista de proveedores en dos grupos:
+ *  - tipoOficial: coinciden con el tipo del servicio (siempre visibles sin búsqueda)
+ *  - otrosTipos: de otro tipo pero el nombre coincide con el texto buscado (solo con búsqueda)
+ *
+ * Usa normalizarText para comparaciones robustas (tildes, mayúsculas).
+ */
+const computarGruposProveedores = (proveedores, tipoProveedorBuscado, textoBusqueda) => {
+  const tipoBuscadoNorm = normalizarText(tipoProveedorBuscado || '')
+  const busquedaNorm    = normalizarText(textoBusqueda || '')
+
+  const tipoOficial = proveedores
+    .filter(p => {
+      const coincideTipo = normalizarText(p.tipo || '') === tipoBuscadoNorm
+      if (!busquedaNorm) return coincideTipo
+      return coincideTipo && normalizarText(p.nombreComercial || '').includes(busquedaNorm)
+    })
+    .sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || '', 'es'))
+
+  // Solo aparecen cuando el usuario escribe algo
+  const otrosTipos = busquedaNorm
+    ? proveedores
+        .filter(p =>
+          normalizarText(p.tipo || '') !== tipoBuscadoNorm &&
+          normalizarText(p.nombreComercial || '').includes(busquedaNorm)
+        )
+        .sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || '', 'es'))
+    : []
+
+  return { tipoOficial, otrosTipos }
+}
+
+// ─── Dropdown de sugerencias con grupos visuales ─────────────────────────────
+
+/**
+ * Renderiza el panel desplegable del combobox de proveedor.
+ *
+ * Grupos:
+ *  1. «{tipoServicio}» — proveedores del tipo correcto que coinciden con la búsqueda.
+ *  2. «Otros tipos» — proveedores de otro tipo que coinciden por nombre (solo al buscar).
+ *
+ * @param {Object}   servicio            - Objeto de servicio actual
+ * @param {string}   textoBusqueda       - Texto escrito en el input de búsqueda
+ * @param {Array}    proveedores         - Lista completa de proveedores
+ * @param {Function} mapearTipo          - mapearTipoServicioAProveedor
+ * @param {Function} onSeleccionar       - (servicio, proveedor) => void
+ */
+const DropdownSugerencias = ({ servicio, textoBusqueda, proveedores, mapearTipo, onSeleccionar }) => {
+  const tipoProveedorBuscado = mapearTipo(servicio.tipo)
+  const { tipoOficial, otrosTipos } = computarGruposProveedores(proveedores, tipoProveedorBuscado, textoBusqueda)
+  const totalResultados = tipoOficial.length + otrosTipos.length
+  const hayBusqueda     = (textoBusqueda || '').trim().length > 0
+
+  if (totalResultados === 0) {
+    return (
+      <div className="px-3 py-3 text-xs text-center">
+        {!hayBusqueda ? (
+          <>
+            <p className="text-gray-600 mb-2">No hay proveedores de <strong>{servicio.tipo}</strong></p>
+            <p className="text-green-600 font-medium">💡 Usa el botón + para añadir uno nuevo</p>
+          </>
+        ) : (
+          <>
+            <p className="text-gray-600 mb-2">No se encontró <strong>«{textoBusqueda}»</strong> en ningún tipo</p>
+            <p className="text-green-600 font-medium">➕ Usa el botón + para crear nuevo proveedor</p>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="py-1">
+      {/* Grupo tipo oficial */}
+      {tipoOficial.length > 0 && (
+        <>
+          {/* Cabecera de grupo solo cuando también hay resultados cruzados */}
+          {otrosTipos.length > 0 && (
+            <div className="px-3 py-1 text-[10px] font-bold text-blue-700 uppercase tracking-wider bg-blue-50 border-b border-blue-100 sticky top-0">
+              {servicio.tipo}
+            </div>
+          )}
+          {tipoOficial.map((proveedor, pidx) => (
+            <button
+              key={proveedor.id || `prov-oficial-${pidx}`}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onSeleccionar(servicio, proveedor) }}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
+            >
+              <span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>
+              {proveedor.telefono && <span className="text-gray-400">· {proveedor.telefono}</span>}
+            </button>
+          ))}
+        </>
+      )}
+
+      {/* Grupo otros tipos (solo visible al buscar) */}
+      {otrosTipos.length > 0 && (
+        <>
+          <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50 border-y border-slate-200 sticky top-0">
+            Otros tipos
+          </div>
+          {otrosTipos.map((proveedor, pidx) => (
+            <button
+              key={proveedor.id || `prov-otros-${pidx}`}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onSeleccionar(servicio, proveedor) }}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
+            >
+              <span className="font-medium text-slate-700">{proveedor.nombreComercial}</span>
+              <span className="ml-auto text-[9px] text-slate-400 italic bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">{proveedor.tipo}</span>
+              {proveedor.telefono && <span className="text-gray-400">· {proveedor.telefono}</span>}
+            </button>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
+
 /**
  * ServiciosCotizacionPanel
  * Gestiona la tabla de servicios de cotización: añadir, editar, eliminar, guardar en Supabase.
@@ -111,7 +235,7 @@ const ServiciosCotizacionPanel = ({
     const mapa = {
       Hotel: 'hotel', Mayorista: 'mayorista', Restaurante: 'restaurante', Autobús: 'autobus',
       Transporte: 'transporte', Guía: 'guia', 'Guía Local': 'guialocal', 'Entradas/Tickets': 'entradas',
-      Seguro: 'seguro', Otros: 'otros'
+      Seguro: 'seguro', Barco: 'barco', Otros: 'otros'
     }
     return mapa[tipoServicio] || normalizarTipo(tipoServicio)
   }
@@ -125,6 +249,17 @@ const ServiciosCotizacionPanel = ({
     setTipoNuevoProveedor(tipoProveedor)
     setServicioIdParaProveedor(servicioId)
     setShowModal(true)
+  }
+
+  /** Selecciona un proveedor del dropdown (llamado desde DropdownSugerencias). */
+  const handleSeleccionarProveedor = (servicio, proveedor) => {
+    if (servicio.tipo === 'Mayorista') {
+      seleccionarMayoristaYCrearHotel(servicio.id, proveedor.id, proveedor.nombreComercial)
+    } else {
+      actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
+      setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: proveedor.nombreComercial }))
+      setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: false }))
+    }
   }
 
   useEffect(() => {
@@ -545,7 +680,7 @@ const ServiciosCotizacionPanel = ({
                           onChange={(e) => {
                             e.stopPropagation()
                             const nuevoTipo = e.target.value
-                            const updates = { tipo: nuevoTipo }
+                            const updates = { tipo: nuevoTipo, tipo_servicio: nuevoTipo }
                             if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') {
                               updates.tipo_calculo = 'porGrupo'
                               if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
@@ -568,7 +703,7 @@ const ServiciosCotizacionPanel = ({
                           onBlur={(e) => {
                             e.target.style.borderColor = '#e2e8f0'
                             e.target.style.boxShadow = 'none'
-                            actualizarServicio(servicio.id, 'tipo', e.target.value)
+                            actualizarServicio(servicio.id, { tipo: e.target.value, tipo_servicio: e.target.value })
                           }}
                         >
                           <option>Hotel</option>
@@ -580,6 +715,7 @@ const ServiciosCotizacionPanel = ({
                           <option>Guía Local</option>
                           <option>Entradas/Tickets</option>
                           <option>Seguro</option>
+                          <option>Barco</option>
                           <option>Otros</option>
                         </select>
                       </td>
@@ -643,63 +779,14 @@ const ServiciosCotizacionPanel = ({
                           </div>
 
                           {mostrarSugerencias[servicio.id] && (
-                            <div className="absolute left-0 top-full mt-1 w-full min-w-[170px] bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto" style={{ zIndex: 9999 }}>
-                              {(() => {
-                                const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
-                                const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase().trim()
-                                const proveedoresFiltrados = proveedores
-                                  .filter(p => {
-                                    const tipoProveedorNormalizado = normalizarText(p.tipo || '')
-                                    const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado || '')
-                                    const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado
-                                    if (!textoBusqueda) return coincideTipo
-                                    const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda)
-                                    return coincideTipo && coincideNombre
-                                  })
-                                  .sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || ''))
-
-                                return (
-                                  <>
-                                    {proveedoresFiltrados.length === 0 && !textoBusqueda && (
-                                      <div className="px-3 py-3 text-xs text-center">
-                                        <p className="text-gray-600 mb-2">No hay proveedores de <strong>{servicio.tipo}</strong></p>
-                                        <p className="text-green-600 font-medium">💡 Usa el botón + para añadir uno nuevo</p>
-                                      </div>
-                                    )}
-                                    {proveedoresFiltrados.length === 0 && textoBusqueda && (
-                                      <div className="px-3 py-3 text-xs text-center">
-                                        <p className="text-gray-600 mb-2">No se encontró &quot;{busquedaProveedor[servicio.id]}&quot; en {servicio.tipo}</p>
-                                        <p className="text-green-600 font-medium">➕ Usa el botón + para crear nuevo proveedor</p>
-                                      </div>
-                                    )}
-                                    {proveedoresFiltrados.length > 0 && (
-                                      <div className="py-1">
-                                        {proveedoresFiltrados.map((proveedor, pidx) => (
-                                          <button
-                                            key={proveedor.id || `prov-${pidx}`}
-                                            type="button"
-                                            onMouseDown={(e) => {
-                                              e.preventDefault()
-                                              e.stopPropagation()
-                                              if (servicio.tipo === 'Mayorista') {
-                                                seleccionarMayoristaYCrearHotel(servicio.id, proveedor.id, proveedor.nombreComercial)
-                                              } else {
-                                                actualizarServicio(servicio.id, 'proveedorId', proveedor.id)
-                                                setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial })
-                                                setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false })
-                                              }
-                                            }}
-                                            className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors"
-                                          >
-                                            <span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>
-                                            {proveedor.telefono && <span className="text-gray-500">· {proveedor.telefono}</span>}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </>
-                                )
-                              })()}
+                            <div className="absolute left-0 top-full mt-1 w-full min-w-[190px] bg-white border border-gray-300 rounded-lg shadow-xl max-h-52 overflow-y-auto" style={{ zIndex: 9999 }}>
+                              <DropdownSugerencias
+                                servicio={servicio}
+                                textoBusqueda={busquedaProveedor[servicio.id] || ''}
+                                proveedores={proveedores}
+                                mapearTipo={mapearTipoServicioAProveedor}
+                                onSeleccionar={handleSeleccionarProveedor}
+                              />
                             </div>
                           )}
                         </div>
@@ -908,7 +995,7 @@ const ServiciosCotizacionPanel = ({
                       onChange={(e) => {
                         e.stopPropagation()
                         const nuevoTipo = e.target.value
-                        const updates = { tipo: nuevoTipo }
+                        const updates = { tipo: nuevoTipo, tipo_servicio: nuevoTipo }
                         if (nuevoTipo === 'Autobús' || nuevoTipo === 'Transporte') {
                           updates.tipo_calculo = 'porGrupo'
                           if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
@@ -931,7 +1018,7 @@ const ServiciosCotizacionPanel = ({
                       onBlur={(e) => {
                         e.target.style.borderColor = '#e2e8f0'
                         e.target.style.boxShadow = 'none'
-                        actualizarServicio(servicio.id, 'tipo', e.target.value)
+                        actualizarServicio(servicio.id, { tipo: e.target.value, tipo_servicio: e.target.value })
                       }}
                     >
                       <option>Hotel</option>
@@ -943,6 +1030,7 @@ const ServiciosCotizacionPanel = ({
                       <option>Guía Local</option>
                       <option>Entradas/Tickets</option>
                       <option>Seguro</option>
+                      <option>Barco</option>
                       <option>Otros</option>
                     </select>
                   </div>
@@ -975,35 +1063,14 @@ const ServiciosCotizacionPanel = ({
                         <button type="button" onClick={() => abrirModalProveedor(busquedaProveedor[servicio.id] || '', servicio.tipo, servicio.id)} className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors" title="Añadir nuevo proveedor"><Plus size={16} /></button>
                       </div>
                       {mostrarSugerencias[servicio.id] && (
-                        <div className="absolute left-0 top-full mt-1 w-full min-w-[170px] bg-white border border-gray-300 rounded-lg shadow-xl max-h-48 overflow-y-auto" style={{ zIndex: 9999 }}>
-                          {(() => {
-                            const tipoProveedorBuscado = mapearTipoServicioAProveedor(servicio.tipo)
-                            const textoBusqueda = (busquedaProveedor[servicio.id] || '').toLowerCase().trim()
-                            const proveedoresFiltrados = proveedores.filter(p => {
-                              const tipoProveedorNormalizado = normalizarText(p.tipo || '')
-                              const tipoBuscadoNormalizado = normalizarText(tipoProveedorBuscado || '')
-                              const coincideTipo = tipoProveedorNormalizado === tipoBuscadoNormalizado
-                              if (!textoBusqueda) return coincideTipo
-                              const coincideNombre = (p.nombreComercial || '').toLowerCase().includes(textoBusqueda)
-                              return coincideTipo && coincideNombre
-                            }).sort((a, b) => (a.nombreComercial || '').localeCompare(b.nombreComercial || ''))
-                            return (
-                              <>
-                                {proveedoresFiltrados.length === 0 && !textoBusqueda && <div className="px-3 py-3 text-xs text-center"><p className="text-gray-600 mb-2">No hay proveedores de <strong>{servicio.tipo}</strong></p><p className="text-green-600 font-medium">💡 Usa el botón + para añadir uno nuevo</p></div>}
-                                {proveedoresFiltrados.length === 0 && textoBusqueda && <div className="px-3 py-3 text-xs text-center"><p className="text-gray-600 mb-2">No se encontró &quot;{busquedaProveedor[servicio.id]}&quot; en {servicio.tipo}</p><p className="text-green-600 font-medium">➕ Usa el botón + para crear nuevo proveedor</p></div>}
-                                {proveedoresFiltrados.length > 0 && (
-                                  <div className="py-1">
-                                    {proveedoresFiltrados.map((proveedor, pidx) => (
-                                      <button key={proveedor.id || `prov-${pidx}`} type="button" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (servicio.tipo === 'Mayorista') { seleccionarMayoristaYCrearHotel(servicio.id, proveedor.id, proveedor.nombreComercial); } else { actualizarServicio(servicio.id, 'proveedorId', proveedor.id); setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: proveedor.nombreComercial }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }); } }} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 border-b border-gray-100 transition-colors">
-                                        <span className="font-medium text-navy-900">{proveedor.nombreComercial}</span>
-                                        {proveedor.telefono && <span className="text-gray-500">· {proveedor.telefono}</span>}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </>
-                            )
-                          })()}
+                        <div className="absolute left-0 top-full mt-1 w-full min-w-[190px] bg-white border border-gray-300 rounded-lg shadow-xl max-h-52 overflow-y-auto" style={{ zIndex: 9999 }}>
+                          <DropdownSugerencias
+                            servicio={servicio}
+                            textoBusqueda={busquedaProveedor[servicio.id] || ''}
+                            proveedores={proveedores}
+                            mapearTipo={mapearTipoServicioAProveedor}
+                            onSeleccionar={handleSeleccionarProveedor}
+                          />
                         </div>
                       )}
                     </div>
