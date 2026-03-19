@@ -9,7 +9,7 @@ import { supabase } from '../supabase'
 import { existeNumeroExpedienteEnSupabase } from '../utils/expedienteNumero'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { DURACION_VIAJE_OPTIONS, TIPO_COLECTIVO_OPTIONS } from '../constants/viaje'
-import { validarExpedienteParaDB, formatearErroresValidacion } from '../utils/constraintValidator'
+import { sanitizarExpedienteParaDB } from '../utils/constraintValidator'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -627,14 +627,9 @@ const Expedientes = () => {
         throw new Error('cliente_id en datosInsertar no es válido');
       }
 
-      // ESCÁNER DE CONSTRAINTS: detener datos inválidos antes de que la DB los rechace
-      const validacion = validarExpedienteParaDB(datosInsertar);
-      if (!validacion.ok) {
-        const mensajeErrores = formatearErroresValidacion(validacion.errores);
-        alert(`🚨 El escáner de integridad ha detenido el guardado:\n\n${mensajeErrores}\n\nCorrige los campos indicados antes de continuar.`);
-        throw new Error('Validación de constraints fallida');
-      }
-      Object.assign(datosInsertar, validacion.datosSanitizados);
+      // ESCÁNER ELÁSTICO: sanitiza silenciosamente sin bloquear al usuario
+      const { datosSanitizados: insertSanitizado } = sanitizarExpedienteParaDB(datosInsertar);
+      Object.assign(datosInsertar, insertSanitizado);
 
       // Obtener número de expediente correlativo (obligatorio) - NUNCA vacío ni UUID
       const añoExpediente = expedienteForm.fechaInicio
@@ -863,16 +858,9 @@ const Expedientes = () => {
         expedienteActualizadoParaSupabase.numero_expediente = numeroExpParaSupabase
       }
 
-      // ESCÁNER DE CONSTRAINTS: detener datos inválidos antes de que la DB los rechace
-      const validacionUpdate = validarExpedienteParaDB(expedienteActualizadoParaSupabase);
-      if (!validacionUpdate.ok) {
-        const mensajeErrores = formatearErroresValidacion(validacionUpdate.errores);
-        alert(`🚨 El escáner de integridad ha detenido la actualización:\n\n${mensajeErrores}\n\nCorrige los campos indicados antes de continuar.`);
-        setExpedientes(prevExpedientes)
-        storage.set('expedientes', prevExpedientes)
-        return;
-      }
-      Object.assign(expedienteActualizadoParaSupabase, validacionUpdate.datosSanitizados);
+      // ESCÁNER ELÁSTICO: sanitiza silenciosamente sin bloquear al usuario
+      const { datosSanitizados: updateSanitizado } = sanitizarExpedienteParaDB(expedienteActualizadoParaSupabase);
+      Object.assign(expedienteActualizadoParaSupabase, updateSanitizado);
 
       const { error } = await supabase
         .from('expedientes')

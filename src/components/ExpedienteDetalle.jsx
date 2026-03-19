@@ -4,6 +4,7 @@ import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { supabase } from '../supabase'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
+import { detectarCamposPendientes } from '../utils/constraintValidator'
 import { existeNumeroExpedienteEnSupabase, esNumeroExpedienteValido } from '../utils/expedienteNumero'
 import { normalizarMetodoPago } from '../utils/finanzasHelpers'
 import { DATOS_EMISOR } from '../config/empresa'
@@ -2780,6 +2781,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // NOTA: Para "Total a dividir" (porGrupo), coste_unitario y total_servicio_manual almacenan el TOTAL.
 
+  // Campos pendientes del expediente (duración, destino, servicios sin proveedor) — avisos discretos, nunca bloquean
+  const expedientePendiente = useMemo(
+    () => detectarCamposPendientes(expediente, serviciosParaCalculo),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [expediente?.duracion_viaje, expediente?.destino, expediente?.tipo_colectivo, expediente?.responsable, serviciosSignature]
+  )
+
   // Estados para Facturación
   const [formFactura, setFormFactura] = useState({
     receptorNombre: '',
@@ -3942,6 +3950,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           </button>
             </div>
         </div>
+
+          {/* AVISO DISCRETO DE DATOS PENDIENTES — nunca bloquea, solo informa */}
+          {expedientePendiente.length > 0 && (
+            <div className="px-4 sm:px-8 py-2 bg-amber-50 border-b border-amber-100 flex-shrink-0 flex items-center gap-2">
+              <span className="text-amber-500 text-sm shrink-0">⚑</span>
+              <p className="text-xs text-amber-700 font-medium leading-snug">
+                Datos pendientes de completar:{' '}
+                <span className="font-semibold">{expedientePendiente.join(' · ')}</span>
+              </p>
+            </div>
+          )}
 
           {/* TABS */}
           <div className="border-b border-gray-200 px-4 sm:px-8 bg-white flex-shrink-0">

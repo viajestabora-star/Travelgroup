@@ -1,83 +1,87 @@
 /**
- * Escáner de Constraints — detiene datos inválidos ANTES de llegar a Supabase.
- * Cada función devuelve { ok: true } o { ok: false, campo, valor, mensaje }.
+ * Sanitizador Elástico de Constraints — NUNCA bloquea al usuario.
+ *
+ * Regla de oro: el guardado siempre pasa. El sanitizador corrige silenciosamente
+ * lo que puede y, lo que no puede corregir, lo pone a null para que la DB acepte el registro.
+ * Las advertencias son solo informativas (para el panel de integridad), nunca bloquean.
  */
 
 import { DURACION_VIAJE_VALORES, TIPO_COLECTIVO_VALORES, normalizarDuracion } from '../constants/viaje'
 
-// ── Expediente ────────────────────────────────────────────────────────────────
-
 /**
- * Valida y sanitiza el objeto expediente antes de enviarlo a Supabase.
+ * Sanitiza un objeto expediente para que la DB siempre lo acepte.
+ * - Valores legados conocidos → se traducen al canónico automáticamente.
+ * - Valores completamente desconocidos → se ponen a null (DB acepta null).
+ * - Campos vacíos/null → se dejan como null (nunca bloquean).
+ *
  * @param {Object} datos - Objeto con los campos del expediente
- * @returns {{ ok: boolean, errores: Array, datosSanitizados: Object }}
+ * @returns {{ datosSanitizados: Object, advertencias: string[] }}
+ *   datosSanitizados: objeto listo para Supabase (siempre válido)
+ *   advertencias: lista de avisos informativos (NO son errores bloqueantes)
  */
-export const validarExpedienteParaDB = (datos) => {
-  const errores = []
+export const sanitizarExpedienteParaDB = (datos) => {
+  const advertencias = []
   const datosSanitizados = { ...datos }
 
   // ── duracion_viaje ──────────────────────────────────────────────────────────
   const durRaw = (datos.duracion_viaje || '').trim()
-  if (durRaw !== '') {
-    if (DURACION_VIAJE_VALORES.includes(durRaw)) {
-      datosSanitizados.duracion_viaje = durRaw
+  if (durRaw === '') {
+    datosSanitizados.duracion_viaje = null
+  } else if (DURACION_VIAJE_VALORES.includes(durRaw)) {
+    datosSanitizados.duracion_viaje = durRaw
+  } else {
+    const corregido = normalizarDuracion(durRaw)
+    if (corregido) {
+      datosSanitizados.duracion_viaje = corregido
+      advertencias.push(`Duración "${durRaw}" corregida automáticamente a "${corregido}"`)
     } else {
-      const corregido = normalizarDuracion(durRaw)
-      if (corregido) {
-        datosSanitizados.duracion_viaje = corregido
-        // No es error — fue auto-corregido
-      } else {
-        errores.push({
-          campo: 'duracion_viaje',
-          valor: durRaw,
-          mensaje: `⛔ Duración inválida: "${durRaw}". Los valores permitidos son: ${DURACION_VIAJE_VALORES.join(', ')}.`,
-        })
-        datosSanitizados.duracion_viaje = null
-      }
+      datosSanitizados.duracion_viaje = null
+      advertencias.push(`Duración "${durRaw}" no reconocida — guardada como vacía`)
     }
   }
 
   // ── tipo_colectivo ──────────────────────────────────────────────────────────
   const colRaw = (datos.tipo_colectivo || '').trim()
   if (colRaw !== '' && !TIPO_COLECTIVO_VALORES.includes(colRaw)) {
-    errores.push({
-      campo: 'tipo_colectivo',
-      valor: colRaw,
-      mensaje: `⛔ Tipo de colectivo inválido: "${colRaw}". Los valores permitidos son: ${TIPO_COLECTIVO_VALORES.join(', ')}.`,
-    })
     datosSanitizados.tipo_colectivo = null
+    advertencias.push(`Tipo colectivo "${colRaw}" no reconocido — guardado como vacío`)
   }
 
-  // ── fecha_inicio obligatoria ────────────────────────────────────────────────
-  if (!datos.fecha_inicio && !datos.fechaInicio) {
-    errores.push({
-      campo: 'fecha_inicio',
-      valor: null,
-      mensaje: '⛔ La fecha de inicio es obligatoria.',
-    })
-  }
-
-  // ── cliente_nombre no vacío ─────────────────────────────────────────────────
-  const nombre = (datos.cliente_nombre || datos.clienteNombre || '').trim()
-  if (!nombre) {
-    errores.push({
-      campo: 'cliente_nombre',
-      valor: null,
-      mensaje: '⛔ El nombre del cliente es obligatorio.',
-    })
-  }
-
-  return {
-    ok: errores.length === 0,
-    errores,
-    datosSanitizados,
-  }
+  return { datosSanitizados, advertencias }
 }
 
 /**
- * Formatea los errores de validación como texto legible para mostrar al usuario.
+ * Detecta qué campos opcionales del expediente están pendientes de completar.
+ * Solo devuelve avisos visuales — no bloquea nada.
+ *
+ * @param {Object} expediente
+ * @param {Array}  servicios  - Lista de servicios de cotización del expediente
+ * @returns {string[]} Lista de nombres de campos pendientes
  */
-export const formatearErroresValidacion = (errores) => {
-  if (!errores || errores.length === 0) return ''
-  return errores.map((e) => e.mensaje).join('\n')
+export const detectarCamposPendientes = (expediente, servicios = []) => {
+  const pendientes = []
+
+  if (!expediente) return pendientes
+
+  if (!expediente.duracion_viaje || String(expediente.duracion_viaje).trim() === '') {
+    pendientes.push('Duración del viaje')
+  }
+  if (!expediente.destino || String(expediente.destino).trim() === '') {
+    pendientes.push('Destino')
+  }
+  if (!expediente.tipo_colectivo || String(expediente.tipo_colectivo).trim() === '') {
+    pendientes.push('Tipo de colectivo')
+  }
+  if (!expediente.responsable || String(expediente.responsable).trim() === '') {
+    pendientes.push('Responsable')
+  }
+
+  const serviciosSinProveedor = (servicios || []).filter(
+    (s) => !s.proveedorId && !s.proveedor_id_int && !s.proveedorNombreTemporal && !s.nombre_proveedor_texto
+  )
+  if (serviciosSinProveedor.length > 0) {
+    pendientes.push(`${serviciosSinProveedor.length} servicio${serviciosSinProveedor.length > 1 ? 's' : ''} sin proveedor`)
+  }
+
+  return pendientes
 }

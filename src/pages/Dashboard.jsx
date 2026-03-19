@@ -9,6 +9,7 @@ import { esUsuarioGestoria } from '../App'
 import CentralDeInteligencia from '../components/CentralDeInteligencia'
 import ResumenPipeline from '../components/ResumenPipeline'
 import IntegrityPanel from '../components/IntegrityPanel'
+import { checkSystemIntegrity, autoCorregirDuraciones } from '../utils/integrityScanner'
 
 const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
 const STORAGE_KEY_FECHA = 'control_horario_fecha_validada'
@@ -20,6 +21,25 @@ const Dashboard = ({ user = null }) => {
   const [showIntelligenceHub, setShowIntelligenceHub] = useState(false)
   const [showIntegrityPanel, setShowIntegrityPanel]   = useState(false)
   const esAdmin = user?.rol === 'ADMIN'
+
+  // Corrección silenciosa en segundo plano: al cargar el dashboard,
+  // ADMIN lanza un escaneo y auto-corrige duraciones legacy en Supabase sin molestar al usuario.
+  useEffect(() => {
+    if (!esAdmin) return
+    const autofix = async () => {
+      try {
+        const report = await checkSystemIntegrity()
+        if (report.expedientesDuracionInvalida.length > 0) {
+          await autoCorregirDuraciones(report.expedientesDuracionInvalida)
+        }
+      } catch (_) {
+        // silencioso: nunca mostrar errores al usuario por este proceso
+      }
+    }
+    autofix()
+  // Solo al montar — no depende de nada que cambie
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [stats, setStats] = useState({
     totalClientes: 0,
     totalCotizaciones: 0,

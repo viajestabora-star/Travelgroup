@@ -664,7 +664,7 @@ const ExpedienteFinanzas = ({
           || s?.nombre_proveedor_texto
           || s?.proveedorNombreTemporal  // versiones_json manual name
           || s?.nombre_proveedor_manual
-          || 'Sin asignar'
+          || 'Proveedor no asignado'
         const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
         const nombre = s?.nombre_especifico ? `${tipo} – ${s.nombre_especifico}` : tipo
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
@@ -1427,7 +1427,12 @@ const ExpedienteFinanzas = ({
                       {(informeLiquidacion.costesReales || []).map((c, idx) => (
                         <tr key={c.id_servicio || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
                           <td className="px-3 py-2 font-medium text-slate-800">{c.concepto || '—'}</td>
-                          <td className="px-3 py-2 text-slate-600 hidden sm:table-cell">{c.proveedor || '—'}</td>
+                          <td className="px-3 py-2 hidden sm:table-cell">
+                            {c.proveedor && c.proveedor !== 'Proveedor no asignado'
+                              ? <span className="text-slate-600">{c.proveedor}</span>
+                              : <span className="text-slate-400 italic text-xs">Proveedor no asignado</span>
+                            }
+                          </td>
                           <td className="px-3 py-2 text-right text-slate-500">{Number(c.coste_cotizado || 0).toFixed(2)} €</td>
                           <td className="px-3 py-2">
                             <input type="number" step="0.01" value={c.coste_real ?? ''} onChange={(e) => actualizarCosteReal(c.id_servicio, e.target.value)} disabled={camposBloqueados} readOnly={camposBloqueados} className={`w-full min-w-[80px] border rounded-lg px-2 py-1 text-right font-medium ${camposBloqueados ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300 focus:ring-2 focus:ring-blue-500'}`} placeholder="0" />
