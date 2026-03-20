@@ -3,15 +3,15 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { supabase } from '../supabase'
 import { Wand2, Plus, Trash2, Save, Sparkles, Loader2 } from 'lucide-react'
 
-/** Quita bloques Markdown ```json ... ``` antes de JSON.parse. */
-const limpiarJSONMarkdown = (raw) =>
+/** Limpia cercos Markdown y espacios residuales antes de JSON.parse. */
+const limpiarRespuestaIA = (raw) =>
   String(raw ?? '')
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim()
 
-/** Intenta aislar el array si hubo texto extra. */
+/** Aisla el primer [...] si el modelo añadió texto alrededor. */
 const extraerJSONArray = (text) => {
   const s = text.indexOf('[')
   const e = text.lastIndexOf(']')
@@ -19,8 +19,19 @@ const extraerJSONArray = (text) => {
   return text
 }
 
+/** Parsea el texto del modelo; en error relanza con contexto claro. */
+const parsearJSONItinerario = (raw) => {
+  let texto = limpiarRespuestaIA(raw)
+  try {
+    return JSON.parse(texto)
+  } catch {
+    texto = extraerJSONArray(texto)
+    return JSON.parse(texto)
+  }
+}
+
 const SYSTEM_ITINERARIO =
-  'Eres un editor de élite para agencias de viajes de lujo. Tu función principal es REESCRIBIR y ESTRUCTURAR el itinerario que el usuario te pegue en las notas. Debes corregir la redacción, darle un tono aspiracional y sofisticado, y separar el contenido estrictamente por días. Si las notas están incompletas, usa tu conocimiento para embellecer los detalles. Responde ÚNICAMENTE con un array JSON: [{"titulo": "...", "contenido": "..."}].'
+  'Eres un redactor experto en viajes de lujo. Tu trabajo es REESCRIBIR el itinerario que te proporciona el usuario. Dale un tono sofisticado, corrige la gramática y estructúralo profesionalmente. Devuelve EXCLUSIVAMENTE un JSON: [{"titulo": "...", "contenido": "..."}].'
 
 const GeneradorProgramas = ({ user }) => {
   const [titulo,       setTitulo]       = useState('')
@@ -39,11 +50,12 @@ const GeneradorProgramas = ({ user }) => {
   const actualizarDia = (id, campo, valor) =>
     setDias(prev => prev.map(d => d.id === id ? { ...d, [campo]: valor } : d))
 
-  const redactarConIA = async () => {
+  const optimizarItinerario = async () => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY
-    if (!String(apiKey || '').trim()) {
-      setMsg({ ok: false, text: 'Define VITE_GEMINI_API_KEY en tu .env (raíz del proyecto).' })
-      setTimeout(() => setMsg(null), 5000)
+    if (!String(apiKey ?? '').trim()) {
+      console.error(
+        '[GeneradorProgramas] VITE_GEMINI_API_KEY no está definida o está vacía. Crea un archivo .env en la RAÍZ del proyecto (junto a package.json) con VITE_GEMINI_API_KEY=tu_clave y reinicia el servidor de desarrollo (npm run dev).'
+      )
       return
     }
 
@@ -54,17 +66,10 @@ const GeneradorProgramas = ({ user }) => {
         model: 'gemini-1.5-flash',
         systemInstruction: SYSTEM_ITINERARIO,
       })
-      const result = await model.generateContent(notasGemini)
+      const result = await model.generateContent(notasGemini || '(Sin texto en notas; genera una propuesta breve de ejemplo estructurada por días.)')
       const raw = result.response.text()
 
-      const jsonStr = limpiarJSONMarkdown(raw)
-      let parsed
-      try {
-        parsed = JSON.parse(jsonStr)
-      } catch {
-        parsed = JSON.parse(extraerJSONArray(jsonStr))
-      }
-
+      const parsed = parsearJSONItinerario(raw)
       if (!Array.isArray(parsed)) throw new Error('La respuesta no es un array JSON válido.')
 
       const base = Date.now()
@@ -75,10 +80,10 @@ const GeneradorProgramas = ({ user }) => {
           contenido: String(item?.contenido ?? ''),
         }))
       )
-      setMsg({ ok: true, text: '✨ Itinerario optimizado con IA.' })
+      setMsg({ ok: true, text: '✨ Itinerario optimizado.' })
       setTimeout(() => setMsg(null), 4000)
     } catch (e) {
-      console.log('[GeneradorProgramas] error IA:', e)
+      console.error('[GeneradorProgramas] error al optimizar con IA:', e)
       setMsg({ ok: false, text: e?.message ? `IA: ${e.message}` : 'No se pudo interpretar la respuesta de la IA.' })
       setTimeout(() => setMsg(null), 6000)
     } finally {
@@ -87,22 +92,22 @@ const GeneradorProgramas = ({ user }) => {
   }
 
   const handleGuardar = async () => {
-    if (!titulo.trim()) { setMsg({ ok: false, text: 'Añade un título al programa.' }); return }
     setGuardando(true)
 
+    const nombreGrupo = titulo.trim() || 'Itinerario sin título'
+
     const payload = {
-      nombre_grupo:    titulo,
+      nombre_grupo:    nombreGrupo,
       notas_ia:        notasGemini,
       itinerario_json: JSON.stringify(dias),
       user_email:      user?.email ?? null,
       updated_at:      new Date().toISOString(),
     }
 
-    // Buscar si ya existe un programa con ese título para hacer update
     const { data: existing } = await supabase
       .from('programas_viaje')
       .select('id')
-      .eq('nombre_grupo', titulo)
+      .eq('nombre_grupo', nombreGrupo)
       .maybeSingle()
 
     const { error } = existing?.id
@@ -155,17 +160,17 @@ const GeneradorProgramas = ({ user }) => {
                 value={notasGemini}
                 onChange={e => setNotasGemini(e.target.value)}
                 rows={5}
-                placeholder={'Ej: "Itinerario romántico, tono cercano, incluye gastronomía local y tiempos libres."'}
+                placeholder="Pega aquí el itinerario en bruto del proveedor u otros apuntes para optimizarlos con IA…"
                 className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:ring-2 focus:ring-violet-400 transition-all resize-none leading-relaxed"
               />
               <button
                 type="button"
-                onClick={redactarConIA}
+                onClick={optimizarItinerario}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-sm font-bold transition-all shadow-sm"
               >
                 {cargandoIA
-                  ? <><Loader2 size={16} className="animate-spin" /> Generando…</>
-                  : <><Sparkles size={16} /> ✨ Redactar con IA</>}
+                  ? <><Loader2 size={16} className="animate-spin" /> Optimizando…</>
+                  : <><Sparkles size={16} /> ✨ OPTIMIZAR ITINERARIO</>}
               </button>
             </div>
 
