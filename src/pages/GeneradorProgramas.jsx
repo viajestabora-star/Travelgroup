@@ -3,14 +3,13 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { supabase } from '../supabase'
 import { Wand2, Plus, Trash2, Save, Sparkles, Loader2 } from 'lucide-react'
 
-/** Quita cercos ```json ... ``` que a veces devuelve el modelo. */
-const limpiarJSONMarkdown = (raw) => {
-  let t = String(raw ?? '').trim()
-  const bloque = /^```(?:json)?\s*\r?\n?([\s\S]*?)\r?\n?```$/im
-  const m = t.match(bloque)
-  if (m) return m[1].trim()
-  return t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
-}
+/** Quita bloques Markdown ```json ... ``` antes de JSON.parse. */
+const limpiarJSONMarkdown = (raw) =>
+  String(raw ?? '')
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim()
 
 /** Intenta aislar el array si hubo texto extra. */
 const extraerJSONArray = (text) => {
@@ -20,7 +19,8 @@ const extraerJSONArray = (text) => {
   return text
 }
 
-const SYSTEM_ITINERARIO = `Eres un redactor de viajes de lujo. Tu objetivo es transformar las notas del usuario en un itinerario fascinante. Responde ÚNICAMENTE con un array JSON con este formato: [{"titulo": "...", "contenido": "..."}]. No añadas texto de bienvenida ni despedida, solo el JSON puro.`
+const SYSTEM_ITINERARIO =
+  'Eres un editor de élite para agencias de viajes de lujo. Tu función principal es REESCRIBIR y ESTRUCTURAR el itinerario que el usuario te pegue en las notas. Debes corregir la redacción, darle un tono aspiracional y sofisticado, y separar el contenido estrictamente por días. Si las notas están incompletas, usa tu conocimiento para embellecer los detalles. Responde ÚNICAMENTE con un array JSON: [{"titulo": "...", "contenido": "..."}].'
 
 const GeneradorProgramas = ({ user }) => {
   const [titulo,       setTitulo]       = useState('')
@@ -46,11 +46,6 @@ const GeneradorProgramas = ({ user }) => {
       setTimeout(() => setMsg(null), 5000)
       return
     }
-    if (!notasGemini.trim()) {
-      setMsg({ ok: false, text: 'Escribe notas para Gemini antes de redactar.' })
-      setTimeout(() => setMsg(null), 4000)
-      return
-    }
 
     setCargandoIA(true)
     try {
@@ -59,10 +54,10 @@ const GeneradorProgramas = ({ user }) => {
         model: 'gemini-1.5-flash',
         systemInstruction: SYSTEM_ITINERARIO,
       })
-      const result = await model.generateContent(notasGemini.trim())
+      const result = await model.generateContent(notasGemini)
       const raw = result.response.text()
 
-      let jsonStr = limpiarJSONMarkdown(raw)
+      const jsonStr = limpiarJSONMarkdown(raw)
       let parsed
       try {
         parsed = JSON.parse(jsonStr)
@@ -80,9 +75,10 @@ const GeneradorProgramas = ({ user }) => {
           contenido: String(item?.contenido ?? ''),
         }))
       )
-      setMsg({ ok: true, text: '✨ Itinerario generado con IA.' })
+      setMsg({ ok: true, text: '✨ Itinerario optimizado con IA.' })
       setTimeout(() => setMsg(null), 4000)
     } catch (e) {
+      console.log('[GeneradorProgramas] error IA:', e)
       setMsg({ ok: false, text: e?.message ? `IA: ${e.message}` : 'No se pudo interpretar la respuesta de la IA.' })
       setTimeout(() => setMsg(null), 6000)
     } finally {
@@ -165,8 +161,7 @@ const GeneradorProgramas = ({ user }) => {
               <button
                 type="button"
                 onClick={redactarConIA}
-                disabled={cargandoIA || guardando || !notasGemini.trim()}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold transition-all shadow-sm"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-sm font-bold transition-all shadow-sm"
               >
                 {cargandoIA
                   ? <><Loader2 size={16} className="animate-spin" /> Generando…</>
