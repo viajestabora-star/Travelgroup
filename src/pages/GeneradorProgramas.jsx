@@ -3,15 +3,20 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { supabase } from '../supabase'
 import { Wand2, Plus, Trash2, Save, Sparkles, Loader2 } from 'lucide-react'
 
-/** Limpia cercos Markdown y espacios residuales antes de JSON.parse. */
+/**
+ * Limpia la respuesta de la IA antes de JSON.parse.
+ * Incluye retirar cercos Markdown (``` / ```json) con .replace como pidió el equipo.
+ * No usamos /json|/g sobre el cuerpo: eliminaría "json" o "/" dentro del contenido del viaje.
+ */
 const limpiarRespuestaIA = (raw) =>
   String(raw ?? '')
     .trim()
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim()
 
-/** Aisla el primer [...] si el modelo añadió texto alrededor. */
 const extraerJSONArray = (text) => {
   const s = text.indexOf('[')
   const e = text.lastIndexOf(']')
@@ -19,7 +24,6 @@ const extraerJSONArray = (text) => {
   return text
 }
 
-/** Parsea el texto del modelo; en error relanza con contexto claro. */
 const parsearJSONItinerario = (raw) => {
   let texto = limpiarRespuestaIA(raw)
   try {
@@ -31,9 +35,9 @@ const parsearJSONItinerario = (raw) => {
 }
 
 const SYSTEM_ITINERARIO =
-  'Eres un redactor experto en viajes de lujo. Tu trabajo es REESCRIBIR el itinerario que te proporciona el usuario. Dale un tono sofisticado, corrige la gramática y estructúralo profesionalmente. Devuelve EXCLUSIVAMENTE un JSON: [{"titulo": "...", "contenido": "..."}].'
+  'Eres un redactor de viajes de lujo para Tabora. Toma este itinerario sucio y transfórmalo en una experiencia narrativa fascinante. Estructúralo por días. Devuelve SOLO un array JSON: [{"titulo": "Día X: ...", "contenido": "..."}]. Sé descriptivo y usa un tono sofisticado.'
 
-const GeneradorProgramas = ({ user }) => {
+const GeneradorProgramas = () => {
   const [titulo,       setTitulo]       = useState('')
   const [notasGemini,  setNotasGemini]  = useState('')
   const [dias,         setDias]         = useState([{ id: 1, titulo: 'Día 1', contenido: '' }])
@@ -54,7 +58,7 @@ const GeneradorProgramas = ({ user }) => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY
     if (!String(apiKey ?? '').trim()) {
       console.error(
-        '[GeneradorProgramas] VITE_GEMINI_API_KEY no está definida o está vacía. Crea un archivo .env en la RAÍZ del proyecto (junto a package.json) con VITE_GEMINI_API_KEY=tu_clave y reinicia el servidor de desarrollo (npm run dev).'
+        '[GeneradorProgramas] VITE_GEMINI_API_KEY no está definida o está vacía. Añádela al .env en la RAÍZ del proyecto y reinicia Vite (npm run dev).'
       )
       return
     }
@@ -66,7 +70,9 @@ const GeneradorProgramas = ({ user }) => {
         model: 'gemini-1.5-flash',
         systemInstruction: SYSTEM_ITINERARIO,
       })
-      const result = await model.generateContent(notasGemini || '(Sin texto en notas; genera una propuesta breve de ejemplo estructurada por días.)')
+      const result = await model.generateContent(
+        notasGemini.trim() || '(Sin texto pegado aún; ofrece un mini-ejemplo de 2 días en tono Tabora.)'
+      )
       const raw = result.response.text()
 
       const parsed = parsearJSONItinerario(raw)
@@ -80,8 +86,8 @@ const GeneradorProgramas = ({ user }) => {
           contenido: String(item?.contenido ?? ''),
         }))
       )
-      setMsg({ ok: true, text: '✨ Itinerario optimizado.' })
-      setTimeout(() => setMsg(null), 4000)
+      setMsg({ ok: true, text: '✨ Itinerario listo — revisa y ajusta cada día a la derecha.' })
+      setTimeout(() => setMsg(null), 4500)
     } catch (e) {
       console.error('[GeneradorProgramas] error al optimizar con IA:', e)
       setMsg({ ok: false, text: e?.message ? `IA: ${e.message}` : 'No se pudo interpretar la respuesta de la IA.' })
@@ -91,6 +97,7 @@ const GeneradorProgramas = ({ user }) => {
     }
   }
 
+  /** Upsert lógico solo con columnas admitidas por la tabla. */
   const handleGuardar = async () => {
     setGuardando(true)
 
@@ -100,8 +107,6 @@ const GeneradorProgramas = ({ user }) => {
       nombre_grupo:    nombreGrupo,
       notas_ia:        notasGemini,
       itinerario_json: JSON.stringify(dias),
-      user_email:      user?.email ?? null,
-      updated_at:      new Date().toISOString(),
     }
 
     const { data: existing } = await supabase
@@ -112,7 +117,7 @@ const GeneradorProgramas = ({ user }) => {
 
     const { error } = existing?.id
       ? await supabase.from('programas_viaje').update(payload).eq('id', existing.id)
-      : await supabase.from('programas_viaje').insert([{ ...payload, created_at: new Date().toISOString() }])
+      : await supabase.from('programas_viaje').insert([payload])
 
     setGuardando(false)
     setMsg(error
@@ -125,8 +130,7 @@ const GeneradorProgramas = ({ user }) => {
   return (
     <div className="min-h-screen bg-gray-50 p-6 lg:p-10">
 
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-8">
+      <div className="mb-8 flex items-center gap-3">
         <div className="p-2 bg-violet-100 rounded-xl">
           <Wand2 size={22} className="text-violet-600" />
         </div>
@@ -135,7 +139,6 @@ const GeneradorProgramas = ({ user }) => {
 
       <div className="flex flex-col lg:flex-row gap-6">
 
-        {/* ── Columna izquierda: Configuración (30%) ── */}
         <aside className="lg:w-[30%] space-y-4">
 
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
@@ -159,17 +162,18 @@ const GeneradorProgramas = ({ user }) => {
               <textarea
                 value={notasGemini}
                 onChange={e => setNotasGemini(e.target.value)}
-                rows={5}
-                placeholder="Pega aquí el itinerario en bruto del proveedor u otros apuntes para optimizarlos con IA…"
-                className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:ring-2 focus:ring-violet-400 transition-all resize-none leading-relaxed"
+                rows={14}
+                placeholder="Pega aquí el itinerario largo del proveedor (texto en bruto); Optimizar lo transformará en días narrativos…"
+                className="w-full min-h-[280px] px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:ring-2 focus:ring-violet-400 transition-all resize-y leading-relaxed"
               />
               <button
                 type="button"
                 onClick={optimizarItinerario}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-sm font-bold transition-all shadow-sm"
+                disabled={cargandoIA}
+                className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-70 text-white text-sm font-bold transition-all shadow-sm"
               >
                 {cargandoIA
-                  ? <><Loader2 size={16} className="animate-spin" /> Optimizando…</>
+                  ? <><Loader2 size={16} className="animate-spin" /> Optimizando...</>
                   : <><Sparkles size={16} /> ✨ OPTIMIZAR ITINERARIO</>}
               </button>
             </div>
@@ -202,12 +206,11 @@ const GeneradorProgramas = ({ user }) => {
 
         </aside>
 
-        {/* ── Columna derecha: Itinerario (70%) ── */}
         <main className="flex-1 space-y-4">
 
           {dias.length === 0 && (
-            <div className="bg-white rounded-2xl border border-dashed border-slate-300 flex items-center justify-center py-24 text-slate-400 text-sm">
-              Pulsa «Añadir Día» para empezar el itinerario
+            <div className="bg-white rounded-2xl border border-dashed border-slate-300 flex flex-col items-center justify-center py-24 text-slate-400 text-sm gap-2 px-6 text-center">
+              <p>Pulsa «Añadir Día» o usa «Optimizar itinerario» tras pegar las notas del proveedor.</p>
             </div>
           )}
 
@@ -237,7 +240,7 @@ const GeneradorProgramas = ({ user }) => {
                 onChange={e => actualizarDia(dia.id, 'contenido', e.target.value)}
                 rows={5}
                 placeholder="Describe las actividades, alojamiento, restaurantes y experiencias de este día…"
-                className="w-full px-3 py-2.5 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-400 transition-all resize-none leading-relaxed"
+                className="w-full px-3 py-2.5 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-400 transition-all resize-y leading-relaxed"
               />
             </div>
           ))}
