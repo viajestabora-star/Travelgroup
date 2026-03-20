@@ -1,12 +1,33 @@
 import React, { useState } from 'react'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { supabase } from '../supabase'
 import { Wand2, Plus, Trash2, Save, Sparkles, Loader2 } from 'lucide-react'
+
+/** Quita cercos ```json ... ``` que a veces devuelve el modelo. */
+const limpiarJSONMarkdown = (raw) => {
+  let t = String(raw ?? '').trim()
+  const bloque = /^```(?:json)?\s*\r?\n?([\s\S]*?)\r?\n?```$/im
+  const m = t.match(bloque)
+  if (m) return m[1].trim()
+  return t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+}
+
+/** Intenta aislar el array si hubo texto extra. */
+const extraerJSONArray = (text) => {
+  const s = text.indexOf('[')
+  const e = text.lastIndexOf(']')
+  if (s >= 0 && e > s) return text.slice(s, e + 1).trim()
+  return text
+}
+
+const SYSTEM_ITINERARIO = `Eres un redactor de viajes de lujo. Tu objetivo es transformar las notas del usuario en un itinerario fascinante. Responde ÚNICAMENTE con un array JSON con este formato: [{"titulo": "...", "contenido": "..."}]. No añadas texto de bienvenida ni despedida, solo el JSON puro.`
 
 const GeneradorProgramas = ({ user }) => {
   const [titulo,       setTitulo]       = useState('')
   const [notasGemini,  setNotasGemini]  = useState('')
   const [dias,         setDias]         = useState([{ id: 1, titulo: 'Día 1', contenido: '' }])
   const [guardando,    setGuardando]    = useState(false)
+  const [cargandoIA,   setCargandoIA]   = useState(false)
   const [msg,          setMsg]          = useState(null)
 
   const agregarDia = () =>
@@ -17,6 +38,57 @@ const GeneradorProgramas = ({ user }) => {
 
   const actualizarDia = (id, campo, valor) =>
     setDias(prev => prev.map(d => d.id === id ? { ...d, [campo]: valor } : d))
+
+  const redactarConIA = async () => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY
+    if (!String(apiKey || '').trim()) {
+      setMsg({ ok: false, text: 'Define VITE_GEMINI_API_KEY en tu .env (raíz del proyecto).' })
+      setTimeout(() => setMsg(null), 5000)
+      return
+    }
+    if (!notasGemini.trim()) {
+      setMsg({ ok: false, text: 'Escribe notas para Gemini antes de redactar.' })
+      setTimeout(() => setMsg(null), 4000)
+      return
+    }
+
+    setCargandoIA(true)
+    try {
+      const genAI = new GoogleGenerativeAI(apiKey)
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-1.5-flash',
+        systemInstruction: SYSTEM_ITINERARIO,
+      })
+      const result = await model.generateContent(notasGemini.trim())
+      const raw = result.response.text()
+
+      let jsonStr = limpiarJSONMarkdown(raw)
+      let parsed
+      try {
+        parsed = JSON.parse(jsonStr)
+      } catch {
+        parsed = JSON.parse(extraerJSONArray(jsonStr))
+      }
+
+      if (!Array.isArray(parsed)) throw new Error('La respuesta no es un array JSON válido.')
+
+      const base = Date.now()
+      setDias(
+        parsed.map((item, i) => ({
+          id: base + i,
+          titulo: String(item?.titulo ?? `Día ${i + 1}`),
+          contenido: String(item?.contenido ?? ''),
+        }))
+      )
+      setMsg({ ok: true, text: '✨ Itinerario generado con IA.' })
+      setTimeout(() => setMsg(null), 4000)
+    } catch (e) {
+      setMsg({ ok: false, text: e?.message ? `IA: ${e.message}` : 'No se pudo interpretar la respuesta de la IA.' })
+      setTimeout(() => setMsg(null), 6000)
+    } finally {
+      setCargandoIA(false)
+    }
+  }
 
   const handleGuardar = async () => {
     if (!titulo.trim()) { setMsg({ ok: false, text: 'Añade un título al programa.' }); return }
@@ -90,6 +162,16 @@ const GeneradorProgramas = ({ user }) => {
                 placeholder={'Ej: "Itinerario romántico, tono cercano, incluye gastronomía local y tiempos libres."'}
                 className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:ring-2 focus:ring-violet-400 transition-all resize-none leading-relaxed"
               />
+              <button
+                type="button"
+                onClick={redactarConIA}
+                disabled={cargandoIA || guardando || !notasGemini.trim()}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold transition-all shadow-sm"
+              >
+                {cargandoIA
+                  ? <><Loader2 size={16} className="animate-spin" /> Generando…</>
+                  : <><Sparkles size={16} /> ✨ Redactar con IA</>}
+              </button>
             </div>
 
             <button
