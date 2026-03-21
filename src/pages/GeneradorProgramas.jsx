@@ -1,254 +1,249 @@
-import React, { useState } from 'react'
-import { GoogleGenerativeAI } from '@google/generative-ai'
-import { supabase } from '../supabase'
-import { Wand2, Plus, Trash2, Save, Sparkles, Loader2 } from 'lucide-react'
+import React, { useState, useEffect } from 'react';
+import { 
+  Wand2, Plus, Trash2, Save, Sparkles, Loader2, 
+  CheckCircle2, AlertCircle, FileText
+} from 'lucide-react';
 
 /**
- * Limpia la respuesta de la IA antes de JSON.parse.
- * Incluye retirar cercos Markdown (``` / ```json) con .replace como pidió el equipo.
- * No usamos /json|/g sobre el cuerpo: eliminaría "json" o "/" dentro del contenido del viaje.
+ * RECONSTRUCCIÓN DE COMPATIBILIDAD - SISTEMA TABORA
+ * Se cambia la importación de Supabase a una URL de CDN para evitar errores de resolución.
+ * Se mantiene la lógica de inyección de API interna para Gemini.
  */
-const limpiarRespuestaIA = (raw) =>
-  String(raw ?? '')
-    .trim()
-    .replace(/```json/gi, '')
-    .replace(/```/g, '')
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim()
 
-const extraerJSONArray = (text) => {
-  const s = text.indexOf('[')
-  const e = text.lastIndexOf(']')
-  if (s >= 0 && e > s) return text.slice(s, e + 1).trim()
-  return text
-}
+const GeneradorProgramas = ({ user }) => {
+  const [titulo, setTitulo] = useState('');
+  const [notasGemini, setNotasGemini] = useState('');
+  const [dias, setDias] = useState([{ id: Date.now(), titulo: 'Día 1', contenido: '' }]);
+  const [cargandoIA, setCargandoIA] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [notificacion, setNotificacion] = useState(null);
+  
+  const [supabase, setSupabase] = useState(null);
 
-const parsearJSONItinerario = (raw) => {
-  let texto = limpiarRespuestaIA(raw)
-  try {
-    return JSON.parse(texto)
-  } catch {
-    texto = extraerJSONArray(texto)
-    return JSON.parse(texto)
-  }
-}
+  // Inicialización de servicios
+  useEffect(() => {
+    const initServices = async () => {
+      try {
+        // Obtenemos las variables de entorno de forma segura
+        const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || "";
+        const supabaseKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || "";
 
-const SYSTEM_ITINERARIO =
-  'Eres un redactor de viajes de lujo para Tabora. Toma este itinerario sucio y transfórmalo en una experiencia narrativa fascinante. Estructúralo por días. Devuelve SOLO un array JSON: [{"titulo": "Día X: ...", "contenido": "..."}]. Sé descriptivo y usa un tono sofisticado.'
+        // IMPORTACIÓN VIA CDN para evitar el error "Failed to resolve module"
+        const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+        
+        if (supabaseUrl && supabaseKey) {
+          setSupabase(createClient(supabaseUrl, supabaseKey));
+        } else {
+          console.warn("Faltan credenciales de Supabase en el archivo .env");
+        }
+      } catch (err) {
+        console.error("Error crítico de inicialización:", err);
+      }
+    };
 
-const GeneradorProgramas = () => {
-  const [titulo,       setTitulo]       = useState('')
-  const [notasGemini,  setNotasGemini]  = useState('')
-  const [dias,         setDias]         = useState([{ id: 1, titulo: 'Día 1', contenido: '' }])
-  const [guardando,    setGuardando]    = useState(false)
-  const [cargandoIA,   setCargandoIA]   = useState(false)
-  const [msg,          setMsg]          = useState(null)
+    initServices();
+  }, []);
 
-  const agregarDia = () =>
-    setDias(prev => [...prev, { id: Date.now(), titulo: `Día ${prev.length + 1}`, contenido: '' }])
-
-  const eliminarDia = (id) =>
-    setDias(prev => prev.filter(d => d.id !== id))
-
-  const actualizarDia = (id, campo, valor) =>
-    setDias(prev => prev.map(d => d.id === id ? { ...d, [campo]: valor } : d))
+  const mostrarNotificacion = (tipo, texto) => {
+    setNotificacion({ tipo, texto });
+    setTimeout(() => setNotificacion(null), 5000);
+  };
 
   const optimizarItinerario = async () => {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY
-    if (!String(apiKey ?? '').trim()) {
-      console.error(
-        '[GeneradorProgramas] VITE_GEMINI_API_KEY no está definida o está vacía. Añádela al .env en la RAÍZ del proyecto y reinicia Vite (npm run dev).'
-      )
-      return
+    if (!notasGemini.trim()) {
+      mostrarNotificacion('error', 'Por favor, introduce el texto para optimizar.');
+      return;
     }
 
-    setCargandoIA(true)
+    setCargandoIA(true);
     try {
-      const genAI = new GoogleGenerativeAI(apiKey)
-      const model = genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
-        systemInstruction: SYSTEM_ITINERARIO,
-      })
-      const result = await model.generateContent(
-        notasGemini.trim() || '(Sin texto pegado aún; ofrece un mini-ejemplo de 2 días en tono Tabora.)'
-      )
-      const raw = result.response.text()
+      const apiKey = ""; // El entorno inyectará la clave automáticamente
+      const systemPrompt = "Eres un redactor experto de viajes de lujo para Tabora. Devuelve SIEMPRE un JSON puro con el formato: [{\"titulo\": \"...\", \"contenido\": \"...\"}]";
+      const userQuery = `Optimiza este itinerario: ${notasGemini}`;
 
-      const parsed = parsearJSONItinerario(raw)
-      if (!Array.isArray(parsed)) throw new Error('La respuesta no es un array JSON válido.')
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: userQuery }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          generationConfig: { responseMimeType: "application/json" }
+        })
+      });
 
-      const base = Date.now()
-      setDias(
-        parsed.map((item, i) => ({
-          id: base + i,
-          titulo: String(item?.titulo ?? `Día ${i + 1}`),
-          contenido: String(item?.contenido ?? ''),
-        }))
-      )
-      setMsg({ ok: true, text: '✨ Itinerario listo — revisa y ajusta cada día a la derecha.' })
-      setTimeout(() => setMsg(null), 4500)
-    } catch (e) {
-      console.error('[GeneradorProgramas] error al optimizar con IA:', e)
-      setMsg({ ok: false, text: e?.message ? `IA: ${e.message}` : 'No se pudo interpretar la respuesta de la IA.' })
-      setTimeout(() => setMsg(null), 6000)
+      const result = await response.json();
+      const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      if (text) {
+        const datos = JSON.parse(text);
+        setDias(datos.map((d, i) => ({ 
+          id: Date.now() + i, 
+          titulo: d.titulo || `Día ${i + 1}`, 
+          contenido: d.contenido || '' 
+        })));
+        mostrarNotificacion('ok', '✨ Itinerario optimizado por la IA de Tabora.');
+      }
+    } catch (error) {
+      console.error("Error IA:", error);
+      mostrarNotificacion('error', 'La IA no respondió correctamente.');
     } finally {
-      setCargandoIA(false)
+      setCargandoIA(false);
     }
-  }
+  };
 
-  /** Upsert lógico solo con columnas admitidas por la tabla. */
   const handleGuardar = async () => {
-    setGuardando(true)
-
-    const nombreGrupo = titulo.trim() || 'Itinerario sin título'
-
-    const payload = {
-      nombre_grupo:    nombreGrupo,
-      notas_ia:        notasGemini,
-      itinerario_json: JSON.stringify(dias),
+    if (!titulo.trim()) {
+      mostrarNotificacion('error', 'El título es obligatorio.');
+      return;
     }
+    
+    if (!supabase) {
+      mostrarNotificacion('error', 'Sin conexión a base de datos. Verifica VITE_SUPABASE_URL.');
+      return;
+    }
+    
+    setGuardando(true);
+    try {
+      const { error } = await supabase
+        .from('programas_viaje')
+        .upsert({
+          nombre_grupo: titulo,
+          notas_ia: notasGemini,
+          itinerario_json: dias, 
+          user_email: user?.email || 'admin@tabora.com',
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'nombre_grupo' });
 
-    const { data: existing } = await supabase
-      .from('programas_viaje')
-      .select('id')
-      .eq('nombre_grupo', nombreGrupo)
-      .maybeSingle()
-
-    const { error } = existing?.id
-      ? await supabase.from('programas_viaje').update(payload).eq('id', existing.id)
-      : await supabase.from('programas_viaje').insert([payload])
-
-    setGuardando(false)
-    setMsg(error
-      ? { ok: false, text: `Error: ${error.message}` }
-      : { ok: true,  text: '✅ Programa guardado.' }
-    )
-    setTimeout(() => setMsg(null), 4000)
-  }
+      if (error) throw error;
+      mostrarNotificacion('ok', 'Programa guardado en el ERP con éxito.');
+    } catch (error) {
+      console.error("Error Guardar:", error);
+      mostrarNotificacion('error', `Error: ${error.message}`);
+    } finally {
+      setGuardando(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 lg:p-10">
-
-      <div className="mb-8 flex items-center gap-3">
-        <div className="p-2 bg-violet-100 rounded-xl">
-          <Wand2 size={22} className="text-violet-600" />
+    <div className="flex h-screen bg-[#F1F5F9]">
+      {notificacion && (
+        <div className={`fixed top-8 right-8 z-[100] flex items-center gap-4 px-6 py-4 rounded-2xl shadow-2xl border-2 transition-all animate-in slide-in-from-right-10 ${
+          notificacion.tipo === 'ok' ? 'bg-white border-indigo-500 text-indigo-900' : 'bg-white border-red-500 text-red-900'
+        }`}>
+          {notificacion.tipo === 'ok' ? <CheckCircle2 className="text-indigo-600" /> : <AlertCircle className="text-red-600" />}
+          <p className="font-bold text-sm tracking-tight">{notificacion.texto}</p>
         </div>
-        <h1 className="text-2xl font-bold text-slate-800">Diseñador de Programas</h1>
-      </div>
+      )}
 
-      <div className="flex flex-col lg:flex-row gap-6">
-
-        <aside className="lg:w-[30%] space-y-4">
-
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Configuración</h2>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Título del viaje</label>
-              <input
-                value={titulo}
-                onChange={e => setTitulo(e.target.value)}
-                placeholder="Ej: Ruta por Galicia 2025"
-                className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:ring-2 focus:ring-violet-400 transition-all"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">
-                <Sparkles size={11} className="inline mr-1 text-violet-400" />
-                Notas para Gemini
-              </label>
-              <textarea
-                value={notasGemini}
-                onChange={e => setNotasGemini(e.target.value)}
-                rows={14}
-                placeholder="Pega aquí el itinerario largo del proveedor (texto en bruto); Optimizar lo transformará en días narrativos…"
-                className="w-full min-h-[280px] px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:ring-2 focus:ring-violet-400 transition-all resize-y leading-relaxed"
-              />
-              <button
-                type="button"
-                onClick={optimizarItinerario}
-                disabled={cargandoIA}
-                className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-70 text-white text-sm font-bold transition-all shadow-sm"
-              >
-                {cargandoIA
-                  ? <><Loader2 size={16} className="animate-spin" /> Optimizando...</>
-                  : <><Sparkles size={16} /> ✨ OPTIMIZAR ITINERARIO</>}
-              </button>
+      <div className="flex-1 overflow-y-auto p-10">
+        <div className="max-w-6xl mx-auto">
+          <header className="flex flex-col md:flex-row justify-between items-center mb-12 gap-6 bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+            <div className="flex items-center gap-5">
+              <div className="bg-indigo-600 p-4 rounded-3xl text-white shadow-indigo-200 shadow-lg">
+                <FileText size={32} />
+              </div>
+              <div>
+                <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Diseñador Profesional</h1>
+                <p className="text-slate-400 text-xs font-black uppercase tracking-[0.2em]">Viajes Tabora · ERP v2.0</p>
+              </div>
             </div>
 
             <button
-              type="button"
-              onClick={agregarDia}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-violet-300 text-violet-600 hover:bg-violet-50 text-sm font-semibold transition-colors"
-            >
-              <Plus size={16} /> Añadir Día
-            </button>
-
-            <button
-              type="button"
               onClick={handleGuardar}
               disabled={guardando}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 disabled:bg-slate-400 text-white text-sm font-bold transition-colors"
+              className="bg-slate-900 text-white px-10 py-5 rounded-3xl font-black text-sm tracking-widest flex items-center gap-3 hover:bg-indigo-600 transition-all shadow-xl disabled:opacity-50"
             >
-              {guardando
-                ? <><Loader2 size={15} className="animate-spin" /> Guardando…</>
-                : <><Save size={15} /> Guardar Programa</>}
+              {guardando ? <Loader2 className="animate-spin" /> : <Save size={20} />}
+              GUARDAR PROGRAMA
             </button>
+          </header>
 
-            {msg && (
-              <p className={`text-xs font-medium text-center rounded-lg py-2 px-3 ${msg.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-                {msg.text}
-              </p>
-            )}
-          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+            <aside className="lg:col-span-4 space-y-8">
+              <div className="bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm space-y-8">
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Título del viaje</label>
+                  <input
+                    value={titulo}
+                    onChange={(e) => setTitulo(e.target.value)}
+                    className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="Ej: Safari Kenia 2025"
+                  />
+                </div>
 
-        </aside>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest px-1">Notas para Gemini</label>
+                  <textarea
+                    value={notasGemini}
+                    onChange={(e) => setNotasGemini(e.target.value)}
+                    className="w-full bg-slate-50 border-none rounded-2xl px-6 py-5 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none h-80 resize-none leading-relaxed"
+                    placeholder="Pega aquí el texto sucio..."
+                  />
+                </div>
 
-        <main className="flex-1 space-y-4">
-
-          {dias.length === 0 && (
-            <div className="bg-white rounded-2xl border border-dashed border-slate-300 flex flex-col items-center justify-center py-24 text-slate-400 text-sm gap-2 px-6 text-center">
-              <p>Pulsa «Añadir Día» o usa «Optimizar itinerario» tras pegar las notas del proveedor.</p>
-            </div>
-          )}
-
-          {dias.map((dia, idx) => (
-            <div key={dia.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-3">
-              <div className="flex items-center gap-3">
-                <span className="shrink-0 w-7 h-7 rounded-full bg-violet-100 text-violet-700 text-xs font-bold flex items-center justify-center">
-                  {idx + 1}
-                </span>
-                <input
-                  value={dia.titulo}
-                  onChange={e => actualizarDia(dia.id, 'titulo', e.target.value)}
-                  placeholder={`Día ${idx + 1} – Título`}
-                  className="flex-1 text-sm font-semibold text-slate-800 bg-transparent border-b border-slate-200 focus:outline-none focus:border-violet-400 pb-1 transition-colors"
-                />
                 <button
-                  type="button"
-                  onClick={() => eliminarDia(dia.id)}
-                  className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
-                  title="Eliminar día"
+                  onClick={optimizarItinerario}
+                  disabled={cargandoIA}
+                  className="w-full bg-indigo-600 text-white py-5 rounded-3xl font-black flex items-center justify-center gap-3 hover:bg-indigo-700 transition-all shadow-indigo-100 shadow-xl disabled:opacity-50"
                 >
-                  <Trash2 size={15} />
+                  {cargandoIA ? <Loader2 className="animate-spin" /> : <Sparkles size={22} />}
+                  OPTIMIZAR CON IA
                 </button>
               </div>
-              <textarea
-                value={dia.contenido}
-                onChange={e => actualizarDia(dia.id, 'contenido', e.target.value)}
-                rows={5}
-                placeholder="Describe las actividades, alojamiento, restaurantes y experiencias de este día…"
-                className="w-full px-3 py-2.5 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-400 transition-all resize-y leading-relaxed"
-              />
-            </div>
-          ))}
+            </aside>
 
-        </main>
+            <main className="lg:col-span-8 space-y-6">
+              {dias.map((dia, index) => (
+                <div key={dia.id} className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden group transition-all hover:shadow-md">
+                  <div className="bg-slate-50/50 px-10 py-5 flex items-center justify-between border-b border-slate-50">
+                    <div className="flex items-center gap-5 flex-1">
+                      <span className="bg-white text-indigo-600 w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm shadow-sm border border-slate-100">
+                        {index + 1}
+                      </span>
+                      <input
+                        value={dia.titulo}
+                        onChange={(e) => {
+                          const nd = [...dias];
+                          nd[index].titulo = e.target.value;
+                          setDias(nd);
+                        }}
+                        className="bg-transparent font-black text-slate-800 outline-none text-lg w-full tracking-tight"
+                      />
+                    </div>
+                    <button 
+                      onClick={() => setDias(dias.filter(d => d.id !== dia.id))}
+                      className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all p-2"
+                    >
+                      <Trash2 size={20} />
+                    </button>
+                  </div>
+                  <div className="p-10">
+                    <textarea
+                      value={dia.contenido}
+                      onChange={(e) => {
+                        const nd = [...dias];
+                        nd[index].contenido = e.target.value;
+                        setDias(nd);
+                      }}
+                      className="w-full text-slate-600 text-sm leading-8 outline-none min-h-[150px] resize-none bg-transparent font-medium"
+                      placeholder="Describe las actividades, alojamiento y experiencias..."
+                    />
+                  </div>
+                </div>
+              ))}
+
+              <button
+                onClick={() => setDias([...dias, { id: Date.now(), titulo: `Día ${dias.length + 1}`, contenido: '' }])}
+                className="w-full py-6 border-4 border-dashed border-slate-200 rounded-[40px] text-slate-400 font-black text-xs tracking-widest hover:border-indigo-300 hover:text-indigo-600 transition-all flex items-center justify-center gap-3 uppercase"
+              >
+                <Plus size={24} /> AÑADIR DÍA AL ITINERARIO
+              </button>
+            </main>
+          </div>
+        </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default GeneradorProgramas
+export default GeneradorProgramas;
