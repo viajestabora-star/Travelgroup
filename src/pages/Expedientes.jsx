@@ -52,6 +52,48 @@ const convertirFechaAISO = (fecha) => {
   return '';
 }
 
+const MENSAJE_DUPLICADO_EXPEDIENTE =
+  'Ya existe un expediente para este cliente, fecha y destino. Por favor, revísalo para evitar duplicados.'
+
+/** PostgreSQL 23505 / mensajes habituales de restricción única */
+const esErrorRestriccionUnicidad = (error) => {
+  if (!error) return false
+  const code = String(error.code ?? '')
+  if (code === '23505') return true
+  const msg = String(error.message ?? error.details ?? '').toLowerCase()
+  return (
+    msg.includes('duplicate key') ||
+    msg.includes('unique constraint') ||
+    msg.includes('violates unique constraint') ||
+    msg.includes('uniq_') ||
+    msg.includes('_unique')
+  )
+}
+
+/**
+ * Comprueba si ya existe un expediente con el mismo cliente_id, fecha_inicio y destino.
+ * Alineado con los valores que se insertarán (null vs cadena vacía → null en destino).
+ */
+const consultarExpedienteDuplicadoSupabase = async ({ cliente_id, fecha_inicio, destino }) => {
+  let q = supabase.from('expedientes').select('id').eq('cliente_id', cliente_id)
+  if (fecha_inicio == null || fecha_inicio === '') {
+    q = q.is('fecha_inicio', null)
+  } else {
+    q = q.eq('fecha_inicio', fecha_inicio)
+  }
+  const destNormalizado =
+    destino != null && String(destino).trim() !== '' ? String(destino).trim() : null
+  if (destNormalizado === null) {
+    q = q.is('destino', null)
+  } else {
+    q = q.eq('destino', destNormalizado)
+  }
+  const { data, error } = await q.limit(1)
+  if (error) return { exists: false, error }
+  const exists = Array.isArray(data) && data.length > 0
+  return { exists, error: null }
+}
+
 // Función helper para manejar errores de Supabase, especialmente errores de permisos
 const manejarErrorSupabase = (error, operacion = 'operación') => {
   if (!error) return null;
@@ -174,6 +216,7 @@ const Expedientes = () => {
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [searchTermExpedientes, setSearchTermExpedientes] = useState('')
   const [isSubmittingExpediente, setIsSubmittingExpediente] = useState(false) // Estado de loading para submit
+  const [avisoFormularioExpediente, setAvisoFormularioExpediente] = useState(null)
   const [confirmarBorrado, setConfirmarBorrado] = useState(null) // { id, nombre, destino } - Modal confirmación (Regla 1.14)
   const [confirmarCierre, setConfirmarCierre] = useState(null) // { id, nuevoEstado, expediente } - Modal consolidación
   const [isLoading, setIsLoading] = useState(true) // MODO SEGURO: mostrar "Cargando..." en lugar de romperse
@@ -194,6 +237,11 @@ const Expedientes = () => {
     itinerario: '',
     total_pax: '',
   })
+
+  useEffect(() => {
+    if (!showExpedienteModal) return
+    setAvisoFormularioExpediente((prev) => (prev ? null : prev))
+  }, [expedienteForm.clienteId, expedienteForm.fechaInicio, expedienteForm.destino, showExpedienteModal])
 
   const [clienteForm, setClienteForm] = useState({
     nombre: '',
@@ -631,6 +679,22 @@ const Expedientes = () => {
       const { datosSanitizados: insertSanitizado } = sanitizarExpedienteParaDB(datosInsertar);
       Object.assign(datosInsertar, insertSanitizado);
 
+      const { exists: hayDuplicado, error: errorConsultaDuplicado } =
+        await consultarExpedienteDuplicadoSupabase({
+          cliente_id: datosInsertar.cliente_id,
+          fecha_inicio: datosInsertar.fecha_inicio,
+          destino: datosInsertar.destino,
+        });
+      if (errorConsultaDuplicado) {
+        const errorInfo = manejarErrorSupabase(errorConsultaDuplicado, 'comprobar duplicado de expediente');
+        alert(errorInfo ? errorInfo.mensaje : `Error al comprobar duplicados: ${errorConsultaDuplicado.message || String(errorConsultaDuplicado)}`);
+        throw errorConsultaDuplicado;
+      }
+      if (hayDuplicado) {
+        setAvisoFormularioExpediente(MENSAJE_DUPLICADO_EXPEDIENTE);
+        return;
+      }
+
       // Obtener número de expediente correlativo (obligatorio) - NUNCA vacío ni UUID
       const añoExpediente = expedienteForm.fechaInicio
         ? (parsearFecha(expedienteForm.fechaInicio)?.getFullYear?.() || new Date().getFullYear())
@@ -642,17 +706,32 @@ const Expedientes = () => {
       datosInsertar.numero_expediente = numeroExp;
 
       // Insertar sin id - Supabase generará automáticamente el UUID
-      const { data, error } = await supabase
-        .from('expedientes')
-        .insert([datosInsertar])
-        .select()
-        .single();
+      let data;
+      try {
+        const result = await supabase
+          .from('expedientes')
+          .insert([datosInsertar])
+          .select()
+          .single();
+        data = result.data;
+        const error = result.error;
 
-      if (error) {
-        const errorInfo = manejarErrorSupabase(error, 'crear expediente');
-        const mensaje = errorInfo ? errorInfo.mensaje : `Error al guardar: ${error.message || String(error)}`;
-        alert(mensaje);
-        throw new Error(mensaje);
+        if (error) {
+          if (esErrorRestriccionUnicidad(error)) {
+            setAvisoFormularioExpediente(MENSAJE_DUPLICADO_EXPEDIENTE);
+            return;
+          }
+          const errorInfo = manejarErrorSupabase(error, 'crear expediente');
+          const mensaje = errorInfo ? errorInfo.mensaje : `Error al guardar: ${error.message || String(error)}`;
+          alert(mensaje);
+          throw new Error(mensaje);
+        }
+      } catch (insertErr) {
+        if (esErrorRestriccionUnicidad(insertErr)) {
+          setAvisoFormularioExpediente(MENSAJE_DUPLICADO_EXPEDIENTE);
+          return;
+        }
+        throw insertErr;
       }
 
       // 3. Refrescar la lista completa desde Supabase para mostrar el ID generado
@@ -664,6 +743,10 @@ const Expedientes = () => {
       setShowSuggestions(false);
       alert(`✅ Expediente creado con éxito. ID: ${data.id}`);
       } catch (err) {
+        if (esErrorRestriccionUnicidad(err)) {
+          setAvisoFormularioExpediente(MENSAJE_DUPLICADO_EXPEDIENTE);
+          return;
+        }
         const errorInfo = manejarErrorSupabase(err, 'crear expediente');
         const mensaje = errorInfo ? errorInfo.mensaje : `No se pudo guardar: ${err?.message || String(err)}`;
         alert(mensaje);
@@ -1038,6 +1121,7 @@ const Expedientes = () => {
     })
     setClienteInputValue('')
     setShowSuggestions(false)
+    setAvisoFormularioExpediente(null)
   }
 
   const resetClienteForm = () => {
@@ -1536,8 +1620,18 @@ const Expedientes = () => {
                 <X size={24} />
               </button>
             </div>
-            <form onSubmit={handleExpedienteSubmit} className="p-6" style={{ backgroundColor: 'white', color: 'black' }}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form onSubmit={handleExpedienteSubmit} className="p-6 md:p-8" style={{ backgroundColor: 'white', color: 'black' }}>
+              {avisoFormularioExpediente ? (
+                <div
+                  role="alert"
+                  className="mb-8 rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50/95 to-stone-50/80 px-6 py-5 text-[15px] leading-relaxed tracking-wide text-slate-800 shadow-sm"
+                >
+                  <p className="font-medium text-slate-900" style={{ letterSpacing: '0.02em' }}>
+                    {avisoFormularioExpediente}
+                  </p>
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                 <div className="md:col-span-2">
                   <div className="flex justify-between items-center mb-2">
                     <label className="label mb-0">Nombre del Grupo</label>
