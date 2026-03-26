@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown, CheckCircle, CreditCard, Paperclip, ExternalLink } from 'lucide-react'
+import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown, CheckCircle, CreditCard, Paperclip, Eye } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { supabase } from '../supabase'
@@ -13,6 +13,54 @@ import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
 import TablaServiciosVariante from './TablaServiciosVariante'
 import EditableInput from './EditableInput'
 import jsPDF from 'jspdf'
+
+/** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
+const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
+
+/**
+ * Limpia el nombre de archivo para rutas URL-safe (espacios y caracteres especiales → guiones).
+ * Ej.: "Factura Hotel.pdf" → "factura-hotel.pdf"
+ */
+const sanitizarNombreArchivoFacturaProveedor = (nombreOriginal) => {
+  const raw = String(nombreOriginal || 'factura').trim()
+  const lastDot = raw.lastIndexOf('.')
+  const extRaw = lastDot >= 0 ? raw.slice(lastDot).toLowerCase() : ''
+  const base = (lastDot >= 0 ? raw.slice(0, lastDot) : raw)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'factura'
+  const ext = extRaw === '.pdf' || extRaw === '' ? '.pdf' : extRaw
+  return `${base}${ext}`
+}
+
+/** Reconstruye la URL pública canónica vía getPublicUrl a partir de la URL guardada o de la ruta relativa. */
+const resolverUrlPublicaFacturaProveedor = (urlPdf) => {
+  if (!urlPdf || typeof urlPdf !== 'string') return null
+  const trimmed = urlPdf.trim()
+  const marker = `/object/public/${BUCKET_FACTURAS_PROVEEDORES}/`
+  const idx = trimmed.indexOf(marker)
+  if (idx >= 0) {
+    let path = trimmed.slice(idx + marker.length).split('?')[0]
+    try {
+      path = decodeURIComponent(path)
+    } catch (_) {}
+    const { data } = supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).getPublicUrl(path)
+    return data?.publicUrl || trimmed
+  }
+  if (!/^https?:\/\//i.test(trimmed)) {
+    const path = trimmed.replace(/^\/+/, '')
+    const { data } = supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).getPublicUrl(path)
+    return data?.publicUrl || null
+  }
+  return trimmed
+}
+
+const abrirPdfFacturaProveedorNuevaPestana = (urlPdf) => {
+  const url = resolverUrlPublicaFacturaProveedor(urlPdf)
+  if (url) window.open(url, '_blank', 'noopener,noreferrer')
+}
 
 // Función helper para normalizar tipos: minúsculas + sin tildes
 // Ejemplo: 'Autobús' -> 'autobus', 'Restaurante' -> 'restaurante'
@@ -2878,12 +2926,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   const subirPdfFacturaCot = async (file) => {
     if (!file || !expediente?.id) return null
-    const nombre = `${expediente.id}/${Date.now()}_${file.name.replace(/\s+/g, '_')}`
+    const nombreSeguro = sanitizarNombreArchivoFacturaProveedor(file.name)
+    const objectPath = `${expediente.id}/${Date.now()}_${nombreSeguro}`
     const { error } = await supabase.storage
-      .from('facturas_proveedores')
-      .upload(nombre, file, { upsert: true })
+      .from(BUCKET_FACTURAS_PROVEEDORES)
+      .upload(objectPath, file, {
+        upsert: true,
+        contentType: file.type || 'application/pdf',
+      })
     if (error) throw new Error(error.message)
-    const { data: u } = supabase.storage.from('facturas_proveedores').getPublicUrl(nombre)
+    const { data: u } = supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).getPublicUrl(objectPath)
     return u?.publicUrl || null
   }
 
@@ -5908,10 +5960,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   <span className="flex items-center gap-1.5 text-green-700 font-semibold text-sm">
                                     <CheckCircle size={17} /> Documentado
                                   </span>
-                                  <a href={urlPdf} target="_blank" rel="noopener noreferrer"
-                                     className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-semibold border border-blue-200 rounded px-2 py-0.5 hover:bg-blue-50 transition-colors">
-                                    <ExternalLink size={11} /> Descargar PDF
-                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => abrirPdfFacturaProveedorNuevaPestana(urlPdf)}
+                                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                  >
+                                    <Eye size={14} strokeWidth={1.75} className="text-slate-600" />
+                                    Ver PDF
+                                  </button>
                                 </div>
                               ) : pagoRegistrado ? (
                                 /* ⚠ Pago registrado pero sin PDF adjunto */
@@ -6101,12 +6157,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           <th className="pb-2 pr-3">Concepto</th>
                           <th className="pb-2 pr-3">Fecha</th>
                           <th className="pb-2 pr-3 text-right">Importe</th>
-                          <th className="pb-2 text-center">PDF</th>
+                          <th className="pb-2 text-center w-14">PDF</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {pagosProveedores.map((p) => (
-                          <tr key={p.id || `${p.servicio_id}-${p.fecha_pago}`} className="hover:bg-gray-50 transition-colors">
+                          <tr key={p.id || `${p.servicio_id}-${p.fecha_pago}`} className="hover:bg-slate-50/80 transition-colors">
                             <td className="py-2.5 pr-3">
                               {p.es_extra
                                 ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Extra</span>
@@ -6118,13 +6174,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             <td className="py-2.5 pr-3 text-gray-500 text-xs whitespace-nowrap">{p.fecha_pago || '—'}</td>
                             <td className="py-2.5 pr-3 text-right font-semibold">{Number(p.importe_pagado || 0).toFixed(2)} €</td>
                             <td className="py-2.5 text-center">
-                              {p.url_pdf
-                                ? <a href={p.url_pdf} target="_blank" rel="noopener noreferrer"
-                                     className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-semibold">
-                                    <ExternalLink size={11} /> PDF
-                                  </a>
-                                : <span className="text-gray-400 text-xs">—</span>
-                              }
+                              {p.url_pdf ? (
+                                <button
+                                  type="button"
+                                  onClick={() => abrirPdfFacturaProveedorNuevaPestana(p.url_pdf)}
+                                  className="inline-flex items-center justify-center rounded-md p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                                  title="Ver PDF"
+                                  aria-label="Ver factura PDF en nueva pestaña"
+                                >
+                                  <Eye size={18} strokeWidth={1.75} />
+                                </button>
+                              ) : (
+                                <span className="text-slate-300 text-xs">—</span>
+                              )}
                             </td>
                           </tr>
                         ))}
