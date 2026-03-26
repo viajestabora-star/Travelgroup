@@ -4,7 +4,7 @@ import { supabase } from '../supabase'
 import { registrarSalidaOnUnload, heartbeatSalidaById } from '../utils/controlHorario'
 import { 
   LayoutDashboard, Users, Calculator, Calendar, Briefcase, 
-  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut, Wand2
+  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { esUsuarioGestoria } from '../App'
@@ -116,7 +116,6 @@ const Layout = ({ user, onLogout }) => {
       { path: '/planning',          icon: Calendar,        label: `Planning ${ejercicioActual}` },
       { path: '/crm',               icon: Plane,           label: 'CRM / Captación' },
       { path: '/composer',             icon: Edit3,      label: 'Composer' },
-      { path: '/generador-programas', icon: Wand2,       label: 'Diseñador de Programas' },
       { path: '/cierres',              icon: Calculator, label: 'Cierres' },
       { path: '/historial-cierres', icon: History,         label: 'Historial de Cierres' },
     ]

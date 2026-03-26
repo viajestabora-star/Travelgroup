@@ -14,7 +14,6 @@ import Cierres from './pages/Cierres';
 import HistorialCierres from './pages/HistorialCierres';
 import NotasTrabajo from './pages/NotasTrabajo';
 import Composer from './pages/Composer';
-import GeneradorProgramas from './pages/GeneradorProgramas';
 import InteligenciaEconomica from './pages/InteligenciaEconomica';
 import AdminRouteGuard from './components/AdminRouteGuard';
 
@@ -136,7 +135,6 @@ function App() {
             <Route path="crm"         element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><CRM user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
             <Route path="notas"       element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><NotasTrabajo user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
             <Route path="composer"             element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Composer user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
-            <Route path="generador-programas"  element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><GeneradorProgramas user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
 
             {/* ── Inteligencia Económica: ADMIN + GESTORIA ── */}
             <Route
