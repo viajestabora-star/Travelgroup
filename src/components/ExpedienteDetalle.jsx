@@ -17,26 +17,8 @@ import jsPDF from 'jspdf'
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
 
-/**
- * Limpia el nombre de archivo para rutas URL-safe (espacios y caracteres especiales → guiones).
- * Ej.: "Factura Hotel.pdf" → "factura-hotel.pdf"
- */
-const sanitizarNombreArchivoFacturaProveedor = (nombreOriginal) => {
-  const raw = String(nombreOriginal || 'factura').trim()
-  const lastDot = raw.lastIndexOf('.')
-  const extRaw = lastDot >= 0 ? raw.slice(lastDot).toLowerCase() : ''
-  const base = (lastDot >= 0 ? raw.slice(0, lastDot) : raw)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'factura'
-  const ext = extRaw === '.pdf' || extRaw === '' ? '.pdf' : extRaw
-  return `${base}${ext}`
-}
-
-/** Reconstruye la URL pública canónica vía getPublicUrl a partir de la URL guardada o de la ruta relativa. */
-const resolverUrlPublicaFacturaProveedor = (urlPdf) => {
+/** Ruta relativa del objeto dentro del bucket (p. ej. para remove y getPublicUrl). */
+const extraerRutaObjectoFacturaProveedor = (urlPdf) => {
   if (!urlPdf || typeof urlPdf !== 'string') return null
   const trimmed = urlPdf.trim()
   const marker = `/object/public/${BUCKET_FACTURAS_PROVEEDORES}/`
@@ -46,20 +28,48 @@ const resolverUrlPublicaFacturaProveedor = (urlPdf) => {
     try {
       path = decodeURIComponent(path)
     } catch (_) {}
-    const { data } = supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).getPublicUrl(path)
-    return data?.publicUrl || trimmed
+    return path
   }
-  if (!/^https?:\/\//i.test(trimmed)) {
-    const path = trimmed.replace(/^\/+/, '')
-    const { data } = supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).getPublicUrl(path)
-    return data?.publicUrl || null
-  }
-  return trimmed
+  if (!/^https?:\/\//i.test(trimmed)) return trimmed.replace(/^\/+/, '')
+  return null
 }
 
-const abrirPdfFacturaProveedorNuevaPestana = (urlPdf) => {
-  const url = resolverUrlPublicaFacturaProveedor(urlPdf)
-  if (url) window.open(url, '_blank', 'noopener,noreferrer')
+/**
+ * Ver factura: getPublicUrl(nombreUnico) en facturas_proveedores + window.open.
+ * En BD se guarda la ruta del objeto (fac-….pdf) o URL legada.
+ */
+const abrirFacturaProveedorPorUrlGuardada = (valorGuardado) => {
+  if (!valorGuardado || typeof valorGuardado !== 'string') return
+  const nombreUnico =
+    extraerRutaObjectoFacturaProveedor(valorGuardado) || valorGuardado.replace(/^\/+/, '').trim()
+  if (nombreUnico) {
+    const publicUrl = supabase.storage.from('facturas_proveedores').getPublicUrl(nombreUnico).data
+      ?.publicUrl
+    if (publicUrl) {
+      window.open(publicUrl, '_blank', 'noopener,noreferrer')
+      return
+    }
+  }
+  const t = valorGuardado.trim()
+  if (/^https?:\/\//i.test(t)) window.open(t, '_blank', 'noopener,noreferrer')
+}
+
+const eliminarObjetoStorageFacturaProveedor = async (urlPdf) => {
+  const path = extraerRutaObjectoFacturaProveedor(urlPdf)
+  if (!path) return { ok: true }
+  const { error } = await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([path])
+  if (error) return { ok: false, error }
+  return { ok: true }
+}
+
+/** Coincide pago de proveedores con servicio de cotización (IDs string/UUID/intercambiables). */
+const pagoProveedorCoincideServicioCot = (pago, servicioId) => {
+  if (!pago || servicioId == null || servicioId === '') return false
+  const sid = String(servicioId)
+  return (
+    String(pago.servicio_cotizacion_id ?? '') === sid ||
+    String(pago.servicio_id ?? '') === sid
+  )
 }
 
 // Función helper para normalizar tipos: minúsculas + sin tildes
@@ -555,6 +565,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [showGastoExtra,   setShowGastoExtra]    = useState(false)
   const [fExtra,           setFExtra]            = useState({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '' })
   const [pdfExtra,         setPdfExtra]          = useState(null)
+  const [mensajeExitoFacturaProveedor, setMensajeExitoFacturaProveedor] = useState(null)
 
   // Cliente(s) del expediente: relación directa expedientes.cliente_id → clientes (tabla expediente_clientes NO existe)
   const expedienteClientes = useMemo(() => {
@@ -2926,17 +2937,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   const subirPdfFacturaCot = async (file) => {
     if (!file || !expediente?.id) return null
-    const nombreSeguro = sanitizarNombreArchivoFacturaProveedor(file.name)
-    const objectPath = `${expediente.id}/${Date.now()}_${nombreSeguro}`
-    const { error } = await supabase.storage
-      .from(BUCKET_FACTURAS_PROVEEDORES)
-      .upload(objectPath, file, {
-        upsert: true,
-        contentType: file.type || 'application/pdf',
-      })
-    if (error) throw new Error(error.message)
-    const { data: u } = supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).getPublicUrl(objectPath)
-    return u?.publicUrl || null
+    const nombreUnico = 'fac-' + Date.now() + '.pdf'
+    const { error } = await supabase.storage.from('facturas_proveedores').upload(nombreUnico, file)
+    if (error) {
+      const hint =
+        /rls|row-level security|policy/i.test(String(error.message))
+          ? '\n\nSi el error menciona RLS, ejecuta en Supabase el script migrations/storage-rls-facturas-proveedores.sql'
+          : ''
+      throw new Error(String(error.message) + hint)
+    }
+    // Persistir en pagos_proveedores.url_pdf la ruta dentro del bucket (no metadatos ni URL completa obligatoria)
+    return nombreUnico
   }
 
   const guardarFacturaCot = async (servicio) => {
@@ -2945,29 +2956,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
     setSubiendoPdfCot(true)
     try {
-      const urlPdf = pdfInline ? await subirPdfFacturaCot(pdfInline) : null
+      const existente = pagosProveedores.find((p) => pagoProveedorCoincideServicioCot(p, servicio.id))
+      const urlAnterior = existente?.url_pdf?.trim() || ''
 
-      // Si ya existe un registro para este servicio, hacemos UPDATE; si no, INSERT
-      const existente = pagosProveedores.find(p =>
-        p.servicio_cotizacion_id === servicio.id || p.servicio_id === servicio.id
-      )
+      let urlPdf = null
+      if (pdfInline) {
+        urlPdf = await subirPdfFacturaCot(pdfInline)
+        if (urlAnterior && urlPdf && urlAnterior !== urlPdf) {
+          await eliminarObjetoStorageFacturaProveedor(urlAnterior)
+        }
+      }
 
-      let dbError
+      let filaGuardada = null
+      let dbError = null
       if (existente?.id) {
-        // Actualizar registro existente (caso: pago sin PDF → adjuntar PDF ahora)
         const campos = {
           numero_factura: fInline.numero_factura || existente.numero_factura || null,
           fecha_pago:     fInline.fecha_pago,
           importe_pagado: importe,
         }
-        if (urlPdf) campos.url_pdf = urlPdf  // solo sobreescribir url si se sube un PDF nuevo
-        ;({ error: dbError } = await supabase
+        if (urlPdf) campos.url_pdf = urlPdf
+        const res = await supabase
           .from('pagos_proveedores')
           .update(campos)
-          .eq('id', existente.id))
+          .eq('id', existente.id)
+          .select()
+          .single()
+        dbError = res.error
+        filaGuardada = res.data
       } else {
-        // Insertar nuevo registro
-        ;({ error: dbError } = await supabase.from('pagos_proveedores').insert([{
+        const res = await supabase.from('pagos_proveedores').insert([{
           expediente_id:          expediente.id,
           servicio_cotizacion_id: servicio.id,
           servicio_id:            servicio.id,
@@ -2978,16 +2996,66 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           proveedor_nombre:       servicio._proveedorNombre || servicio.nombre_proveedor_manual || null,
           url_pdf:                urlPdf,
           es_extra:               false,
-        }]))
+        }]).select().single()
+        dbError = res.error
+        filaGuardada = res.data
       }
 
       if (dbError) { alert('Error al guardar: ' + dbError.message); return }
+
+      if (filaGuardada?.id) {
+        setPagosProveedores((prev) => {
+          const rest = (prev || []).filter((p) => p.id !== filaGuardada.id)
+          return [filaGuardada, ...rest]
+        })
+      }
+
+      // Cerrar formulario y quitar "Guardando…" antes del refetch para mostrar el botón Eye al instante
       setInlineId(null)
       setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '' })
       setPdfInline(null)
-      await cargarPagosProveedores()  // refresca la lista → la UI se actualiza sola
+      setSubiendoPdfCot(false)
+
+      setMensajeExitoFacturaProveedor('Factura guardada con éxito')
+      window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
+
+      await cargarPagosProveedores()
+      if (typeof onRefresh === 'function') onRefresh()
     } catch (e) { alert(e.message || 'Error inesperado.')
     } finally { setSubiendoPdfCot(false) }
+  }
+
+  const abrirFormularioCambiarPdfServicio = (servicio, pagoRegistrado) => {
+    setInlineId(servicio.id)
+    setFInline({
+      numero_factura: pagoRegistrado?.numero_factura || '',
+      fecha_pago: pagoRegistrado?.fecha_pago || new Date().toISOString().split('T')[0],
+      importe_pagado: pagoRegistrado?.importe_pagado ?? servicio.total_servicio_manual ?? servicio.total_servicio ?? servicio.coste_unitario ?? '',
+    })
+    setPdfInline(null)
+  }
+
+  const quitarPdfFacturaServicioCot = async (pagoRegistrado) => {
+    if (!pagoRegistrado?.id) return
+    if (!window.confirm('¿Quitar el PDF de esta factura? Se eliminará el archivo del almacén y podrás adjuntar otro.')) return
+    try {
+      if (pagoRegistrado.url_pdf) {
+        const res = await eliminarObjetoStorageFacturaProveedor(pagoRegistrado.url_pdf)
+        if (!res.ok) console.warn('[facturas_proveedores] remove', res.error)
+      }
+      const { error } = await supabase
+        .from('pagos_proveedores')
+        .update({ url_pdf: null })
+        .eq('id', pagoRegistrado.id)
+      if (error) {
+        alert('No se pudo actualizar el registro: ' + error.message)
+        return
+      }
+      await cargarPagosProveedores()
+      if (typeof onRefresh === 'function') onRefresh()
+    } catch (e) {
+      alert(e?.message || 'No se pudo quitar el PDF.')
+    }
   }
 
   const guardarGastoExtra = async () => {
@@ -3008,10 +3076,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         es_extra:         true,
       }])
       if (error) { alert('Error: ' + error.message); return }
+      await cargarPagosProveedores()
+      setMensajeExitoFacturaProveedor('Factura guardada con éxito')
+      window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
       setShowGastoExtra(false)
       setFExtra({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '' })
       setPdfExtra(null)
-      await cargarPagosProveedores()
+      if (typeof onRefresh === 'function') onRefresh()
     } catch (e) { alert(e.message || 'Error inesperado.')
     } finally { setSubiendoPdfCot(false) }
   }
@@ -5903,6 +5974,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
                 <h3 className="text-xl font-bold text-navy-900 mb-5">Registrar Factura por Servicio</h3>
 
+                {mensajeExitoFacturaProveedor ? (
+                  <div
+                    role="status"
+                    className="mb-5 rounded-lg border border-emerald-200/90 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900"
+                  >
+                    {mensajeExitoFacturaProveedor}
+                  </div>
+                ) : null}
+
                 {/* Error de carga de servicios — no bloquea nada más */}
                 {errorCot && (
                   <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-red-700 text-sm mb-4 flex items-center gap-2">
@@ -5922,11 +6002,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 {serviciosCot.length > 0 && (
                   <div className="space-y-3 mb-6">
                     {serviciosCot.map(s => {
-                      const pagoRegistrado = pagosProveedores.find(p =>
-                        (p.servicio_cotizacion_id === s.id || p.servicio_id === s.id)
+                      const pagoRegistrado = pagosProveedores.find((p) =>
+                        pagoProveedorCoincideServicioCot(p, s.id)
                       )
                       // "Documentado" requiere pago + url_pdf con contenido real
-                      const urlPdf = pagoRegistrado?.url_pdf?.trim() || ''
+                      const urlPdf = String(pagoRegistrado?.url_pdf ?? '').trim()
                       const documentado = Boolean(pagoRegistrado && urlPdf.length > 0)
                       const abierto = inlineId === s.id
                       return (
@@ -5955,19 +6035,40 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             </div>
                             <div className="shrink-0 ml-4">
                               {documentado ? (
-                                /* ✅ Pago + PDF confirmados */
-                                <div className="flex items-center gap-2">
-                                  <span className="flex items-center gap-1.5 text-green-700 font-semibold text-sm">
-                                    <CheckCircle size={17} /> Documentado
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                  <span className="flex items-center gap-1.5 text-emerald-800 font-semibold text-sm">
+                                    <CheckCircle size={17} strokeWidth={1.75} /> Documentado
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => abrirPdfFacturaProveedorNuevaPestana(urlPdf)}
-                                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                                  >
-                                    <Eye size={14} strokeWidth={1.75} className="text-slate-600" />
-                                    Ver PDF
-                                  </button>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirFacturaProveedorPorUrlGuardada(urlPdf)}
+                                      className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 transition-colors"
+                                      title="Ver factura en una pestaña nueva"
+                                      aria-label="Ver Factura"
+                                    >
+                                      <Eye size={18} strokeWidth={1.75} className="shrink-0 text-slate-600" />
+                                      Ver Factura
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirFormularioCambiarPdfServicio(s, pagoRegistrado)}
+                                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
+                                      title="Cambiar archivo PDF"
+                                      aria-label="Cambiar factura PDF"
+                                    >
+                                      <Pencil size={16} strokeWidth={1.75} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => quitarPdfFacturaServicioCot(pagoRegistrado)}
+                                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition-colors"
+                                      title="Quitar PDF"
+                                      aria-label="Quitar PDF adjunto"
+                                    >
+                                      <Trash2 size={16} strokeWidth={1.75} />
+                                    </button>
+                                  </div>
                                 </div>
                               ) : pagoRegistrado ? (
                                 /* ⚠ Pago registrado pero sin PDF adjunto */
@@ -6177,12 +6278,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               {p.url_pdf ? (
                                 <button
                                   type="button"
-                                  onClick={() => abrirPdfFacturaProveedorNuevaPestana(p.url_pdf)}
-                                  className="inline-flex items-center justify-center rounded-md p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-                                  title="Ver PDF"
-                                  aria-label="Ver factura PDF en nueva pestaña"
+                                  onClick={() => abrirFacturaProveedorPorUrlGuardada(p.url_pdf)}
+                                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                  title="Ver Factura"
                                 >
-                                  <Eye size={18} strokeWidth={1.75} />
+                                  <Eye size={16} strokeWidth={1.75} />
+                                  Ver Factura
                                 </button>
                               ) : (
                                 <span className="text-slate-300 text-xs">—</span>
