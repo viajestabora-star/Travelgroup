@@ -75,12 +75,22 @@ const extraerFinanzas = (exp) => {
 const CATEGORIAS = ['Bus', 'Hotel', 'Restaurante', 'Guía', 'Otros']
 
 const TRIMESTRES = [
-  { value: 'all', label: 'Todos los trimestres' },
-  { value: '1',   label: 'Q1 — Ene / Feb / Mar'  },
-  { value: '2',   label: 'Q2 — Abr / May / Jun'  },
-  { value: '3',   label: 'Q3 — Jul / Ago / Sep'  },
-  { value: '4',   label: 'Q4 — Oct / Nov / Dic'  },
+  { value: 'all', label: 'Todos (T1–T4)' },
+  { value: '1',   label: 'T1 · Ene–Mar' },
+  { value: '2',   label: 'T2 · Abr–Jun' },
+  { value: '3',   label: 'T3 · Jul–Sep' },
+  { value: '4',   label: 'T4 · Oct–Dic' },
 ]
+
+/** Normaliza estado para badge (verde cerrado, azul finalizado). */
+const estadoNormalizado = (exp) => String(exp?.estado ?? '').trim().toLowerCase()
+
+const badgeEstadoProps = (exp) => {
+  const s = estadoNormalizado(exp)
+  if (s === 'cerrado') return { className: 'bg-emerald-500', label: 'Cerrado' }
+  if (s === 'finalizado') return { className: 'bg-blue-500', label: 'Finalizado' }
+  return { className: 'bg-slate-300', label: s || '—' }
+}
 const añoActual = new Date().getFullYear()
 const AÑOS = Array.from({ length: 6 }, (_, i) => añoActual - i)
 
@@ -273,18 +283,26 @@ const HistorialCierres = () => {
   const [cierres,    setCierres]    = useState([])
   const [cargando,   setCargando]   = useState(true)
   const [exportando, setExportando] = useState(false)
-  const [año,        setAño]        = useState(String(añoActual))
-  const [abiertoTrim, setAbiertoTrim] = useState(() => estadoInicialAcordeon(String(añoActual)))
+  const [año,           setAño]           = useState(String(añoActual))
+  const [trimestreFiltro, setTrimestreFiltro] = useState('all')
+  const [abiertoTrim,   setAbiertoTrim]   = useState(() => estadoInicialAcordeon(String(añoActual)))
 
   useEffect(() => { cargarCierres() }, [])
-  useEffect(() => { setAbiertoTrim(estadoInicialAcordeon(año)) }, [año])
+  useEffect(() => {
+    if (trimestreFiltro === 'all') {
+      setAbiertoTrim(estadoInicialAcordeon(año))
+    } else {
+      const q = parseInt(trimestreFiltro, 10)
+      setAbiertoTrim({ 1: q === 1, 2: q === 2, 3: q === 3, 4: q === 4, 0: false })
+    }
+  }, [año, trimestreFiltro])
 
   const cargarCierres = async () => {
     setCargando(true)
     try {
       const { data, error } = await supabase
         .from('expedientes')
-        .select(`id, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio,
+        .select(`id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio,
                  total_ingresos, total_gastos_reales, beneficio_neto_real,
                  liquidacion_final_beneficio, cierre_grupo, informe_gastos_hacienda`)
         .or('estado.eq.cerrado,estado.eq.finalizado')
@@ -355,13 +373,27 @@ const HistorialCierres = () => {
     return { bucketsTrimestre: buckets, bucketSinFecha: sinFechaBucket }
   }, [expedientesDelAño])
 
+  /** Bloques visibles según desplegable T1–T4 / Todos. «Sin fecha» solo en «Todos». */
+  const { bucketsVisibles, bucketSinFechaVisible } = useMemo(() => {
+    if (trimestreFiltro === 'all') {
+      return { bucketsVisibles: bucketsTrimestre, bucketSinFechaVisible: bucketSinFecha }
+    }
+    const q = parseInt(trimestreFiltro, 10)
+    return {
+      bucketsVisibles: bucketsTrimestre.filter((b) => b.q === q),
+      bucketSinFechaVisible: null,
+    }
+  }, [bucketsTrimestre, bucketSinFecha, trimestreFiltro])
+
   const cierresFiltrados = useMemo(
-    () => [...bucketsTrimestre.flatMap((b) => b.items), ...(bucketSinFecha?.items ?? [])],
-    [bucketsTrimestre, bucketSinFecha]
+    () => [...bucketsVisibles.flatMap((b) => b.items), ...(bucketSinFechaVisible?.items ?? [])],
+    [bucketsVisibles, bucketSinFechaVisible]
   )
 
+  /** Totales dinámicos: solo filas visibles (mismo criterio que columnas de la tabla + gastos del modelo de finanzas). */
   const totales = useMemo(() => ({
     ingresos:  cierresFiltrados.reduce((s, c) => s + n(c.total_ingresos), 0),
+    gastos:    cierresFiltrados.reduce((s, c) => s + n(c.gastoTotal), 0),
     beneficio: cierresFiltrados.reduce((s, c) => s + n(c.beneficio_neto_real), 0),
   }), [cierresFiltrados])
 
@@ -428,10 +460,16 @@ const HistorialCierres = () => {
         }
       })
 
-      const etiquetaPeriodo = `${año} (cerrado / finalizado)`
+      const etiquetaCuaderno =
+        trimestreFiltro === 'all'
+          ? `${año} · Todos los trimestres (cerrado / finalizado)`
+          : `${año} · ${TRIMESTRES.find((t) => t.value === trimestreFiltro)?.label ?? `T${trimestreFiltro}`} (cerrado / finalizado)`
 
-      const htmlContent = construirHTMLCuaderno(cierresEnriquecidos, etiquetaPeriodo)
-      const fileName    = `Cuaderno_Cierres_${año}.xls`
+      const htmlContent = construirHTMLCuaderno(cierresEnriquecidos, etiquetaCuaderno)
+      const fileName =
+        trimestreFiltro === 'all'
+          ? `Cuaderno_Cierres_${año}_Todos.xls`
+          : `Cuaderno_Cierres_${año}_T${trimestreFiltro}.xls`
 
       const blob = new Blob(['\uFEFF' + htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8' })
       const a    = document.createElement('a')
@@ -460,9 +498,20 @@ const HistorialCierres = () => {
     setAbiertoTrim((s) => ({ ...s, [q]: !s[q] }))
   }
 
-  const renderFila = (c) => (
+  const renderFila = (c) => {
+    const badge = badgeEstadoProps(c)
+    return (
     <tr key={c.id} className="hover:bg-slate-50 transition-colors">
-      <td className="px-4 py-3 font-mono text-xs text-slate-700 font-semibold">{c.numero_expediente ?? '—'}</td>
+      <td className="px-4 py-3 font-mono text-xs text-slate-700 font-semibold">
+        <span className="inline-flex items-center gap-2">
+          <span
+            className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-white shadow-sm ${badge.className}`}
+            title={badge.label}
+            aria-label={`Estado: ${badge.label}`}
+          />
+          <span>{c.numero_expediente ?? '—'}</span>
+        </span>
+      </td>
       <td className="px-4 py-3 text-slate-800">{c.cliente_nombre ?? '—'}</td>
       <td className="px-4 py-3 text-slate-600">{c.destino ?? '—'}</td>
       <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{formatearFecha(c.fechaInicioDate)}</td>
@@ -477,7 +526,8 @@ const HistorialCierres = () => {
         </button>
       </td>
     </tr>
-  )
+    )
+  }
 
   const renderBloqueTrimestre = (bucket) => {
     const q = bucket.q
@@ -552,9 +602,14 @@ const HistorialCierres = () => {
                   </table>
                 </div>
                 <div className="md:hidden p-4 space-y-4">
-                  {bucket.items.map((c) => (
+                  {bucket.items.map((c) => {
+                    const badge = badgeEstadoProps(c)
+                    return (
                     <div key={c.id} className="rounded-xl border border-slate-200 p-4 bg-slate-50/50">
-                      <p className="text-xs font-mono text-slate-500">{c.numero_expediente ?? '—'}</p>
+                      <p className="text-xs font-mono text-slate-500 inline-flex items-center gap-2">
+                        <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${badge.className}`} title={badge.label} />
+                        {c.numero_expediente ?? '—'}
+                      </p>
                       <p className="font-bold text-slate-900">{c.cliente_nombre ?? '—'}</p>
                       <p className="text-sm text-slate-600">{c.destino ?? '—'}</p>
                       <p className="text-xs text-slate-500 mt-1">Inicio: {formatearFecha(c.fechaInicioDate)}</p>
@@ -573,7 +628,8 @@ const HistorialCierres = () => {
                         <Eye size={16} />Ver
                       </button>
                     </div>
-                  ))}
+                    )
+                  })}
                   <div className="rounded-xl border border-slate-300 bg-slate-100 p-4 text-sm">
                     <p className="font-black text-slate-700 uppercase text-xs mb-2">Resumen del periodo</p>
                     <p className="flex justify-between"><span>Σ Total ingresos</span><span className="font-bold text-emerald-800">{bucket.sumIngresos.toFixed(2)} €</span></p>
@@ -612,6 +668,15 @@ const HistorialCierres = () => {
               {AÑOS.map(a => <option key={a} value={String(a)}>{a}</option>)}
             </select>
           </div>
+          <select
+            value={trimestreFiltro}
+            onChange={(e) => setTrimestreFiltro(e.target.value)}
+            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            {TRIMESTRES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
           <button type="button" onClick={exportarCuaderno}
             disabled={cierresFiltrados.length === 0 || exportando}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold shadow-sm transition-colors text-sm"
@@ -624,17 +689,20 @@ const HistorialCierres = () => {
         </div>
       </div>
 
-      {/* Tarjetas de resumen (columnas BD del ejercicio seleccionado) */}
-      {!cargando && cierresFiltrados.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+      {/* Totales dinámicos (solo filas visibles; pueden ser 0 € si el trimestre filtrado está vacío) */}
+      {!cargando && expedientesDelAño.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           {[
-            { label: 'Σ Total ingresos (BD)', value: totales.ingresos, color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
-            { label: 'Σ Beneficio neto real (BD)', value: totales.beneficio, color: totales.beneficio >= 0 ? 'text-blue-700' : 'text-red-700', bg: totales.beneficio >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200' },
+            { label: 'Total ingresos', value: totales.ingresos, color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
+            { label: 'Gastos', value: totales.gastos, color: 'text-red-700', bg: 'bg-red-50 border-red-200' },
+            { label: 'Beneficio neto real', value: totales.beneficio, color: totales.beneficio >= 0 ? 'text-blue-700' : 'text-red-700', bg: totales.beneficio >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200' },
           ].map((card) => (
             <div key={card.label} className={`rounded-xl border p-4 ${card.bg}`}>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{card.label}</p>
               <p className={`text-2xl font-extrabold ${card.color}`}>{card.value.toFixed(2)} €</p>
-              <p className="text-xs text-slate-400 mt-0.5">{cierresFiltrados.length} expediente{cierresFiltrados.length !== 1 ? 's' : ''}</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {cierresFiltrados.length} expediente{cierresFiltrados.length !== 1 ? 's' : ''} en vista · {TRIMESTRES.find((t) => t.value === trimestreFiltro)?.label}
+              </p>
             </div>
           ))}
         </div>
@@ -666,16 +734,16 @@ const HistorialCierres = () => {
       ) : (
         <div className="space-y-2">
           <p className="text-xs text-slate-500 mb-2">
-            Acordeones: por defecto queda abierto el trimestre del calendario en el año actual; en años anteriores se abre <strong>T1</strong>. Todos los expedientes del año se listan; sin <code className="text-[10px] bg-slate-100 px-1 rounded">fecha_inicio</code> válida van al bloque aparte.
+            El trimestre seleccionado en la barra superior muestra u oculta bloques. Con «Todos» también se muestra el bloque sin fecha de inicio. Los puntos junto al Nº son estado: <span className="text-emerald-600 font-medium">verde = cerrado</span>, <span className="text-blue-600 font-medium">azul = finalizado</span>.
           </p>
-          {bucketsTrimestre.map(renderBloqueTrimestre)}
-          {bucketSinFecha && renderBloqueTrimestre(bucketSinFecha)}
+          {bucketsVisibles.map(renderBloqueTrimestre)}
+          {bucketSinFechaVisible && renderBloqueTrimestre(bucketSinFechaVisible)}
         </div>
       )}
 
-      {!cargando && cierresFiltrados.length > 0 && (
+      {!cargando && expedientesDelAño.length > 0 && (
         <p className="mt-4 text-xs text-slate-400 text-center">
-          Cuaderno Excel: desglose por proveedor y categorías (Bus, Hotel, Restaurante, Guía, Otros, Imprevistos).
+          Cuaderno trimestral exporta solo los expedientes del filtro activo (vacío si no hay filas). Desglose: Bus, Hotel, Restaurante, Guía, Otros, Imprevistos.
         </p>
       )}
     </div>
