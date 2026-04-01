@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2 } from 'lucide-react'
+import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown } from 'lucide-react'
 import { supabase } from '../supabase'
 import { categorizarPago } from '../utils/finanzasHelpers'
+import { parsearFechaADate } from '../utils/dateNormalizer'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -11,6 +12,34 @@ const n = (v) => { const num = Number(v ?? 0); return Number.isFinite(num) ? num
 const esc = (str) => String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
 
 const fmtEur = (v) => n(v).toFixed(2)
+
+/** Convierte fecha_inicio (texto/ISO) a Date; sin valor válido → null. */
+const fechaInicioADate = (raw) => {
+  if (!raw) return null
+  const d = parsearFechaADate(raw)
+  if (d && !isNaN(d.getTime())) return d
+  const d2 = new Date(raw)
+  return !isNaN(d2.getTime()) ? d2 : null
+}
+
+/**
+ * Trimestre T1–T4 a partir del mes de fecha_inicio (1–12).
+ * Meses 1–3 → T1, 4–6 → T2, 7–9 → T3, 10–12 → T4.
+ */
+const trimestreDesdeMes = (mes) => {
+  if (mes == null || mes < 1 || mes > 12) return null
+  return Math.floor((mes - 1) / 3) + 1
+}
+
+/**
+ * Clasifica expediente por el mes de fecha_inicio (año y trimestre).
+ */
+const clasificarPorFechaInicio = (exp) => {
+  const d = exp.fechaInicioDate ?? fechaInicioADate(exp.fecha_inicio)
+  if (!d || isNaN(d.getTime())) return { trimestre: null, fechaInicio: null }
+  const mes = d.getMonth() + 1
+  return { trimestre: trimestreDesdeMes(mes), fechaInicio: d }
+}
 
 /**
  * Extrae finanzas canónicas de un expediente.
@@ -43,7 +72,6 @@ const extraerFinanzas = (exp) => {
 
 // ─── Constantes UI ────────────────────────────────────────────────────────────
 
-const getQuarter = (d) => d ? Math.floor(d.getMonth() / 3) + 1 : null
 const CATEGORIAS = ['Bus', 'Hotel', 'Restaurante', 'Guía', 'Otros']
 
 const TRIMESTRES = [
@@ -225,15 +253,31 @@ const construirHTMLCuaderno = (cierresEnriquecidos, etiquetaPeriodo) => {
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
+const estadoInicialAcordeon = (añoSeleccionado) => {
+  const y = parseInt(añoSeleccionado, 10)
+  if (y !== añoActual) {
+    return { 1: true, 2: false, 3: false, 4: false, 0: false }
+  }
+  const q = Math.floor(new Date().getMonth() / 3) + 1
+  return {
+    1: q === 1,
+    2: q === 2,
+    3: q === 3,
+    4: q === 4,
+    0: false,
+  }
+}
+
 const HistorialCierres = () => {
   const navigate = useNavigate()
   const [cierres,    setCierres]    = useState([])
   const [cargando,   setCargando]   = useState(true)
   const [exportando, setExportando] = useState(false)
-  const [trimestre,  setTrimestre]  = useState('all')
   const [año,        setAño]        = useState(String(añoActual))
+  const [abiertoTrim, setAbiertoTrim] = useState(() => estadoInicialAcordeon(String(añoActual)))
 
   useEffect(() => { cargarCierres() }, [])
+  useEffect(() => { setAbiertoTrim(estadoInicialAcordeon(año)) }, [año])
 
   const cargarCierres = async () => {
     setCargando(true)
@@ -243,29 +287,82 @@ const HistorialCierres = () => {
         .select(`id, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio,
                  total_ingresos, total_gastos_reales, beneficio_neto_real,
                  liquidacion_final_beneficio, cierre_grupo, informe_gastos_hacienda`)
-        .or('estado.eq.Cerrado,estado.ilike.cerrado,estado.ilike.finalizado')
+        .or('estado.eq.cerrado,estado.eq.finalizado')
         .order('fecha_inicio', { ascending: false, nullsFirst: false })
 
       if (error) { setCierres([]); return }
 
-      const mapeados = (data || []).map((exp) => ({ ...exp, ...extraerFinanzas(exp) }))
-      mapeados.sort((a, b) => (b.fechaCierre?.getTime() ?? 0) - (a.fechaCierre?.getTime() ?? 0))
+      const mapeados = (data || []).map((exp) => {
+        const fin = extraerFinanzas(exp)
+        const fechaInicioDate = fechaInicioADate(exp.fecha_inicio)
+        return { ...exp, ...fin, fechaInicioDate }
+      })
+      mapeados.sort((a, b) => {
+        const ta = a.fechaInicioDate?.getTime() ?? 0
+        const tb = b.fechaInicioDate?.getTime() ?? 0
+        if (tb !== ta) return tb - ta
+        return String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es', { numeric: true })
+      })
       setCierres(mapeados)
     } catch { setCierres([]) }
     finally   { setCargando(false) }
   }
 
-  const cierresFiltrados = useMemo(() => cierres.filter((c) => {
-    const f = c.fechaCierre
-    if (!f) return true
-    if (String(f.getFullYear()) !== año) return false
-    return trimestre === 'all' || getQuarter(f) === parseInt(trimestre, 10)
-  }), [cierres, año, trimestre])
+  /** Integridad: ningún cerrado/finalizado se excluye por falta de fecha; sin fecha_inicio → bloque aparte. */
+  const expedientesDelAño = useMemo(() => cierres.filter((c) => {
+    if (!c.fechaInicioDate) return true
+    return String(c.fechaInicioDate.getFullYear()) === año
+  }), [cierres, año])
+
+  const { bucketsTrimestre, bucketSinFecha } = useMemo(() => {
+    const sinF = expedientesDelAño.filter((c) => !c.fechaInicioDate)
+    const conF = expedientesDelAño.filter((c) => c.fechaInicioDate)
+
+    const ordenarEnBloque = (arr) => [...arr].sort((a, b) => {
+      const ta = a.fechaInicioDate?.getTime() ?? 0
+      const tb = b.fechaInicioDate?.getTime() ?? 0
+      if (ta !== tb) return ta - tb
+      return String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es', { numeric: true })
+    })
+
+    const buckets = [1, 2, 3, 4].map((q) => {
+      const items = ordenarEnBloque(conF.filter((c) => clasificarPorFechaInicio(c).trimestre === q))
+      const sumIngresos = items.reduce((s, c) => s + n(c.total_ingresos), 0)
+      const sumBenefReal = items.reduce((s, c) => s + n(c.beneficio_neto_real), 0)
+      const info = TRIMESTRES.find((t) => t.value === String(q))
+      return {
+        key: `T${q}`,
+        q,
+        titulo: info?.label ?? `Trimestre ${q}`,
+        items,
+        sumIngresos,
+        sumBenefReal,
+      }
+    })
+
+    const itemsSinFecha = ordenarEnBloque(sinF)
+    const sinFechaBucket = itemsSinFecha.length
+      ? {
+          key: 'sin-fecha',
+          q: 0,
+          titulo: 'Sin fecha de inicio',
+          items: itemsSinFecha,
+          sumIngresos: itemsSinFecha.reduce((s, c) => s + n(c.total_ingresos), 0),
+          sumBenefReal: itemsSinFecha.reduce((s, c) => s + n(c.beneficio_neto_real), 0),
+        }
+      : null
+
+    return { bucketsTrimestre: buckets, bucketSinFecha: sinFechaBucket }
+  }, [expedientesDelAño])
+
+  const cierresFiltrados = useMemo(
+    () => [...bucketsTrimestre.flatMap((b) => b.items), ...(bucketSinFecha?.items ?? [])],
+    [bucketsTrimestre, bucketSinFecha]
+  )
 
   const totales = useMemo(() => ({
-    ingresos:  cierresFiltrados.reduce((s, c) => s + c.ingresoTotal,  0),
-    gastos:    cierresFiltrados.reduce((s, c) => s + c.gastoTotal,    0),
-    beneficio: cierresFiltrados.reduce((s, c) => s + c.beneficioNeto, 0),
+    ingresos:  cierresFiltrados.reduce((s, c) => s + n(c.total_ingresos), 0),
+    beneficio: cierresFiltrados.reduce((s, c) => s + n(c.beneficio_neto_real), 0),
   }), [cierresFiltrados])
 
   // ── Exportar Cuaderno de Cierres ──────────────────────────────────────────
@@ -331,12 +428,10 @@ const HistorialCierres = () => {
         }
       })
 
-      const etiquetaPeriodo = trimestre === 'all'
-        ? `Todo ${año}`
-        : `${TRIMESTRES.find(t => t.value === trimestre)?.label ?? ''} · ${año}`
+      const etiquetaPeriodo = `${año} (cerrado / finalizado)`
 
       const htmlContent = construirHTMLCuaderno(cierresEnriquecidos, etiquetaPeriodo)
-      const fileName    = `Cuaderno_Cierres_${trimestre === 'all' ? año : `${año}_Q${trimestre}`}.xls`
+      const fileName    = `Cuaderno_Cierres_${año}.xls`
 
       const blob = new Blob(['\uFEFF' + htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8' })
       const a    = document.createElement('a')
@@ -359,9 +454,139 @@ const HistorialCierres = () => {
 
   const verDetalle = (exp) => navigate('/expedientes', { state: { abrirExpedienteId: exp.id, tabInicial: 'cierre' } })
 
-  const etiquetaPeriodo = trimestre === 'all'
-    ? `Todo ${año}`
-    : `${TRIMESTRES.find(t => t.value === trimestre)?.label ?? ''} · ${año}`
+  const etiquetaPeriodo = `Ejercicio ${año}`
+
+  const toggleAcordeon = (q) => {
+    setAbiertoTrim((s) => ({ ...s, [q]: !s[q] }))
+  }
+
+  const renderFila = (c) => (
+    <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+      <td className="px-4 py-3 font-mono text-xs text-slate-700 font-semibold">{c.numero_expediente ?? '—'}</td>
+      <td className="px-4 py-3 text-slate-800">{c.cliente_nombre ?? '—'}</td>
+      <td className="px-4 py-3 text-slate-600">{c.destino ?? '—'}</td>
+      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{formatearFecha(c.fechaInicioDate)}</td>
+      <td className="px-4 py-3 text-right font-medium text-emerald-800 whitespace-nowrap">{n(c.total_ingresos).toFixed(2)} €</td>
+      <td className="px-4 py-3 text-right font-medium whitespace-nowrap">
+        <span className={n(c.beneficio_neto_real) >= 0 ? 'text-blue-700' : 'text-red-600'}>{n(c.beneficio_neto_real).toFixed(2)} €</span>
+      </td>
+      <td className="px-4 py-3 text-center">
+        <button type="button" onClick={() => verDetalle(c)}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors">
+          <Eye size={14} />Ver
+        </button>
+      </td>
+    </tr>
+  )
+
+  const renderBloqueTrimestre = (bucket) => {
+    const q = bucket.q
+    const abierto = abiertoTrim[q] ?? false
+    return (
+      <div key={bucket.key} className="mb-4 rounded-2xl border border-slate-200 bg-white shadow-md overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleAcordeon(q)}
+          className="w-full text-left px-4 py-4 sm:px-6 sm:py-4 flex items-start justify-between gap-4 hover:bg-slate-50/90 transition-colors border-b border-slate-100"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">
+              {q === 0 ? 'Fuera de T1–T4' : `Trimestre ${q}`}
+            </p>
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+              <span className="text-blue-600">T{q === 0 ? '—' : q}</span>
+              <span className="text-slate-600 font-bold text-lg sm:text-xl">{bucket.titulo}</span>
+            </h2>
+            {bucket.items.length > 0 && (
+              <p className="text-xs text-slate-500 mt-2">{bucket.items.length} expediente{bucket.items.length !== 1 ? 's' : ''}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="hidden sm:block text-right rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-semibold text-slate-500 uppercase">Σ ingresos · Σ benef. neto real</p>
+              <p className="text-sm font-black text-slate-800 tabular-nums">
+                {bucket.sumIngresos.toFixed(2)} € · <span className={bucket.sumBenefReal >= 0 ? 'text-blue-700' : 'text-red-600'}>{bucket.sumBenefReal.toFixed(2)} €</span>
+              </p>
+            </div>
+            <ChevronDown size={22} className={`text-slate-400 transition-transform shrink-0 ${abierto ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+        {abierto && (
+          <div className="bg-white">
+            {bucket.items.length === 0 ? (
+              <p className="text-sm text-slate-400 italic py-10 text-center px-4">Ningún expediente en este trimestre (según mes de fecha inicio).</p>
+            ) : (
+              <>
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-800 text-white">
+                      <tr>
+                        {[
+                          ['Nº expediente', 'text-left'],
+                          ['Cliente', 'text-left'],
+                          ['Destino', 'text-left'],
+                          ['Fecha inicio', 'text-left'],
+                          ['Total ingresos', 'text-right'],
+                          ['Beneficio neto real', 'text-right'],
+                          ['', 'text-center'],
+                        ].map(([label, al], idx) => (
+                          <th key={idx} className={`px-4 py-3 font-black uppercase tracking-[0.1em] text-[10px] sm:text-xs ${al}`}>
+                            {label || 'Acción'}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">{bucket.items.map(renderFila)}</tbody>
+                    <tfoot className="bg-slate-100 border-t-2 border-slate-300">
+                      <tr>
+                        <td colSpan={4} className="px-4 py-3 font-black text-slate-700 uppercase text-xs tracking-widest">
+                          Resumen del periodo ({bucket.items.length})
+                        </td>
+                        <td className="px-4 py-3 text-right font-black text-emerald-800 tabular-nums">{bucket.sumIngresos.toFixed(2)} €</td>
+                        <td className="px-4 py-3 text-right font-black tabular-nums">
+                          <span className={bucket.sumBenefReal >= 0 ? 'text-blue-700' : 'text-red-600'}>{bucket.sumBenefReal.toFixed(2)} €</span>
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                <div className="md:hidden p-4 space-y-4">
+                  {bucket.items.map((c) => (
+                    <div key={c.id} className="rounded-xl border border-slate-200 p-4 bg-slate-50/50">
+                      <p className="text-xs font-mono text-slate-500">{c.numero_expediente ?? '—'}</p>
+                      <p className="font-bold text-slate-900">{c.cliente_nombre ?? '—'}</p>
+                      <p className="text-sm text-slate-600">{c.destino ?? '—'}</p>
+                      <p className="text-xs text-slate-500 mt-1">Inicio: {formatearFecha(c.fechaInicioDate)}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <p className="text-[10px] uppercase text-slate-400">Total ingresos</p>
+                          <p className="font-bold text-emerald-800">{n(c.total_ingresos).toFixed(2)} €</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase text-slate-400">Benef. neto real</p>
+                          <p className={`font-bold ${n(c.beneficio_neto_real) >= 0 ? 'text-blue-700' : 'text-red-600'}`}>{n(c.beneficio_neto_real).toFixed(2)} €</p>
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => verDetalle(c)}
+                        className="mt-3 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold">
+                        <Eye size={16} />Ver
+                      </button>
+                    </div>
+                  ))}
+                  <div className="rounded-xl border border-slate-300 bg-slate-100 p-4 text-sm">
+                    <p className="font-black text-slate-700 uppercase text-xs mb-2">Resumen del periodo</p>
+                    <p className="flex justify-between"><span>Σ Total ingresos</span><span className="font-bold text-emerald-800">{bucket.sumIngresos.toFixed(2)} €</span></p>
+                    <p className="flex justify-between mt-1"><span>Σ Beneficio neto real</span><span className={`font-bold ${bucket.sumBenefReal >= 0 ? 'text-blue-700' : 'text-red-600'}`}>{bucket.sumBenefReal.toFixed(2)} €</span></p>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
@@ -374,7 +599,7 @@ const HistorialCierres = () => {
             Historial de Cierres
           </h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
-            Expedientes cerrados · {etiquetaPeriodo}
+            Cerrado o finalizado · T1–T4 por <strong>mes de fecha inicio</strong> · {etiquetaPeriodo}
           </p>
         </div>
 
@@ -387,10 +612,6 @@ const HistorialCierres = () => {
               {AÑOS.map(a => <option key={a} value={String(a)}>{a}</option>)}
             </select>
           </div>
-          <select value={trimestre} onChange={e => setTrimestre(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400">
-            {TRIMESTRES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
           <button type="button" onClick={exportarCuaderno}
             disabled={cierresFiltrados.length === 0 || exportando}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold shadow-sm transition-colors text-sm"
@@ -403,14 +624,13 @@ const HistorialCierres = () => {
         </div>
       </div>
 
-      {/* Tarjetas de resumen */}
+      {/* Tarjetas de resumen (columnas BD del ejercicio seleccionado) */}
       {!cargando && cierresFiltrados.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           {[
-            { label:'Total Ingresos',          value:totales.ingresos,  color:'text-emerald-700', bg:'bg-emerald-50 border-emerald-200' },
-            { label:'Total Gastos Proveedores', value:totales.gastos,   color:'text-red-700',     bg:'bg-red-50 border-red-200'         },
-            { label:'Beneficio Neto',           value:totales.beneficio, color:totales.beneficio>=0?'text-blue-700':'text-red-700', bg:totales.beneficio>=0?'bg-blue-50 border-blue-200':'bg-red-50 border-red-200' },
-          ].map(card => (
+            { label: 'Σ Total ingresos (BD)', value: totales.ingresos, color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
+            { label: 'Σ Beneficio neto real (BD)', value: totales.beneficio, color: totales.beneficio >= 0 ? 'text-blue-700' : 'text-red-700', bg: totales.beneficio >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200' },
+          ].map((card) => (
             <div key={card.label} className={`rounded-xl border p-4 ${card.bg}`}>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{card.label}</p>
               <p className={`text-2xl font-extrabold ${card.color}`}>{card.value.toFixed(2)} €</p>
@@ -420,113 +640,42 @@ const HistorialCierres = () => {
         </div>
       )}
 
-      {/* Tabla / estado */}
+      {/* Acordeones T1–T4 */}
       {cargando ? (
         <div className="py-16 text-center text-slate-500">
           <TrendingUp className="mx-auto text-slate-300 mb-4 animate-pulse" size={48} />
           <p>Cargando cierres...</p>
         </div>
-      ) : cierresFiltrados.length === 0 ? (
+      ) : cierres.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-md border border-slate-200 p-12 text-center">
           <FileText className="mx-auto text-slate-300 mb-4" size={56} />
-          <h3 className="text-xl font-bold text-slate-800 mb-2">
-            {cierres.length === 0 ? 'No hay expedientes cerrados' : `Sin cierres en ${etiquetaPeriodo}`}
-          </h3>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">No hay expedientes cerrados o finalizados</h3>
           <p className="text-slate-500 text-sm max-w-md mx-auto">
-            {cierres.length === 0
-              ? 'Los expedientes aparecerán aquí cuando tengan estado Cerrado.'
-              : 'Prueba a cambiar el año o el trimestre.'}
+            Esta vista lista todos los registros con estado <code className="text-xs bg-slate-100 px-1 rounded">cerrado</code> o{' '}
+            <code className="text-xs bg-slate-100 px-1 rounded">finalizado</code>.
+          </p>
+        </div>
+      ) : expedientesDelAño.length === 0 ? (
+        <div className="bg-white rounded-2xl shadow-md border border-slate-200 p-12 text-center">
+          <FileText className="mx-auto text-slate-300 mb-4" size={56} />
+          <h3 className="text-xl font-bold text-slate-800 mb-2">Sin expedientes en {año}</h3>
+          <p className="text-slate-500 text-sm max-w-md mx-auto">
+            No hay filas con fecha de inicio en este año (o solo hay registros sin fecha de inicio; revisa el bloque inferior si aplica).
           </p>
         </div>
       ) : (
-        <>
-          {/* Tabla desktop */}
-          <div className="hidden md:block bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-900 text-white">
-                <tr>
-                  {['Nº Exp.','Cliente','Destino','Fecha Cierre','Ingresos','Gastos Prov.','Beneficio',''].map((h,i) => (
-                    <th key={i} className={`px-4 py-3 font-black uppercase tracking-[0.12em] text-xs ${i>=4?'text-right':''} ${i===7?'text-center':''}`}>{h||'Acción'}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {cierresFiltrados.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.numero_expediente||'—'}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-800">{c.cliente_nombre||c.nombre_grupo||'—'}</td>
-                    <td className="px-4 py-3 text-slate-600">{c.destino||'—'}</td>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{formatearFecha(c.fechaCierre)}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-emerald-700 whitespace-nowrap">{c.ingresoTotal.toFixed(2)} €</td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {c.gastoTotal > 0
-                        ? <span className="font-medium text-red-600">{c.gastoTotal.toFixed(2)} €</span>
-                        : <span className="text-slate-300 text-xs italic">sin datos</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">
-                      <span className={c.beneficioNeto>=0?'text-blue-700':'text-red-600'}>{c.beneficioNeto.toFixed(2)} €</span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button type="button" onClick={() => verDetalle(c)}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors">
-                        <Eye size={14} />Ver
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-slate-100 border-t-2 border-slate-300">
-                <tr>
-                  <td colSpan={4} className="px-4 py-3 font-black text-slate-700 uppercase text-xs tracking-widest">TOTALES ({cierresFiltrados.length})</td>
-                  <td className="px-4 py-3 text-right font-black text-emerald-700">{totales.ingresos.toFixed(2)} €</td>
-                  <td className="px-4 py-3 text-right font-black text-red-600">{totales.gastos.toFixed(2)} €</td>
-                  <td className="px-4 py-3 text-right font-black">
-                    <span className={totales.beneficio>=0?'text-blue-700':'text-red-600'}>{totales.beneficio.toFixed(2)} €</span>
-                  </td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          {/* Tarjetas móvil */}
-          <div className="md:hidden space-y-4">
-            {cierresFiltrados.map((c) => (
-              <div key={c.id} className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
-                <div className="p-4 border-b border-slate-100">
-                  <div className="flex justify-between items-start gap-2">
-                    <div>
-                      <p className="text-xs font-mono text-slate-400 mb-0.5">{c.numero_expediente||'—'}</p>
-                      <h3 className="font-bold text-slate-900">{c.cliente_nombre||c.nombre_grupo||'—'}</h3>
-                      <p className="text-sm text-slate-500">{c.destino||'—'}</p>
-                    </div>
-                    <span className="text-xs text-slate-500 whitespace-nowrap">{formatearFecha(c.fechaCierre)}</span>
-                  </div>
-                </div>
-                <div className="p-4 grid grid-cols-3 gap-2 text-sm">
-                  {[['Ingresos',c.ingresoTotal,'text-emerald-700'],['Gastos',c.gastoTotal,c.gastoTotal>0?'text-red-600':'text-slate-400'],['Beneficio',c.beneficioNeto,c.beneficioNeto>=0?'text-blue-700':'text-red-600']].map(([l,v,col])=>(
-                    <div key={l} className="text-center">
-                      <p className="text-xs text-slate-400 mb-0.5">{l}</p>
-                      <p className={`font-bold ${col}`}>{v.toFixed(2)} €</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="p-4 bg-slate-50 border-t border-slate-100">
-                  <button type="button" onClick={() => verDetalle(c)}
-                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm transition-colors">
-                    <Eye size={18} />Ver Detalle
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500 mb-2">
+            Acordeones: por defecto queda abierto el trimestre del calendario en el año actual; en años anteriores se abre <strong>T1</strong>. Todos los expedientes del año se listan; sin <code className="text-[10px] bg-slate-100 px-1 rounded">fecha_inicio</code> válida van al bloque aparte.
+          </p>
+          {bucketsTrimestre.map(renderBloqueTrimestre)}
+          {bucketSinFecha && renderBloqueTrimestre(bucketSinFecha)}
+        </div>
       )}
 
       {!cargando && cierresFiltrados.length > 0 && (
         <p className="mt-4 text-xs text-slate-400 text-center">
-          El cuaderno trimestral incluye un bloque por expediente con cabecera, desglose por proveedor y resumen financiero.
-          Categorías: Bus · Hotel · Restaurante · Guía · Otros · Imprevistos.
+          Cuaderno Excel: desglose por proveedor y categorías (Bus, Hotel, Restaurante, Guía, Otros, Imprevistos).
         </p>
       )}
     </div>
