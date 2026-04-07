@@ -1,6 +1,6 @@
 import React from 'react'
 import { Navigate } from 'react-router-dom'
-import { esUsuarioGestoria } from '../App'
+import { esUsuarioGestoria } from '../utils/userRoles'
 
 /**
  * AdminRouteGuard — Permite acceso a ADMIN y GESTORIA.

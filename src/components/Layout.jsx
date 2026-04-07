@@ -7,7 +7,7 @@ import {
   FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
-import { esUsuarioGestoria } from '../App'
+import { esUsuarioGestoria } from '../utils/userRoles'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
 const STORAGE_ATTENDANCE_ID = 'attendance_id'

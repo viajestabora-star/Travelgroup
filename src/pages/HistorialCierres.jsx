@@ -1,9 +1,13 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown } from 'lucide-react'
+import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown, X, ExternalLink, Package } from 'lucide-react'
+import JSZip from 'jszip'
+import { saveAs } from 'file-saver'
 import { supabase } from '../supabase'
 import { categorizarPago } from '../utils/finanzasHelpers'
 import { parsearFechaADate } from '../utils/dateNormalizer'
+import { esUsuarioGestoria } from '../utils/userRoles'
+import { resolverUrlPublicaFacturaProveedor, abrirFacturaProveedorPorUrlGuardada } from '../utils/facturaProveedorStorage'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -91,6 +95,67 @@ const badgeEstadoProps = (exp) => {
   if (s === 'finalizado') return { className: 'bg-blue-500', label: 'Finalizado' }
   return { className: 'bg-slate-300', label: s || '—' }
 }
+
+/** Factura al cliente: en BD suele guardarse URL absoluta; si no, no forzamos bucket. */
+const resolverUrlFacturaCliente = (url) => {
+  if (!url || typeof url !== 'string') return null
+  const t = url.trim()
+  return /^https?:\/\//i.test(t) ? t : null
+}
+
+const nombreArchivoSeguro = (s, maxLen = 80) => {
+  const base = String(s || 'doc')
+    .replace(/[/\\?%*:|"<>]/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, maxLen)
+  return base || 'doc'
+}
+
+const fusionarFacturasClientePorExpediente = (rowsEmitidas, rowsGlobal) => {
+  const map = new Map()
+  for (const row of [...(rowsEmitidas || []), ...(rowsGlobal || [])]) {
+    const key = String(row.numero_factura || `__id_${row.id}`)
+    const prev = map.get(key)
+    if (!prev) {
+      map.set(key, row)
+      continue
+    }
+    const prefNuevo = !prev.url_pdf && row.url_pdf
+    const prefFecha = row.fecha_emision && prev.fecha_emision && new Date(row.fecha_emision) > new Date(prev.fecha_emision)
+    if (prefNuevo || prefFecha) map.set(key, { ...prev, ...row, url_pdf: row.url_pdf || prev.url_pdf })
+  }
+  return [...map.values()].sort((a, b) => {
+    const da = a.fecha_emision ? new Date(a.fecha_emision).getTime() : 0
+    const db = b.fecha_emision ? new Date(b.fecha_emision).getTime() : 0
+    return db - da
+  })
+}
+
+/** Lista de { url, filename } para ZIP / pestañas (auditoría). */
+const construirListaArchivosAuditoria = (exp, datos) => {
+  if (!exp) return []
+  const num = nombreArchivoSeguro(String(exp.numero_expediente || exp.id))
+  const out = []
+  let i = 0
+  for (const p of datos.pagos || []) {
+    const u = resolverUrlPublicaFacturaProveedor(p.url_pdf)
+    if (!u) continue
+    i += 1
+    const base = `${num}_proveedor_${i}_${p.proveedor_nombre || 'proveedor'}_${p.numero_factura || p.concepto || 'doc'}`
+    const fn = nombreArchivoSeguro(base)
+    out.push({ url: u, filename: fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf` })
+  }
+  let j = 0
+  for (const f of datos.facturasCliente || []) {
+    const u = resolverUrlFacturaCliente(f.url_pdf)
+    if (!u) continue
+    j += 1
+    const base = `${num}_cliente_${j}_${f.numero_factura || 'factura'}`
+    const fn = nombreArchivoSeguro(base)
+    out.push({ url: u, filename: fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf` })
+  }
+  return out
+}
 const añoActual = new Date().getFullYear()
 const AÑOS = Array.from({ length: 6 }, (_, i) => añoActual - i)
 
@@ -100,7 +165,7 @@ const AÑOS = Array.from({ length: 6 }, (_, i) => añoActual - i)
  * Construye el contenido HTML del Cuaderno de Cierres.
  * Excel y Numbers abren este formato respetando estilos inline.
  */
-const construirHTMLCuaderno = (cierresEnriquecidos, etiquetaPeriodo) => {
+const construirHTMLCuaderno = (cierresEnriquecidos, etiquetaPeriodo, pdfLinksByExpedienteId = null) => {
   const totPeriodo = {
     ingresos:  cierresEnriquecidos.reduce((s, c) => s + c.ingresoTotal,  0),
     gastos:    cierresEnriquecidos.reduce((s, c) => s + c.gastoTotal,    0),
@@ -257,6 +322,34 @@ const construirHTMLCuaderno = (cierresEnriquecidos, etiquetaPeriodo) => {
 </table>`
   }
 
+  if (pdfLinksByExpedienteId && typeof pdfLinksByExpedienteId === 'object') {
+    const conAnexo = cierresEnriquecidos.filter((c) => (pdfLinksByExpedienteId[c.id] || []).length > 0)
+    if (conAnexo.length > 0) {
+      html += `
+<table class="separador"><tr><td colspan="2"></td></tr></table>
+<table>
+  <tr><td colspan="2" class="periodo-title">Anexo — Enlaces a PDFs de proveedores</td></tr>
+  <tr><td colspan="2" class="periodo-meta">Documentación adjunta en pagos a proveedores (abrir en el navegador). No se incrustan binarios en el Excel.</td></tr>
+</table>`
+      for (const c of conAnexo) {
+        const grupo = esc(c.nombre_grupo || c.cliente_nombre || 'Sin grupo')
+        const links = pdfLinksByExpedienteId[c.id] || []
+        html += `
+<table>
+  <tr><td colspan="2" class="exp-title">📎 ${grupo} — Nº ${esc(c.numero_expediente || '—')}</td></tr>`
+        for (const link of links) {
+          html += `
+  <tr>
+    <td class="cat-label" style="width:42%">${esc(link.label)}</td>
+    <td><a href="${esc(link.url)}">Abrir PDF</a></td>
+  </tr>`
+        }
+        html += `
+</table>`
+      }
+    }
+  }
+
   html += `</body></html>`
   return html
 }
@@ -278,14 +371,21 @@ const estadoInicialAcordeon = (añoSeleccionado) => {
   }
 }
 
-const HistorialCierres = () => {
+const HistorialCierres = ({ user }) => {
   const navigate = useNavigate()
+  const esGestoria = esUsuarioGestoria(user)
   const [cierres,    setCierres]    = useState([])
   const [cargando,   setCargando]   = useState(true)
   const [exportando, setExportando] = useState(false)
   const [año,           setAño]           = useState(String(añoActual))
   const [trimestreFiltro, setTrimestreFiltro] = useState('all')
   const [abiertoTrim,   setAbiertoTrim]   = useState(() => estadoInicialAcordeon(String(añoActual)))
+  const [cuadernoIncluirPdfs, setCuadernoIncluirPdfs] = useState(false)
+
+  const [modalAuditoria, setModalAuditoria] = useState(null)
+  const [cargandoAuditoria, setCargandoAuditoria] = useState(false)
+  const [datosAuditoria, setDatosAuditoria] = useState({ pagos: [], facturasCliente: [] })
+  const [descargandoZip, setDescargandoZip] = useState(false)
 
   useEffect(() => { cargarCierres() }, [])
   useEffect(() => {
@@ -397,6 +497,104 @@ const HistorialCierres = () => {
     beneficio: cierresFiltrados.reduce((s, c) => s + n(c.beneficio_neto_real), 0),
   }), [cierresFiltrados])
 
+  const cerrarModalAuditoria = useCallback(() => {
+    setModalAuditoria(null)
+    setDatosAuditoria({ pagos: [], facturasCliente: [] })
+  }, [])
+
+  const abrirModalAuditoria = useCallback(async (exp) => {
+    setModalAuditoria(exp)
+    setCargandoAuditoria(true)
+    setDatosAuditoria({ pagos: [], facturasCliente: [] })
+    const expedienteId = exp.id
+    try {
+      const [pagosRes, emRes, glRes] = await Promise.all([
+        supabase
+          .from('pagos_proveedores')
+          .select('id, concepto, numero_factura, fecha_pago, importe_pagado, url_pdf, proveedor_nombre')
+          .eq('expediente_id', expedienteId)
+          .order('fecha_pago', { ascending: false }),
+        supabase
+          .from('facturas_emitidas')
+          .select('id, numero_factura, fecha_emision, url_pdf, cliente_nombre, importe_total')
+          .eq('expediente_id', expedienteId),
+        supabase
+          .from('facturas_emitidas_global')
+          .select('id, numero_factura, fecha_emision, url_pdf, cliente_nombre, importe_total')
+          .eq('expediente_id', expedienteId),
+      ])
+      const pagos = pagosRes.error ? [] : (pagosRes.data || [])
+      const facturasCliente = fusionarFacturasClientePorExpediente(
+        emRes.error ? [] : emRes.data,
+        glRes.error ? [] : glRes.data
+      )
+      setDatosAuditoria({ pagos, facturasCliente })
+    } catch (e) {
+      console.error('[Auditoría]', e)
+      setDatosAuditoria({ pagos: [], facturasCliente: [] })
+    } finally {
+      setCargandoAuditoria(false)
+    }
+  }, [])
+
+  const abrirTodosDocumentosPestanas = useCallback(() => {
+    const items = construirListaArchivosAuditoria(modalAuditoria, datosAuditoria)
+    items.forEach((item, idx) => {
+      setTimeout(() => window.open(item.url, '_blank', 'noopener,noreferrer'), idx * 400)
+    })
+    if (items.length === 0) {
+      alert('No hay documentos con URL disponible para este expediente.')
+    }
+  }, [modalAuditoria, datosAuditoria])
+
+  const descargarExpedienteZip = useCallback(async () => {
+    const exp = modalAuditoria
+    if (!exp) return
+    const items = construirListaArchivosAuditoria(exp, datosAuditoria)
+    if (items.length === 0) {
+      alert('No hay PDFs enlazados para descargar. Comprueba facturas de proveedor (adjunto) y factura al cliente (URL).')
+      return
+    }
+    setDescargandoZip(true)
+    try {
+      const zip = new JSZip()
+      const folderName = nombreArchivoSeguro(`Expediente_${exp.numero_expediente || exp.id}`)
+      const folder = zip.folder(folderName)
+      let added = 0
+      for (const { url, filename } of items) {
+        try {
+          const res = await fetch(url, { mode: 'cors' })
+          if (!res.ok) continue
+          const buf = await res.arrayBuffer()
+          folder.file(filename, buf)
+          added += 1
+        } catch (err) {
+          console.warn('[ZIP] omitido', filename, err)
+        }
+      }
+      if (added === 0) {
+        alert('No se pudo descargar ningún archivo (CORS o permisos). Usa «Abrir todos en pestañas».')
+        return
+      }
+      const blob = await zip.generateAsync({ type: 'blob' })
+      saveAs(blob, `${folderName}.zip`)
+    } catch (e) {
+      console.error(e)
+      alert('Error al generar el ZIP. Prueba «Abrir todos en pestañas».')
+    } finally {
+      setDescargandoZip(false)
+    }
+  }, [modalAuditoria, datosAuditoria])
+
+  useEffect(() => {
+    if (!modalAuditoria) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') cerrarModalAuditoria()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [modalAuditoria, cerrarModalAuditoria])
+
   // ── Exportar Cuaderno de Cierres ──────────────────────────────────────────
   const exportarCuaderno = async () => {
     if (cierresFiltrados.length === 0) return
@@ -460,12 +658,34 @@ const HistorialCierres = () => {
         }
       })
 
+      let pdfLinksByExpedienteId = null
+      if (cuadernoIncluirPdfs) {
+        const ids = cierresFiltrados.map((c) => c.id)
+        pdfLinksByExpedienteId = {}
+        if (ids.length > 0) {
+          const { data: pagosRows } = await supabase
+            .from('pagos_proveedores')
+            .select('expediente_id, concepto, numero_factura, proveedor_nombre, url_pdf')
+            .in('expediente_id', ids)
+          for (const p of pagosRows || []) {
+            const url = resolverUrlPublicaFacturaProveedor(p.url_pdf)
+            if (!url) continue
+            const eid = p.expediente_id
+            if (!pdfLinksByExpedienteId[eid]) pdfLinksByExpedienteId[eid] = []
+            pdfLinksByExpedienteId[eid].push({
+              label: `${p.proveedor_nombre || 'Proveedor'} — ${p.concepto || p.numero_factura || 'Factura'}`,
+              url,
+            })
+          }
+        }
+      }
+
       const etiquetaCuaderno =
         trimestreFiltro === 'all'
           ? `${año} · Todos los trimestres (cerrado / finalizado)`
           : `${año} · ${TRIMESTRES.find((t) => t.value === trimestreFiltro)?.label ?? `T${trimestreFiltro}`} (cerrado / finalizado)`
 
-      const htmlContent = construirHTMLCuaderno(cierresEnriquecidos, etiquetaCuaderno)
+      const htmlContent = construirHTMLCuaderno(cierresEnriquecidos, etiquetaCuaderno, pdfLinksByExpedienteId)
       const fileName =
         trimestreFiltro === 'all'
           ? `Cuaderno_Cierres_${año}_Todos.xls`
@@ -490,7 +710,11 @@ const HistorialCierres = () => {
     ? f.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : '—'
 
-  const verDetalle = (exp) => navigate('/expedientes', { state: { abrirExpedienteId: exp.id, tabInicial: 'cierre' } })
+  const irAlExpedienteEdicion = () => {
+    if (!modalAuditoria) return
+    navigate('/expedientes', { state: { abrirExpedienteId: modalAuditoria.id, tabInicial: 'cierre' } })
+    cerrarModalAuditoria()
+  }
 
   const etiquetaPeriodo = `Ejercicio ${año}`
 
@@ -520,7 +744,7 @@ const HistorialCierres = () => {
         <span className={n(c.beneficio_neto_real) >= 0 ? 'text-blue-700' : 'text-red-600'}>{n(c.beneficio_neto_real).toFixed(2)} €</span>
       </td>
       <td className="px-4 py-3 text-center">
-        <button type="button" onClick={() => verDetalle(c)}
+        <button type="button" onClick={() => abrirModalAuditoria(c)}
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors">
           <Eye size={14} />Ver
         </button>
@@ -623,7 +847,7 @@ const HistorialCierres = () => {
                           <p className={`font-bold ${n(c.beneficio_neto_real) >= 0 ? 'text-blue-700' : 'text-red-600'}`}>{n(c.beneficio_neto_real).toFixed(2)} €</p>
                         </div>
                       </div>
-                      <button type="button" onClick={() => verDetalle(c)}
+                      <button type="button" onClick={() => abrirModalAuditoria(c)}
                         className="mt-3 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold">
                         <Eye size={16} />Ver
                       </button>
@@ -656,6 +880,11 @@ const HistorialCierres = () => {
           </h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
             Cerrado o finalizado · T1–T4 por <strong>mes de fecha inicio</strong> · {etiquetaPeriodo}
+            {esGestoria && (
+              <span className="block mt-1 text-amber-700 font-semibold">
+                Perfil gestoría/auditoría: solo lectura en este historial (sin edición del cierre desde aquí).
+              </span>
+            )}
           </p>
         </div>
 
@@ -677,6 +906,15 @@ const HistorialCierres = () => {
               <option key={t.value} value={t.value}>{t.label}</option>
             ))}
           </select>
+          <label className="inline-flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none border border-slate-200 rounded-lg px-3 py-2 bg-white">
+            <input
+              type="checkbox"
+              checked={cuadernoIncluirPdfs}
+              onChange={(e) => setCuadernoIncluirPdfs(e.target.checked)}
+              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            Incl. enlaces PDF proveedores
+          </label>
           <button type="button" onClick={exportarCuaderno}
             disabled={cierresFiltrados.length === 0 || exportando}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold shadow-sm transition-colors text-sm"
@@ -744,7 +982,170 @@ const HistorialCierres = () => {
       {!cargando && expedientesDelAño.length > 0 && (
         <p className="mt-4 text-xs text-slate-400 text-center">
           Cuaderno trimestral exporta solo los expedientes del filtro activo (vacío si no hay filas). Desglose: Bus, Hotel, Restaurante, Guía, Otros, Imprevistos.
+          {' '}Con «Incl. enlaces PDF proveedores» se añade un anexo con hipervínculos a la documentación en <code className="text-[10px] bg-slate-100 px-1 rounded">pagos_proveedores</code>.
         </p>
+      )}
+
+      {modalAuditoria && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-auditoria-titulo"
+          onClick={(e) => e.target === e.currentTarget && cerrarModalAuditoria()}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
+            <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100 bg-slate-50">
+              <div className="min-w-0">
+                <h2 id="modal-auditoria-titulo" className="text-lg font-black text-slate-900 tracking-tight">
+                  Auditoría de expediente
+                </h2>
+                <p className="text-sm text-slate-600 mt-1 font-mono">
+                  {modalAuditoria.numero_expediente ?? '—'} · {modalAuditoria.nombre_grupo || modalAuditoria.cliente_nombre || '—'}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">{modalAuditoria.destino || 'Sin destino'}</p>
+              </div>
+              <button
+                type="button"
+                onClick={cerrarModalAuditoria}
+                className="p-2 rounded-xl hover:bg-slate-200 text-slate-600 transition-colors shrink-0"
+                aria-label="Cerrar"
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-6">
+              {cargandoAuditoria ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-500 gap-3">
+                  <Loader2 className="animate-spin" size={40} />
+                  <p className="text-sm font-medium">Cargando documentación…</p>
+                </div>
+              ) : (
+                <>
+                  {(() => {
+                    const fin = extraerFinanzas(modalAuditoria)
+                    return (
+                      <div>
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Resumen financiero</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {[
+                            { label: 'Ingresos', value: fin.ingresoTotal, color: 'text-emerald-800', bg: 'bg-emerald-50 border-emerald-100' },
+                            { label: 'Gastos (proveedores)', value: fin.gastoTotal, color: 'text-red-800', bg: 'bg-red-50 border-red-100' },
+                            { label: 'Beneficio neto', value: fin.beneficioNeto, color: fin.beneficioNeto >= 0 ? 'text-blue-800' : 'text-red-800', bg: fin.beneficioNeto >= 0 ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-100' },
+                          ].map((card) => (
+                            <div key={card.label} className={`rounded-xl border p-4 ${card.bg}`}>
+                              <p className="text-[10px] font-bold uppercase text-slate-500">{card.label}</p>
+                              <p className={`text-xl font-black tabular-nums ${card.color}`}>{fmtEur(card.value)} €</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Facturas de proveedores</h3>
+                    {datosAuditoria.pagos.length === 0 ? (
+                      <p className="text-sm text-slate-400 italic">No hay pagos registrados en este expediente.</p>
+                    ) : (
+                      <ul className="space-y-2 text-sm border border-slate-100 rounded-xl divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                        {datosAuditoria.pagos.map((p) => {
+                          const tienePdf = !!resolverUrlPublicaFacturaProveedor(p.url_pdf)
+                          return (
+                            <li key={p.id} className="px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-800 truncate">{p.proveedor_nombre || 'Proveedor'}</p>
+                                <p className="text-xs text-slate-500">{p.concepto || p.numero_factura || '—'} · {fmtEur(p.importe_pagado)} €</p>
+                              </div>
+                              {tienePdf ? (
+                                <button
+                                  type="button"
+                                  onClick={() => abrirFacturaProveedorPorUrlGuardada(p.url_pdf)}
+                                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 shrink-0"
+                                >
+                                  <ExternalLink size={14} /> PDF
+                                </button>
+                              ) : (
+                                <span className="text-xs text-slate-400">Sin PDF</span>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Factura al cliente</h3>
+                    {datosAuditoria.facturasCliente.length === 0 ? (
+                      <p className="text-sm text-slate-400 italic">No consta factura emitida vinculada al expediente.</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {datosAuditoria.facturasCliente.map((f) => {
+                          const url = resolverUrlFacturaCliente(f.url_pdf)
+                          return (
+                            <li
+                              key={f.id ?? f.numero_factura}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 px-3 py-2 bg-slate-50/80"
+                            >
+                              <div>
+                                <p className="font-bold text-slate-800">{f.numero_factura || '—'}</p>
+                                <p className="text-xs text-slate-600">{f.cliente_nombre || 'Cliente'} · {fmtEur(f.importe_total)} €</p>
+                              </div>
+                              {url ? (
+                                <a
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+                                >
+                                  <ExternalLink size={14} /> PDF
+                                </a>
+                              ) : (
+                                <span className="text-xs text-slate-400">PDF no enlazado (regenerar desde expediente si aplica)</span>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 space-y-3">
+              <button
+                type="button"
+                onClick={descargarExpedienteZip}
+                disabled={descargandoZip || cargandoAuditoria}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-xs sm:text-sm font-black uppercase tracking-[0.12em] shadow-md transition-colors"
+              >
+                {descargandoZip ? <Loader2 size={18} className="animate-spin" /> : <Package size={18} />}
+                Descargar expediente completo
+              </button>
+              <button
+                type="button"
+                onClick={abrirTodosDocumentosPestanas}
+                disabled={cargandoAuditoria}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-sm font-bold transition-colors"
+              >
+                <ExternalLink size={16} />
+                Abrir todos los PDFs en pestañas nuevas
+              </button>
+              {!esGestoria && (
+                <button
+                  type="button"
+                  onClick={irAlExpedienteEdicion}
+                  className="w-full text-center text-xs font-semibold text-slate-500 hover:text-blue-600 underline"
+                >
+                  Ir al expediente (edición avanzada)
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

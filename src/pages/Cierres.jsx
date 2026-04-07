@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { esUsuarioGestoria } from '../App'
+import { esUsuarioGestoria } from '../utils/userRoles'
 import {
   FileText,
   Eye,
@@ -1535,28 +1535,38 @@ const Cierres = ({ user, onClose }) => {
                             <div className="font-semibold text-slate-900">{l.concepto}</div>
                           </td>
                           <td className="px-4 py-3 align-top">
-                            <input
-                              type="text"
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs lg:text-sm"
-                              value={l.proveedor || ''}
-                              onChange={(e) =>
-                                actualizarLineaInforme(index, 'proveedor', e.target.value)
-                              }
-                            />
+                            {esGestoria ? (
+                              <span className="text-slate-800">{l.proveedor || '—'}</span>
+                            ) : (
+                              <input
+                                type="text"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs lg:text-sm"
+                                value={l.proveedor || ''}
+                                onChange={(e) =>
+                                  actualizarLineaInforme(index, 'proveedor', e.target.value)
+                                }
+                              />
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right align-top text-slate-500">
                             {Number(l.importe_cotizado || 0).toFixed(2)} €
                           </td>
                           <td className="px-4 py-3 text-right align-top">
-                            <input
-                              type="number"
-                              step="0.01"
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-right text-xs lg:text-sm"
-                              value={l.importe_real}
-                              onChange={(e) =>
-                                actualizarLineaInforme(index, 'importe_real', e.target.value)
-                              }
-                            />
+                            {esGestoria ? (
+                              <span className="font-semibold text-slate-900 tabular-nums">
+                                {Number(l.importe_real || 0).toFixed(2)} €
+                              </span>
+                            ) : (
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-right text-xs lg:text-sm"
+                                value={l.importe_real}
+                                onChange={(e) =>
+                                  actualizarLineaInforme(index, 'importe_real', e.target.value)
+                                }
+                              />
+                            )}
                           </td>
                         </tr>
                       ))}

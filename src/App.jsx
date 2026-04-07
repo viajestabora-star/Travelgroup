@@ -16,6 +16,7 @@ import NotasTrabajo from './pages/NotasTrabajo';
 import Composer from './pages/Composer';
 import InteligenciaEconomica from './pages/InteligenciaEconomica';
 import AdminRouteGuard from './components/AdminRouteGuard';
+import { esUsuarioGestoria } from './utils/userRoles';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 const USUARIOS_AUTORIZADOS = {
@@ -27,9 +28,7 @@ const USUARIOS_AUTORIZADOS = {
 const CLAVE_MAESTRA = 'tabora';
 
 // ─── Helpers de rol ──────────────────────────────────────────────────────────
-// La condición se resuelve por email (string) además del rol, como capa de seguridad extra.
-export const esUsuarioGestoria = (user) =>
-  user?.rol === 'GESTORIA' || user?.email === 'alcor@asesores.com';
+// esUsuarioGestoria: ./utils/userRoles.js (reutilizable en páginas como Historial de Cierres)
 
 // Bloquea a usuarios GESTORIA de rutas internas que no les corresponden
 const GestoriaBlockGuard = ({ user, children }) => {

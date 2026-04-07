@@ -4,7 +4,7 @@ import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3, Clock, User } from '
 import ModalDesgloseInteligencia from './ModalDesgloseInteligencia'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
-import { esUsuarioGestoria } from '../App'
+import { esUsuarioGestoria } from '../utils/userRoles'
 
 /** Usuarios a controlar en Control de Personal */
 const USUARIOS_CONTROL = [
