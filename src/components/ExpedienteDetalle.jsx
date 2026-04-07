@@ -127,6 +127,42 @@ const datosProveedorDesdeServicioCot = (servicio) => {
   return { proveedorId, proveedorNombre }
 }
 
+/** Columnas de pagos_proveedores (information_schema). Solo lectura/respuesta API. */
+const PAGOS_PROVEEDORES_COLUMNAS =
+  'id, expediente_id, proveedor_id, proveedor_nombre, servicio_id, fecha_pago, importe_pagado, numero_factura, url_pdf, concepto'
+
+/**
+ * Objeto insert/update: únicamente las columnas anteriores (sin id). Evita PGRST / schema cache.
+ */
+const filaPagosProveedores = ({
+  expediente_id,
+  proveedor_id,
+  proveedor_nombre,
+  servicio_id,
+  fecha_pago,
+  importe_pagado,
+  numero_factura,
+  url_pdf,
+  concepto,
+}) => ({
+  expediente_id,
+  proveedor_id: proveedor_id ?? null,
+  proveedor_nombre: proveedor_nombre ?? null,
+  servicio_id: servicio_id ?? null,
+  fecha_pago,
+  importe_pagado,
+  numero_factura: numero_factura ?? null,
+  url_pdf: url_pdf ?? null,
+  concepto,
+})
+
+/** Título del servicio como en la tarjeta (tipo_servicio / tipo); si vacío, etiqueta legible. */
+const tituloServicioParaConcepto = (servicio) => {
+  if (!servicio) return 'Servicio'
+  const t = String(servicio.tipo_servicio || servicio.tipo || '').trim()
+  return t || tipoServicioLegibleParaConcepto(servicio)
+}
+
 // Función helper para normalizar texto: minúsculas + sin tildes (uso general)
 // Usada para comparaciones robustas en filtros
 const normalizarText = (text) => {
@@ -1936,7 +1972,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     try {
       const { data, error } = await supabase
         .from('pagos_proveedores')
-        .select('*')
+        .select(PAGOS_PROVEEDORES_COLUMNAS)
         .eq('expediente_id', expediente.id)
         .order('fecha_pago', { ascending: false })
       if (error) {
@@ -2957,21 +2993,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
     try {
       const servicioRow = serviciosCot.find((sc) => String(sc.id) === String(formPago.servicio_id))
-      const concepto = servicioRow ? tipoServicioLegibleParaConcepto(servicioRow) : 'Servicio'
+      const concepto = servicioRow ? tituloServicioParaConcepto(servicioRow) : 'Servicio'
       const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicioRow)
       const { error } = await supabase
         .from('pagos_proveedores')
-        .insert([{
-          expediente_id: expediente.id,
-          servicio_id: formPago.servicio_id,
-          proveedor_id: proveedorId,
-          proveedor_nombre: proveedorNombre,
-          concepto,
-          numero_factura: null,
-          fecha_pago: formPago.fecha_pago,
-          importe_pagado: importe,
-          url_pdf: null,
-        }])
+        .insert([
+          filaPagosProveedores({
+            expediente_id: expediente.id,
+            proveedor_id: proveedorId,
+            proveedor_nombre: proveedorNombre,
+            servicio_id: formPago.servicio_id,
+            fecha_pago: formPago.fecha_pago,
+            importe_pagado: importe,
+            numero_factura: null,
+            url_pdf: null,
+            concepto,
+          }),
+        ])
       if (error) {
         alert(`Error al registrar pago: ${error.message}`)
         return
@@ -3020,39 +3058,48 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
       let filaGuardada = null
       let dbError = null
-      const conceptoTipo = tipoServicioLegibleParaConcepto(servicio)
+      const conceptoTitulo = tituloServicioParaConcepto(servicio)
       const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicio)
+      const urlPdfFinal = urlPdf != null && urlPdf !== '' ? urlPdf : (existente?.url_pdf ?? null)
 
       if (existente?.id) {
-        const campos = {
-          proveedor_id:     proveedorId,
+        const fila = filaPagosProveedores({
+          expediente_id: expediente.id,
+          proveedor_id: proveedorId,
           proveedor_nombre: proveedorNombre,
-          concepto:         conceptoTipo,
-          numero_factura:   fInline.numero_factura || existente.numero_factura || null,
-          fecha_pago:       fInline.fecha_pago,
-          importe_pagado:   importe,
-        }
-        if (urlPdf) campos.url_pdf = urlPdf
+          servicio_id: servicio.id,
+          fecha_pago: fInline.fecha_pago,
+          importe_pagado: importe,
+          numero_factura: fInline.numero_factura || existente.numero_factura || null,
+          url_pdf: urlPdfFinal,
+          concepto: conceptoTitulo,
+        })
         const res = await supabase
           .from('pagos_proveedores')
-          .update(campos)
+          .update(fila)
           .eq('id', existente.id)
-          .select()
+          .select(PAGOS_PROVEEDORES_COLUMNAS)
           .single()
         dbError = res.error
         filaGuardada = res.data
       } else {
-        const res = await supabase.from('pagos_proveedores').insert([{
-          expediente_id:    expediente.id,
-          servicio_id:      servicio.id,
-          proveedor_id:     proveedorId,
-          proveedor_nombre: proveedorNombre,
-          concepto:         conceptoTipo,
-          numero_factura:   fInline.numero_factura || null,
-          fecha_pago:       fInline.fecha_pago,
-          importe_pagado:   importe,
-          url_pdf:          urlPdf,
-        }]).select().single()
+        const res = await supabase
+          .from('pagos_proveedores')
+          .insert([
+            filaPagosProveedores({
+              expediente_id: expediente.id,
+              proveedor_id: proveedorId,
+              proveedor_nombre: proveedorNombre,
+              servicio_id: servicio.id,
+              fecha_pago: fInline.fecha_pago,
+              importe_pagado: importe,
+              numero_factura: fInline.numero_factura || null,
+              url_pdf: urlPdfFinal,
+              concepto: conceptoTitulo,
+            }),
+          ])
+          .select(PAGOS_PROVEEDORES_COLUMNAS)
+          .single()
         dbError = res.error
         filaGuardada = res.data
       }
@@ -3115,16 +3162,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     try {
       const urlPdf = pdfExtra ? await subirPdfFacturaCot(pdfExtra) : null
       const proveedorNombreExtra = String(fExtra.proveedor_nombre || '').trim() || null
-      const { error } = await supabase.from('pagos_proveedores').insert([{
-        expediente_id:    expediente.id,
-        proveedor_id:     null,
-        proveedor_nombre: proveedorNombreExtra,
-        concepto:         String(fExtra.concepto || '').trim(),
-        numero_factura:   fExtra.numero_factura || null,
-        fecha_pago:       fExtra.fecha_pago,
-        importe_pagado:   importe,
-        url_pdf:          urlPdf,
-      }])
+      const { error } = await supabase.from('pagos_proveedores').insert([
+        filaPagosProveedores({
+          expediente_id: expediente.id,
+          proveedor_id: null,
+          proveedor_nombre: proveedorNombreExtra,
+          servicio_id: null,
+          fecha_pago: fExtra.fecha_pago,
+          importe_pagado: importe,
+          numero_factura: fExtra.numero_factura || null,
+          url_pdf: urlPdf,
+          concepto: String(fExtra.concepto || '').trim(),
+        }),
+      ])
       if (error) { alert('Error: ' + error.message); return }
       await cargarPagosProveedores()
       setMensajeExitoFacturaProveedor('Factura guardada con éxito')
@@ -6315,7 +6365,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         {pagosProveedores.map((p) => (
                           <tr key={p.id || `${p.servicio_id}-${p.fecha_pago}`} className="hover:bg-slate-50/80 transition-colors">
                             <td className="py-2.5 pr-3">
-                              {(p.es_extra === true) || (p.servicio_id == null || String(p.servicio_id).trim() === '')
+                              {(p.servicio_id == null || String(p.servicio_id).trim() === '')
                                 ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Extra</span>
                                 : <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Cotizado</span>
                               }
