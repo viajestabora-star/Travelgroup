@@ -62,14 +62,10 @@ const eliminarObjetoStorageFacturaProveedor = async (urlPdf) => {
   return { ok: true }
 }
 
-/** Coincide pago de proveedores con servicio de cotización (IDs string/UUID/intercambiables). */
+/** Coincide pago con fila de servicio de cotización (esquema actual: servicio_id). */
 const pagoProveedorCoincideServicioCot = (pago, servicioId) => {
   if (!pago || servicioId == null || servicioId === '') return false
-  const sid = String(servicioId)
-  return (
-    String(pago.servicio_cotizacion_id ?? '') === sid ||
-    String(pago.servicio_id ?? '') === sid
-  )
+  return String(pago.servicio_id ?? '') === String(servicioId)
 }
 
 // Función helper para normalizar tipos: minúsculas + sin tildes
@@ -82,6 +78,53 @@ const normalizarTipo = (tipo) => {
     .normalize('NFD') // Normaliza caracteres con tildes
     .replace(/[\u0300-\u036f]/g, '') // Elimina diacríticos (tildes)
     .trim();
+}
+
+/**
+ * Tipo de servicio legible para pagos_proveedores.concepto (solo categoría: "Guía Local", "Autobús", …).
+ */
+const tipoServicioLegibleParaConcepto = (servicio) => {
+  if (!servicio) return 'Servicio'
+  const tipoRaw = servicio.tipo_servicio || servicio.tipo || ''
+  const t = normalizarTipo(tipoRaw)
+  const map = {
+    autobus: 'Autobús',
+    transporte: 'Autobús',
+    bus: 'Autobús',
+    hotel: 'Hotel',
+    restaurante: 'Restaurante',
+    guia: 'Guía Local',
+    museo: 'Museo',
+    entrada: 'Entrada',
+    excursion: 'Excursión',
+    seguro: 'Seguro',
+    otro: 'Otros',
+    otros: 'Otros',
+    tren: 'Tren',
+    avion: 'Avión',
+    vuelo: 'Vuelo',
+    ferry: 'Ferry',
+    barco: 'Barco',
+    circuito: 'Circuito',
+    visita: 'Visita',
+  }
+  return map[t] || (String(tipoRaw).trim() || 'Servicio')
+}
+
+/** proveedor_id (FK) y nombre mostrado desde fila servicios_cotizacion enriquecida. */
+const datosProveedorDesdeServicioCot = (servicio) => {
+  if (!servicio) return { proveedorId: null, proveedorNombre: null }
+  const rawId = servicio.proveedor_id_int
+  const proveedorId =
+    rawId != null && rawId !== '' && !Number.isNaN(Number(rawId)) ? Number(rawId) : null
+  const proveedorNombre =
+    String(
+      servicio._proveedorNombre
+        || servicio.nombre_proveedor_texto
+        || servicio.nombre_proveedor_manual
+        || ''
+    ).trim() || null
+  return { proveedorId, proveedorNombre }
 }
 
 // Función helper para normalizar texto: minúsculas + sin tildes (uso general)
@@ -2913,13 +2956,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       return
     }
     try {
+      const servicioRow = serviciosCot.find((sc) => String(sc.id) === String(formPago.servicio_id))
+      const concepto = servicioRow ? tipoServicioLegibleParaConcepto(servicioRow) : 'Servicio'
+      const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicioRow)
       const { error } = await supabase
         .from('pagos_proveedores')
         .insert([{
           expediente_id: expediente.id,
           servicio_id: formPago.servicio_id,
+          proveedor_id: proveedorId,
+          proveedor_nombre: proveedorNombre,
+          concepto,
+          numero_factura: null,
           fecha_pago: formPago.fecha_pago,
           importe_pagado: importe,
+          url_pdf: null,
         }])
       if (error) {
         alert(`Error al registrar pago: ${error.message}`)
@@ -2969,11 +3020,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
       let filaGuardada = null
       let dbError = null
+      const conceptoTipo = tipoServicioLegibleParaConcepto(servicio)
+      const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicio)
+
       if (existente?.id) {
         const campos = {
-          numero_factura: fInline.numero_factura || existente.numero_factura || null,
-          fecha_pago:     fInline.fecha_pago,
-          importe_pagado: importe,
+          proveedor_id:     proveedorId,
+          proveedor_nombre: proveedorNombre,
+          concepto:         conceptoTipo,
+          numero_factura:   fInline.numero_factura || existente.numero_factura || null,
+          fecha_pago:       fInline.fecha_pago,
+          importe_pagado:   importe,
         }
         if (urlPdf) campos.url_pdf = urlPdf
         const res = await supabase
@@ -2986,16 +3043,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         filaGuardada = res.data
       } else {
         const res = await supabase.from('pagos_proveedores').insert([{
-          expediente_id:          expediente.id,
-          servicio_cotizacion_id: servicio.id,
-          servicio_id:            servicio.id,
-          numero_factura:         fInline.numero_factura || null,
-          fecha_pago:             fInline.fecha_pago,
-          importe_pagado:         importe,
-          concepto:               [servicio.tipo_servicio, servicio.nombre_especifico].filter(Boolean).join(' — '),
-          proveedor_nombre:       servicio._proveedorNombre || servicio.nombre_proveedor_manual || null,
-          url_pdf:                urlPdf,
-          es_extra:               false,
+          expediente_id:    expediente.id,
+          servicio_id:      servicio.id,
+          proveedor_id:     proveedorId,
+          proveedor_nombre: proveedorNombre,
+          concepto:         conceptoTipo,
+          numero_factura:   fInline.numero_factura || null,
+          fecha_pago:       fInline.fecha_pago,
+          importe_pagado:   importe,
+          url_pdf:          urlPdf,
         }]).select().single()
         dbError = res.error
         filaGuardada = res.data
@@ -3003,21 +3059,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
       if (dbError) { alert('Error al guardar: ' + dbError.message); return }
 
-      if (filaGuardada?.id) {
-        setPagosProveedores((prev) => {
-          const rest = (prev || []).filter((p) => p.id !== filaGuardada.id)
-          return [filaGuardada, ...rest]
-        })
-      }
+      setMensajeExitoFacturaProveedor('Factura registrada con éxito')
+      window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
 
-      // Cerrar formulario y quitar "Guardando…" antes del refetch para mostrar el botón Eye al instante
+      // Cerrar formulario y refrescar lista tras guardado correcto
       setInlineId(null)
       setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '' })
       setPdfInline(null)
       setSubiendoPdfCot(false)
-
-      setMensajeExitoFacturaProveedor('Factura guardada con éxito')
-      window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
 
       await cargarPagosProveedores()
       if (typeof onRefresh === 'function') onRefresh()
@@ -3065,15 +3114,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     setSubiendoPdfCot(true)
     try {
       const urlPdf = pdfExtra ? await subirPdfFacturaCot(pdfExtra) : null
+      const proveedorNombreExtra = String(fExtra.proveedor_nombre || '').trim() || null
       const { error } = await supabase.from('pagos_proveedores').insert([{
         expediente_id:    expediente.id,
+        proveedor_id:     null,
+        proveedor_nombre: proveedorNombreExtra,
+        concepto:         String(fExtra.concepto || '').trim(),
         numero_factura:   fExtra.numero_factura || null,
         fecha_pago:       fExtra.fecha_pago,
         importe_pagado:   importe,
-        concepto:         fExtra.concepto,
-        proveedor_nombre: fExtra.proveedor_nombre || null,
         url_pdf:          urlPdf,
-        es_extra:         true,
       }])
       if (error) { alert('Error: ' + error.message); return }
       await cargarPagosProveedores()
@@ -6145,7 +6195,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 <button onClick={() => guardarFacturaCot(s)} disabled={subiendoPdfCot}
                                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm disabled:opacity-50 transition-colors">
                                   <CreditCard size={14} />
-                                  {subiendoPdfCot ? 'Guardando…' : 'Guardar Factura'}
+                                  {subiendoPdfCot ? 'Guardando…' : 'REGISTRAR FACTURA'}
                                 </button>
                                 <button onClick={() => { setInlineId(null); setPdfInline(null) }}
                                   className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-100">
@@ -6265,7 +6315,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         {pagosProveedores.map((p) => (
                           <tr key={p.id || `${p.servicio_id}-${p.fecha_pago}`} className="hover:bg-slate-50/80 transition-colors">
                             <td className="py-2.5 pr-3">
-                              {p.es_extra
+                              {(p.es_extra === true) || (p.servicio_id == null || String(p.servicio_id).trim() === '')
                                 ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Extra</span>
                                 : <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Cotizado</span>
                               }
