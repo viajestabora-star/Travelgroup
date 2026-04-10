@@ -1,13 +1,18 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react'
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown, X, ExternalLink, Package } from 'lucide-react'
+import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown, X, ExternalLink, Package, Trash2, Upload, Building2, Plus } from 'lucide-react'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import { supabase } from '../supabase'
 import { categorizarPago } from '../utils/finanzasHelpers'
 import { parsearFechaADate } from '../utils/dateNormalizer'
-import { esUsuarioGestoria } from '../utils/userRoles'
-import { resolverUrlPublicaFacturaProveedor, abrirFacturaProveedorPorUrlGuardada } from '../utils/facturaProveedorStorage'
+import { esUsuarioGestoria, esUsuarioAdmin } from '../utils/userRoles'
+import {
+  resolverUrlPublicaFacturaProveedor,
+  abrirFacturaProveedorPorUrlGuardada,
+  eliminarObjetoStorageFacturaProveedor,
+  descargarArrayBufferFacturaProveedor,
+} from '../utils/facturaProveedorStorage'
 import { crearJsPdfInformeCierre, nombreArchivoInformeCierrePdf } from '../utils/informeCierreHaciendaPdf'
 import { obtenerLineasInformeComoCierres, obtenerExpedienteParaPdfCierres } from '../utils/lineasInformeCierres'
 
@@ -38,11 +43,28 @@ const trimestreDesdeMes = (mes) => {
 }
 
 /**
- * Clasifica expediente por el mes de fecha_inicio (año y trimestre).
+ * Fecha para trimestre/año: fecha_inicio → created_at → hoy (misma idea que Planning sin fecha).
+ */
+const fechaReferenciaTrimestreDesdeExp = (exp) => {
+  const dIni = exp?.fechaInicioDate ?? fechaInicioADate(exp?.fecha_inicio)
+  if (dIni && !isNaN(dIni.getTime())) return dIni
+  const dCre = fechaInicioADate(exp?.created_at)
+  if (dCre && !isNaN(dCre.getTime())) return dCre
+  const dFc = fechaInicioADate(exp?.fecha_creacion)
+  if (dFc && !isNaN(dFc.getTime())) return dFc
+  return new Date()
+}
+
+/**
+ * Clasifica por mes de fecha de referencia (nunca null: al menos trimestre actual).
  */
 const clasificarPorFechaInicio = (exp) => {
-  const d = exp.fechaInicioDate ?? fechaInicioADate(exp.fecha_inicio)
-  if (!d || isNaN(d.getTime())) return { trimestre: null, fechaInicio: null }
+  const d = exp.fechaReferenciaTrimestre ?? fechaReferenciaTrimestreDesdeExp(exp)
+  if (!d || isNaN(d.getTime())) {
+    const h = new Date()
+    const mes = h.getMonth() + 1
+    return { trimestre: trimestreDesdeMes(mes), fechaInicio: h }
+  }
   const mes = d.getMonth() + 1
   return { trimestre: trimestreDesdeMes(mes), fechaInicio: d }
 }
@@ -88,21 +110,31 @@ const TRIMESTRES = [
   { value: '4',   label: 'T4 · Oct–Dic' },
 ]
 
-/** Normaliza estado para badge (verde cerrado, azul finalizado). */
+/** Solo listamos estado Cerrado; badge coherente con la query. */
 const estadoNormalizado = (exp) => String(exp?.estado ?? '').trim().toLowerCase()
 
 const badgeEstadoProps = (exp) => {
   const s = estadoNormalizado(exp)
   if (s === 'cerrado') return { className: 'bg-emerald-500', label: 'Cerrado' }
-  if (s === 'finalizado') return { className: 'bg-blue-500', label: 'Finalizado' }
   return { className: 'bg-slate-300', label: s || '—' }
 }
 
-/** Factura al cliente: en BD suele guardarse URL absoluta; si no, no forzamos bucket. */
+/** Referencia verificación T1: deben listarse cuando el año del filtro coincide con su año contable/referencia. */
+const NUMEROS_DIAGNOSTICO_HISTORIAL = ['2026-011', '2026-012', '2026-002', '2026-015']
+
+const SELECT_EXPEDIENTES_HISTORIAL_MIN =
+  'id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio, cierre_grupo, informe_gastos_hacienda'
+
+const SELECT_EXPEDIENTES_HISTORIAL_EXT = `${SELECT_EXPEDIENTES_HISTORIAL_MIN}, created_at, fecha_creacion`
+
+/**
+ * Factura al cliente: URL absoluta o la misma convención de Storage que proveedores (fac-….pdf en facturas_proveedores).
+ */
 const resolverUrlFacturaCliente = (url) => {
   if (!url || typeof url !== 'string') return null
-  const t = url.trim()
-  return /^https?:\/\//i.test(t) ? t : null
+  const t = url.trim().replace(/^["']|["']$/g, '')
+  if (/^https?:\/\//i.test(t)) return t
+  return resolverUrlPublicaFacturaProveedor(t)
 }
 
 const nombreArchivoSeguro = (s, maxLen = 80) => {
@@ -111,6 +143,83 @@ const nombreArchivoSeguro = (s, maxLen = 80) => {
     .replace(/\s+/g, '_')
     .slice(0, maxLen)
   return base || 'doc'
+}
+
+/**
+ * Columnas esperadas en `gastos_fijos` para gastos mensuales (mes, anio contables).
+ * Si Supabase devuelve error de columna, ejecuta en orden:
+ * add-desglose-gastos-gastos-fijos.sql, add-gastos-fijos-estructura-mensual.sql,
+ * add-gastos-fijos-fecha-factura.sql, add-gastos-fijos-importe-iva.sql
+ */
+const GASTOS_FIJOS_SELECT =
+  'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura, created_at'
+
+/** Si faltan columnas opcionales en Supabase, se reintenta con selects más pequeños (mes + anio siempre en filtros). */
+const GASTOS_FIJOS_SELECT_SIN_CREATED =
+  'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura'
+
+const GASTOS_FIJOS_SELECT_MINIMAL = 'id, concepto, proveedor, importe, url_pdf, mes, anio'
+
+const esErrorColumnaSql = (err) => /column|42703|does not exist|schema cache/i.test(String(err?.message || err || ''))
+
+const GASTOS_FIJOS_QUERY_TIMEOUT_MS = 25000
+
+/** PostgREST / Supabase: evita que una consulta colgada bloquee el estado de la página. */
+const withTimeout = (thenable, ms, etiqueta) => {
+  let id
+  const to = new Promise((_, reject) => {
+    id = window.setTimeout(
+      () => reject(new Error(`[HistorialCierres] Timeout ${etiqueta} (${ms}ms)`)),
+      ms
+    )
+  })
+  return Promise.race([Promise.resolve(thenable), to]).finally(() => window.clearTimeout(id))
+}
+
+const logErrorSupabase = (contexto, err, extra = {}) => {
+  const o = err && typeof err === 'object' ? err : {}
+  console.error(`[HistorialCierres] ${contexto}`, {
+    message: o.message ?? String(err),
+    code: o.code,
+    details: o.details,
+    hint: o.hint,
+    ...extra,
+    objetoCompleto: err,
+  })
+}
+
+const PROVEEDORES_FIJOS_MENSUALES = [
+  { id: 'arsys', label: 'Arsys' },
+  { id: 'copimar', label: 'Copimar' },
+  { id: 'arval', label: 'Arval' },
+  { id: 'ayvens', label: 'Ayvens' },
+  { id: 'intermundial', label: 'Intermundial' },
+  { id: 'vodafone', label: 'Vodafone' },
+  { id: 'gasolina', label: 'Gasolina' },
+  { id: 'segurcaixa', label: 'Segurcaixa' },
+  { id: 'otro', label: 'Otro' },
+]
+
+const formInicialGastoMensual = (añoStr, mesNum) => ({
+  categoria: 'arsys',
+  proveedorOtro: '',
+  concepto: '',
+  importeConIva: '',
+  fecha: `${añoStr}-${String(mesNum).padStart(2, '0')}-01`,
+})
+
+/** Misma política que ExpedienteDetalle.subirPdfFacturaCot: bucket facturas_proveedores, nombre fac-{timestamp}.pdf */
+const subirPdfFacturaProveedorComoExpediente = async (file) => {
+  const nombreUnico = `fac-${Date.now()}.pdf`
+  const { error } = await supabase.storage.from('facturas_proveedores').upload(nombreUnico, file)
+  if (error) {
+    const hint =
+      /rls|row-level security|policy/i.test(String(error.message))
+        ? '\n\nSi el error menciona RLS, ejecuta migrations/storage-rls-facturas-proveedores.sql en Supabase.'
+        : ''
+    throw new Error(String(error.message) + hint)
+  }
+  return nombreUnico
 }
 
 const fusionarFacturasClientePorExpediente = (rowsEmitidas, rowsGlobal) => {
@@ -133,7 +242,32 @@ const fusionarFacturasClientePorExpediente = (rowsEmitidas, rowsGlobal) => {
   })
 }
 
-/** Partición para ZIP: proveedores vs clientes (mismas URLs que pestañas). */
+/** Pagos + facturas cliente para ZIP / modal (misma consulta que abrir auditoría). */
+const cargarDatosAuditoriaExpediente = async (supabaseClient, expedienteId) => {
+  const [pagosRes, emRes, glRes] = await Promise.all([
+    supabaseClient
+      .from('pagos_proveedores')
+      .select('id, concepto, numero_factura, fecha_pago, importe_pagado, url_pdf, proveedor_nombre')
+      .eq('expediente_id', expedienteId)
+      .order('fecha_pago', { ascending: false }),
+    supabaseClient
+      .from('facturas_emitidas')
+      .select('id, numero_factura, fecha_emision, url_pdf, cliente_nombre, importe_total')
+      .eq('expediente_id', expedienteId),
+    supabaseClient
+      .from('facturas_emitidas_global')
+      .select('id, numero_factura, fecha_emision, url_pdf, cliente_nombre, importe_total')
+      .eq('expediente_id', expedienteId),
+  ])
+  const pagos = pagosRes.error ? [] : (pagosRes.data || [])
+  const facturasCliente = fusionarFacturasClientePorExpediente(
+    emRes.error ? [] : emRes.data,
+    glRes.error ? [] : glRes.data
+  )
+  return { pagos, facturasCliente }
+}
+
+/** Partición para ZIP: proveedores vs clientes (mismas URLs que pestañas). Incluye sourceRaw para fallback Storage.download. */
 const particionarArchivosAuditoriaZip = (exp, datos) => {
   if (!exp) return { proveedores: [], clientes: [] }
   const proveedores = []
@@ -145,7 +279,11 @@ const particionarArchivosAuditoriaZip = (exp, datos) => {
     i += 1
     const base = `${i}_${p.proveedor_nombre || 'proveedor'}_${p.numero_factura || p.concepto || 'factura'}`
     const fn = nombreArchivoSeguro(base)
-    proveedores.push({ url: u, filename: fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf` })
+    proveedores.push({
+      url: u,
+      filename: fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf`,
+      sourceRaw: p.url_pdf,
+    })
   }
   let j = 0
   for (const f of datos.facturasCliente || []) {
@@ -154,7 +292,11 @@ const particionarArchivosAuditoriaZip = (exp, datos) => {
     j += 1
     const base = `${j}_${f.numero_factura || 'factura'}`
     const fn = nombreArchivoSeguro(base)
-    clientes.push({ url: u, filename: fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf` })
+    clientes.push({
+      url: u,
+      filename: fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf`,
+      sourceRaw: f.url_pdf,
+    })
   }
   return { proveedores, clientes }
 }
@@ -166,6 +308,46 @@ const construirListaArchivosAuditoria = (exp, datos) => {
 }
 const añoActual = new Date().getFullYear()
 const AÑOS = Array.from({ length: 6 }, (_, i) => añoActual - i)
+
+const NOMBRES_MES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+]
+
+/** Meses 1–12 del trimestre T1–T4 */
+const mesesDelTrimestre = (q) => {
+  const qn = Number(q)
+  if (qn < 1 || qn > 4) return []
+  const base = (qn - 1) * 3
+  return [base + 1, base + 2, base + 3]
+}
+
+const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
+
+const sinDiacriticos = (s) =>
+  String(s || '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+
+/** Iniciales para “marca” junto al nombre (no hay logos en BD). */
+const inicialesProveedorEstructura = (nombre) => {
+  const t = String(nombre || '').trim()
+  if (!t) return '??'
+  const parts = t.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  return t.slice(0, 2).toUpperCase()
+}
+
+/**
+ * Nombre de PDF dentro del ZIP: [MES]_[PROVEEDOR]_[IMPORTE]€.pdf
+ * Colisiones (p. ej. varias Gasolina mismo importe) se resuelven al añadir al ZIP con sufijo _2, _3…
+ */
+const nombrePdfEnZipEstructura = (nombreMes, proveedor, importe) => {
+  const mesTok = sinDiacriticos(nombreMes).toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const provTok = nombreArchivoSeguro(String(proveedor || 'proveedor').replace(/\s+/g, '_')).replace(/_+/g, '_')
+  const impStr = n(importe).toFixed(2)
+  return `${mesTok}_${provTok}_${impStr}€.pdf`
+}
 
 // ─── Generador del Cuaderno HTML-Excel ────────────────────────────────────────
 
@@ -382,8 +564,10 @@ const estadoInicialAcordeon = (añoSeleccionado) => {
 const HistorialCierres = ({ user }) => {
   const navigate = useNavigate()
   const esGestoria = esUsuarioGestoria(user)
+  const esAdmin = esUsuarioAdmin(user)
   const [cierres,    setCierres]    = useState([])
-  const [cargando,   setCargando]   = useState(true)
+  /** Vista principal: expedientes + gastos_fijos en un solo ciclo; siempre se apaga en .finally del efecto. */
+  const [isLoading, setIsLoading] = useState(false)
   const [exportando, setExportando] = useState(false)
   const [año,           setAño]           = useState(String(añoActual))
   const [trimestreFiltro, setTrimestreFiltro] = useState('all')
@@ -395,7 +579,177 @@ const HistorialCierres = ({ user }) => {
   const [datosAuditoria, setDatosAuditoria] = useState({ pagos: [], facturasCliente: [] })
   const [descargandoZip, setDescargandoZip] = useState(false)
 
-  useEffect(() => { cargarCierres() }, [])
+  const [gastosEstructura, setGastosEstructura] = useState([])
+  const [cargandoGastosEstructura, setCargandoGastosEstructura] = useState(false)
+  const [errorGastosEstructura, setErrorGastosEstructura] = useState(null)
+  const [subiendoGastoMensual, setSubiendoGastoMensual] = useState(false)
+  const [descargandoPackMes, setDescargandoPackMes] = useState(null)
+  const [modalGastoMensual, setModalGastoMensual] = useState(null)
+  const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual(String(añoActual), 1))
+  const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
+
+  /** Evita que una carga antigua pise estado tras remount / Strict Mode o re-ejecución. */
+  const cierreLoadSeqRef = useRef(0)
+  /** Coherencia con el efecto principal: solo el último ciclo puede hacer setIsLoading(false). */
+  const historialCargaIdRef = useRef(0)
+  /** Failsafe 2s (orden directa): isLoading se apaga sí o sí; un solo timeout por periodo en carga. */
+  const isLoadingFailsafe2sRef = useRef(null)
+
+  if (isLoading) {
+    if (isLoadingFailsafe2sRef.current == null) {
+      isLoadingFailsafe2sRef.current = window.setTimeout(() => {
+        setIsLoading(false)
+        isLoadingFailsafe2sRef.current = null
+      }, 2000)
+    }
+  } else if (isLoadingFailsafe2sRef.current != null) {
+    window.clearTimeout(isLoadingFailsafe2sRef.current)
+    isLoadingFailsafe2sRef.current = null
+  }
+
+  const recargarGastosEstructura = useCallback(async () => {
+    const y = parseInt(año, 10)
+    if (!Number.isFinite(y)) {
+      setGastosEstructura([])
+      setErrorGastosEstructura(null)
+      setCargandoGastosEstructura(false)
+      return
+    }
+    setCargandoGastosEstructura(true)
+    setErrorGastosEstructura(null)
+    try {
+      const mapRow = (r) => ({
+        ...r,
+        proveedor: r.proveedor ?? '',
+        url_pdf: r.url_pdf ?? null,
+        fecha_factura: r.fecha_factura ?? null,
+        importe_iva: r.importe_iva != null ? n(r.importe_iva) : 0,
+        mes: r.mes != null ? Number(r.mes) : null,
+        anio: r.anio != null ? Number(r.anio) : null,
+      })
+
+      /**
+       * `select('*')` evita 400 por columnas opcionales ausentes (PostgREST solo devuelve las que existen).
+       * Fallback: intentos explícitos por si algún entorno restringe `*`.
+       */
+      const ejecutarSelect = (columnas) => {
+        let q = supabase.from('gastos_fijos').select(columnas).eq('anio', y).not('mes', 'is', null)
+        q = q.order('mes', { ascending: true })
+        // No añadir order(created_at) con select('*'): si la columna no existe en BD, PostgREST responde 400.
+        if (columnas !== '*' && /\bcreated_at\b/.test(String(columnas))) {
+          q = q.order('created_at', { ascending: true })
+        }
+        return q
+      }
+
+      const intentos = ['*', GASTOS_FIJOS_SELECT, GASTOS_FIJOS_SELECT_SIN_CREATED, GASTOS_FIJOS_SELECT_MINIMAL]
+      let ultimoError = null
+      for (const columnas of intentos) {
+        try {
+          let data
+          let error
+          try {
+            const res = await withTimeout(
+              ejecutarSelect(columnas),
+              GASTOS_FIJOS_QUERY_TIMEOUT_MS,
+              `gastos_fijos select anio=${y}`
+            )
+            data = res.data
+            error = res.error
+          } catch (timeoutOrNet) {
+            ultimoError = timeoutOrNet
+            logErrorSupabase(
+              `gastos_fijos — consulta abortada o timeout (columnas solicitadas: ${columnas})`,
+              timeoutOrNet,
+              { anio: y, columnas }
+            )
+            setGastosEstructura([])
+            setErrorGastosEstructura(null)
+            return
+          }
+
+          if (error) {
+            ultimoError = error
+            logErrorSupabase(`gastos_fijos — error Supabase (SELECT: ${columnas})`, error, { anio: y })
+            if (esErrorColumnaSql(error)) continue
+            setGastosEstructura([])
+            setErrorGastosEstructura(null)
+            return
+          }
+
+          const raw = Array.isArray(data) ? data : []
+          const rows = []
+          for (let i = 0; i < raw.length; i += 1) {
+            try {
+              rows.push(mapRow(raw[i]))
+            } catch (rowErr) {
+              console.error(
+                '[HistorialCierres] gastos_fijos — fallo al mapear una fila (revisa tipos/columnas en esta fila)',
+                {
+                  indice: i,
+                  filaCruda: raw[i],
+                  columnasUsadas: columnas,
+                  error: rowErr?.message || rowErr,
+                  stack: rowErr?.stack,
+                }
+              )
+            }
+          }
+          setGastosEstructura(rows)
+          setErrorGastosEstructura(null)
+          return
+        } catch (e) {
+          ultimoError = e
+          logErrorSupabase(`gastos_fijos — excepción en intento de lectura (columnas: ${columnas})`, e, { anio: y })
+          if (esErrorColumnaSql(e)) continue
+          setErrorGastosEstructura(null)
+          setGastosEstructura([])
+          return
+        }
+      }
+      logErrorSupabase('gastos_fijos — ningún SELECT compatible con el esquema (ignorado para no bloquear Historial)', ultimoError, {
+        anio: y,
+        intentos: intentos.join(' | '),
+      })
+      setGastosEstructura([])
+      setErrorGastosEstructura(null)
+    } catch (e) {
+      logErrorSupabase('gastos_fijos — bloque try/catch externo (ignorado para no bloquear Historial)', e, { anio: parseInt(año, 10) })
+      setErrorGastosEstructura(null)
+      setGastosEstructura([])
+    } finally {
+      setCargandoGastosEstructura(false)
+    }
+  }, [año])
+
+  /** Último recurso: nunca más de 15s en estado de carga de la vista principal. */
+  useEffect(() => {
+    const tid = window.setTimeout(() => {
+      setIsLoading((prev) => {
+        if (!prev) return prev
+        console.error(
+          '[HistorialCierres] FAILSAFE: isLoading superó 15s — se libera la UI. Revisa la consulta a expedientes o la red.'
+        )
+        return false
+      })
+    }, 15000)
+    return () => window.clearTimeout(tid)
+  }, [])
+
+  useEffect(() => {
+    const ySel = año
+    cierres.forEach((c) => {
+      const num = String(c.numero_expediente ?? '').trim()
+      if (!NUMEROS_DIAGNOSTICO_HISTORIAL.includes(num)) return
+      const yr = c.fechaReferenciaTrimestre?.getFullYear?.()
+      if (String(yr) !== ySel) {
+        console.warn('[HistorialCierres] Expediente diagnóstico cargado pero oculto por año del filtro:', num, {
+          añoSeleccionado: ySel,
+          añoReferencia: yr,
+        })
+      }
+    })
+  }, [cierres, año])
   useEffect(() => {
     if (trimestreFiltro === 'all') {
       setAbiertoTrim(estadoInicialAcordeon(año))
@@ -405,51 +759,174 @@ const HistorialCierres = ({ user }) => {
     }
   }, [año, trimestreFiltro])
 
-  const cargarCierres = async () => {
-    setCargando(true)
+  const TIMEOUT_CARGA_CIERRES_MS = 50000
+
+  const cargarCierres = useCallback(async () => {
+    const seq = ++cierreLoadSeqRef.current
+    let timeoutId = null
     try {
-      const { data, error } = await supabase
-        .from('expedientes')
-        .select(`id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio,
-                 total_ingresos, total_gastos_reales, beneficio_neto_real,
-                 liquidacion_final_beneficio, cierre_grupo, informe_gastos_hacienda`)
-        .or('estado.eq.cerrado,estado.eq.finalizado')
-        .order('fecha_inicio', { ascending: false, nullsFirst: false })
+      timeoutId = window.setTimeout(() => {
+        console.warn('[HistorialCierres] Tiempo de espera agotado cargando expedientes; se muestra la interfaz sin datos de cierre.')
+        if (seq !== cierreLoadSeqRef.current) return
+        setCierres([])
+      }, TIMEOUT_CARGA_CIERRES_MS)
 
-      if (error) { setCierres([]); return }
+      const fetchCerrados = async (cols) =>
+        supabase
+          .from('expedientes')
+          .select(cols)
+          .ilike('estado', 'cerrado')
+          .order('fecha_inicio', { ascending: false, nullsFirst: true })
 
-      const mapeados = (data || []).map((exp) => {
+      const esErrorColumna = (err) => /column|schema|does not exist|42703/i.test(String(err?.message || ''))
+
+      let { data, error } = await fetchCerrados(SELECT_EXPEDIENTES_HISTORIAL_EXT)
+
+      if (error && esErrorColumna(error)) {
+        const msg = String(error.message || '')
+        if (/fecha_creacion/i.test(msg)) {
+          console.warn('[HistorialCierres] fecha_creacion ausente en esquema, reintento con created_at:', msg)
+          const rMid = await fetchCerrados(`${SELECT_EXPEDIENTES_HISTORIAL_MIN}, created_at`)
+          data = rMid.data
+          error = rMid.error
+        } else {
+          console.warn('[HistorialCierres] Select extendido rechazado, reintento columnas mínimas:', msg)
+          const r2 = await fetchCerrados(SELECT_EXPEDIENTES_HISTORIAL_MIN)
+          data = r2.data
+          error = r2.error
+        }
+      }
+
+      if (error && esErrorColumna(error)) {
+        console.warn('[HistorialCierres] Último reintento solo columnas mínimas:', error.message)
+        const r3 = await fetchCerrados(SELECT_EXPEDIENTES_HISTORIAL_MIN)
+        data = r3.data
+        error = r3.error
+      }
+
+      if (seq !== cierreLoadSeqRef.current) return
+
+      if (error) {
+        console.error('[HistorialCierres] Error Supabase expedientes:', error.message, error)
+        setCierres([])
+        return
+      }
+
+      const crudos = Array.isArray(data) ? data : []
+      const soloCerrado = crudos.filter((e) => String(e.estado ?? '').trim().toLowerCase() === 'cerrado')
+      if (soloCerrado.length !== crudos.length) {
+        const rechazados = crudos.filter((e) => String(e.estado ?? '').trim().toLowerCase() !== 'cerrado')
+        console.warn(
+          '[HistorialCierres] Filas excluidas: estado no es exactamente «cerrado» tras ilike:',
+          rechazados.map((e) => ({ numero_expediente: e.numero_expediente, estado: e.estado }))
+        )
+      }
+
+      const numsApi = new Set(soloCerrado.map((e) => String(e.numero_expediente ?? '').trim()))
+      NUMEROS_DIAGNOSTICO_HISTORIAL.forEach((num) => {
+        if (!numsApi.has(num)) {
+          console.warn('[HistorialCierres] No devuelto por API (filtro Cerrado / query):', num)
+        }
+      })
+      console.info(
+        '[HistorialCierres] Expedientes cerrados cargados:',
+        soloCerrado.length,
+        soloCerrado.map((e) => e.numero_expediente)
+      )
+
+      const mapeados = soloCerrado.map((exp) => {
         const fin = extraerFinanzas(exp)
         const fechaInicioDate = fechaInicioADate(exp.fecha_inicio)
-        return { ...exp, ...fin, fechaInicioDate }
+        const fechaReferenciaTrimestre = fechaReferenciaTrimestreDesdeExp({
+          ...exp,
+          fechaInicioDate,
+        })
+        return { ...exp, ...fin, fechaInicioDate, fechaReferenciaTrimestre }
       })
       mapeados.sort((a, b) => {
-        const ta = a.fechaInicioDate?.getTime() ?? 0
-        const tb = b.fechaInicioDate?.getTime() ?? 0
+        const ta = a.fechaReferenciaTrimestre?.getTime() ?? 0
+        const tb = b.fechaReferenciaTrimestre?.getTime() ?? 0
         if (tb !== ta) return tb - ta
         return String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es', { numeric: true })
       })
-      setCierres(mapeados)
-    } catch { setCierres([]) }
-    finally   { setCargando(false) }
-  }
 
-  /** Integridad: ningún cerrado/finalizado se excluye por falta de fecha; sin fecha_inicio → bloque aparte. */
-  const expedientesDelAño = useMemo(() => cierres.filter((c) => {
-    if (!c.fechaInicioDate) return true
-    return String(c.fechaInicioDate.getFullYear()) === año
-  }), [cierres, año])
+      NUMEROS_DIAGNOSTICO_HISTORIAL.forEach((num) => {
+        const row = mapeados.find((e) => String(e.numero_expediente ?? '').trim() === num)
+        if (row) {
+          const { trimestre } = clasificarPorFechaInicio(row)
+          const y = row.fechaReferenciaTrimestre?.getFullYear?.()
+          console.info('[HistorialCierres] Diagnóstico referencia trimestre/año:', num, {
+            añoReferencia: y,
+            trimestre: trimestre != null ? `T${trimestre}` : null,
+          })
+        }
+      })
+
+      if (seq === cierreLoadSeqRef.current) setCierres(mapeados)
+    } catch (err) {
+      console.error('[HistorialCierres] cargarCierres:', err)
+      if (seq === cierreLoadSeqRef.current) setCierres([])
+    } finally {
+      if (timeoutId != null) window.clearTimeout(timeoutId)
+    }
+  }, [])
+
+  /**
+   * Efecto principal: expedientes + gastos_fijos en paralelo.
+   * Cada promesa lleva .finally → setIsLoading(false) vía contador (solo cuando ambas terminaron).
+   */
+  useEffect(() => {
+    const cargaId = ++historialCargaIdRef.current
+    setIsLoading(true)
+    let pendientes = 2
+    const alTerminarUnaPromesa = () => {
+      pendientes -= 1
+      if (pendientes <= 0 && historialCargaIdRef.current === cargaId) {
+        setIsLoading(false)
+      }
+    }
+
+    cargarCierres().finally(() => {
+      alTerminarUnaPromesa()
+    })
+
+    Promise.resolve()
+      .then(() => recargarGastosEstructura())
+      .catch((fatal) => {
+        console.error('[HistorialCierres] gastos_fijos — fallo total; estado [] (no bloquea expedientes)', {
+          mensaje: fatal?.message || String(fatal),
+          stack: fatal?.stack,
+          objeto: fatal,
+        })
+        setGastosEstructura([])
+        setErrorGastosEstructura(null)
+        setCargandoGastosEstructura(false)
+      })
+      .finally(() => {
+        alTerminarUnaPromesa()
+      })
+  }, [año, cargarCierres, recargarGastosEstructura])
+
+  /** Año según fecha de referencia (inicio, creación o hoy), alineado con Planning. */
+  const expedientesDelAño = useMemo(
+    () =>
+      cierres.filter((c) => {
+        const y = c.fechaReferenciaTrimestre?.getFullYear?.()
+        return String(y) === año
+      }),
+    [cierres, año]
+  )
 
   const { bucketsTrimestre, bucketSinFecha } = useMemo(() => {
-    const sinF = expedientesDelAño.filter((c) => !c.fechaInicioDate)
-    const conF = expedientesDelAño.filter((c) => c.fechaInicioDate)
+    const conF = expedientesDelAño
 
-    const ordenarEnBloque = (arr) => [...arr].sort((a, b) => {
-      const ta = a.fechaInicioDate?.getTime() ?? 0
-      const tb = b.fechaInicioDate?.getTime() ?? 0
-      if (ta !== tb) return ta - tb
-      return String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es', { numeric: true })
-    })
+    const ordenarEnBloque = (arr) =>
+      [...arr].sort((a, b) => {
+        const ta = a.fechaReferenciaTrimestre?.getTime() ?? 0
+        const tb = b.fechaReferenciaTrimestre?.getTime() ?? 0
+        if (ta !== tb) return ta - tb
+        return String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es', { numeric: true })
+      })
 
     const buckets = [1, 2, 3, 4].map((q) => {
       const items = ordenarEnBloque(conF.filter((c) => clasificarPorFechaInicio(c).trimestre === q))
@@ -466,22 +943,10 @@ const HistorialCierres = ({ user }) => {
       }
     })
 
-    const itemsSinFecha = ordenarEnBloque(sinF)
-    const sinFechaBucket = itemsSinFecha.length
-      ? {
-          key: 'sin-fecha',
-          q: 0,
-          titulo: 'Sin fecha de inicio',
-          items: itemsSinFecha,
-          sumIngresos: itemsSinFecha.reduce((s, c) => s + n(c.total_ingresos), 0),
-          sumBenefReal: itemsSinFecha.reduce((s, c) => s + n(c.beneficio_neto_real), 0),
-        }
-      : null
-
-    return { bucketsTrimestre: buckets, bucketSinFecha: sinFechaBucket }
+    return { bucketsTrimestre: buckets, bucketSinFecha: null }
   }, [expedientesDelAño])
 
-  /** Bloques visibles según desplegable T1–T4 / Todos. «Sin fecha» solo en «Todos». */
+  /** Bloques visibles según desplegable T1–T4 / Todos (todos los cerrados van a un T1–T4 vía fecha de referencia). */
   const { bucketsVisibles, bucketSinFechaVisible } = useMemo(() => {
     if (trimestreFiltro === 'all') {
       return { bucketsVisibles: bucketsTrimestre, bucketSinFechaVisible: bucketSinFecha }
@@ -547,10 +1012,11 @@ const HistorialCierres = ({ user }) => {
 
   const abrirTodosDocumentosPestanas = useCallback(() => {
     const items = construirListaArchivosAuditoria(modalAuditoria, datosAuditoria)
-    items.forEach((item, idx) => {
+    const conUrl = items.filter((it) => it?.url && /^https?:\/\//i.test(String(it.url)))
+    conUrl.forEach((item, idx) => {
       setTimeout(() => window.open(item.url, '_blank', 'noopener,noreferrer'), idx * 400)
     })
-    if (items.length === 0) {
+    if (conUrl.length === 0) {
       alert('No hay documentos con URL disponible para este expediente.')
     }
   }, [modalAuditoria, datosAuditoria])
@@ -575,14 +1041,30 @@ const HistorialCierres = ({ user }) => {
 
       let fetched = 0
       const pullInto = async (folder, items) => {
-        for (const { url, filename } of items) {
+        for (const item of items) {
+          const { url, filename, sourceRaw } = item
+          const raw = sourceRaw ?? url
           try {
+            let buffer = null
             const res = await fetch(url, { mode: 'cors' })
-            if (!res.ok) continue
-            folder.file(filename, await res.arrayBuffer())
-            fetched += 1
+            if (res.ok) buffer = await res.arrayBuffer()
+            if (!buffer && raw) buffer = await descargarArrayBufferFacturaProveedor(raw)
+            if (buffer) {
+              folder.file(filename, buffer)
+              fetched += 1
+            }
           } catch (err) {
-            console.warn('[ZIP] omitido', filename, err)
+            try {
+              const buffer = raw ? await descargarArrayBufferFacturaProveedor(raw) : null
+              if (buffer) {
+                folder.file(filename, buffer)
+                fetched += 1
+              } else {
+                console.warn('[ZIP] omitido', filename, err)
+              }
+            } catch (e2) {
+              console.warn('[ZIP] omitido', filename, err || e2)
+            }
           }
         }
       }
@@ -618,6 +1100,15 @@ const HistorialCierres = ({ user }) => {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [modalAuditoria, cerrarModalAuditoria])
+
+  useEffect(() => {
+    if (!modalGastoMensual) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') cerrarModalGastoMensual()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [modalGastoMensual, cerrarModalGastoMensual])
 
   // ── Exportar Cuaderno de Cierres ──────────────────────────────────────────
   const exportarCuaderno = async () => {
@@ -706,8 +1197,8 @@ const HistorialCierres = ({ user }) => {
 
       const etiquetaCuaderno =
         trimestreFiltro === 'all'
-          ? `${año} · Todos los trimestres (cerrado / finalizado)`
-          : `${año} · ${TRIMESTRES.find((t) => t.value === trimestreFiltro)?.label ?? `T${trimestreFiltro}`} (cerrado / finalizado)`
+          ? `${año} · Todos los trimestres (estado Cerrado)`
+          : `${año} · ${TRIMESTRES.find((t) => t.value === trimestreFiltro)?.label ?? `T${trimestreFiltro}`} (estado Cerrado)`
 
       const htmlContent = construirHTMLCuaderno(cierresEnriquecidos, etiquetaCuaderno, pdfLinksByExpedienteId)
       const fileName =
@@ -744,6 +1235,539 @@ const HistorialCierres = ({ user }) => {
 
   const toggleAcordeon = (q) => {
     setAbiertoTrim((s) => ({ ...s, [q]: !s[q] }))
+  }
+
+  const cerrarModalGastoMensual = useCallback(() => {
+    setModalGastoMensual(null)
+    setArchivoGastoMensual(null)
+  }, [])
+
+  const abrirModalGastoMensual = useCallback(
+    (mesNum) => {
+      const y = parseInt(año, 10)
+      if (!Number.isFinite(y)) return
+      setFormGastoMensual(formInicialGastoMensual(String(y), mesNum))
+      setArchivoGastoMensual(null)
+      setModalGastoMensual({ mesNum })
+    },
+    [año]
+  )
+
+  const guardarGastoMensualDesdeModal = useCallback(async () => {
+    if (!esAdmin || !modalGastoMensual) return
+    const anioEjercicio = parseInt(año, 10)
+    const cat = String(formGastoMensual.categoria || 'arsys')
+    const proveedorOtro = String(formGastoMensual.proveedorOtro || '').trim()
+    const proveedor =
+      cat === 'otro'
+        ? proveedorOtro
+        : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
+    const mesNumModal = modalGastoMensual.mesNum
+    const nombreMesModal = NOMBRES_MES[mesNumModal - 1] || ''
+    let concepto = String(formGastoMensual.concepto || '').trim()
+    const importeConIva = parseFloat(String(formGastoMensual.importeConIva || '').replace(',', '.'))
+    const fechaStr = String(formGastoMensual.fecha || '').trim()
+    const file = archivoGastoMensual
+
+    if (!proveedor) {
+      alert(cat === 'otro' ? 'Indica el nombre del proveedor (Otro).' : 'Selecciona un proveedor.')
+      return
+    }
+    if (!concepto) {
+      concepto = `${proveedor} — ${nombreMesModal} ${anioEjercicio}`.trim()
+    }
+    if (!Number.isFinite(importeConIva) || importeConIva < 0) {
+      alert('Indica un importe válido (con IVA).')
+      return
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
+      alert('Indica la fecha de la factura.')
+      return
+    }
+    const fd = new Date(`${fechaStr}T12:00:00`)
+    if (isNaN(fd.getTime())) {
+      alert('Fecha no válida.')
+      return
+    }
+    const mesContable = fd.getMonth() + 1
+    const anioContable = fd.getFullYear()
+    if (anioContable !== anioEjercicio) {
+      alert(`La fecha debe pertenecer al ejercicio ${anioEjercicio} (año del selector superior).`)
+      return
+    }
+    if (!file || file.type !== 'application/pdf') {
+      alert('Selecciona un archivo PDF.')
+      return
+    }
+
+    setSubiendoGastoMensual(true)
+    let pathStorage = null
+    try {
+      pathStorage = await subirPdfFacturaProveedorComoExpediente(file)
+      const { error: insErr } = await supabase.from('gastos_fijos').insert({
+        concepto,
+        proveedor,
+        importe: importeConIva,
+        importe_iva: 0,
+        url_pdf: pathStorage,
+        mes: mesContable,
+        anio: anioContable,
+        fecha_factura: fechaStr,
+        activo: true,
+        periodicidad: 'mensual',
+      })
+      if (insErr) {
+        if (pathStorage) await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
+        alert(
+          `${insErr.message}\n\nEjecuta en Supabase: add-gastos-fijos-estructura-mensual.sql, add-gastos-fijos-fecha-factura.sql, add-gastos-fijos-importe-iva.sql`
+        )
+        return
+      }
+      cerrarModalGastoMensual()
+      await recargarGastosEstructura()
+    } catch (e) {
+      console.error(e)
+      if (pathStorage) {
+        try {
+          await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
+        } catch (_) {}
+      }
+      alert(e?.message || 'Error al guardar el gasto.')
+    } finally {
+      setSubiendoGastoMensual(false)
+    }
+  }, [esAdmin, modalGastoMensual, año, formGastoMensual, archivoGastoMensual, recargarGastosEstructura, cerrarModalGastoMensual])
+
+  const borrarFacturaEstructura = useCallback(
+    async (row) => {
+      if (!esAdmin) return
+      if (!window.confirm('¿Eliminar esta factura de estructura y su PDF?')) return
+      try {
+        if (row.url_pdf) await eliminarObjetoStorageFacturaProveedor(row.url_pdf)
+        const { error } = await supabase.from('gastos_fijos').delete().eq('id', row.id)
+        if (error) {
+          alert(`No se pudo eliminar: ${error.message}`)
+          return
+        }
+        await recargarGastosEstructura()
+      } catch (e) {
+        console.error(e)
+        alert('Error al eliminar.')
+      }
+    },
+    [esAdmin, recargarGastosEstructura]
+  )
+
+  const descargarPackEstructuraMes = useCallback(
+    async (mesNum, nombreMes) => {
+      const anioNum = parseInt(año, 10)
+      if (!Number.isFinite(anioNum)) return
+
+      const expedientesMes = cierres.filter((c) => {
+        const d = c.fechaReferenciaTrimestre
+        if (!d || isNaN(d.getTime())) return false
+        return d.getFullYear() === anioNum && d.getMonth() + 1 === mesNum
+      })
+
+      const filasEstructura = gastosEstructura.filter(
+        (g) => Number(g.mes) === mesNum && Number(g.anio) === anioNum && g.url_pdf
+      )
+
+      if (expedientesMes.length === 0 && filasEstructura.length === 0) {
+        alert('No hay expedientes cerrados ni facturas de estructura para este mes.')
+        return
+      }
+
+      const key = `${anioNum}-${mesNum}`
+      setDescargandoPackMes(key)
+      try {
+        const zip = new JSZip()
+        const prefExp = 'Expedientes_cerrados'
+        const prefEst = 'Facturas_estructura'
+
+        const nombreUnicoRuta = (rutaCompleta) => {
+          if (!zip.files[rutaCompleta]) return rutaCompleta
+          const base = rutaCompleta.replace(/\.pdf$/i, '')
+          let n = 2
+          while (zip.files[`${base}_${n}.pdf`]) n += 1
+          return `${base}_${n}.pdf`
+        }
+
+        let entradasZip = 0
+
+        for (const exp of expedientesMes) {
+          const carpetaExp = `${prefExp}/${nombreArchivoSeguro(exp.numero_expediente || String(exp.id))}`
+          try {
+            const datos = await cargarDatosAuditoriaExpediente(supabase, exp.id)
+            const expPdf = (await obtenerExpedienteParaPdfCierres(exp.id)) || exp
+            const lineasInforme = await obtenerLineasInformeComoCierres(supabase, expPdf, {
+              preferPagosPrimero: true,
+            })
+            const docPdf = crearJsPdfInformeCierre(expPdf, lineasInforme)
+            const pdfBuf = docPdf.output('arraybuffer')
+            const nomInf = nombreArchivoInformeCierrePdf(exp.numero_expediente || exp.id)
+            zip.file(nombreUnicoRuta(`${carpetaExp}/${nomInf}`), pdfBuf)
+            entradasZip += 1
+
+            const { proveedores, clientes } = particionarArchivosAuditoriaZip(exp, datos)
+            for (const item of proveedores) {
+              const { url, filename, sourceRaw } = item
+              const raw = sourceRaw ?? url
+              try {
+                let buffer = null
+                const res = await fetch(url, { mode: 'cors' })
+                if (res.ok) buffer = await res.arrayBuffer()
+                if (!buffer && raw) buffer = await descargarArrayBufferFacturaProveedor(raw)
+                if (buffer) {
+                  const ruta = nombreUnicoRuta(`${carpetaExp}/Facturas_Proveedores/${filename}`)
+                  zip.file(ruta, buffer)
+                  entradasZip += 1
+                }
+              } catch (err) {
+                try {
+                  const buffer = raw ? await descargarArrayBufferFacturaProveedor(raw) : null
+                  if (buffer) {
+                    const ruta = nombreUnicoRuta(`${carpetaExp}/Facturas_Proveedores/${filename}`)
+                    zip.file(ruta, buffer)
+                    entradasZip += 1
+                  } else {
+                    console.warn('[ZIP pack mes] proveedor omitido', filename, err)
+                  }
+                } catch (e2) {
+                  console.warn('[ZIP pack mes] proveedor omitido', filename, err || e2)
+                }
+              }
+            }
+            for (const item of clientes) {
+              const { url, filename, sourceRaw } = item
+              const raw = sourceRaw ?? url
+              try {
+                let buffer = null
+                const res = await fetch(url, { mode: 'cors' })
+                if (res.ok) buffer = await res.arrayBuffer()
+                if (!buffer && raw) buffer = await descargarArrayBufferFacturaProveedor(raw)
+                if (buffer) {
+                  const ruta = nombreUnicoRuta(`${carpetaExp}/Facturas_Clientes/${filename}`)
+                  zip.file(ruta, buffer)
+                  entradasZip += 1
+                }
+              } catch (err) {
+                try {
+                  const buffer = raw ? await descargarArrayBufferFacturaProveedor(raw) : null
+                  if (buffer) {
+                    const ruta = nombreUnicoRuta(`${carpetaExp}/Facturas_Clientes/${filename}`)
+                    zip.file(ruta, buffer)
+                    entradasZip += 1
+                  } else {
+                    console.warn('[ZIP pack mes] cliente omitido', filename, err)
+                  }
+                } catch (e2) {
+                  console.warn('[ZIP pack mes] cliente omitido', filename, err || e2)
+                }
+              }
+            }
+          } catch (err) {
+            console.warn('[ZIP pack mes] expediente omitido', exp.id, err)
+          }
+        }
+
+        for (let i = 0; i < filasEstructura.length; i += 1) {
+          const f = filasEstructura[i]
+          if (!f.url_pdf) continue
+          const url = resolverUrlPublicaFacturaProveedor(f.url_pdf)
+          try {
+            let buf = null
+            if (url) {
+              try {
+                const res = await fetch(url, { mode: 'cors' })
+                if (res.ok) buf = await res.arrayBuffer()
+              } catch (_) {}
+            }
+            if (!buf) buf = await descargarArrayBufferFacturaProveedor(f.url_pdf)
+            if (buf) {
+              const deseado = nombrePdfEnZipEstructura(nombreMes, f.proveedor, f.importe)
+              const ruta = nombreUnicoRuta(`${prefEst}/${deseado}`)
+              zip.file(ruta, buf)
+              entradasZip += 1
+            }
+          } catch (err) {
+            console.warn('[ZIP estructura] omitido', f.id, err)
+          }
+        }
+
+        if (entradasZip === 0) {
+          alert(
+            'No se pudo incluir ningún archivo en el ZIP (sin informes ni PDFs descargables; revisa CORS o red).'
+          )
+          return
+        }
+
+        const blob = await zip.generateAsync({ type: 'blob' })
+        saveAs(blob, `Pack_${nombreMes}_${anioNum}.zip`)
+      } catch (e) {
+        console.error(e)
+        alert('Error al generar el ZIP del mes.')
+      } finally {
+        setDescargandoPackMes(null)
+      }
+    },
+    [año, gastosEstructura, cierres]
+  )
+
+  const renderGastosEstructuraTrimestre = (qTrim) => {
+    const anioNum = parseInt(año, 10)
+    if (!Number.isFinite(anioNum) || qTrim < 1 || qTrim > 4) return null
+    const meses = mesesDelTrimestre(qTrim)
+    return (
+      <div className="border-t-2 border-slate-200 bg-gradient-to-b from-slate-50/95 to-slate-100/80 px-4 py-5 sm:px-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
+            Gastos mensuales (estructura)
+          </p>
+          {cargandoGastosEstructura && (
+            <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+              <Loader2 size={14} className="animate-spin" /> Actualizando facturas…
+            </span>
+          )}
+        </div>
+        {errorGastosEstructura && (
+          <p className="text-xs text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            {errorGastosEstructura}
+          </p>
+        )}
+        {esAdmin && meses.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/90 bg-amber-50/90 px-3 py-2.5">
+            <span className="text-[10px] font-black uppercase tracking-widest text-amber-900/90 shrink-0">
+              Añadir gasto de estructura
+            </span>
+            <span className="text-[11px] text-amber-800/80 hidden sm:inline">(visible aunque la tabla esté vacía)</span>
+            <div className="flex flex-wrap gap-2">
+              {meses.map((mesNum) => (
+                <button
+                  key={mesNum}
+                  type="button"
+                  onClick={() => abrirModalGastoMensual(mesNum)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold shadow-sm"
+                >
+                  <Plus size={12} />
+                  {NOMBRES_MES[mesNum - 1]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {meses.map((mesNum) => {
+          const nombreMes = NOMBRES_MES[mesNum - 1]
+          const rows = gastosEstructura.filter(
+            (g) => Number(g.mes) === mesNum && Number(g.anio) === anioNum
+          )
+          const expedientesMesCalendario = cierres.filter((c) => {
+            const d = c.fechaReferenciaTrimestre
+            if (!d || isNaN(d.getTime())) return false
+            return d.getFullYear() === anioNum && d.getMonth() + 1 === mesNum
+          })
+          const descargando = descargandoPackMes === `${anioNum}-${mesNum}`
+          const conPdf = rows.filter((r) => r.url_pdf)
+          const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
+          const fmtFechaFact = (raw) => {
+            if (!raw) return '—'
+            const d = parsearFechaADate(raw) || new Date(raw)
+            return !isNaN(d.getTime())
+              ? d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+              : '—'
+          }
+          const colSpanTabla = esAdmin ? 6 : 5
+          const filaVaciaListado = (
+            <tr>
+              <td colSpan={colSpanTabla} className="px-4 py-8 text-center bg-gradient-to-b from-slate-50/80 to-white border-t border-slate-100">
+                <p className="text-sm font-medium text-slate-600">Sin gastos de estructura este mes</p>
+                <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                  Los registros que subas con el botón superior aparecerán aquí. La vista de expedientes no se ve afectada si esta tabla falla.
+                </p>
+              </td>
+            </tr>
+          )
+          return (
+            <div
+              key={mesNum}
+              className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+            >
+              <div className="px-4 py-3 border-b border-slate-100 bg-slate-800 text-white flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <h3 className="text-sm font-black uppercase tracking-wide shrink-0">
+                  Gastos mensuales — {nombreMes}
+                </h3>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-1 sm:justify-end sm:gap-4 min-w-0">
+                  {rows.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end flex-1 min-w-0">
+                      {rows.map((r) => (
+                        <div
+                          key={r.id}
+                          className="flex items-center gap-2 rounded-lg bg-slate-700/90 px-2.5 py-1.5 text-white text-xs border border-slate-600/80"
+                        >
+                          <span
+                            className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-600 font-black text-[10px] shrink-0"
+                            title={r.proveedor || ''}
+                          >
+                            {inicialesProveedorEstructura(r.proveedor)}
+                          </span>
+                          <Building2 size={14} className="text-slate-400 shrink-0 hidden md:block" aria-hidden />
+                          <span className="font-semibold truncate max-w-[130px] sm:max-w-[160px]">{r.proveedor ?? '—'}</span>
+                          <span className="tabular-nums font-bold text-emerald-300 shrink-0">{n(r.importe).toFixed(2)} €</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {esAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => abrirModalGastoMensual(mesNum)}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black uppercase tracking-[0.1em] shadow-md transition-colors"
+                      >
+                        <Plus size={16} />
+                        Añadir Gasto de Estructura
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={descargando || !puedePackMes}
+                      onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-500 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.12em] shadow-md transition-colors"
+                    >
+                      {descargando ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
+                      DESCARGAR PACK {nombreMes.toUpperCase()}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="p-4">
+                <div className="hidden sm:block overflow-x-auto mb-4">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-100 text-slate-700">
+                      <tr>
+                        {['Fecha', 'Proveedor', 'Concepto', 'Importe (c/IVA)', 'PDF', ...(esAdmin ? ['Acciones'] : [])].map(
+                          (lab) => (
+                            <th
+                              key={lab}
+                              className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
+                                String(lab).includes('Importe') ? 'text-right' : 'text-left'
+                              }`}
+                            >
+                              {lab}
+                            </th>
+                          )
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rows.length === 0
+                        ? filaVaciaListado
+                        : rows.map((r) => {
+                            const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
+                            return (
+                              <tr key={r.id}>
+                                <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                                  {fmtFechaFact(r.fecha_factura)}
+                                </td>
+                                <td className="px-3 py-2 text-slate-800">
+                                  <span className="inline-flex items-center gap-2">
+                                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
+                                      {inicialesProveedorEstructura(r.proveedor)}
+                                    </span>
+                                    {r.proveedor ?? '—'}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-slate-700 max-w-[220px] truncate" title={r.concepto || ''}>
+                                  {r.concepto ?? '—'}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums text-slate-900">
+                                  <div className="font-semibold">{n(r.importe).toFixed(2)} €</div>
+                                  {n(r.importe_iva) > 0 && (
+                                    <div className="text-[11px] text-slate-500 font-normal">IVA {n(r.importe_iva).toFixed(2)} €</div>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {url ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirFacturaProveedorPorUrlGuardada(r.url_pdf)}
+                                      className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
+                                    >
+                                      <ExternalLink size={14} /> Abrir
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs text-slate-400">—</span>
+                                  )}
+                                </td>
+                                {esAdmin && (
+                                  <td className="px-3 py-2 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => borrarFacturaEstructura(r)}
+                                      className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800"
+                                    >
+                                      <Trash2 size={14} /> Eliminar
+                                    </button>
+                                  </td>
+                                )}
+                              </tr>
+                            )
+                          })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="sm:hidden space-y-2 mb-4">
+                  {rows.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
+                      <p className="text-sm font-medium text-slate-600">Sin gastos de estructura este mes</p>
+                      <p className="text-xs text-slate-400 mt-1">Usa «Añadir Gasto de Estructura» para registrar facturas.</p>
+                    </div>
+                  ) : (
+                    rows.map((r) => {
+                      const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
+                      return (
+                        <div key={r.id} className="rounded-lg border border-slate-100 p-3 bg-slate-50/80">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700">
+                              {inicialesProveedorEstructura(r.proveedor)}
+                            </span>
+                            <p className="font-bold text-slate-900 text-sm flex-1">{r.proveedor ?? '—'}</p>
+                          </div>
+                          <p className="text-xs text-slate-600">{r.concepto ?? '—'}</p>
+                          <p className="text-xs text-slate-500 mt-1">Fecha: {fmtFechaFact(r.fecha_factura)}</p>
+                          <p className="text-sm font-bold text-slate-900 mt-1">
+                            {n(r.importe).toFixed(2)} €
+                            {n(r.importe_iva) > 0 && (
+                              <span className="text-xs font-normal text-slate-500"> · IVA {n(r.importe_iva).toFixed(2)} €</span>
+                            )}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {url && (
+                              <button
+                                type="button"
+                                onClick={() => abrirFacturaProveedorPorUrlGuardada(r.url_pdf)}
+                                className="text-xs font-bold text-blue-600"
+                              >
+                                Abrir PDF
+                              </button>
+                            )}
+                            {esAdmin && (
+                              <button type="button" onClick={() => borrarFacturaEstructura(r)} className="text-xs font-bold text-red-600">
+                                Eliminar
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   const renderFila = (c) => {
@@ -812,7 +1836,7 @@ const HistorialCierres = ({ user }) => {
         {abierto && (
           <div className="bg-white">
             {bucket.items.length === 0 ? (
-              <p className="text-sm text-slate-400 italic py-10 text-center px-4">Ningún expediente en este trimestre (según mes de fecha inicio).</p>
+              <p className="text-sm text-slate-400 italic py-10 text-center px-4">Ningún expediente en este trimestre (según mes de fecha de referencia: inicio o creación).</p>
             ) : (
               <>
                 <div className="hidden md:block overflow-x-auto">
@@ -886,6 +1910,29 @@ const HistorialCierres = ({ user }) => {
                 </div>
               </>
             )}
+            {q >= 1 && q <= 4
+              ? (() => {
+                  try {
+                    return renderGastosEstructuraTrimestre(q)
+                  } catch (renderErr) {
+                    console.error(
+                      '[HistorialCierres] Error renderizando bloque gastos_fijos (trimestre)',
+                      {
+                        trimestre: q,
+                        mensaje: renderErr?.message || String(renderErr),
+                        stack: renderErr?.stack,
+                        objeto: renderErr,
+                      }
+                    )
+                    return (
+                      <div className="border-t-2 border-red-200 bg-red-50/80 px-4 py-4 text-xs text-red-900">
+                        No se pudo mostrar el bloque de gastos de estructura. Revisa la consola para el detalle. Los
+                        expedientes de arriba no se ven afectados.
+                      </div>
+                    )
+                  }
+                })()
+              : null}
           </div>
         )}
       </div>
@@ -903,10 +1950,10 @@ const HistorialCierres = ({ user }) => {
             Historial de Cierres
           </h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
-            Cerrado o finalizado · T1–T4 por <strong>mes de fecha inicio</strong> · {etiquetaPeriodo}
+            Solo estado <strong>Cerrado</strong> · T1–T4 por <strong>mes de fecha de referencia</strong> (inicio; si falta, creación; si falta, hoy) · {etiquetaPeriodo}
             {esGestoria && (
               <span className="block mt-1 text-amber-700 font-semibold">
-                Perfil gestoría/auditoría: solo lectura en este historial (sin edición del cierre desde aquí).
+                Perfil gestoría/auditoría: lectura y descarga de packs de estructura; sin subida ni borrado de facturas de estructura ni edición del cierre desde aquí.
               </span>
             )}
           </p>
@@ -952,7 +1999,7 @@ const HistorialCierres = ({ user }) => {
       </div>
 
       {/* Totales dinámicos (solo filas visibles; pueden ser 0 € si el trimestre filtrado está vacío) */}
-      {!cargando && expedientesDelAño.length > 0 && (
+      {!isLoading && expedientesDelAño.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Total ingresos', value: totales.ingresos, color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
@@ -971,18 +2018,20 @@ const HistorialCierres = ({ user }) => {
       )}
 
       {/* Acordeones T1–T4 */}
-      {cargando ? (
-        <div className="py-16 text-center text-slate-500">
+      {isLoading ? (
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm py-14 px-6 text-center text-slate-500">
           <TrendingUp className="mx-auto text-slate-300 mb-4 animate-pulse" size={48} />
-          <p>Cargando cierres...</p>
+          <p className="font-semibold text-slate-700">Cargando expedientes cerrados…</p>
+          <p className="text-xs text-slate-400 mt-2 max-w-sm mx-auto">
+            Si la red tarda demasiado, la vista se liberará sola; los gastos de estructura se cargan aparte y no bloquean esta lista.
+          </p>
         </div>
       ) : cierres.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-md border border-slate-200 p-12 text-center">
           <FileText className="mx-auto text-slate-300 mb-4" size={56} />
-          <h3 className="text-xl font-bold text-slate-800 mb-2">No hay expedientes cerrados o finalizados</h3>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">No hay expedientes cerrados</h3>
           <p className="text-slate-500 text-sm max-w-md mx-auto">
-            Esta vista lista todos los registros con estado <code className="text-xs bg-slate-100 px-1 rounded">cerrado</code> o{' '}
-            <code className="text-xs bg-slate-100 px-1 rounded">finalizado</code>.
+            Esta vista lista solo registros con estado <code className="text-xs bg-slate-100 px-1 rounded">Cerrado</code> (sin distinguir mayúsculas en base de datos).
           </p>
         </div>
       ) : expedientesDelAño.length === 0 ? (
@@ -990,20 +2039,20 @@ const HistorialCierres = ({ user }) => {
           <FileText className="mx-auto text-slate-300 mb-4" size={56} />
           <h3 className="text-xl font-bold text-slate-800 mb-2">Sin expedientes en {año}</h3>
           <p className="text-slate-500 text-sm max-w-md mx-auto">
-            No hay filas con fecha de inicio en este año (o solo hay registros sin fecha de inicio; revisa el bloque inferior si aplica).
+            No hay cerrados cuyo año de referencia (inicio, creación o fecha actual como último recurso) coincida con {año}.
           </p>
         </div>
       ) : (
         <div className="space-y-2">
           <p className="text-xs text-slate-500 mb-2">
-            El trimestre seleccionado en la barra superior muestra u oculta bloques. Con «Todos» también se muestra el bloque sin fecha de inicio. Los puntos junto al Nº son estado: <span className="text-emerald-600 font-medium">verde = cerrado</span>, <span className="text-blue-600 font-medium">azul = finalizado</span>.
+            El trimestre filtra qué bloque T1–T4 se muestra. La columna «Fecha inicio» sigue mostrando solo la fecha de viaje si existe; el reparto por trimestre usa la fecha de referencia descrita arriba. El punto verde indica estado Cerrado.
           </p>
           {bucketsVisibles.map(renderBloqueTrimestre)}
           {bucketSinFechaVisible && renderBloqueTrimestre(bucketSinFechaVisible)}
         </div>
       )}
 
-      {!cargando && expedientesDelAño.length > 0 && (
+      {!isLoading && expedientesDelAño.length > 0 && (
         <p className="mt-4 text-xs text-slate-400 text-center">
           Cuaderno trimestral exporta solo los expedientes del filtro activo (vacío si no hay filas). Desglose: Bus, Hotel, Restaurante, Guía, Otros, Imprevistos.
           {' '}Con «Incl. enlaces PDF proveedores» se añade un anexo con hipervínculos a la documentación en <code className="text-[10px] bg-slate-100 px-1 rounded">pagos_proveedores</code>.
@@ -1048,7 +2097,16 @@ const HistorialCierres = ({ user }) => {
               ) : (
                 <>
                   {(() => {
-                    const fin = extraerFinanzas(modalAuditoria)
+                    let fin
+                    try {
+                      fin = extraerFinanzas(modalAuditoria)
+                    } catch {
+                      fin = {
+                        ingresoTotal: n(modalAuditoria.total_ingresos),
+                        gastoTotal: n(modalAuditoria.total_gastos_reales),
+                        beneficioNeto: n(modalAuditoria.beneficio_neto_real),
+                      }
+                    }
                     return (
                       <div>
                         <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Resumen financiero</h3>
@@ -1075,23 +2133,30 @@ const HistorialCierres = ({ user }) => {
                     ) : (
                       <ul className="space-y-2 text-sm border border-slate-100 rounded-xl divide-y divide-slate-100 max-h-48 overflow-y-auto">
                         {datosAuditoria.pagos.map((p) => {
-                          const tienePdf = !!resolverUrlPublicaFacturaProveedor(p.url_pdf)
+                          const pdfUrl = resolverUrlPublicaFacturaProveedor(p.url_pdf)
+                          const tienePdf = !!pdfUrl
                           return (
-                            <li key={p.id} className="px-3 py-2 flex flex-wrap items-center justify-between gap-2">
-                              <div className="min-w-0">
+                            <li key={p.id} className="px-3 py-2 flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
                                 <p className="font-semibold text-slate-800 truncate">{p.proveedor_nombre || 'Proveedor'}</p>
                                 <p className="text-xs text-slate-500">{p.concepto || p.numero_factura || '—'} · {fmtEur(p.importe_pagado)} €</p>
+                                {tienePdf && (
+                                  <p className="mt-1 text-[10px] font-mono text-slate-500 break-all" title={pdfUrl}>
+                                    {pdfUrl}
+                                  </p>
+                                )}
                               </div>
                               {tienePdf ? (
-                                <button
-                                  type="button"
-                                  onClick={() => abrirFacturaProveedorPorUrlGuardada(p.url_pdf)}
+                                <a
+                                  href={pdfUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 shrink-0"
                                 >
-                                  <ExternalLink size={14} /> PDF
-                                </button>
+                                  <ExternalLink size={14} /> Abrir PDF
+                                </a>
                               ) : (
-                                <span className="text-xs text-slate-400">Sin PDF</span>
+                                <span className="text-xs text-slate-400 shrink-0">Sin PDF</span>
                               )}
                             </li>
                           )
@@ -1118,14 +2183,17 @@ const HistorialCierres = ({ user }) => {
                                 <p className="text-xs text-slate-600">{f.cliente_nombre || 'Cliente'} · {fmtEur(f.importe_total)} €</p>
                               </div>
                               {url ? (
-                                <a
-                                  href={url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
-                                >
-                                  <ExternalLink size={14} /> PDF
-                                </a>
+                                <div className="flex flex-col items-end gap-1 max-w-[min(100%,280px)]">
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+                                  >
+                                    <ExternalLink size={14} /> Abrir PDF
+                                  </a>
+                                  <span className="text-[10px] text-slate-500 break-all text-right">{url}</span>
+                                </div>
                               ) : (
                                 <span className="text-xs text-slate-400">PDF no enlazado (regenerar desde expediente si aplica)</span>
                               )}
@@ -1167,6 +2235,149 @@ const HistorialCierres = ({ user }) => {
                   Ir al expediente (edición avanzada)
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalGastoMensual && esAdmin && (
+        <div
+          className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-gasto-mensual-titulo"
+          onClick={(e) => e.target === e.currentTarget && !subiendoGastoMensual && cerrarModalGastoMensual()}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
+            <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100 bg-slate-50">
+              <div>
+                <h2 id="modal-gasto-mensual-titulo" className="text-lg font-black text-slate-900 tracking-tight">
+                  Añadir Gasto de Estructura
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Bloque sugerido: {NOMBRES_MES[modalGastoMensual.mesNum - 1]} · Ejercicio {año}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={subiendoGastoMensual}
+                onClick={cerrarModalGastoMensual}
+                className="p-2 rounded-xl hover:bg-slate-200 text-slate-600 transition-colors shrink-0"
+                aria-label="Cerrar"
+              >
+                <X size={22} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+              <label className="block text-xs font-semibold text-slate-600">
+                Proveedor
+                <select
+                  value={formGastoMensual.categoria || 'arsys'}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setFormGastoMensual((prev) => ({
+                      ...prev,
+                      categoria: v,
+                      proveedorOtro: v === 'otro' ? prev.proveedorOtro : '',
+                    }))
+                  }}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+                >
+                  {PROVEEDORES_FIJOS_MENSUALES.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {formGastoMensual.categoria === 'otro' && (
+                <label className="block text-xs font-semibold text-slate-600">
+                  Nombre del proveedor (manual)
+                  <input
+                    type="text"
+                    value={formGastoMensual.proveedorOtro || ''}
+                    onChange={(e) => setFormGastoMensual((p) => ({ ...p, proveedorOtro: e.target.value }))}
+                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                    placeholder="Proveedor"
+                  />
+                </label>
+              )}
+              <label className="block text-xs font-semibold text-slate-600">
+                Concepto <span className="font-normal text-slate-400">(opcional)</span>
+                <input
+                  type="text"
+                  value={formGastoMensual.concepto || ''}
+                  onChange={(e) => setFormGastoMensual((p) => ({ ...p, concepto: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Si lo dejas vacío, se genera a partir del proveedor y el mes"
+                />
+              </label>
+              <label className="block text-xs font-semibold text-slate-600">
+                Importe (con IVA)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={formGastoMensual.importeConIva || ''}
+                  onChange={(e) => setFormGastoMensual((p) => ({ ...p, importeConIva: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                  placeholder="0,00"
+                />
+              </label>
+              <label className="block text-xs font-semibold text-slate-600">
+                Fecha de la factura
+                <input
+                  type="date"
+                  value={formGastoMensual.fecha || ''}
+                  onChange={(e) => setFormGastoMensual((p) => ({ ...p, fecha: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+                />
+              </label>
+              {(() => {
+                const f = formGastoMensual.fecha
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(f || '')) return null
+                const d = new Date(`${f}T12:00:00`)
+                if (isNaN(d.getTime())) return null
+                return (
+                  <p className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                    Mes y año contables automáticos:{' '}
+                    <strong>
+                      {NOMBRES_MES[d.getMonth()]} {d.getFullYear()}
+                    </strong>
+                  </p>
+                )
+              })()}
+              <label className="block text-xs font-semibold text-slate-600">
+                Archivo PDF
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  onChange={(e) => setArchivoGastoMensual(e.target.files?.[0] || null)}
+                  className="mt-1 block w-full text-sm text-slate-600"
+                />
+              </label>
+              <p className="text-[11px] text-slate-500">
+                El PDF se sube al bucket <code className="bg-slate-100 px-1 rounded">facturas_proveedores</code> con el mismo
+                criterio que en expedientes (<code className="bg-slate-100 px-1 rounded">fac-{'{timestamp}'}.pdf</code>).
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex flex-wrap gap-2 justify-end">
+              <button
+                type="button"
+                disabled={subiendoGastoMensual}
+                onClick={cerrarModalGastoMensual}
+                className="px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white text-slate-800 text-sm font-bold hover:bg-slate-100"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={subiendoGastoMensual}
+                onClick={() => guardarGastoMensualDesdeModal()}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-sm font-black uppercase tracking-wide shadow-md"
+              >
+                {subiendoGastoMensual ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+                Guardar gasto
+              </button>
             </div>
           </div>
         </div>
