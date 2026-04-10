@@ -114,6 +114,7 @@ const badgeEstadoProps = (exp) => {
   return { className: 'bg-slate-300', label: s || '—' }
 }
 
+/** Referencia verificación T1: deben listarse cuando el año del filtro coincide con su año contable/referencia. */
 const NUMEROS_DIAGNOSTICO_HISTORIAL = ['2026-011', '2026-012', '2026-002', '2026-015']
 
 const SELECT_EXPEDIENTES_HISTORIAL_MIN =
@@ -575,6 +576,20 @@ const HistorialCierres = ({ user }) => {
   const cierreLoadSeqRef = useRef(0)
   /** Coherencia con el efecto principal: solo el último ciclo puede hacer setIsLoading(false). */
   const historialCargaIdRef = useRef(0)
+  /** Failsafe 2s (orden directa): isLoading se apaga sí o sí; un solo timeout por periodo en carga. */
+  const isLoadingFailsafe2sRef = useRef(null)
+
+  if (isLoading) {
+    if (isLoadingFailsafe2sRef.current == null) {
+      isLoadingFailsafe2sRef.current = window.setTimeout(() => {
+        setIsLoading(false)
+        isLoadingFailsafe2sRef.current = null
+      }, 2000)
+    }
+  } else if (isLoadingFailsafe2sRef.current != null) {
+    window.clearTimeout(isLoadingFailsafe2sRef.current)
+    isLoadingFailsafe2sRef.current = null
+  }
 
   const recargarGastosEstructura = useCallback(async () => {
     const y = parseInt(año, 10)
@@ -597,6 +612,7 @@ const HistorialCierres = ({ user }) => {
         anio: r.anio != null ? Number(r.anio) : null,
       })
 
+      /** Filtro solo con columnas reales en Supabase: mes y anio (no mes_contable / anio_contable). */
       const ejecutarSelect = (columnas) => {
         let q = supabase.from('gastos_fijos').select(columnas).eq('anio', y).not('mes', 'is', null)
         q = q.order('mes', { ascending: true })
@@ -854,9 +870,10 @@ const HistorialCierres = ({ user }) => {
       alTerminarUnaPromesa()
     })
 
-    recargarGastosEstructura()
+    Promise.resolve()
+      .then(() => recargarGastosEstructura())
       .catch((fatal) => {
-        console.error('[HistorialCierres] gastos_fijos — omitido para desbloquear Historial', {
+        console.error('[HistorialCierres] gastos_fijos — fallo total; estado [] (no bloquea expedientes)', {
           mensaje: fatal?.message || String(fatal),
           stack: fatal?.stack,
           objeto: fatal,
