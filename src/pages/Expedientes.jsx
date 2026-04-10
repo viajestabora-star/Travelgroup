@@ -219,7 +219,7 @@ const Expedientes = () => {
   const [avisoFormularioExpediente, setAvisoFormularioExpediente] = useState(null)
   const [confirmarBorrado, setConfirmarBorrado] = useState(null) // { id, nombre, destino } - Modal confirmación (Regla 1.14)
   const [confirmarCierre, setConfirmarCierre] = useState(null) // { id, nuevoEstado, expediente } - Modal consolidación
-  const [isLoading, setIsLoading] = useState(true) // MODO SEGURO: mostrar "Cargando..." en lugar de romperse
+  const [isLoading, setIsLoading] = useState(false) // MODO SEGURO: mostrar "Cargando..." en lugar de romperse
 
   const [expedienteForm, setExpedienteForm] = useState({
     responsable: '',
@@ -329,10 +329,12 @@ const Expedientes = () => {
     setIsLoading(true)
     try {
       // Lee expedientes de Supabase - usar select('*') para evitar errores de columnas
-      const { data: cloudData, error } = await supabase
-        .from('expedientes')
-        .select('*')
-        .order('fecha_inicio', { ascending: true, nullsFirst: false })
+      const { data: cloudData, error } = await Promise.resolve(
+        supabase
+          .from('expedientes')
+          .select('*')
+          .order('fecha_inicio', { ascending: true, nullsFirst: false })
+      ).finally(() => setIsLoading(false))
 
       if (error) {
         setExpedientes([])

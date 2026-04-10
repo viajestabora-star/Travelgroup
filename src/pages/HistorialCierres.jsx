@@ -153,6 +153,32 @@ const GASTOS_FIJOS_SELECT_MINIMAL = 'id, concepto, proveedor, importe, url_pdf, 
 
 const esErrorColumnaSql = (err) => /column|42703|does not exist|schema cache/i.test(String(err?.message || err || ''))
 
+const GASTOS_FIJOS_QUERY_TIMEOUT_MS = 25000
+
+/** PostgREST / Supabase: evita que una consulta colgada bloquee el estado de la página. */
+const withTimeout = (thenable, ms, etiqueta) => {
+  let id
+  const to = new Promise((_, reject) => {
+    id = window.setTimeout(
+      () => reject(new Error(`[HistorialCierres] Timeout ${etiqueta} (${ms}ms)`)),
+      ms
+    )
+  })
+  return Promise.race([Promise.resolve(thenable), to]).finally(() => window.clearTimeout(id))
+}
+
+const logErrorSupabase = (contexto, err, extra = {}) => {
+  const o = err && typeof err === 'object' ? err : {}
+  console.error(`[HistorialCierres] ${contexto}`, {
+    message: o.message ?? String(err),
+    code: o.code,
+    details: o.details,
+    hint: o.hint,
+    ...extra,
+    objetoCompleto: err,
+  })
+}
+
 const PROVEEDORES_FIJOS_MENSUALES = [
   { id: 'arsys', label: 'Arsys' },
   { id: 'copimar', label: 'Copimar' },
@@ -523,7 +549,8 @@ const HistorialCierres = ({ user }) => {
   const esGestoria = esUsuarioGestoria(user)
   const esAdmin = esUsuarioAdmin(user)
   const [cierres,    setCierres]    = useState([])
-  const [cargando,   setCargando]   = useState(true)
+  /** false al inicio: nunca pantalla blanca infinita; cargarCierres pone true solo durante el fetch. */
+  const [cargando,   setCargando]   = useState(false)
   const [exportando, setExportando] = useState(false)
   const [año,           setAño]           = useState(String(añoActual))
   const [trimestreFiltro, setTrimestreFiltro] = useState('all')
@@ -552,6 +579,7 @@ const HistorialCierres = ({ user }) => {
     if (!Number.isFinite(y)) {
       setGastosEstructura([])
       setErrorGastosEstructura(null)
+      setCargandoGastosEstructura(false)
       return
     }
     setCargandoGastosEstructura(true)
@@ -567,7 +595,7 @@ const HistorialCierres = ({ user }) => {
         anio: r.anio != null ? Number(r.anio) : null,
       })
 
-      const ejecutarSelect = async (columnas) => {
+      const ejecutarSelect = (columnas) => {
         let q = supabase.from('gastos_fijos').select(columnas).eq('anio', y).not('mes', 'is', null)
         q = q.order('mes', { ascending: true })
         if (/\bcreated_at\b/.test(columnas)) {
@@ -580,9 +608,33 @@ const HistorialCierres = ({ user }) => {
       let ultimoError = null
       for (const columnas of intentos) {
         try {
-          const { data, error } = await ejecutarSelect(columnas)
+          let data
+          let error
+          try {
+            const res = await withTimeout(
+              ejecutarSelect(columnas),
+              GASTOS_FIJOS_QUERY_TIMEOUT_MS,
+              `gastos_fijos select anio=${y}`
+            )
+            data = res.data
+            error = res.error
+          } catch (timeoutOrNet) {
+            ultimoError = timeoutOrNet
+            logErrorSupabase(
+              `gastos_fijos — consulta abortada o timeout (columnas solicitadas: ${columnas})`,
+              timeoutOrNet,
+              { anio: y, columnas }
+            )
+            setGastosEstructura([])
+            setErrorGastosEstructura(
+              'Tiempo de espera al leer gastos_fijos. Revisa red o Supabase; la lista de expedientes no depende de esta tabla.'
+            )
+            return
+          }
+
           if (error) {
             ultimoError = error
+            logErrorSupabase(`gastos_fijos — error Supabase (SELECT: ${columnas})`, error, { anio: y })
             if (esErrorColumnaSql(error)) continue
             setGastosEstructura([])
             setErrorGastosEstructura(
@@ -590,26 +642,47 @@ const HistorialCierres = ({ user }) => {
             )
             return
           }
-          const rows = (Array.isArray(data) ? data : []).map(mapRow)
+
+          const raw = Array.isArray(data) ? data : []
+          const rows = []
+          for (let i = 0; i < raw.length; i += 1) {
+            try {
+              rows.push(mapRow(raw[i]))
+            } catch (rowErr) {
+              console.error(
+                '[HistorialCierres] gastos_fijos — fallo al mapear una fila (revisa tipos/columnas en esta fila)',
+                {
+                  indice: i,
+                  filaCruda: raw[i],
+                  columnasUsadas: columnas,
+                  error: rowErr?.message || rowErr,
+                  stack: rowErr?.stack,
+                }
+              )
+            }
+          }
           setGastosEstructura(rows)
           setErrorGastosEstructura(null)
           return
         } catch (e) {
           ultimoError = e
+          logErrorSupabase(`gastos_fijos — excepción en intento de lectura (columnas: ${columnas})`, e, { anio: y })
           if (esErrorColumnaSql(e)) continue
-          console.error('[HistorialCierres] gastos estructura', e)
           setErrorGastosEstructura(String(e?.message || e))
           setGastosEstructura([])
           return
         }
       }
-      console.error('[HistorialCierres] gastos_fijos sin columnas compatibles:', ultimoError)
+      logErrorSupabase('gastos_fijos — ningún SELECT compatible con el esquema', ultimoError, {
+        anio: y,
+        intentos: intentos.join(' | '),
+      })
       setGastosEstructura([])
       setErrorGastosEstructura(
-        `${String(ultimoError?.message || ultimoError || 'Error al leer gastos_fijos.')} Asegúrate de tener al menos mes, anio y las columnas base en la tabla. El resto de la pantalla funciona con normalidad.`
+        `${String(ultimoError?.message || ultimoError || 'Error al leer gastos_fijos.')} Revisa columnas mes, anio y el resto del esquema. El resto de la pantalla sigue operativa.`
       )
     } catch (e) {
-      console.error('[HistorialCierres] gastos estructura (outer)', e)
+      logErrorSupabase('gastos_fijos — bloque try/catch externo (no debería alcanzarse)', e, { anio: parseInt(año, 10) })
       setErrorGastosEstructura(String(e?.message || e))
       setGastosEstructura([])
     } finally {
@@ -617,7 +690,41 @@ const HistorialCierres = ({ user }) => {
     }
   }, [año])
 
-  useEffect(() => { recargarGastosEstructura() }, [recargarGastosEstructura])
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      try {
+        await recargarGastosEstructura()
+      } catch (fatal) {
+        if (!vivo) return
+        console.error('[HistorialCierres] gastos_fijos — error no gestionado en recargarGastosEstructura', {
+          mensaje: fatal?.message || String(fatal),
+          stack: fatal?.stack,
+          objeto: fatal,
+        })
+        setGastosEstructura([])
+        setErrorGastosEstructura('Error inesperado al cargar gastos de estructura. Estado vacío; el resto de la página sigue activo.')
+        setCargandoGastosEstructura(false)
+      }
+    })()
+    return () => {
+      vivo = false
+    }
+  }, [recargarGastosEstructura])
+
+  /** Último recurso: nunca más de 15s en estado cargando expedientes. */
+  useEffect(() => {
+    const tid = window.setTimeout(() => {
+      setCargando((prev) => {
+        if (!prev) return prev
+        console.error(
+          '[HistorialCierres] FAILSAFE: «cargando» expedientes superó 15s — se libera la UI. Revisa la consulta a expedientes o la red.'
+        )
+        return false
+      })
+    }, 15000)
+    return () => window.clearTimeout(tid)
+  }, [])
 
   useEffect(() => {
     const ySel = año
@@ -1334,6 +1441,27 @@ const HistorialCierres = ({ user }) => {
             {errorGastosEstructura}
           </p>
         )}
+        {esAdmin && meses.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/90 bg-amber-50/90 px-3 py-2.5">
+            <span className="text-[10px] font-black uppercase tracking-widest text-amber-900/90 shrink-0">
+              Añadir gasto de estructura
+            </span>
+            <span className="text-[11px] text-amber-800/80 hidden sm:inline">(visible aunque la tabla esté vacía)</span>
+            <div className="flex flex-wrap gap-2">
+              {meses.map((mesNum) => (
+                <button
+                  key={mesNum}
+                  type="button"
+                  onClick={() => abrirModalGastoMensual(mesNum)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold shadow-sm"
+                >
+                  <Plus size={12} />
+                  {NOMBRES_MES[mesNum - 1]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {meses.map((mesNum) => {
           const nombreMes = NOMBRES_MES[mesNum - 1]
           const rows = gastosEstructura.filter(
@@ -1688,7 +1816,29 @@ const HistorialCierres = ({ user }) => {
                 </div>
               </>
             )}
-            {q >= 1 && q <= 4 ? renderGastosEstructuraTrimestre(q) : null}
+            {q >= 1 && q <= 4
+              ? (() => {
+                  try {
+                    return renderGastosEstructuraTrimestre(q)
+                  } catch (renderErr) {
+                    console.error(
+                      '[HistorialCierres] Error renderizando bloque gastos_fijos (trimestre)',
+                      {
+                        trimestre: q,
+                        mensaje: renderErr?.message || String(renderErr),
+                        stack: renderErr?.stack,
+                        objeto: renderErr,
+                      }
+                    )
+                    return (
+                      <div className="border-t-2 border-red-200 bg-red-50/80 px-4 py-4 text-xs text-red-900">
+                        No se pudo mostrar el bloque de gastos de estructura. Revisa la consola para el detalle. Los
+                        expedientes de arriba no se ven afectados.
+                      </div>
+                    )
+                  }
+                })()
+              : null}
           </div>
         )}
       </div>
