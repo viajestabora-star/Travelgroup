@@ -38,11 +38,28 @@ const trimestreDesdeMes = (mes) => {
 }
 
 /**
- * Clasifica expediente por el mes de fecha_inicio (año y trimestre).
+ * Fecha para trimestre/año: fecha_inicio → created_at → hoy (misma idea que Planning sin fecha).
+ */
+const fechaReferenciaTrimestreDesdeExp = (exp) => {
+  const dIni = exp?.fechaInicioDate ?? fechaInicioADate(exp?.fecha_inicio)
+  if (dIni && !isNaN(dIni.getTime())) return dIni
+  const dCre = fechaInicioADate(exp?.created_at)
+  if (dCre && !isNaN(dCre.getTime())) return dCre
+  const dFc = fechaInicioADate(exp?.fecha_creacion)
+  if (dFc && !isNaN(dFc.getTime())) return dFc
+  return new Date()
+}
+
+/**
+ * Clasifica por mes de fecha de referencia (nunca null: al menos trimestre actual).
  */
 const clasificarPorFechaInicio = (exp) => {
-  const d = exp.fechaInicioDate ?? fechaInicioADate(exp.fecha_inicio)
-  if (!d || isNaN(d.getTime())) return { trimestre: null, fechaInicio: null }
+  const d = exp.fechaReferenciaTrimestre ?? fechaReferenciaTrimestreDesdeExp(exp)
+  if (!d || isNaN(d.getTime())) {
+    const h = new Date()
+    const mes = h.getMonth() + 1
+    return { trimestre: trimestreDesdeMes(mes), fechaInicio: h }
+  }
   const mes = d.getMonth() + 1
   return { trimestre: trimestreDesdeMes(mes), fechaInicio: d }
 }
@@ -88,15 +105,21 @@ const TRIMESTRES = [
   { value: '4',   label: 'T4 · Oct–Dic' },
 ]
 
-/** Normaliza estado para badge (verde cerrado, azul finalizado). */
+/** Solo listamos estado Cerrado; badge coherente con la query. */
 const estadoNormalizado = (exp) => String(exp?.estado ?? '').trim().toLowerCase()
 
 const badgeEstadoProps = (exp) => {
   const s = estadoNormalizado(exp)
   if (s === 'cerrado') return { className: 'bg-emerald-500', label: 'Cerrado' }
-  if (s === 'finalizado') return { className: 'bg-blue-500', label: 'Finalizado' }
   return { className: 'bg-slate-300', label: s || '—' }
 }
+
+const NUMEROS_DIAGNOSTICO_HISTORIAL = ['2026-011', '2026-012', '2026-002', '2026-015']
+
+const SELECT_EXPEDIENTES_HISTORIAL_MIN =
+  'id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio, cierre_grupo, informe_gastos_hacienda'
+
+const SELECT_EXPEDIENTES_HISTORIAL_EXT = `${SELECT_EXPEDIENTES_HISTORIAL_MIN}, created_at, fecha_creacion`
 
 /** Factura al cliente: en BD suele guardarse URL absoluta; si no, no forzamos bucket. */
 const resolverUrlFacturaCliente = (url) => {
@@ -396,6 +419,21 @@ const HistorialCierres = ({ user }) => {
   const [descargandoZip, setDescargandoZip] = useState(false)
 
   useEffect(() => { cargarCierres() }, [])
+
+  useEffect(() => {
+    const ySel = año
+    cierres.forEach((c) => {
+      const num = String(c.numero_expediente ?? '').trim()
+      if (!NUMEROS_DIAGNOSTICO_HISTORIAL.includes(num)) return
+      const yr = c.fechaReferenciaTrimestre?.getFullYear?.()
+      if (String(yr) !== ySel) {
+        console.warn('[HistorialCierres] Expediente diagnóstico cargado pero oculto por año del filtro:', num, {
+          añoSeleccionado: ySel,
+          añoReferencia: yr,
+        })
+      }
+    })
+  }, [cierres, año])
   useEffect(() => {
     if (trimestreFiltro === 'all') {
       setAbiertoTrim(estadoInicialAcordeon(año))
@@ -408,48 +446,124 @@ const HistorialCierres = ({ user }) => {
   const cargarCierres = async () => {
     setCargando(true)
     try {
-      const { data, error } = await supabase
-        .from('expedientes')
-        .select(`id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio,
-                 total_ingresos, total_gastos_reales, beneficio_neto_real,
-                 liquidacion_final_beneficio, cierre_grupo, informe_gastos_hacienda`)
-        .or('estado.eq.cerrado,estado.eq.finalizado')
-        .order('fecha_inicio', { ascending: false, nullsFirst: false })
+      const fetchCerrados = async (cols) =>
+        supabase
+          .from('expedientes')
+          .select(cols)
+          .ilike('estado', 'cerrado')
+          .order('fecha_inicio', { ascending: false, nullsFirst: true })
 
-      if (error) { setCierres([]); return }
+      const esErrorColumna = (err) => /column|schema|does not exist|42703/i.test(String(err?.message || ''))
 
-      const mapeados = (data || []).map((exp) => {
+      let { data, error } = await fetchCerrados(SELECT_EXPEDIENTES_HISTORIAL_EXT)
+
+      if (error && esErrorColumna(error)) {
+        const msg = String(error.message || '')
+        if (/fecha_creacion/i.test(msg)) {
+          console.warn('[HistorialCierres] fecha_creacion ausente en esquema, reintento con created_at:', msg)
+          const rMid = await fetchCerrados(`${SELECT_EXPEDIENTES_HISTORIAL_MIN}, created_at`)
+          data = rMid.data
+          error = rMid.error
+        } else {
+          console.warn('[HistorialCierres] Select extendido rechazado, reintento columnas mínimas:', msg)
+          const r2 = await fetchCerrados(SELECT_EXPEDIENTES_HISTORIAL_MIN)
+          data = r2.data
+          error = r2.error
+        }
+      }
+
+      if (error && esErrorColumna(error)) {
+        console.warn('[HistorialCierres] Último reintento solo columnas mínimas:', error.message)
+        const r3 = await fetchCerrados(SELECT_EXPEDIENTES_HISTORIAL_MIN)
+        data = r3.data
+        error = r3.error
+      }
+
+      if (error) {
+        console.error('[HistorialCierres] Error Supabase expedientes:', error.message, error)
+        setCierres([])
+        return
+      }
+
+      const crudos = Array.isArray(data) ? data : []
+      const soloCerrado = crudos.filter((e) => String(e.estado ?? '').trim().toLowerCase() === 'cerrado')
+      if (soloCerrado.length !== crudos.length) {
+        const rechazados = crudos.filter((e) => String(e.estado ?? '').trim().toLowerCase() !== 'cerrado')
+        console.warn(
+          '[HistorialCierres] Filas excluidas: estado no es exactamente «cerrado» tras ilike:',
+          rechazados.map((e) => ({ numero_expediente: e.numero_expediente, estado: e.estado }))
+        )
+      }
+
+      const numsApi = new Set(soloCerrado.map((e) => String(e.numero_expediente ?? '').trim()))
+      NUMEROS_DIAGNOSTICO_HISTORIAL.forEach((num) => {
+        if (!numsApi.has(num)) {
+          console.warn('[HistorialCierres] No devuelto por API (filtro Cerrado / query):', num)
+        }
+      })
+      console.info(
+        '[HistorialCierres] Expedientes cerrados cargados:',
+        soloCerrado.length,
+        soloCerrado.map((e) => e.numero_expediente)
+      )
+
+      const mapeados = soloCerrado.map((exp) => {
         const fin = extraerFinanzas(exp)
         const fechaInicioDate = fechaInicioADate(exp.fecha_inicio)
-        return { ...exp, ...fin, fechaInicioDate }
+        const fechaReferenciaTrimestre = fechaReferenciaTrimestreDesdeExp({
+          ...exp,
+          fechaInicioDate,
+        })
+        return { ...exp, ...fin, fechaInicioDate, fechaReferenciaTrimestre }
       })
       mapeados.sort((a, b) => {
-        const ta = a.fechaInicioDate?.getTime() ?? 0
-        const tb = b.fechaInicioDate?.getTime() ?? 0
+        const ta = a.fechaReferenciaTrimestre?.getTime() ?? 0
+        const tb = b.fechaReferenciaTrimestre?.getTime() ?? 0
         if (tb !== ta) return tb - ta
         return String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es', { numeric: true })
       })
+
+      NUMEROS_DIAGNOSTICO_HISTORIAL.forEach((num) => {
+        const row = mapeados.find((e) => String(e.numero_expediente ?? '').trim() === num)
+        if (row) {
+          const { trimestre } = clasificarPorFechaInicio(row)
+          const y = row.fechaReferenciaTrimestre?.getFullYear?.()
+          console.info('[HistorialCierres] Diagnóstico referencia trimestre/año:', num, {
+            añoReferencia: y,
+            trimestre: trimestre != null ? `T${trimestre}` : null,
+          })
+        }
+      })
+
       setCierres(mapeados)
-    } catch { setCierres([]) }
-    finally   { setCargando(false) }
+    } catch (err) {
+      console.error('[HistorialCierres] cargarCierres:', err)
+      setCierres([])
+    } finally {
+      setCargando(false)
+    }
   }
 
-  /** Integridad: ningún cerrado/finalizado se excluye por falta de fecha; sin fecha_inicio → bloque aparte. */
-  const expedientesDelAño = useMemo(() => cierres.filter((c) => {
-    if (!c.fechaInicioDate) return true
-    return String(c.fechaInicioDate.getFullYear()) === año
-  }), [cierres, año])
+  /** Año según fecha de referencia (inicio, creación o hoy), alineado con Planning. */
+  const expedientesDelAño = useMemo(
+    () =>
+      cierres.filter((c) => {
+        const y = c.fechaReferenciaTrimestre?.getFullYear?.()
+        return String(y) === año
+      }),
+    [cierres, año]
+  )
 
   const { bucketsTrimestre, bucketSinFecha } = useMemo(() => {
-    const sinF = expedientesDelAño.filter((c) => !c.fechaInicioDate)
-    const conF = expedientesDelAño.filter((c) => c.fechaInicioDate)
+    const conF = expedientesDelAño
 
-    const ordenarEnBloque = (arr) => [...arr].sort((a, b) => {
-      const ta = a.fechaInicioDate?.getTime() ?? 0
-      const tb = b.fechaInicioDate?.getTime() ?? 0
-      if (ta !== tb) return ta - tb
-      return String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es', { numeric: true })
-    })
+    const ordenarEnBloque = (arr) =>
+      [...arr].sort((a, b) => {
+        const ta = a.fechaReferenciaTrimestre?.getTime() ?? 0
+        const tb = b.fechaReferenciaTrimestre?.getTime() ?? 0
+        if (ta !== tb) return ta - tb
+        return String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es', { numeric: true })
+      })
 
     const buckets = [1, 2, 3, 4].map((q) => {
       const items = ordenarEnBloque(conF.filter((c) => clasificarPorFechaInicio(c).trimestre === q))
@@ -466,22 +580,10 @@ const HistorialCierres = ({ user }) => {
       }
     })
 
-    const itemsSinFecha = ordenarEnBloque(sinF)
-    const sinFechaBucket = itemsSinFecha.length
-      ? {
-          key: 'sin-fecha',
-          q: 0,
-          titulo: 'Sin fecha de inicio',
-          items: itemsSinFecha,
-          sumIngresos: itemsSinFecha.reduce((s, c) => s + n(c.total_ingresos), 0),
-          sumBenefReal: itemsSinFecha.reduce((s, c) => s + n(c.beneficio_neto_real), 0),
-        }
-      : null
-
-    return { bucketsTrimestre: buckets, bucketSinFecha: sinFechaBucket }
+    return { bucketsTrimestre: buckets, bucketSinFecha: null }
   }, [expedientesDelAño])
 
-  /** Bloques visibles según desplegable T1–T4 / Todos. «Sin fecha» solo en «Todos». */
+  /** Bloques visibles según desplegable T1–T4 / Todos (todos los cerrados van a un T1–T4 vía fecha de referencia). */
   const { bucketsVisibles, bucketSinFechaVisible } = useMemo(() => {
     if (trimestreFiltro === 'all') {
       return { bucketsVisibles: bucketsTrimestre, bucketSinFechaVisible: bucketSinFecha }
@@ -706,8 +808,8 @@ const HistorialCierres = ({ user }) => {
 
       const etiquetaCuaderno =
         trimestreFiltro === 'all'
-          ? `${año} · Todos los trimestres (cerrado / finalizado)`
-          : `${año} · ${TRIMESTRES.find((t) => t.value === trimestreFiltro)?.label ?? `T${trimestreFiltro}`} (cerrado / finalizado)`
+          ? `${año} · Todos los trimestres (estado Cerrado)`
+          : `${año} · ${TRIMESTRES.find((t) => t.value === trimestreFiltro)?.label ?? `T${trimestreFiltro}`} (estado Cerrado)`
 
       const htmlContent = construirHTMLCuaderno(cierresEnriquecidos, etiquetaCuaderno, pdfLinksByExpedienteId)
       const fileName =
@@ -812,7 +914,7 @@ const HistorialCierres = ({ user }) => {
         {abierto && (
           <div className="bg-white">
             {bucket.items.length === 0 ? (
-              <p className="text-sm text-slate-400 italic py-10 text-center px-4">Ningún expediente en este trimestre (según mes de fecha inicio).</p>
+              <p className="text-sm text-slate-400 italic py-10 text-center px-4">Ningún expediente en este trimestre (según mes de fecha de referencia: inicio o creación).</p>
             ) : (
               <>
                 <div className="hidden md:block overflow-x-auto">
@@ -903,7 +1005,7 @@ const HistorialCierres = ({ user }) => {
             Historial de Cierres
           </h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
-            Cerrado o finalizado · T1–T4 por <strong>mes de fecha inicio</strong> · {etiquetaPeriodo}
+            Solo estado <strong>Cerrado</strong> · T1–T4 por <strong>mes de fecha de referencia</strong> (inicio; si falta, creación; si falta, hoy) · {etiquetaPeriodo}
             {esGestoria && (
               <span className="block mt-1 text-amber-700 font-semibold">
                 Perfil gestoría/auditoría: solo lectura en este historial (sin edición del cierre desde aquí).
@@ -979,10 +1081,9 @@ const HistorialCierres = ({ user }) => {
       ) : cierres.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-md border border-slate-200 p-12 text-center">
           <FileText className="mx-auto text-slate-300 mb-4" size={56} />
-          <h3 className="text-xl font-bold text-slate-800 mb-2">No hay expedientes cerrados o finalizados</h3>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">No hay expedientes cerrados</h3>
           <p className="text-slate-500 text-sm max-w-md mx-auto">
-            Esta vista lista todos los registros con estado <code className="text-xs bg-slate-100 px-1 rounded">cerrado</code> o{' '}
-            <code className="text-xs bg-slate-100 px-1 rounded">finalizado</code>.
+            Esta vista lista solo registros con estado <code className="text-xs bg-slate-100 px-1 rounded">Cerrado</code> (sin distinguir mayúsculas en base de datos).
           </p>
         </div>
       ) : expedientesDelAño.length === 0 ? (
@@ -990,13 +1091,13 @@ const HistorialCierres = ({ user }) => {
           <FileText className="mx-auto text-slate-300 mb-4" size={56} />
           <h3 className="text-xl font-bold text-slate-800 mb-2">Sin expedientes en {año}</h3>
           <p className="text-slate-500 text-sm max-w-md mx-auto">
-            No hay filas con fecha de inicio en este año (o solo hay registros sin fecha de inicio; revisa el bloque inferior si aplica).
+            No hay cerrados cuyo año de referencia (inicio, creación o fecha actual como último recurso) coincida con {año}.
           </p>
         </div>
       ) : (
         <div className="space-y-2">
           <p className="text-xs text-slate-500 mb-2">
-            El trimestre seleccionado en la barra superior muestra u oculta bloques. Con «Todos» también se muestra el bloque sin fecha de inicio. Los puntos junto al Nº son estado: <span className="text-emerald-600 font-medium">verde = cerrado</span>, <span className="text-blue-600 font-medium">azul = finalizado</span>.
+            El trimestre filtra qué bloque T1–T4 se muestra. La columna «Fecha inicio» sigue mostrando solo la fecha de viaje si existe; el reparto por trimestre usa la fecha de referencia descrita arriba. El punto verde indica estado Cerrado.
           </p>
           {bucketsVisibles.map(renderBloqueTrimestre)}
           {bucketSinFechaVisible && renderBloqueTrimestre(bucketSinFechaVisible)}
