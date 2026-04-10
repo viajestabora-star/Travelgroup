@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown, X, ExternalLink, Package, Trash2, Upload } from 'lucide-react'
+import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown, X, ExternalLink, Package, Trash2, Upload, Building2 } from 'lucide-react'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import { supabase } from '../supabase'
@@ -204,6 +204,54 @@ const mesesDelTrimestre = (q) => {
 }
 
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
+
+/** Categorías fijas + “Otra”; el valor guardado en BD es `label` salvo “otra” → texto manual. */
+const CATEGORIAS_ESTRUCTURA_PROVEEDOR = [
+  { id: 'arsys', label: 'Arsys' },
+  { id: 'copimar', label: 'Copimar' },
+  { id: 'arval', label: 'Arval' },
+  { id: 'ayvens', label: 'Ayvens' },
+  { id: 'intermundial', label: 'Intermundial' },
+  { id: 'vodafone', label: 'Vodafone' },
+  { id: 'gasolina', label: 'Gasolina' },
+  { id: 'segurcaixa', label: 'Segurcaixa' },
+  { id: 'otra', label: 'Otra (especificar)' },
+]
+
+const defaultDraftEstructuraMes = (mesNum, anioNum) => ({
+  categoria: 'arsys',
+  proveedorManual: '',
+  importe: '',
+  fechaFactura:
+    Number.isFinite(mesNum) && Number.isFinite(anioNum)
+      ? `${String(anioNum).padStart(4, '0')}-${String(mesNum).padStart(2, '0')}-01`
+      : '',
+})
+
+const sinDiacriticos = (s) =>
+  String(s || '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+
+/** Iniciales para “marca” junto al nombre (no hay logos en BD). */
+const inicialesProveedorEstructura = (nombre) => {
+  const t = String(nombre || '').trim()
+  if (!t) return '??'
+  const parts = t.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  return t.slice(0, 2).toUpperCase()
+}
+
+/**
+ * Nombre de PDF dentro del ZIP: [MES]_[PROVEEDOR]_[IMPORTE]€.pdf
+ * Colisiones (p. ej. varias Gasolina mismo importe) se resuelven al añadir al ZIP con sufijo _2, _3…
+ */
+const nombrePdfEnZipEstructura = (nombreMes, proveedor, importe) => {
+  const mesTok = sinDiacriticos(nombreMes).toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const provTok = nombreArchivoSeguro(String(proveedor || 'proveedor').replace(/\s+/g, '_')).replace(/_+/g, '_')
+  const impStr = n(importe).toFixed(2)
+  return `${mesTok}_${provTok}_${impStr}€.pdf`
+}
 
 // ─── Generador del Cuaderno HTML-Excel ────────────────────────────────────────
 
@@ -453,7 +501,7 @@ const HistorialCierres = ({ user }) => {
     try {
       const { data, error } = await supabase
         .from('gastos_fijos')
-        .select('id, concepto, proveedor, importe, url_pdf, mes, anio, created_at')
+        .select('id, concepto, proveedor, importe, url_pdf, mes, anio, created_at, fecha_factura')
         .eq('anio', y)
         .not('mes', 'is', null)
         .order('mes', { ascending: true })
@@ -909,20 +957,45 @@ const HistorialCierres = ({ user }) => {
   }
 
   const subirFacturaEstructuraMes = useCallback(
-    async (mesNum, d, file) => {
+    async (mesNum, d, file, nombreMesValidacion) => {
       if (!esAdmin) return
       const anioNum = parseInt(año, 10)
-      const concepto = String(d?.concepto || '').trim()
-      const proveedor = String(d?.proveedor || '').trim()
+      const cat = String(d?.categoria || 'arsys')
+      const manual = String(d?.proveedorManual || '').trim()
+      const proveedor =
+        cat === 'otra'
+          ? manual
+          : (CATEGORIAS_ESTRUCTURA_PROVEEDOR.find((c) => c.id === cat)?.label || '').trim()
       const importe = parseFloat(String(d?.importe || '').replace(',', '.'))
-      if (!concepto || !proveedor || !Number.isFinite(importe)) {
-        alert('Completa concepto, proveedor e importe.')
+      const fechaStr = String(d?.fechaFactura || '').trim()
+      if (!proveedor) {
+        alert(cat === 'otra' ? 'Indica el nombre del proveedor.' : 'Selecciona un proveedor válido.')
+        return
+      }
+      if (!Number.isFinite(importe) || importe < 0) {
+        alert('Indica un importe total con IVA válido.')
+        return
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
+        alert('Indica la fecha de la factura.')
+        return
+      }
+      const fd = new Date(`${fechaStr}T12:00:00`)
+      if (isNaN(fd.getTime())) {
+        alert('Fecha de factura no válida.')
+        return
+      }
+      if (fd.getMonth() + 1 !== mesNum || fd.getFullYear() !== anioNum) {
+        alert(
+          `La fecha debe pertenecer a ${nombreMesValidacion || `mes ${mesNum}`} de ${anioNum} (trimestre / mes del bloque).`
+        )
         return
       }
       if (!file || file.type !== 'application/pdf') {
         alert('Selecciona un archivo PDF.')
         return
       }
+      const concepto = `Estructura · ${proveedor} · ${fechaStr}`
       const key = `${anioNum}-${mesNum}`
       setSubiendoEstructuraMes(key)
       try {
@@ -944,17 +1017,18 @@ const HistorialCierres = ({ user }) => {
           url_pdf: path,
           mes: mesNum,
           anio: anioNum,
+          fecha_factura: fechaStr,
           activo: true,
           periodicidad: 'mensual',
         })
         if (insErr) {
           await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([path])
           alert(
-            `Error al guardar en gastos_fijos: ${insErr.message}\n\nSi faltan columnas (proveedor, url_pdf, mes, anio), ejecuta migrations/add-gastos-fijos-estructura-mensual.sql en Supabase.`
+            `Error al guardar en gastos_fijos: ${insErr.message}\n\nComprueba migraciones add-gastos-fijos-estructura-mensual.sql y add-gastos-fijos-fecha-factura.sql en Supabase.`
           )
           return
         }
-        setDraftEstructura((s) => ({ ...s, [mesNum]: { concepto: '', proveedor: '', importe: '' } }))
+        setDraftEstructura((s) => ({ ...s, [mesNum]: defaultDraftEstructuraMes(mesNum, anioNum) }))
         setArchivoEstructuraPorMes((s) => ({ ...s, [mesNum]: null }))
         await recargarGastosEstructura()
       } finally {
@@ -999,6 +1073,13 @@ const HistorialCierres = ({ user }) => {
       try {
         const zip = new JSZip()
         let fetched = 0
+        const nombreUnicoEnZip = (nombreDeseado) => {
+          if (!zip.files[nombreDeseado]) return nombreDeseado
+          const base = nombreDeseado.replace(/\.pdf$/i, '')
+          let n = 2
+          while (zip.files[`${base}_${n}.pdf`]) n += 1
+          return `${base}_${n}.pdf`
+        }
         for (let i = 0; i < filas.length; i += 1) {
           const f = filas[i]
           const url = resolverUrlPublicaFacturaProveedor(f.url_pdf)
@@ -1007,8 +1088,8 @@ const HistorialCierres = ({ user }) => {
             const res = await fetch(url, { mode: 'cors' })
             if (!res.ok) continue
             const buf = await res.arrayBuffer()
-            const base = nombreArchivoSeguro(`${i + 1}_${f.proveedor || 'proveedor'}_${f.concepto || 'factura'}`)
-            const fn = base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`
+            const deseado = nombrePdfEnZipEstructura(nombreMes, f.proveedor, f.importe)
+            const fn = nombreUnicoEnZip(deseado)
             zip.file(fn, buf)
             fetched += 1
           } catch (err) {
@@ -1049,37 +1130,67 @@ const HistorialCierres = ({ user }) => {
         </div>
         {errorGastosEstructura && (
           <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            No se pudieron cargar gastos de estructura: {errorGastosEstructura}. Ejecuta la migración{' '}
-            <code className="text-[10px] bg-white px-1 rounded">add-gastos-fijos-estructura-mensual.sql</code> en Supabase si faltan columnas.
+            No se pudieron cargar gastos de estructura: {errorGastosEstructura}. Ejecuta en Supabase las migraciones{' '}
+            <code className="text-[10px] bg-white px-1 rounded">add-gastos-fijos-estructura-mensual.sql</code> y{' '}
+            <code className="text-[10px] bg-white px-1 rounded">add-gastos-fijos-fecha-factura.sql</code> si faltan columnas.
           </p>
         )}
         {meses.map((mesNum) => {
           const nombreMes = NOMBRES_MES[mesNum - 1]
           const rows = gastosEstructura.filter((g) => g.mes === mesNum && Number(g.anio) === anioNum)
-          const draft = draftEstructura[mesNum] || { concepto: '', proveedor: '', importe: '' }
+          const draft = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(draftEstructura[mesNum] || {}) }
           const archivo = archivoEstructuraPorMes[mesNum]
           const subKey = `${anioNum}-${mesNum}`
           const subiendo = subiendoEstructuraMes === subKey
           const descargando = descargandoPackMes === subKey
           const conPdf = rows.filter((r) => r.url_pdf)
+          const fmtFechaFact = (raw) => {
+            if (!raw) return '—'
+            const d = parsearFechaADate(raw) || new Date(raw)
+            return !isNaN(d.getTime())
+              ? d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+              : '—'
+          }
           return (
             <div
               key={mesNum}
               className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
             >
-              <div className="px-4 py-3 border-b border-slate-100 bg-slate-800 text-white flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-black uppercase tracking-wide">
+              <div className="px-4 py-3 border-b border-slate-100 bg-slate-800 text-white flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <h3 className="text-sm font-black uppercase tracking-wide shrink-0">
                   Facturas de Estructura — {nombreMes}
                 </h3>
-                <button
-                  type="button"
-                  disabled={descargando || conPdf.length === 0}
-                  onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-500 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.12em] shadow-md transition-colors"
-                >
-                  {descargando ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
-                  DESCARGAR PACK {nombreMes.toUpperCase()}
-                </button>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-1 sm:justify-end sm:gap-4 min-w-0">
+                  {rows.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end flex-1 min-w-0">
+                      {rows.map((r) => (
+                        <div
+                          key={r.id}
+                          className="flex items-center gap-2 rounded-lg bg-slate-700/90 px-2.5 py-1.5 text-white text-xs border border-slate-600/80"
+                        >
+                          <span
+                            className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-600 font-black text-[10px] shrink-0"
+                            title={r.proveedor || ''}
+                          >
+                            {inicialesProveedorEstructura(r.proveedor)}
+                          </span>
+                          <Building2 size={14} className="text-slate-400 shrink-0 hidden md:block" aria-hidden />
+                          <span className="font-semibold truncate max-w-[130px] sm:max-w-[160px]">{r.proveedor ?? '—'}</span>
+                          <span className="tabular-nums font-bold text-emerald-300 shrink-0">{n(r.importe).toFixed(2)} €</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={descargando || conPdf.length === 0}
+                    onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-500 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.12em] shadow-md transition-colors shrink-0 self-start sm:self-center"
+                  >
+                    {descargando ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
+                    DESCARGAR PACK {nombreMes.toUpperCase()}
+                  </button>
+                </div>
               </div>
               <div className="p-4">
                 {rows.length === 0 ? (
@@ -1090,12 +1201,14 @@ const HistorialCierres = ({ user }) => {
                       <thead className="bg-slate-100 text-slate-700">
                         <tr>
                           {(() => {
-                            const labs = ['Concepto', 'Proveedor', 'Importe (€)', 'PDF']
+                            const labs = ['Fecha factura', 'Proveedor', 'Importe total (IVA inc.)', 'PDF']
                             if (esAdmin) labs.push('Acciones')
                             return labs.map((lab) => (
                               <th
                                 key={lab}
-                                className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${lab === 'Importe (€)' ? 'text-right' : 'text-left'}`}
+                                className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
+                                  lab === 'Importe total (IVA inc.)' ? 'text-right' : 'text-left'
+                                }`}
                               >
                                 {lab}
                               </th>
@@ -1108,8 +1221,15 @@ const HistorialCierres = ({ user }) => {
                           const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
                           return (
                             <tr key={r.id}>
-                              <td className="px-3 py-2 text-slate-800">{r.concepto ?? '—'}</td>
-                              <td className="px-3 py-2 text-slate-600">{r.proveedor ?? '—'}</td>
+                              <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{fmtFechaFact(r.fecha_factura)}</td>
+                              <td className="px-3 py-2 text-slate-800">
+                                <span className="inline-flex items-center gap-2">
+                                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
+                                    {inicialesProveedorEstructura(r.proveedor)}
+                                  </span>
+                                  {r.proveedor ?? '—'}
+                                </span>
+                              </td>
                               <td className="px-3 py-2 text-right tabular-nums font-medium">{n(r.importe).toFixed(2)}</td>
                               <td className="px-3 py-2">
                                 {url ? (
@@ -1148,9 +1268,14 @@ const HistorialCierres = ({ user }) => {
                       const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
                       return (
                         <div key={r.id} className="rounded-lg border border-slate-100 p-3 bg-slate-50/80">
-                          <p className="font-semibold text-slate-800 text-sm">{r.concepto ?? '—'}</p>
-                          <p className="text-xs text-slate-600">{r.proveedor ?? '—'}</p>
-                          <p className="text-sm font-bold text-slate-900 mt-1">{n(r.importe).toFixed(2)} €</p>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700">
+                              {inicialesProveedorEstructura(r.proveedor)}
+                            </span>
+                            <p className="font-bold text-slate-900 text-sm flex-1">{r.proveedor ?? '—'}</p>
+                          </div>
+                          <p className="text-xs text-slate-500">Factura: {fmtFechaFact(r.fecha_factura)}</p>
+                          <p className="text-sm font-bold text-slate-900 mt-1">Total (IVA inc.): {n(r.importe).toFixed(2)} €</p>
                           <div className="mt-2 flex flex-wrap gap-2">
                             {url && (
                               <button
@@ -1177,51 +1302,82 @@ const HistorialCierres = ({ user }) => {
                     <p className="text-[10px] font-black uppercase tracking-widest text-amber-900/80">
                       Subir factura (admin)
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <label className="block text-xs font-semibold text-slate-600">
-                        Concepto
-                        <input
-                          type="text"
-                          value={draft.concepto}
-                          onChange={(e) =>
-                            setDraftEstructura((s) => {
-                              const prev = s[mesNum] || { concepto: '', proveedor: '', importe: '' }
-                              return { ...s, [mesNum]: { ...prev, concepto: e.target.value } }
-                            })
-                          }
-                          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                          placeholder="Ej. Alquiler oficina"
-                        />
-                      </label>
-                      <label className="block text-xs font-semibold text-slate-600">
+                    <p className="text-xs text-amber-900/70">
+                      Puedes registrar <strong>varias facturas de Gasolina</strong> (o cualquier proveedor) en el mismo mes: cada PDF es un registro independiente.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
                         Proveedor
-                        <input
-                          type="text"
-                          value={draft.proveedor}
+                        <select
+                          value={draft.categoria || 'arsys'}
                           onChange={(e) =>
                             setDraftEstructura((s) => {
-                              const prev = s[mesNum] || { concepto: '', proveedor: '', importe: '' }
-                              return { ...s, [mesNum]: { ...prev, proveedor: e.target.value } }
+                              const prev = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(s[mesNum] || {}) }
+                              const v = e.target.value
+                              return {
+                                ...s,
+                                [mesNum]: {
+                                  ...prev,
+                                  categoria: v,
+                                  proveedorManual: v === 'otra' ? prev.proveedorManual : '',
+                                },
+                              }
                             })
                           }
-                          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                          placeholder="Nombre fiscal"
-                        />
+                          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+                        >
+                          {CATEGORIAS_ESTRUCTURA_PROVEEDOR.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.label}
+                            </option>
+                          ))}
+                        </select>
                       </label>
+                      {draft.categoria === 'otra' && (
+                        <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
+                          Nombre del proveedor (manual)
+                          <input
+                            type="text"
+                            value={draft.proveedorManual || ''}
+                            onChange={(e) =>
+                              setDraftEstructura((s) => {
+                                const prev = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(s[mesNum] || {}) }
+                                return { ...s, [mesNum]: { ...prev, proveedorManual: e.target.value } }
+                              })
+                            }
+                            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                            placeholder="Ej. Proveedor externo"
+                          />
+                        </label>
+                      )}
                       <label className="block text-xs font-semibold text-slate-600">
-                        Importe (€)
+                        Importe total (IVA incl.)
                         <input
                           type="text"
                           inputMode="decimal"
-                          value={draft.importe}
+                          value={draft.importe || ''}
                           onChange={(e) =>
                             setDraftEstructura((s) => {
-                              const prev = s[mesNum] || { concepto: '', proveedor: '', importe: '' }
+                              const prev = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(s[mesNum] || {}) }
                               return { ...s, [mesNum]: { ...prev, importe: e.target.value } }
                             })
                           }
                           className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
                           placeholder="0,00"
+                        />
+                      </label>
+                      <label className="block text-xs font-semibold text-slate-600">
+                        Fecha de la factura
+                        <input
+                          type="date"
+                          value={draft.fechaFactura || ''}
+                          onChange={(e) =>
+                            setDraftEstructura((s) => {
+                              const prev = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(s[mesNum] || {}) }
+                              return { ...s, [mesNum]: { ...prev, fechaFactura: e.target.value } }
+                            })
+                          }
+                          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
                         />
                       </label>
                     </div>
@@ -1243,7 +1399,7 @@ const HistorialCierres = ({ user }) => {
                       <button
                         type="button"
                         disabled={subiendo}
-                        onClick={() => subirFacturaEstructuraMes(mesNum, draft, archivo)}
+                        onClick={() => subirFacturaEstructuraMes(mesNum, draft, archivo, nombreMes)}
                         className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-wide shadow-md transition-colors"
                       >
                         {subiendo ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
