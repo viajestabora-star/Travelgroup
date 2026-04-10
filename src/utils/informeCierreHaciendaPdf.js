@@ -28,7 +28,8 @@ const n = (v) => {
 
 export function normalizarLineaInforme(raw) {
   if (!raw || typeof raw !== 'object') return null
-  const concepto = String(raw.concepto ?? raw.descripcion ?? 'Concepto').trim() || 'Concepto'
+  const c = String(raw.concepto ?? raw.descripcion ?? '').trim()
+  const concepto = c || 'Servicio sin nombre'
   const proveedor = String(raw.proveedor ?? raw.proveedor_nombre ?? '—').trim() || '—'
   const importe = parseFloat(raw.importe_real ?? raw.importe_pagado ?? raw.importe ?? 0) || 0
   return { concepto, proveedor, importe_real: +importe.toFixed(2) }
@@ -99,85 +100,6 @@ export function payloadDesdeCierreGrupo(expediente) {
     grupo: expediente.nombre_grupo || expediente.cliente_nombre || 'Sin grupo',
     viaje: expediente.destino || 'Sin destino',
     numeroExpediente: expediente.numero_expediente,
-    ingresosTotales,
-    gastosTotales,
-    beneficioBruto,
-    ivaPagado,
-    beneficioNetoReal,
-    costesReales,
-    gastosImprevistos,
-  }
-}
-
-/**
- * Auditoría / ZIP / Historial: desglose desde pagos_proveedores; totales desde cierre_grupo si existe.
- */
-export async function cargarPayloadInformeCierreAuditoria(supabaseClient, exp) {
-  if (!exp?.id) return null
-
-  const { data: full } = await supabaseClient
-    .from('expedientes')
-    .select(
-      'id, numero_expediente, nombre_grupo, cliente_nombre, destino, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio, cierre_grupo'
-    )
-    .eq('id', exp.id)
-    .single()
-
-  const ex = full || exp
-  const cg = ex.cierre_grupo && typeof ex.cierre_grupo === 'object' ? ex.cierre_grupo : {}
-
-  const { data: pagos } = await supabaseClient
-    .from('pagos_proveedores')
-    .select('id, concepto, proveedor_nombre, importe_pagado, fecha_pago')
-    .eq('expediente_id', exp.id)
-    .order('fecha_pago', { ascending: true, nullsFirst: true })
-
-  let costesReales = (pagos || []).map((p) => ({
-    concepto:
-      p.concepto && String(p.concepto).trim() ? String(p.concepto).trim() : 'Pago a proveedor',
-    proveedor: p.proveedor_nombre || '—',
-    coste_real: n(p.importe_pagado),
-  }))
-
-  if (costesReales.length === 0 && Array.isArray(cg.costesReales)) {
-    costesReales = cg.costesReales.map((c) => ({
-      concepto: c.concepto || '—',
-      proveedor: c.proveedor || '—',
-      coste_real: n(c.coste_real),
-    }))
-  }
-
-  const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
-  const sumImpr = gastosImprevistos.reduce((s, g) => s + n(g.importe), 0)
-  const sumLineas = costesReales.reduce((s, c) => s + c.coste_real, 0)
-  const hasCg = ex.cierre_grupo && typeof ex.cierre_grupo === 'object'
-
-  let ingresosTotales
-  let gastosTotales
-  let beneficioBruto
-  let ivaPagado
-  let beneficioNetoReal
-
-  if (hasCg) {
-    ingresosTotales = n(cg.ingresos_totales ?? cg.total_ingresos ?? ex.total_ingresos ?? 0)
-    gastosTotales = n(cg.gastos_totales ?? cg.gastos ?? sumLineas + sumImpr)
-    beneficioBruto = n(
-      cg.beneficio_bruto ?? n(cg.beneficio_limpio ?? cg.beneficio) + n(cg.iva_pagado ?? 0)
-    )
-    ivaPagado = n(cg.iva_pagado ?? 0)
-    beneficioNetoReal = n(cg.beneficio_limpio ?? cg.beneficio ?? beneficioBruto - ivaPagado)
-  } else {
-    ingresosTotales = n(ex.total_ingresos ?? 0)
-    gastosTotales = sumLineas + sumImpr
-    beneficioBruto = ingresosTotales - gastosTotales
-    ivaPagado = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
-    beneficioNetoReal = beneficioBruto - ivaPagado
-  }
-
-  return {
-    grupo: ex.nombre_grupo || ex.cliente_nombre || 'Sin grupo',
-    viaje: ex.destino || 'Sin destino',
-    numeroExpediente: ex.numero_expediente,
     ingresosTotales,
     gastosTotales,
     beneficioBruto,

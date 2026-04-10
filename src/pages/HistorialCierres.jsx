@@ -8,11 +8,8 @@ import { categorizarPago } from '../utils/finanzasHelpers'
 import { parsearFechaADate } from '../utils/dateNormalizer'
 import { esUsuarioGestoria } from '../utils/userRoles'
 import { resolverUrlPublicaFacturaProveedor, abrirFacturaProveedorPorUrlGuardada } from '../utils/facturaProveedorStorage'
-import {
-  cargarPayloadInformeCierreAuditoria,
-  crearJsPdfInformeCierreFinanciero,
-  nombreArchivoInformeCierrePdf,
-} from '../utils/informeCierreHaciendaPdf'
+import { crearJsPdfInformeCierre, nombreArchivoInformeCierrePdf } from '../utils/informeCierreHaciendaPdf'
+import { obtenerLineasInformeComoCierres, obtenerExpedienteParaPdfCierres } from '../utils/lineasInformeCierres'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -566,8 +563,11 @@ const HistorialCierres = ({ user }) => {
       const zip = new JSZip()
       const zipNombreBase = nombreArchivoSeguro(`Expediente_${exp.numero_expediente || exp.id}`)
 
-      const payloadInforme = await cargarPayloadInformeCierreAuditoria(supabase, exp)
-      const docPdf = crearJsPdfInformeCierreFinanciero(payloadInforme)
+      const expPdf = (await obtenerExpedienteParaPdfCierres(exp.id)) || exp
+      const lineasInforme = await obtenerLineasInformeComoCierres(supabase, expPdf, {
+        preferPagosPrimero: true,
+      })
+      const docPdf = crearJsPdfInformeCierre(expPdf, lineasInforme)
       const pdfBuf = docPdf.output('arraybuffer')
       zip.file(nombreArchivoInformeCierrePdf(exp.numero_expediente || exp.id), pdfBuf)
 

@@ -18,6 +18,7 @@ import {
   crearJsPdfInformeCierre,
   nombreArchivoInformeCierrePdf,
 } from '../utils/informeCierreHaciendaPdf'
+import { obtenerLineasInformeComoCierres } from '../utils/lineasInformeCierres'
 
 // ===================== FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF =====================
 // Función compartida para generar PDFs de facturas con diseño profesional unificado
@@ -482,72 +483,8 @@ const Cierres = ({ user, onClose }) => {
 
   const cargarInformeParaExpediente = async (exp) => {
     setExpedienteSeleccionado(exp)
-
-    // Si ya hay informe guardado, restaurar directamente
-    if (exp.informe_gastos_hacienda && Array.isArray(exp.informe_gastos_hacienda.lineas)) {
-      setLineasInforme(exp.informe_gastos_hacienda.lineas)
-      return
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('servicios_cotizacion')
-        .select(
-          'id, tipo_servicio, tipo, nombre_especifico, nombre_servicio, nombre_proveedor_texto, nombre_proveedor_manual, proveedor_id_int, coste_unitario, noches, tipo_calculo, total_servicio'
-        )
-        .eq('id_expediente', exp.id)
-        .order('id', { ascending: true })
-
-      if (error) {
-        setLineasInforme([])
-        return
-      }
-
-      const servicios = Array.isArray(data) ? data : []
-
-      const lineas = servicios.map((s) => {
-        const concepto =
-          s.nombre_especifico ||
-          s.nombre_servicio ||
-          s.tipo_servicio ||
-          s.tipo ||
-          'Servicio sin nombre'
-
-        const proveedor =
-          s.nombre_proveedor_texto ||
-          s.nombre_proveedor_manual ||
-          '' // se podría enriquecer con join a proveedores usando proveedor_id_int
-
-        let importeCotizado = 0
-        if (s.total_servicio !== null && s.total_servicio !== undefined) {
-          importeCotizado = Number(s.total_servicio) || 0
-        } else {
-          const coste = Number(s.coste_unitario) || 0
-          const noches = Number(s.noches) || 1
-          const tipoCalculo = s.tipo_calculo || 'porPersona'
-
-          if (tipoCalculo === 'porGrupo') {
-            importeCotizado = coste
-          } else {
-            importeCotizado = coste * noches
-          }
-        }
-
-        const importeReal = importeCotizado
-
-        return {
-          id_servicio: s.id,
-          concepto,
-          proveedor,
-          importe_cotizado: +importeCotizado.toFixed(2),
-          importe_real: +importeReal.toFixed(2),
-        }
-      })
-
-      setLineasInforme(lineas)
-    } catch (err) {
-      setLineasInforme([])
-    }
+    const lineas = await obtenerLineasInformeComoCierres(supabase, exp, { preferPagosPrimero: false })
+    setLineasInforme(lineas)
   }
 
   const actualizarLineaInforme = (index, campo, valor) => {
