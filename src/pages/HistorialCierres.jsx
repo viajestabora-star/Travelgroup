@@ -549,8 +549,8 @@ const HistorialCierres = ({ user }) => {
   const esGestoria = esUsuarioGestoria(user)
   const esAdmin = esUsuarioAdmin(user)
   const [cierres,    setCierres]    = useState([])
-  /** false al inicio: nunca pantalla blanca infinita; cargarCierres pone true solo durante el fetch. */
-  const [cargando,   setCargando]   = useState(false)
+  /** Vista principal: expedientes + gastos_fijos en un solo ciclo; siempre se apaga en .finally del efecto. */
+  const [isLoading, setIsLoading] = useState(false)
   const [exportando, setExportando] = useState(false)
   const [año,           setAño]           = useState(String(añoActual))
   const [trimestreFiltro, setTrimestreFiltro] = useState('all')
@@ -573,6 +573,8 @@ const HistorialCierres = ({ user }) => {
 
   /** Evita que una carga antigua pise estado tras remount / Strict Mode o re-ejecución. */
   const cierreLoadSeqRef = useRef(0)
+  /** Coherencia con el efecto principal: solo el último ciclo puede hacer setIsLoading(false). */
+  const historialCargaIdRef = useRef(0)
 
   const recargarGastosEstructura = useCallback(async () => {
     const y = parseInt(año, 10)
@@ -626,9 +628,7 @@ const HistorialCierres = ({ user }) => {
               { anio: y, columnas }
             )
             setGastosEstructura([])
-            setErrorGastosEstructura(
-              'Tiempo de espera al leer gastos_fijos. Revisa red o Supabase; la lista de expedientes no depende de esta tabla.'
-            )
+            setErrorGastosEstructura(null)
             return
           }
 
@@ -637,9 +637,7 @@ const HistorialCierres = ({ user }) => {
             logErrorSupabase(`gastos_fijos — error Supabase (SELECT: ${columnas})`, error, { anio: y })
             if (esErrorColumnaSql(error)) continue
             setGastosEstructura([])
-            setErrorGastosEstructura(
-              `${error.message || 'Error al leer gastos_fijos.'} (La página de expedientes cerrados sigue disponible.)`
-            )
+            setErrorGastosEstructura(null)
             return
           }
 
@@ -668,57 +666,33 @@ const HistorialCierres = ({ user }) => {
           ultimoError = e
           logErrorSupabase(`gastos_fijos — excepción en intento de lectura (columnas: ${columnas})`, e, { anio: y })
           if (esErrorColumnaSql(e)) continue
-          setErrorGastosEstructura(String(e?.message || e))
+          setErrorGastosEstructura(null)
           setGastosEstructura([])
           return
         }
       }
-      logErrorSupabase('gastos_fijos — ningún SELECT compatible con el esquema', ultimoError, {
+      logErrorSupabase('gastos_fijos — ningún SELECT compatible con el esquema (ignorado para no bloquear Historial)', ultimoError, {
         anio: y,
         intentos: intentos.join(' | '),
       })
       setGastosEstructura([])
-      setErrorGastosEstructura(
-        `${String(ultimoError?.message || ultimoError || 'Error al leer gastos_fijos.')} Revisa columnas mes, anio y el resto del esquema. El resto de la pantalla sigue operativa.`
-      )
+      setErrorGastosEstructura(null)
     } catch (e) {
-      logErrorSupabase('gastos_fijos — bloque try/catch externo (no debería alcanzarse)', e, { anio: parseInt(año, 10) })
-      setErrorGastosEstructura(String(e?.message || e))
+      logErrorSupabase('gastos_fijos — bloque try/catch externo (ignorado para no bloquear Historial)', e, { anio: parseInt(año, 10) })
+      setErrorGastosEstructura(null)
       setGastosEstructura([])
     } finally {
       setCargandoGastosEstructura(false)
     }
   }, [año])
 
-  useEffect(() => {
-    let vivo = true
-    ;(async () => {
-      try {
-        await recargarGastosEstructura()
-      } catch (fatal) {
-        if (!vivo) return
-        console.error('[HistorialCierres] gastos_fijos — error no gestionado en recargarGastosEstructura', {
-          mensaje: fatal?.message || String(fatal),
-          stack: fatal?.stack,
-          objeto: fatal,
-        })
-        setGastosEstructura([])
-        setErrorGastosEstructura('Error inesperado al cargar gastos de estructura. Estado vacío; el resto de la página sigue activo.')
-        setCargandoGastosEstructura(false)
-      }
-    })()
-    return () => {
-      vivo = false
-    }
-  }, [recargarGastosEstructura])
-
-  /** Último recurso: nunca más de 15s en estado cargando expedientes. */
+  /** Último recurso: nunca más de 15s en estado de carga de la vista principal. */
   useEffect(() => {
     const tid = window.setTimeout(() => {
-      setCargando((prev) => {
+      setIsLoading((prev) => {
         if (!prev) return prev
         console.error(
-          '[HistorialCierres] FAILSAFE: «cargando» expedientes superó 15s — se libera la UI. Revisa la consulta a expedientes o la red.'
+          '[HistorialCierres] FAILSAFE: isLoading superó 15s — se libera la UI. Revisa la consulta a expedientes o la red.'
         )
         return false
       })
@@ -753,17 +727,12 @@ const HistorialCierres = ({ user }) => {
 
   const cargarCierres = useCallback(async () => {
     const seq = ++cierreLoadSeqRef.current
-    setCargando(true)
     let timeoutId = null
-    const terminarCargaCierres = () => {
-      if (seq === cierreLoadSeqRef.current) setCargando(false)
-    }
     try {
       timeoutId = window.setTimeout(() => {
         console.warn('[HistorialCierres] Tiempo de espera agotado cargando expedientes; se muestra la interfaz sin datos de cierre.')
         if (seq !== cierreLoadSeqRef.current) return
         setCierres([])
-        terminarCargaCierres()
       }, TIMEOUT_CARGA_CIERRES_MS)
 
       const fetchCerrados = async (cols) =>
@@ -863,13 +832,43 @@ const HistorialCierres = ({ user }) => {
       if (seq === cierreLoadSeqRef.current) setCierres([])
     } finally {
       if (timeoutId != null) window.clearTimeout(timeoutId)
-      terminarCargaCierres()
     }
   }, [])
 
+  /**
+   * Efecto principal: expedientes + gastos_fijos en paralelo.
+   * Cada promesa lleva .finally → setIsLoading(false) vía contador (solo cuando ambas terminaron).
+   */
   useEffect(() => {
-    cargarCierres()
-  }, [cargarCierres])
+    const cargaId = ++historialCargaIdRef.current
+    setIsLoading(true)
+    let pendientes = 2
+    const alTerminarUnaPromesa = () => {
+      pendientes -= 1
+      if (pendientes <= 0 && historialCargaIdRef.current === cargaId) {
+        setIsLoading(false)
+      }
+    }
+
+    cargarCierres().finally(() => {
+      alTerminarUnaPromesa()
+    })
+
+    recargarGastosEstructura()
+      .catch((fatal) => {
+        console.error('[HistorialCierres] gastos_fijos — omitido para desbloquear Historial', {
+          mensaje: fatal?.message || String(fatal),
+          stack: fatal?.stack,
+          objeto: fatal,
+        })
+        setGastosEstructura([])
+        setErrorGastosEstructura(null)
+        setCargandoGastosEstructura(false)
+      })
+      .finally(() => {
+        alTerminarUnaPromesa()
+      })
+  }, [año, cargarCierres, recargarGastosEstructura])
 
   /** Año según fecha de referencia (inicio, creación o hoy), alineado con Planning. */
   const expedientesDelAño = useMemo(
@@ -1905,7 +1904,7 @@ const HistorialCierres = ({ user }) => {
       </div>
 
       {/* Totales dinámicos (solo filas visibles; pueden ser 0 € si el trimestre filtrado está vacío) */}
-      {!cargando && expedientesDelAño.length > 0 && (
+      {!isLoading && expedientesDelAño.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Total ingresos', value: totales.ingresos, color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
@@ -1924,7 +1923,7 @@ const HistorialCierres = ({ user }) => {
       )}
 
       {/* Acordeones T1–T4 */}
-      {cargando ? (
+      {isLoading ? (
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm py-14 px-6 text-center text-slate-500">
           <TrendingUp className="mx-auto text-slate-300 mb-4 animate-pulse" size={48} />
           <p className="font-semibold text-slate-700">Cargando expedientes cerrados…</p>
@@ -1958,7 +1957,7 @@ const HistorialCierres = ({ user }) => {
         </div>
       )}
 
-      {!cargando && expedientesDelAño.length > 0 && (
+      {!isLoading && expedientesDelAño.length > 0 && (
         <p className="mt-4 text-xs text-slate-400 text-center">
           Cuaderno trimestral exporta solo los expedientes del filtro activo (vacío si no hay filas). Desglose: Bus, Hotel, Restaurante, Guía, Otros, Imprevistos.
           {' '}Con «Incl. enlaces PDF proveedores» se añade un anexo con hipervínculos a la documentación en <code className="text-[10px] bg-slate-100 px-1 rounded">pagos_proveedores</code>.
