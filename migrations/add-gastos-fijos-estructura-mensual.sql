@@ -27,6 +27,18 @@ BEGIN
   ) THEN
     ALTER TABLE gastos_fijos ADD COLUMN anio INTEGER;
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'gastos_fijos' AND column_name = 'importe_iva'
+  ) THEN
+    ALTER TABLE gastos_fijos ADD COLUMN importe_iva NUMERIC NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'gastos_fijos' AND column_name = 'fecha_factura'
+  ) THEN
+    ALTER TABLE gastos_fijos ADD COLUMN fecha_factura DATE;
+  END IF;
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_gastos_fijos_anio_mes ON gastos_fijos (anio, mes) WHERE mes IS NOT NULL;

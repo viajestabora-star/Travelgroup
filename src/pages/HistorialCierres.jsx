@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown, X, ExternalLink, Package, Trash2, Upload, Building2 } from 'lucide-react'
+import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown, X, ExternalLink, Package, Trash2, Upload, Building2, Plus } from 'lucide-react'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import { supabase } from '../supabase'
@@ -136,73 +136,48 @@ const nombreArchivoSeguro = (s, maxLen = 80) => {
   return base || 'doc'
 }
 
-const esErrorColumnaSql = (err) =>
-  /column|schema|42703|does not exist|unrecognized|PGRST204/i.test(String(err?.message || ''))
-
 /**
- * Lee gastos_fijos del ejercicio con reintentos si faltan columnas opcionales.
- * Filtra por año (`anio`) y solo filas con `mes` no nulo (facturas de estructura mensual).
+ * Columnas esperadas en `gastos_fijos` para gastos mensuales (mes, anio contables).
+ * Si Supabase devuelve error de columna, ejecuta en orden:
+ * add-desglose-gastos-gastos-fijos.sql, add-gastos-fijos-estructura-mensual.sql,
+ * add-gastos-fijos-fecha-factura.sql, add-gastos-fijos-importe-iva.sql
  */
-const fetchGastosFijosParaAnio = async (supabaseClient, y) => {
-  if (!Number.isFinite(y)) return { rows: [], error: null, info: null }
+const GASTOS_FIJOS_SELECT =
+  'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura, created_at'
 
-  const columnSets = [
-    'id, concepto, proveedor, importe, url_pdf, mes, anio, created_at, fecha_factura',
-    'id, concepto, proveedor, importe, url_pdf, mes, anio, created_at',
-    'id, concepto, importe, url_pdf, mes, anio, created_at',
-    'id, concepto, importe, mes, anio, created_at',
-  ]
+const PROVEEDORES_FIJOS_MENSUALES = [
+  { id: 'arsys', label: 'Arsys' },
+  { id: 'copimar', label: 'Copimar' },
+  { id: 'arval', label: 'Arval' },
+  { id: 'ayvens', label: 'Ayvens' },
+  { id: 'intermundial', label: 'Intermundial' },
+  { id: 'vodafone', label: 'Vodafone' },
+  { id: 'gasolina', label: 'Gasolina' },
+  { id: 'segurcaixa', label: 'Segurcaixa' },
+  { id: 'otro', label: 'Otro' },
+]
 
-  let lastColError = null
-  for (const cols of columnSets) {
-    const { data, error } = await supabaseClient
-      .from('gastos_fijos')
-      .select(cols)
-      .eq('anio', y)
-      .not('mes', 'is', null)
-      .order('mes', { ascending: true })
-      .order('created_at', { ascending: true })
+const formInicialGastoMensual = (añoStr, mesNum) => ({
+  categoria: 'arsys',
+  proveedorOtro: '',
+  concepto: '',
+  importeTotal: '',
+  importeIva: '',
+  fecha: `${añoStr}-${String(mesNum).padStart(2, '0')}-01`,
+})
 
-    if (!error) {
-      const rows = (Array.isArray(data) ? data : []).map((r) => ({
-        ...r,
-        proveedor: r.proveedor ?? '',
-        url_pdf: r.url_pdf ?? null,
-        fecha_factura: r.fecha_factura ?? null,
-        mes: r.mes != null ? Number(r.mes) : null,
-        anio: r.anio != null ? Number(r.anio) : null,
-      }))
-      return { rows, error: null, info: null }
-    }
-
-    if (!esErrorColumnaSql(error)) {
-      const msg = error.message || String(error)
-      if (/does not exist|relation|42P01|not find/i.test(msg)) {
-        return {
-          rows: [],
-          error: 'No existe la tabla gastos_fijos o no hay permiso de lectura. Créala en Supabase y revisa RLS.',
-          info: null,
-        }
-      }
-      return { rows: [], error: msg, info: null }
-    }
-    lastColError = error
-    console.warn('[HistorialCierres] gastos_fijos reintento columnas:', cols, error.message)
+/** Misma política que ExpedienteDetalle.subirPdfFacturaCot: bucket facturas_proveedores, nombre fac-{timestamp}.pdf */
+const subirPdfFacturaProveedorComoExpediente = async (file) => {
+  const nombreUnico = `fac-${Date.now()}.pdf`
+  const { error } = await supabase.storage.from('facturas_proveedores').upload(nombreUnico, file)
+  if (error) {
+    const hint =
+      /rls|row-level security|policy/i.test(String(error.message))
+        ? '\n\nSi el error menciona RLS, ejecuta migrations/storage-rls-facturas-proveedores.sql en Supabase.'
+        : ''
+    throw new Error(String(error.message) + hint)
   }
-
-  const probe = await supabaseClient.from('gastos_fijos').select('id, concepto, importe, created_at').limit(1)
-  if (!probe.error) {
-    return {
-      rows: [],
-      error: null,
-      info: 'La tabla existe pero faltan columnas mes, anio (y url_pdf). Ejecuta migrations/add-gastos-fijos-estructura-mensual.sql para usar facturas de estructura.',
-    }
-  }
-  return {
-    rows: [],
-    error: lastColError?.message || probe.error?.message || 'No se pudo leer gastos_fijos.',
-    info: null,
-  }
+  return nombreUnico
 }
 
 const fusionarFacturasClientePorExpediente = (rowsEmitidas, rowsGlobal) => {
@@ -298,29 +273,6 @@ const mesesDelTrimestre = (q) => {
 }
 
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
-
-/** Categorías fijas; con `extra` el nombre del proveedor es manual. */
-const CATEGORIAS_ESTRUCTURA_PROVEEDOR = [
-  { id: 'arsys', label: 'Arsys' },
-  { id: 'copimar', label: 'Copimar' },
-  { id: 'arval', label: 'Arval' },
-  { id: 'ayvens', label: 'Ayvens' },
-  { id: 'intermundial', label: 'Intermundial' },
-  { id: 'vodafone', label: 'Vodafone' },
-  { id: 'gasolina', label: 'Gasolina' },
-  { id: 'segurcaixa', label: 'Segurcaixa' },
-  { id: 'extra', label: 'Extra' },
-]
-
-const defaultDraftEstructuraMes = (mesNum, anioNum) => ({
-  categoria: 'arsys',
-  proveedorManual: '',
-  importe: '',
-  fechaFactura:
-    Number.isFinite(mesNum) && Number.isFinite(anioNum)
-      ? `${String(anioNum).padStart(4, '0')}-${String(mesNum).padStart(2, '0')}-01`
-      : '',
-})
 
 const sinDiacriticos = (s) =>
   String(s || '')
@@ -579,28 +531,49 @@ const HistorialCierres = ({ user }) => {
   const [gastosEstructura, setGastosEstructura] = useState([])
   const [cargandoGastosEstructura, setCargandoGastosEstructura] = useState(false)
   const [errorGastosEstructura, setErrorGastosEstructura] = useState(null)
-  const [infoGastosEstructura, setInfoGastosEstructura] = useState(null)
-  const [subiendoEstructuraMes, setSubiendoEstructuraMes] = useState(null)
+  const [subiendoGastoMensual, setSubiendoGastoMensual] = useState(false)
   const [descargandoPackMes, setDescargandoPackMes] = useState(null)
-  const [draftEstructura, setDraftEstructura] = useState({})
-  const [archivoEstructuraPorMes, setArchivoEstructuraPorMes] = useState({})
+  const [modalGastoMensual, setModalGastoMensual] = useState(null)
+  const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual(String(añoActual), 1))
+  const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
 
   const recargarGastosEstructura = useCallback(async () => {
     const y = parseInt(año, 10)
     if (!Number.isFinite(y)) {
       setGastosEstructura([])
       setErrorGastosEstructura(null)
-      setInfoGastosEstructura(null)
       return
     }
     setCargandoGastosEstructura(true)
     setErrorGastosEstructura(null)
-    setInfoGastosEstructura(null)
     try {
-      const { rows, error, info } = await fetchGastosFijosParaAnio(supabase, y)
+      const { data, error } = await supabase
+        .from('gastos_fijos')
+        .select(GASTOS_FIJOS_SELECT)
+        .eq('anio', y)
+        .not('mes', 'is', null)
+        .order('mes', { ascending: true })
+        .order('created_at', { ascending: true })
+
+      if (error) {
+        console.error('[HistorialCierres] gastos_fijos:', error)
+        setGastosEstructura([])
+        setErrorGastosEstructura(
+          `${error.message || 'Error al leer gastos_fijos.'} Comprueba que existan las columnas mes, anio, url_pdf, proveedor, fecha_factura, importe_iva (migrations en /migrations).`
+        )
+        return
+      }
+
+      const rows = (Array.isArray(data) ? data : []).map((r) => ({
+        ...r,
+        proveedor: r.proveedor ?? '',
+        url_pdf: r.url_pdf ?? null,
+        fecha_factura: r.fecha_factura ?? null,
+        importe_iva: r.importe_iva != null ? n(r.importe_iva) : 0,
+        mes: r.mes != null ? Number(r.mes) : null,
+        anio: r.anio != null ? Number(r.anio) : null,
+      }))
       setGastosEstructura(rows)
-      setErrorGastosEstructura(error || null)
-      setInfoGastosEstructura(info || null)
     } catch (e) {
       console.error('[HistorialCierres] gastos estructura', e)
       setErrorGastosEstructura(String(e?.message || e))
@@ -917,6 +890,15 @@ const HistorialCierres = ({ user }) => {
     return () => window.removeEventListener('keydown', onKey)
   }, [modalAuditoria, cerrarModalAuditoria])
 
+  useEffect(() => {
+    if (!modalGastoMensual) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') cerrarModalGastoMensual()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [modalGastoMensual, cerrarModalGastoMensual])
+
   // ── Exportar Cuaderno de Cierres ──────────────────────────────────────────
   const exportarCuaderno = async () => {
     if (cierresFiltrados.length === 0) return
@@ -1044,87 +1026,110 @@ const HistorialCierres = ({ user }) => {
     setAbiertoTrim((s) => ({ ...s, [q]: !s[q] }))
   }
 
-  const subirFacturaEstructuraMes = useCallback(
-    async (mesNum, d, file, nombreMesValidacion) => {
-      if (!esAdmin) return
-      const anioNum = parseInt(año, 10)
-      const cat = String(d?.categoria || 'arsys')
-      const manual = String(d?.proveedorManual || '').trim()
-      const proveedor =
-        cat === 'extra'
-          ? manual
-          : (CATEGORIAS_ESTRUCTURA_PROVEEDOR.find((c) => c.id === cat)?.label || '').trim()
-      const importe = parseFloat(String(d?.importe || '').replace(',', '.'))
-      const fechaStr = String(d?.fechaFactura || '').trim()
-      if (!proveedor) {
-        alert(cat === 'extra' ? 'Indica el nombre del proveedor (Extra).' : 'Selecciona un proveedor válido.')
-        return
-      }
-      if (!Number.isFinite(importe) || importe < 0) {
-        alert('Indica un importe total con IVA válido.')
-        return
-      }
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
-        alert('Indica la fecha de la factura.')
-        return
-      }
-      const fd = new Date(`${fechaStr}T12:00:00`)
-      if (isNaN(fd.getTime())) {
-        alert('Fecha de factura no válida.')
-        return
-      }
-      if (fd.getMonth() + 1 !== mesNum || fd.getFullYear() !== anioNum) {
+  const cerrarModalGastoMensual = useCallback(() => {
+    setModalGastoMensual(null)
+    setArchivoGastoMensual(null)
+  }, [])
+
+  const abrirModalGastoMensual = useCallback(
+    (mesNum) => {
+      const y = parseInt(año, 10)
+      if (!Number.isFinite(y)) return
+      setFormGastoMensual(formInicialGastoMensual(String(y), mesNum))
+      setArchivoGastoMensual(null)
+      setModalGastoMensual({ mesNum })
+    },
+    [año]
+  )
+
+  const guardarGastoMensualDesdeModal = useCallback(async () => {
+    if (!esAdmin || !modalGastoMensual) return
+    const anioEjercicio = parseInt(año, 10)
+    const cat = String(formGastoMensual.categoria || 'arsys')
+    const proveedorOtro = String(formGastoMensual.proveedorOtro || '').trim()
+    const proveedor =
+      cat === 'otro'
+        ? proveedorOtro
+        : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
+    const concepto = String(formGastoMensual.concepto || '').trim()
+    const importeTotal = parseFloat(String(formGastoMensual.importeTotal || '').replace(',', '.'))
+    const importeIva = parseFloat(String(formGastoMensual.importeIva || '').replace(',', '.'))
+    const fechaStr = String(formGastoMensual.fecha || '').trim()
+    const file = archivoGastoMensual
+
+    if (!proveedor) {
+      alert(cat === 'otro' ? 'Indica el nombre del proveedor (Otro).' : 'Selecciona un proveedor.')
+      return
+    }
+    if (!concepto) {
+      alert('Indica el concepto.')
+      return
+    }
+    if (!Number.isFinite(importeTotal) || importeTotal < 0) {
+      alert('Importe total no válido.')
+      return
+    }
+    if (!Number.isFinite(importeIva) || importeIva < 0) {
+      alert('Importe IVA no válido.')
+      return
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
+      alert('Indica la fecha de la factura.')
+      return
+    }
+    const fd = new Date(`${fechaStr}T12:00:00`)
+    if (isNaN(fd.getTime())) {
+      alert('Fecha no válida.')
+      return
+    }
+    const mesContable = fd.getMonth() + 1
+    const anioContable = fd.getFullYear()
+    if (anioContable !== anioEjercicio) {
+      alert(`La fecha debe pertenecer al ejercicio ${anioEjercicio} (año del selector superior).`)
+      return
+    }
+    if (!file || file.type !== 'application/pdf') {
+      alert('Selecciona un archivo PDF.')
+      return
+    }
+
+    setSubiendoGastoMensual(true)
+    let pathStorage = null
+    try {
+      pathStorage = await subirPdfFacturaProveedorComoExpediente(file)
+      const { error: insErr } = await supabase.from('gastos_fijos').insert({
+        concepto,
+        proveedor,
+        importe: importeTotal,
+        importe_iva: importeIva,
+        url_pdf: pathStorage,
+        mes: mesContable,
+        anio: anioContable,
+        fecha_factura: fechaStr,
+        activo: true,
+        periodicidad: 'mensual',
+      })
+      if (insErr) {
+        if (pathStorage) await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
         alert(
-          `La fecha debe pertenecer a ${nombreMesValidacion || `mes ${mesNum}`} de ${anioNum} (trimestre / mes del bloque).`
+          `${insErr.message}\n\nEjecuta en Supabase: add-gastos-fijos-estructura-mensual.sql, add-gastos-fijos-fecha-factura.sql, add-gastos-fijos-importe-iva.sql`
         )
         return
       }
-      if (!file || file.type !== 'application/pdf') {
-        alert('Selecciona un archivo PDF.')
-        return
+      cerrarModalGastoMensual()
+      await recargarGastosEstructura()
+    } catch (e) {
+      console.error(e)
+      if (pathStorage) {
+        try {
+          await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
+        } catch (_) {}
       }
-      const concepto = `Estructura · ${proveedor} · ${fechaStr}`
-      const key = `${anioNum}-${mesNum}`
-      setSubiendoEstructuraMes(key)
-      try {
-        const baseNombre = nombreArchivoSeguro(String(file.name || 'factura').replace(/\.pdf$/i, ''))
-        const path = `gestruct-${anioNum}-${mesNum}-${Date.now()}-${baseNombre}.pdf`
-        const { error: upErr } = await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).upload(path, file)
-        if (upErr) {
-          const hint =
-            /rls|row-level security|policy/i.test(String(upErr.message))
-              ? '\n\nSi el error menciona RLS, revisa políticas del bucket facturas_proveedores en Supabase.'
-              : ''
-          alert(`Error al subir PDF: ${upErr.message}${hint}`)
-          return
-        }
-        const { error: insErr } = await supabase.from('gastos_fijos').insert({
-          concepto,
-          proveedor,
-          importe,
-          url_pdf: path,
-          mes: mesNum,
-          anio: anioNum,
-          fecha_factura: fechaStr,
-          activo: true,
-          periodicidad: 'mensual',
-        })
-        if (insErr) {
-          await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([path])
-          alert(
-            `Error al guardar en gastos_fijos: ${insErr.message}\n\nComprueba migraciones add-gastos-fijos-estructura-mensual.sql y add-gastos-fijos-fecha-factura.sql en Supabase.`
-          )
-          return
-        }
-        setDraftEstructura((s) => ({ ...s, [mesNum]: defaultDraftEstructuraMes(mesNum, anioNum) }))
-        setArchivoEstructuraPorMes((s) => ({ ...s, [mesNum]: null }))
-        await recargarGastosEstructura()
-      } finally {
-        setSubiendoEstructuraMes(null)
-      }
-    },
-    [esAdmin, año, recargarGastosEstructura]
-  )
+      alert(e?.message || 'Error al guardar el gasto.')
+    } finally {
+      setSubiendoGastoMensual(false)
+    }
+  }, [esAdmin, modalGastoMensual, año, formGastoMensual, archivoGastoMensual, recargarGastosEstructura, cerrarModalGastoMensual])
 
   const borrarFacturaEstructura = useCallback(
     async (row) => {
@@ -1282,11 +1287,6 @@ const HistorialCierres = ({ user }) => {
             {errorGastosEstructura}
           </p>
         )}
-        {!errorGastosEstructura && infoGastosEstructura && (
-          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            {infoGastosEstructura}
-          </p>
-        )}
         {meses.map((mesNum) => {
           const nombreMes = NOMBRES_MES[mesNum - 1]
           const rows = gastosEstructura.filter(
@@ -1297,11 +1297,7 @@ const HistorialCierres = ({ user }) => {
             if (!d || isNaN(d.getTime())) return false
             return d.getFullYear() === anioNum && d.getMonth() + 1 === mesNum
           })
-          const draft = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(draftEstructura[mesNum] || {}) }
-          const archivo = archivoEstructuraPorMes[mesNum]
-          const subKey = `${anioNum}-${mesNum}`
-          const subiendo = subiendoEstructuraMes === subKey
-          const descargando = descargandoPackMes === subKey
+          const descargando = descargandoPackMes === `${anioNum}-${mesNum}`
           const conPdf = rows.filter((r) => r.url_pdf)
           const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
           const fmtFechaFact = (raw) => {
@@ -1311,6 +1307,14 @@ const HistorialCierres = ({ user }) => {
               ? d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
               : '—'
           }
+          const colSpanTabla = esAdmin ? 6 : 5
+          const filaVaciaListado = (
+            <tr>
+              <td colSpan={colSpanTabla} className="px-3 py-6 text-center text-sm text-slate-500 italic">
+                No hay registros en este mes.
+              </td>
+            </tr>
+          )
           return (
             <div
               key={mesNum}
@@ -1318,7 +1322,7 @@ const HistorialCierres = ({ user }) => {
             >
               <div className="px-4 py-3 border-b border-slate-100 bg-slate-800 text-white flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <h3 className="text-sm font-black uppercase tracking-wide shrink-0">
-                  Facturas de Estructura — {nombreMes}
+                  Gastos mensuales — {nombreMes}
                 </h3>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-1 sm:justify-end sm:gap-4 min-w-0">
                   {rows.length > 0 && (
@@ -1341,90 +1345,110 @@ const HistorialCierres = ({ user }) => {
                       ))}
                     </div>
                   )}
-                  <button
-                    type="button"
-                    disabled={descargando || !puedePackMes}
-                    onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-500 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.12em] shadow-md transition-colors shrink-0 self-start sm:self-center"
-                  >
-                    {descargando ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
-                    DESCARGAR PACK {nombreMes.toUpperCase()}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {esAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => abrirModalGastoMensual(mesNum)}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black uppercase tracking-[0.1em] shadow-md transition-colors"
+                      >
+                        <Plus size={16} />
+                        Añadir gasto
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={descargando || !puedePackMes}
+                      onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-500 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.12em] shadow-md transition-colors"
+                    >
+                      {descargando ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
+                      DESCARGAR PACK {nombreMes.toUpperCase()}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="p-4">
-                {rows.length === 0 ? (
-                  <p className="text-sm text-slate-500 mb-3">No hay facturas de estructura este mes.</p>
-                ) : (
-                  <div className="hidden sm:block overflow-x-auto mb-4">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-100 text-slate-700">
-                        <tr>
-                          {(() => {
-                            const labs = ['Fecha factura', 'Proveedor', 'Importe total (IVA inc.)', 'PDF']
-                            if (esAdmin) labs.push('Acciones')
-                            return labs.map((lab) => (
-                              <th
-                                key={lab}
-                                className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
-                                  lab === 'Importe total (IVA inc.)' ? 'text-right' : 'text-left'
-                                }`}
-                              >
-                                {lab}
-                              </th>
-                            ))
-                          })()}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {rows.map((r) => {
-                          const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
-                          return (
-                            <tr key={r.id}>
-                              <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{fmtFechaFact(r.fecha_factura)}</td>
-                              <td className="px-3 py-2 text-slate-800">
-                                <span className="inline-flex items-center gap-2">
-                                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
-                                    {inicialesProveedorEstructura(r.proveedor)}
-                                  </span>
-                                  {r.proveedor ?? '—'}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-right tabular-nums font-medium">{n(r.importe).toFixed(2)}</td>
-                              <td className="px-3 py-2">
-                                {url ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => abrirFacturaProveedorPorUrlGuardada(r.url_pdf)}
-                                    className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
-                                  >
-                                    <ExternalLink size={14} /> Abrir
-                                  </button>
-                                ) : (
-                                  <span className="text-xs text-slate-400">—</span>
-                                )}
-                              </td>
-                              {esAdmin && (
-                                <td className="px-3 py-2 text-right">
-                                  <button
-                                    type="button"
-                                    onClick={() => borrarFacturaEstructura(r)}
-                                    className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800"
-                                  >
-                                    <Trash2 size={14} /> Eliminar
-                                  </button>
-                                </td>
-                              )}
-                            </tr>
+                <div className="hidden sm:block overflow-x-auto mb-4">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-100 text-slate-700">
+                      <tr>
+                        {['Fecha', 'Proveedor', 'Concepto', 'Importe', 'PDF', ...(esAdmin ? ['Acciones'] : [])].map(
+                          (lab) => (
+                            <th
+                              key={lab}
+                              className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
+                                lab === 'Importe' ? 'text-right' : 'text-left'
+                              }`}
+                            >
+                              {lab}
+                            </th>
                           )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {rows.length > 0 && (
-                  <div className="sm:hidden space-y-2 mb-4">
-                    {rows.map((r) => {
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rows.length === 0
+                        ? filaVaciaListado
+                        : rows.map((r) => {
+                            const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
+                            return (
+                              <tr key={r.id}>
+                                <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                                  {fmtFechaFact(r.fecha_factura)}
+                                </td>
+                                <td className="px-3 py-2 text-slate-800">
+                                  <span className="inline-flex items-center gap-2">
+                                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
+                                      {inicialesProveedorEstructura(r.proveedor)}
+                                    </span>
+                                    {r.proveedor ?? '—'}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-slate-700 max-w-[220px] truncate" title={r.concepto || ''}>
+                                  {r.concepto ?? '—'}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums text-slate-900">
+                                  <div className="font-semibold">{n(r.importe).toFixed(2)} €</div>
+                                  {n(r.importe_iva) > 0 && (
+                                    <div className="text-[11px] text-slate-500 font-normal">IVA {n(r.importe_iva).toFixed(2)} €</div>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {url ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirFacturaProveedorPorUrlGuardada(r.url_pdf)}
+                                      className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
+                                    >
+                                      <ExternalLink size={14} /> Abrir
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs text-slate-400">—</span>
+                                  )}
+                                </td>
+                                {esAdmin && (
+                                  <td className="px-3 py-2 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => borrarFacturaEstructura(r)}
+                                      className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800"
+                                    >
+                                      <Trash2 size={14} /> Eliminar
+                                    </button>
+                                  </td>
+                                )}
+                              </tr>
+                            )
+                          })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="sm:hidden space-y-2 mb-4">
+                  {rows.length === 0 ? (
+                    <p className="text-sm text-slate-500 text-center py-6 italic">No hay registros en este mes.</p>
+                  ) : (
+                    rows.map((r) => {
                       const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
                       return (
                         <div key={r.id} className="rounded-lg border border-slate-100 p-3 bg-slate-50/80">
@@ -1434,8 +1458,14 @@ const HistorialCierres = ({ user }) => {
                             </span>
                             <p className="font-bold text-slate-900 text-sm flex-1">{r.proveedor ?? '—'}</p>
                           </div>
-                          <p className="text-xs text-slate-500">Factura: {fmtFechaFact(r.fecha_factura)}</p>
-                          <p className="text-sm font-bold text-slate-900 mt-1">Total (IVA inc.): {n(r.importe).toFixed(2)} €</p>
+                          <p className="text-xs text-slate-600">{r.concepto ?? '—'}</p>
+                          <p className="text-xs text-slate-500 mt-1">Fecha: {fmtFechaFact(r.fecha_factura)}</p>
+                          <p className="text-sm font-bold text-slate-900 mt-1">
+                            {n(r.importe).toFixed(2)} €
+                            {n(r.importe_iva) > 0 && (
+                              <span className="text-xs font-normal text-slate-500"> · IVA {n(r.importe_iva).toFixed(2)} €</span>
+                            )}
+                          </p>
                           <div className="mt-2 flex flex-wrap gap-2">
                             {url && (
                               <button
@@ -1454,120 +1484,9 @@ const HistorialCierres = ({ user }) => {
                           </div>
                         </div>
                       )
-                    })}
-                  </div>
-                )}
-                {esAdmin && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-900/80">
-                      Subir factura (admin)
-                    </p>
-                    <p className="text-xs text-amber-900/70">
-                      Puedes registrar <strong>varias facturas de Gasolina</strong> (o cualquier proveedor) en el mismo mes: cada PDF es un registro independiente.
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
-                        Proveedor
-                        <select
-                          value={draft.categoria || 'arsys'}
-                          onChange={(e) =>
-                            setDraftEstructura((s) => {
-                              const prev = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(s[mesNum] || {}) }
-                              const v = e.target.value
-                              return {
-                                ...s,
-                                [mesNum]: {
-                                  ...prev,
-                                  categoria: v,
-                                  proveedorManual: v === 'extra' ? prev.proveedorManual : '',
-                                },
-                              }
-                            })
-                          }
-                          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
-                        >
-                          {CATEGORIAS_ESTRUCTURA_PROVEEDOR.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {draft.categoria === 'extra' && (
-                        <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
-                          Nombre del proveedor (Extra)
-                          <input
-                            type="text"
-                            value={draft.proveedorManual || ''}
-                            onChange={(e) =>
-                              setDraftEstructura((s) => {
-                                const prev = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(s[mesNum] || {}) }
-                                return { ...s, [mesNum]: { ...prev, proveedorManual: e.target.value } }
-                              })
-                            }
-                            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                            placeholder="Ej. Proveedor externo"
-                          />
-                        </label>
-                      )}
-                      <label className="block text-xs font-semibold text-slate-600">
-                        Importe total (IVA incl.)
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={draft.importe || ''}
-                          onChange={(e) =>
-                            setDraftEstructura((s) => {
-                              const prev = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(s[mesNum] || {}) }
-                              return { ...s, [mesNum]: { ...prev, importe: e.target.value } }
-                            })
-                          }
-                          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                          placeholder="0,00"
-                        />
-                      </label>
-                      <label className="block text-xs font-semibold text-slate-600">
-                        Fecha de la factura
-                        <input
-                          type="date"
-                          value={draft.fechaFactura || ''}
-                          onChange={(e) =>
-                            setDraftEstructura((s) => {
-                              const prev = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(s[mesNum] || {}) }
-                              return { ...s, [mesNum]: { ...prev, fechaFactura: e.target.value } }
-                            })
-                          }
-                          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
-                        />
-                      </label>
-                    </div>
-                    <div className="flex flex-wrap items-end gap-3">
-                      <label className="block text-xs font-semibold text-slate-600 flex-1 min-w-[200px]">
-                        Archivo PDF
-                        <input
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          onChange={(e) =>
-                            setArchivoEstructuraPorMes((s) => ({
-                              ...s,
-                              [mesNum]: e.target.files?.[0] || null,
-                            }))
-                          }
-                          className="mt-1 block w-full text-sm text-slate-600"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        disabled={subiendo}
-                        onClick={() => subirFacturaEstructuraMes(mesNum, draft, archivo, nombreMes)}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-wide shadow-md transition-colors"
-                      >
-                        {subiendo ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                        Subir factura
-                      </button>
-                    </div>
-                  </div>
-                )}
+                    })
+                  )}
+                </div>
               </div>
             </div>
           )
@@ -1997,6 +1916,162 @@ const HistorialCierres = ({ user }) => {
                   Ir al expediente (edición avanzada)
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalGastoMensual && esAdmin && (
+        <div
+          className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-gasto-mensual-titulo"
+          onClick={(e) => e.target === e.currentTarget && !subiendoGastoMensual && cerrarModalGastoMensual()}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
+            <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100 bg-slate-50">
+              <div>
+                <h2 id="modal-gasto-mensual-titulo" className="text-lg font-black text-slate-900 tracking-tight">
+                  Añadir gasto
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Bloque sugerido: {NOMBRES_MES[modalGastoMensual.mesNum - 1]} · Ejercicio {año}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={subiendoGastoMensual}
+                onClick={cerrarModalGastoMensual}
+                className="p-2 rounded-xl hover:bg-slate-200 text-slate-600 transition-colors shrink-0"
+                aria-label="Cerrar"
+              >
+                <X size={22} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+              <label className="block text-xs font-semibold text-slate-600">
+                Proveedor
+                <select
+                  value={formGastoMensual.categoria || 'arsys'}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setFormGastoMensual((prev) => ({
+                      ...prev,
+                      categoria: v,
+                      proveedorOtro: v === 'otro' ? prev.proveedorOtro : '',
+                    }))
+                  }}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+                >
+                  {PROVEEDORES_FIJOS_MENSUALES.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {formGastoMensual.categoria === 'otro' && (
+                <label className="block text-xs font-semibold text-slate-600">
+                  Nombre del proveedor (manual)
+                  <input
+                    type="text"
+                    value={formGastoMensual.proveedorOtro || ''}
+                    onChange={(e) => setFormGastoMensual((p) => ({ ...p, proveedorOtro: e.target.value }))}
+                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                    placeholder="Proveedor"
+                  />
+                </label>
+              )}
+              <label className="block text-xs font-semibold text-slate-600">
+                Concepto
+                <input
+                  type="text"
+                  value={formGastoMensual.concepto || ''}
+                  onChange={(e) => setFormGastoMensual((p) => ({ ...p, concepto: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Descripción del gasto"
+                />
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block text-xs font-semibold text-slate-600">
+                  Importe total
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={formGastoMensual.importeTotal || ''}
+                    onChange={(e) => setFormGastoMensual((p) => ({ ...p, importeTotal: e.target.value }))}
+                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                    placeholder="0,00"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Importe IVA
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={formGastoMensual.importeIva || ''}
+                    onChange={(e) => setFormGastoMensual((p) => ({ ...p, importeIva: e.target.value }))}
+                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                    placeholder="0,00"
+                  />
+                </label>
+              </div>
+              <label className="block text-xs font-semibold text-slate-600">
+                Fecha de la factura
+                <input
+                  type="date"
+                  value={formGastoMensual.fecha || ''}
+                  onChange={(e) => setFormGastoMensual((p) => ({ ...p, fecha: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+                />
+              </label>
+              {(() => {
+                const f = formGastoMensual.fecha
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(f || '')) return null
+                const d = new Date(`${f}T12:00:00`)
+                if (isNaN(d.getTime())) return null
+                return (
+                  <p className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                    Mes y año contables automáticos:{' '}
+                    <strong>
+                      {NOMBRES_MES[d.getMonth()]} {d.getFullYear()}
+                    </strong>
+                  </p>
+                )
+              })()}
+              <label className="block text-xs font-semibold text-slate-600">
+                Archivo PDF
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  onChange={(e) => setArchivoGastoMensual(e.target.files?.[0] || null)}
+                  className="mt-1 block w-full text-sm text-slate-600"
+                />
+              </label>
+              <p className="text-[11px] text-slate-500">
+                El PDF se sube al bucket <code className="bg-slate-100 px-1 rounded">facturas_proveedores</code> con el mismo
+                criterio que en expedientes (<code className="bg-slate-100 px-1 rounded">fac-{'{timestamp}'}.pdf</code>).
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex flex-wrap gap-2 justify-end">
+              <button
+                type="button"
+                disabled={subiendoGastoMensual}
+                onClick={cerrarModalGastoMensual}
+                className="px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white text-slate-800 text-sm font-bold hover:bg-slate-100"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={subiendoGastoMensual}
+                onClick={() => guardarGastoMensualDesdeModal()}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-sm font-black uppercase tracking-wide shadow-md"
+              >
+                {subiendoGastoMensual ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+                Guardar gasto
+              </button>
             </div>
           </div>
         </div>
