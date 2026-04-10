@@ -1,18 +1,36 @@
 import jsPDF from 'jspdf'
-import { categorizarPago } from './finanzasHelpers'
-
-/** Orden de secciones alineado con el cuaderno de cierres / modelo operativo. */
-const CATEGORIAS_ORDEN = ['Bus', 'Hotel', 'Guía', 'Restaurante', 'Otros']
 
 /**
- * Convierte cualquier fila (informe, cotización o pagos_proveedores) a formato único.
+ * Categorización alineada con la ficha de expediente + Hotel y «Autobús» (conceptos reales en pagos_proveedores).
+ * Exportada para imprimir / CSV / HTML en ExpedienteDetalle.
  */
+export function categorizarPagoInformeCierre(concepto) {
+  const c = String(concepto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  if (/bus|autobus|transporte/.test(c)) return 'Bus'
+  if (/hotel|alojamiento|habitacion|hostal|pension/.test(c)) return 'Hotel'
+  if (/restaurante|comida|catering|menu|menú/.test(c)) return 'Restaurante'
+  if (/guia|guía/.test(c)) return 'Guía'
+  return 'Otros'
+}
+
+/** Mismo orden visual que la ficha (con Hotel explícito). */
+export const CATEGORIAS_INFORME_CIERRE_ORDEN = ['Bus', 'Hotel', 'Restaurante', 'Guía', 'Otros']
+
+// ─── Líneas Hacienda / cotización (Cierres.jsx) ─────────────────────────────
+
+const n = (v) => {
+  const num = Number(v ?? 0)
+  return Number.isFinite(num) ? num : 0
+}
+
 export function normalizarLineaInforme(raw) {
   if (!raw || typeof raw !== 'object') return null
   const concepto = String(raw.concepto ?? raw.descripcion ?? 'Concepto').trim() || 'Concepto'
   const proveedor = String(raw.proveedor ?? raw.proveedor_nombre ?? '—').trim() || '—'
-  const importe =
-    parseFloat(raw.importe_real ?? raw.importe_pagado ?? raw.importe ?? 0) || 0
+  const importe = parseFloat(raw.importe_real ?? raw.importe_pagado ?? raw.importe ?? 0) || 0
   return { concepto, proveedor, importe_real: +importe.toFixed(2) }
 }
 
@@ -20,32 +38,25 @@ export function normalizarLineasInforme(lineas) {
   return (lineas || []).map(normalizarLineaInforme).filter(Boolean)
 }
 
-/**
- * Ingresos por fórmula de cotización; si da 0, usa totales persistidos en expediente.
- */
 export function calcularTotalesInforme(lineasInforme, expedienteSeleccionado) {
   const lineas = normalizarLineasInforme(lineasInforme)
-  const totalGastosReales = lineas.reduce((acc, l) => acc + (parseFloat(l.importe_real) || 0), 0)
+  const totalGastosReales = lineas.reduce((acc, l) => acc + n(l.importe_real), 0)
 
   const exp = expedienteSeleccionado
   const paxPago = Math.max(1, parseInt(exp?.pax_pago || exp?.total_pax || 0, 10) || 0)
-  const precioVenta = paxPago * (parseFloat(exp?.precio_venta_cliente || 0) || 0)
+  const precioVenta = paxPago * n(exp?.precio_venta_cliente)
   const noches = Math.max(1, Number(exp?.noches) || 1)
   const totalSupHabitacion =
-    (parseFloat(exp?.sup_individual_pax || 0) || 0) *
-    (parseFloat(exp?.sup_individual_precio_dia || 0) || 0) *
-    noches
-  const totalSupSeguro =
-    (parseFloat(exp?.sup_seguro_pax || 0) || 0) * (parseFloat(exp?.sup_seguro_precio_total || 0) || 0)
+    n(exp?.sup_individual_pax) * n(exp?.sup_individual_precio_dia) * noches
+  const totalSupSeguro = n(exp?.sup_seguro_pax) * n(exp?.sup_seguro_precio_total)
   const suplementosVal = totalSupHabitacion + totalSupSeguro
-  const bonificaciones = (parseFloat(exp?.bonificacion_pax || 0) || 0) * paxPago
+  const bonificaciones = n(exp?.bonificacion_pax) * paxPago
   const gratuidadesVal = Number(exp?.gratuidades_monetario || 0)
   let ingresosTotales = precioVenta + suplementosVal - (bonificaciones + gratuidadesVal)
 
   if (ingresosTotales <= 0) {
     ingresosTotales =
-      Number(exp?.total_ingresos ?? exp?.cierre_grupo?.ingresos_totales ?? exp?.cierre_grupo?.total_ingresos ?? 0) ||
-      0
+      n(exp?.total_ingresos ?? exp?.cierre_grupo?.ingresos_totales ?? exp?.cierre_grupo?.total_ingresos)
   }
 
   const beneficioBruto = ingresosTotales - totalGastosReales
@@ -62,261 +73,311 @@ export function calcularTotalesInforme(lineasInforme, expedienteSeleccionado) {
   }
 }
 
-/**
- * Agrupa líneas normalizadas por categoría (según texto de concepto).
- */
-export function agruparGastosPorCategoria(lineasNormalizadas) {
-  const porCat = Object.fromEntries(CATEGORIAS_ORDEN.map((c) => [c, []]))
-  for (const l of lineasNormalizadas) {
-    const cat = categorizarPago(l.concepto)
-    const key = porCat[cat] !== undefined ? cat : 'Otros'
-    porCat[key].push(l)
+/** Payload para el PDF idéntico al de la ficha (cierre_grupo guardado). */
+export function payloadDesdeCierreGrupo(expediente) {
+  const cg = expediente?.cierre_grupo
+  if (!cg || typeof cg !== 'object') return null
+
+  const costesReales = Array.isArray(cg.costesReales)
+    ? cg.costesReales.map((c) => ({
+        concepto: c.concepto || '—',
+        proveedor: c.proveedor || '—',
+        coste_real: n(c.coste_real),
+      }))
+    : []
+  const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
+
+  const ingresosTotales = n(cg.ingresos_totales ?? cg.total_ingresos ?? 0)
+  const gastosTotales = n(cg.gastos_totales ?? cg.gastos ?? 0)
+  const beneficioBruto = n(
+    cg.beneficio_bruto ?? n(cg.beneficio_limpio ?? cg.beneficio) + n(cg.iva_pagado ?? 0)
+  )
+  const ivaPagado = n(cg.iva_pagado ?? 0)
+  const beneficioNetoReal = n(cg.beneficio_limpio ?? cg.beneficio ?? beneficioBruto - ivaPagado)
+
+  return {
+    grupo: expediente.nombre_grupo || expediente.cliente_nombre || 'Sin grupo',
+    viaje: expediente.destino || 'Sin destino',
+    numeroExpediente: expediente.numero_expediente,
+    ingresosTotales,
+    gastosTotales,
+    beneficioBruto,
+    ivaPagado,
+    beneficioNetoReal,
+    costesReales,
+    gastosImprevistos,
   }
-  return porCat
 }
 
-function lineasDesdeServiciosCotizacion(servicios) {
-  return (servicios || []).map((s) => {
-    const concepto =
-      s.nombre_especifico ||
-      s.nombre_servicio ||
-      s.tipo_servicio ||
-      s.tipo ||
-      'Servicio sin nombre'
-    const proveedor = s.nombre_proveedor_texto || s.nombre_proveedor_manual || ''
-    let importeCotizado = 0
-    if (s.total_servicio !== null && s.total_servicio !== undefined) {
-      importeCotizado = Number(s.total_servicio) || 0
-    } else {
-      const coste = Number(s.coste_unitario) || 0
-      const n = Number(s.noches) || 1
-      const tipoCalculo = s.tipo_calculo || 'porPersona'
-      importeCotizado = tipoCalculo === 'porGrupo' ? coste : coste * n
-    }
-    const importeReal = importeCotizado
-    return {
-      id_servicio: s.id,
-      concepto,
-      proveedor,
-      importe_cotizado: +importeCotizado.toFixed(2),
-      importe_real: +importeReal.toFixed(2),
-    }
-  })
-}
+/**
+ * Auditoría / ZIP / Historial: desglose desde pagos_proveedores; totales desde cierre_grupo si existe.
+ */
+export async function cargarPayloadInformeCierreAuditoria(supabaseClient, exp) {
+  if (!exp?.id) return null
 
-function lineasDesdePagosProveedores(rows) {
-  return (rows || []).map((p) => ({
-    id_pago: p.id,
-    concepto: p.concepto?.trim() ? p.concepto : 'Pago a proveedor',
+  const { data: full } = await supabaseClient
+    .from('expedientes')
+    .select(
+      'id, numero_expediente, nombre_grupo, cliente_nombre, destino, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio, cierre_grupo'
+    )
+    .eq('id', exp.id)
+    .single()
+
+  const ex = full || exp
+  const cg = ex.cierre_grupo && typeof ex.cierre_grupo === 'object' ? ex.cierre_grupo : {}
+
+  const { data: pagos } = await supabaseClient
+    .from('pagos_proveedores')
+    .select('id, concepto, proveedor_nombre, importe_pagado, fecha_pago')
+    .eq('expediente_id', exp.id)
+    .order('fecha_pago', { ascending: true, nullsFirst: true })
+
+  let costesReales = (pagos || []).map((p) => ({
+    concepto:
+      p.concepto && String(p.concepto).trim() ? String(p.concepto).trim() : 'Pago a proveedor',
     proveedor: p.proveedor_nombre || '—',
-    importe_real: +(parseFloat(p.importe_pagado) || 0).toFixed(2),
-    importe_cotizado: +(parseFloat(p.importe_pagado) || 0).toFixed(2),
+    coste_real: n(p.importe_pagado),
   }))
+
+  if (costesReales.length === 0 && Array.isArray(cg.costesReales)) {
+    costesReales = cg.costesReales.map((c) => ({
+      concepto: c.concepto || '—',
+      proveedor: c.proveedor || '—',
+      coste_real: n(c.coste_real),
+    }))
+  }
+
+  const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
+  const sumImpr = gastosImprevistos.reduce((s, g) => s + n(g.importe), 0)
+  const sumLineas = costesReales.reduce((s, c) => s + c.coste_real, 0)
+  const hasCg = ex.cierre_grupo && typeof ex.cierre_grupo === 'object'
+
+  let ingresosTotales
+  let gastosTotales
+  let beneficioBruto
+  let ivaPagado
+  let beneficioNetoReal
+
+  if (hasCg) {
+    ingresosTotales = n(cg.ingresos_totales ?? cg.total_ingresos ?? ex.total_ingresos ?? 0)
+    gastosTotales = n(cg.gastos_totales ?? cg.gastos ?? sumLineas + sumImpr)
+    beneficioBruto = n(
+      cg.beneficio_bruto ?? n(cg.beneficio_limpio ?? cg.beneficio) + n(cg.iva_pagado ?? 0)
+    )
+    ivaPagado = n(cg.iva_pagado ?? 0)
+    beneficioNetoReal = n(cg.beneficio_limpio ?? cg.beneficio ?? beneficioBruto - ivaPagado)
+  } else {
+    ingresosTotales = n(ex.total_ingresos ?? 0)
+    gastosTotales = sumLineas + sumImpr
+    beneficioBruto = ingresosTotales - gastosTotales
+    ivaPagado = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
+    beneficioNetoReal = beneficioBruto - ivaPagado
+  }
+
+  return {
+    grupo: ex.nombre_grupo || ex.cliente_nombre || 'Sin grupo',
+    viaje: ex.destino || 'Sin destino',
+    numeroExpediente: ex.numero_expediente,
+    ingresosTotales,
+    gastosTotales,
+    beneficioBruto,
+    ivaPagado,
+    beneficioNetoReal,
+    costesReales,
+    gastosImprevistos,
+  }
+}
+
+/** Pestaña Informe Hacienda (Cierres.jsx): mismas cifras que calcularTotalesInforme + líneas editadas. */
+export function payloadDesdeLineasHacienda(expedienteSeleccionado, lineasInforme) {
+  const lineas = normalizarLineasInforme(lineasInforme)
+  const costesReales = lineas.map((l) => ({
+    concepto: l.concepto,
+    proveedor: l.proveedor,
+    coste_real: l.importe_real,
+  }))
+  const t = calcularTotalesInforme(lineas, expedienteSeleccionado)
+  return {
+    grupo:
+      expedienteSeleccionado.nombre_grupo ||
+      expedienteSeleccionado.cliente_nombre ||
+      'Sin grupo',
+    viaje: expedienteSeleccionado.destino || 'Sin destino',
+    numeroExpediente: expedienteSeleccionado.numero_expediente,
+    ingresosTotales: t.ingresosTotales,
+    gastosTotales: t.totalGastosReales,
+    beneficioBruto: t.beneficioBruto,
+    ivaPagado: t.ivaPagado,
+    beneficioNetoReal: t.beneficio,
+    costesReales,
+    gastosImprevistos: [],
+  }
 }
 
 /**
- * 1) Líneas del informe guardado (Hacienda).
- * 2) Si no hay, cotización (servicios_cotizacion).
- * 3) Si sigue vacío, pagos_proveedores por expediente_id.
+ * PDF idéntico al de ExpedienteDetalle → generarInformeLiquidacionPDF (ficha individual).
  */
-export async function obtenerLineasInformeDesdeExpediente(supabaseClient, exp) {
-  if (!exp?.id) return []
-
-  if (exp?.informe_gastos_hacienda && Array.isArray(exp.informe_gastos_hacienda.lineas)) {
-    const lineas = exp.informe_gastos_hacienda.lineas
-    if (lineas.length > 0) return lineas
+export function crearJsPdfInformeCierreFinanciero(payload) {
+  if (!payload) {
+    return new jsPDF()
   }
 
-  try {
-    const { data, error } = await supabaseClient
-      .from('servicios_cotizacion')
-      .select(
-        'id, tipo_servicio, tipo, nombre_especifico, nombre_servicio, nombre_proveedor_texto, nombre_proveedor_manual, proveedor_id_int, coste_unitario, noches, tipo_calculo, total_servicio'
-      )
-      .eq('id_expediente', exp.id)
-      .order('id', { ascending: true })
+  const {
+    grupo,
+    viaje,
+    numeroExpediente,
+    ingresosTotales,
+    gastosTotales,
+    beneficioBruto,
+    ivaPagado,
+    beneficioNetoReal,
+    costesReales,
+    gastosImprevistos = [],
+  } = payload
 
-    if (!error) {
-      const servicios = Array.isArray(data) ? data : []
-      const desdeCot = lineasDesdeServiciosCotizacion(servicios)
-      if (desdeCot.length > 0) return desdeCot
-    }
-  } catch {
-    /* continuar a pagos */
-  }
+  const porCategoria = Object.fromEntries(CATEGORIAS_INFORME_CIERRE_ORDEN.map((k) => [k, []]))
+  ;(costesReales || []).forEach((c) => {
+    const cat = categorizarPagoInformeCierre(c.concepto)
+    const key = porCategoria[cat] !== undefined ? cat : 'Otros'
+    porCategoria[key].push(c)
+  })
 
-  try {
-    const { data: pagos, error: errPagos } = await supabaseClient
-      .from('pagos_proveedores')
-      .select('id, concepto, proveedor_nombre, importe_pagado, fecha_pago')
-      .eq('expediente_id', exp.id)
-      .order('fecha_pago', { ascending: true, nullsFirst: true })
-
-    if (!errPagos && Array.isArray(pagos) && pagos.length > 0) {
-      return lineasDesdePagosProveedores(pagos)
-    }
-  } catch {
-    return []
-  }
-
-  return []
-}
-
-/** Salto de página si nos acercamos al borde inferior (altura ~280 en A4). */
-function asegurarEspacio(doc, y, maxY = 272) {
-  if (y <= maxY) return y
-  doc.addPage()
-  return 22
-}
-
-/**
- * Informe de cierre unificado: siempre encabezado, ingresos, desglose por categoría y resumen con IVA 21 %.
- */
-export function crearJsPdfInformeCierre(expedienteSeleccionado, lineasInforme) {
-  const exp = expedienteSeleccionado
-  const lineasRaw = lineasInforme || []
-  const lineas = normalizarLineasInforme(lineasRaw)
   const doc = new jsPDF()
-  const pageWidth = doc.internal.pageSize.getWidth()
-  const margin = 20
-  const rightX = pageWidth - margin
+  const pageW = doc.internal.pageSize.getWidth()
+  let y = 24
 
-  const nombreGrupo = exp.nombre_grupo || exp.cliente_nombre || exp.destino || 'Sin nombre'
-  const numExp = exp.numero_expediente || '—'
-  const destino = exp.destino || '—'
+  doc.setFontSize(18)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(30, 41, 59)
+  doc.text('INFORME DE CIERRE FINANCIERO', pageW / 2, y, { align: 'center' })
+  y += 14
 
-  let y = 18
-  doc.setFontSize(15)
-  doc.setFont(undefined, 'bold')
-  doc.text('Informe de Cierre', pageWidth / 2, y, { align: 'center' })
-  y += 8
-  doc.setFontSize(9)
-  doc.setFont(undefined, 'normal')
-  doc.setTextColor(80, 80, 80)
-  doc.text('Documento para auditoría y gestoría — desglose de pagos a proveedores', pageWidth / 2, y, {
-    align: 'center',
-  })
-  doc.setTextColor(0, 0, 0)
-  y += 12
-
-  doc.setFontSize(11)
-  doc.setFont(undefined, 'bold')
-  doc.text('Datos del expediente', margin, y)
-  y += 7
-  doc.setFont(undefined, 'normal')
   doc.setFontSize(10)
-  doc.text(`Grupo / Cliente: ${nombreGrupo}`, margin, y)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(71, 85, 105)
+  doc.text(`Grupo: ${grupo}`, 20, y)
   y += 6
-  doc.text(`Destino: ${destino}`, margin, y)
+  doc.text(`Viaje: ${viaje}`, 20, y)
   y += 6
-  doc.text(`Número de expediente: ${numExp}`, margin, y)
+  if (numeroExpediente) {
+    doc.text(`N.º Expediente: ${numeroExpediente}`, 20, y)
+    y += 6
+  }
+  y += 6
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(30, 41, 59)
+  doc.text('TOTAL INGRESOS', 20, y)
+  doc.text(`${Number(ingresosTotales).toFixed(2)} €`, pageW - 20, y, { align: 'right' })
   y += 10
 
-  const totales = calcularTotalesInforme(lineas, exp)
-
-  doc.setFont(undefined, 'bold')
-  doc.setFontSize(11)
-  doc.text('Ingresos', margin, y)
-  y += 7
-  doc.setFont(undefined, 'normal')
+  doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
-  doc.text('Total ingresos', margin, y)
-  doc.text(`${totales.ingresosTotales.toFixed(2)} €`, rightX, y, { align: 'right' })
-  y += 10
-
-  doc.setFont(undefined, 'bold')
-  doc.setFontSize(11)
-  doc.text('Desglose de pagos a proveedores', margin, y)
-  y += 6
-  doc.setFontSize(9)
-  doc.setFont(undefined, 'normal')
-  doc.setTextColor(90, 90, 90)
-  doc.text('Agrupado por categoría (según concepto): Bus, Hotel, Guía, Restaurante, Otros.', margin, y, {
-    maxWidth: pageWidth - 2 * margin,
-  })
-  doc.setTextColor(0, 0, 0)
+  doc.text('Desglose de pagos a proveedores', 20, y)
   y += 8
 
-  const porCat = agruparGastosPorCategoria(lineas)
-  let hayAlgunaLinea = false
-
-  for (const cat of CATEGORIAS_ORDEN) {
-    const items = porCat[cat] || []
-    if (items.length === 0) continue
-    hayAlgunaLinea = true
-
-    y = asegurarEspacio(doc, y, 268)
-    doc.setFillColor(241, 245, 249)
-    doc.rect(margin, y - 4, pageWidth - 2 * margin, 8, 'F')
-    doc.setFont(undefined, 'bold')
-    doc.setFontSize(10)
-    doc.text(cat.toUpperCase(), margin + 2, y + 1)
-    y += 10
-    doc.setFont(undefined, 'normal')
+  CATEGORIAS_INFORME_CIERRE_ORDEN.forEach((cat) => {
+    const items = porCategoria[cat]
+    if (items.length === 0) return
+    const subtotal = items.reduce((s, c) => s + n(c.coste_real), 0)
+    doc.setFont('helvetica', 'bold')
     doc.setFontSize(9)
-
-    for (const l of items) {
-      y = asegurarEspacio(doc, y, 275)
-      const proveedor = String(l.proveedor || '—')
-      const importeStr = `${Number(l.importe_real || 0).toFixed(2)} €`
-      const textoLinea = `${cat} — ${proveedor} — ${importeStr}`
-      const lines = doc.splitTextToSize(textoLinea, pageWidth - 2 * margin - 4)
-      for (const t of lines) {
-        doc.text(t, margin + 3, y)
-        y += 4.5
+    doc.setTextColor(51, 65, 85)
+    doc.text(`${cat}`, 25, y)
+    doc.text(`${subtotal.toFixed(2)} €`, pageW - 25, y, { align: 'right' })
+    y += 5
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(100, 116, 139)
+    items.forEach((c) => {
+      if (y > 270) {
+        doc.addPage()
+        y = 20
       }
-      y += 1
+      const linea = `  ${(c.concepto || '—').substring(0, 50)} | ${(c.proveedor || '—').substring(0, 25)}`
+      doc.text(linea, 25, y)
+      doc.text(`${n(c.coste_real).toFixed(2)} €`, pageW - 25, y, { align: 'right' })
+      y += 4
+    })
+    y += 2
+  })
+
+  if (gastosImprevistos.length > 0) {
+    if (y > 260) {
+      doc.addPage()
+      y = 20
     }
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text('Gastos imprevistos', 25, y)
+    y += 5
+    const totalImp = gastosImprevistos.reduce((s, g) => s + n(g.importe), 0)
+    doc.text(`${totalImp.toFixed(2)} €`, pageW - 25, y - 5, { align: 'right' })
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    gastosImprevistos.forEach((g) => {
+      doc.text(`  ${(g.concepto || '—').substring(0, 60)}`, 25, y)
+      doc.text(`${n(g.importe).toFixed(2)} €`, pageW - 25, y, { align: 'right' })
+      y += 4
+    })
     y += 4
   }
 
-  if (!hayAlgunaLinea) {
-    y = asegurarEspacio(doc, y, 268)
-    doc.setFont(undefined, 'italic')
-    doc.setFontSize(9)
-    doc.setTextColor(120, 120, 120)
-    doc.text(
-      'No hay líneas en cotización guardada ni en pagos a proveedores para este expediente.',
-      margin,
-      y,
-      { maxWidth: pageWidth - 2 * margin }
-    )
+  if (
+    (!costesReales || costesReales.length === 0) &&
+    (!gastosImprevistos || gastosImprevistos.length === 0)
+  ) {
+    if (y > 260) {
+      doc.addPage()
+      y = 20
+    }
+    doc.setFont('helvetica', 'italic')
+    doc.setFontSize(8)
+    doc.setTextColor(148, 163, 184)
+    doc.text('Sin líneas de pago a proveedores registradas.', 25, y)
     doc.setTextColor(0, 0, 0)
-    doc.setFont(undefined, 'normal')
-    y += 12
+    y += 10
   }
 
-  y += 4
-  y = asegurarEspacio(doc, y, 240)
-  doc.setLineWidth(0.4)
-  doc.line(margin, y, rightX, y)
-  y += 8
+  y += 6
+  doc.setDrawColor(226, 232, 240)
+  doc.setLineWidth(0.5)
+  doc.line(20, y, pageW - 20, y)
+  y += 10
 
+  doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
-  doc.setFont(undefined, 'bold')
-  doc.text('Resumen final', margin, y)
-  y += 8
+  doc.text('TOTAL GASTOS', 20, y)
+  doc.text(`${Number(gastosTotales).toFixed(2)} €`, pageW - 20, y, { align: 'right' })
+  y += 10
+
+  doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
+  doc.text('Beneficio Bruto', 20, y)
+  doc.text(`${Number(beneficioBruto).toFixed(2)} €`, pageW - 20, y, { align: 'right' })
+  y += 8
 
-  const fila = (label, valor, opts = {}) => {
-    y = asegurarEspacio(doc, y, 275)
-    doc.setFont(undefined, opts.bold ? 'bold' : 'normal')
-    doc.text(label, margin, y)
-    doc.text(valor, rightX, y, { align: 'right' })
-    y += opts.gap ?? 6
-  }
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.text('IVA (21%): impuesto restado', 20, y)
+  doc.text(`− ${Number(ivaPagado).toFixed(2)} €`, pageW - 20, y, { align: 'right' })
+  y += 10
 
-  doc.setFont(undefined, 'normal')
-  fila('Total gastos (proveedores)', `${totales.totalGastosReales.toFixed(2)} €`)
-  fila('Beneficio bruto (ingresos − gastos)', `${totales.beneficioBruto.toFixed(2)} €`)
-  fila(
-    'IVA e impuestos (21 % sobre beneficio bruto)',
-    `${totales.ivaPagado.toFixed(2)} €`
-  )
-  doc.setFont(undefined, 'bold')
-  fila('Beneficio neto final', `${totales.beneficio.toFixed(2)} €`, { bold: true, gap: 8 })
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(14)
+  doc.setTextColor(16, 185, 129)
+  doc.text('BENEFICIO NETO REAL', 20, y)
+  doc.text(`${Number(beneficioNetoReal).toFixed(2)} €`, pageW - 20, y, { align: 'right' })
+  doc.setTextColor(0, 0, 0)
 
   return doc
+}
+
+/** Compatibilidad Cierres.jsx (líneas del informe Hacienda). */
+export function crearJsPdfInformeCierre(expedienteSeleccionado, lineasInforme) {
+  const payload = payloadDesdeLineasHacienda(expedienteSeleccionado, lineasInforme)
+  return crearJsPdfInformeCierreFinanciero(payload)
 }
 
 export function nombreArchivoInformeCierrePdf(numeroExpediente) {

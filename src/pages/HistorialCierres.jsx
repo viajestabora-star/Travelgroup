@@ -9,8 +9,8 @@ import { parsearFechaADate } from '../utils/dateNormalizer'
 import { esUsuarioGestoria } from '../utils/userRoles'
 import { resolverUrlPublicaFacturaProveedor, abrirFacturaProveedorPorUrlGuardada } from '../utils/facturaProveedorStorage'
 import {
-  obtenerLineasInformeDesdeExpediente,
-  crearJsPdfInformeCierre,
+  cargarPayloadInformeCierreAuditoria,
+  crearJsPdfInformeCierreFinanciero,
   nombreArchivoInformeCierrePdf,
 } from '../utils/informeCierreHaciendaPdf'
 
@@ -566,17 +566,8 @@ const HistorialCierres = ({ user }) => {
       const zip = new JSZip()
       const zipNombreBase = nombreArchivoSeguro(`Expediente_${exp.numero_expediente || exp.id}`)
 
-      const { data: expFull, error: expErr } = await supabase
-        .from('expedientes')
-        .select(
-          'id, numero_expediente, nombre_grupo, cliente_nombre, destino, precio_venta_cliente, pax_pago, total_pax, gratuidades, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total, noches, informe_gastos_hacienda, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio, cierre_grupo'
-        )
-        .eq('id', exp.id)
-        .single()
-
-      const expParaInforme = expErr || !expFull ? exp : expFull
-      const lineasInforme = await obtenerLineasInformeDesdeExpediente(supabase, expParaInforme)
-      const docPdf = crearJsPdfInformeCierre(expParaInforme, lineasInforme)
+      const payloadInforme = await cargarPayloadInformeCierreAuditoria(supabase, exp)
+      const docPdf = crearJsPdfInformeCierreFinanciero(payloadInforme)
       const pdfBuf = docPdf.output('arraybuffer')
       zip.file(nombreArchivoInformeCierrePdf(exp.numero_expediente || exp.id), pdfBuf)
 
