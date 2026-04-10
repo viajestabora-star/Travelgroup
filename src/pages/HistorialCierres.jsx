@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react'
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown, X, ExternalLink, Package, Trash2, Upload, Building2, Plus } from 'lucide-react'
 import JSZip from 'jszip'
@@ -145,6 +145,14 @@ const nombreArchivoSeguro = (s, maxLen = 80) => {
 const GASTOS_FIJOS_SELECT =
   'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura, created_at'
 
+/** Si faltan columnas opcionales en Supabase, se reintenta con selects más pequeños (mes + anio siempre en filtros). */
+const GASTOS_FIJOS_SELECT_SIN_CREATED =
+  'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura'
+
+const GASTOS_FIJOS_SELECT_MINIMAL = 'id, concepto, proveedor, importe, url_pdf, mes, anio'
+
+const esErrorColumnaSql = (err) => /column|42703|does not exist|schema cache/i.test(String(err?.message || err || ''))
+
 const PROVEEDORES_FIJOS_MENSUALES = [
   { id: 'arsys', label: 'Arsys' },
   { id: 'copimar', label: 'Copimar' },
@@ -161,8 +169,7 @@ const formInicialGastoMensual = (añoStr, mesNum) => ({
   categoria: 'arsys',
   proveedorOtro: '',
   concepto: '',
-  importeTotal: '',
-  importeIva: '',
+  importeConIva: '',
   fecha: `${añoStr}-${String(mesNum).padStart(2, '0')}-01`,
 })
 
@@ -537,6 +544,9 @@ const HistorialCierres = ({ user }) => {
   const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual(String(añoActual), 1))
   const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
 
+  /** Evita que una carga antigua pise estado tras remount / Strict Mode o re-ejecución. */
+  const cierreLoadSeqRef = useRef(0)
+
   const recargarGastosEstructura = useCallback(async () => {
     const y = parseInt(año, 10)
     if (!Number.isFinite(y)) {
@@ -547,24 +557,7 @@ const HistorialCierres = ({ user }) => {
     setCargandoGastosEstructura(true)
     setErrorGastosEstructura(null)
     try {
-      const { data, error } = await supabase
-        .from('gastos_fijos')
-        .select(GASTOS_FIJOS_SELECT)
-        .eq('anio', y)
-        .not('mes', 'is', null)
-        .order('mes', { ascending: true })
-        .order('created_at', { ascending: true })
-
-      if (error) {
-        console.error('[HistorialCierres] gastos_fijos:', error)
-        setGastosEstructura([])
-        setErrorGastosEstructura(
-          `${error.message || 'Error al leer gastos_fijos.'} Comprueba que existan las columnas mes, anio, url_pdf, proveedor, fecha_factura, importe_iva (migrations en /migrations).`
-        )
-        return
-      }
-
-      const rows = (Array.isArray(data) ? data : []).map((r) => ({
+      const mapRow = (r) => ({
         ...r,
         proveedor: r.proveedor ?? '',
         url_pdf: r.url_pdf ?? null,
@@ -572,10 +565,51 @@ const HistorialCierres = ({ user }) => {
         importe_iva: r.importe_iva != null ? n(r.importe_iva) : 0,
         mes: r.mes != null ? Number(r.mes) : null,
         anio: r.anio != null ? Number(r.anio) : null,
-      }))
-      setGastosEstructura(rows)
+      })
+
+      const ejecutarSelect = async (columnas) => {
+        let q = supabase.from('gastos_fijos').select(columnas).eq('anio', y).not('mes', 'is', null)
+        q = q.order('mes', { ascending: true })
+        if (/\bcreated_at\b/.test(columnas)) {
+          q = q.order('created_at', { ascending: true })
+        }
+        return q
+      }
+
+      const intentos = [GASTOS_FIJOS_SELECT, GASTOS_FIJOS_SELECT_SIN_CREATED, GASTOS_FIJOS_SELECT_MINIMAL]
+      let ultimoError = null
+      for (const columnas of intentos) {
+        try {
+          const { data, error } = await ejecutarSelect(columnas)
+          if (error) {
+            ultimoError = error
+            if (esErrorColumnaSql(error)) continue
+            setGastosEstructura([])
+            setErrorGastosEstructura(
+              `${error.message || 'Error al leer gastos_fijos.'} (La página de expedientes cerrados sigue disponible.)`
+            )
+            return
+          }
+          const rows = (Array.isArray(data) ? data : []).map(mapRow)
+          setGastosEstructura(rows)
+          setErrorGastosEstructura(null)
+          return
+        } catch (e) {
+          ultimoError = e
+          if (esErrorColumnaSql(e)) continue
+          console.error('[HistorialCierres] gastos estructura', e)
+          setErrorGastosEstructura(String(e?.message || e))
+          setGastosEstructura([])
+          return
+        }
+      }
+      console.error('[HistorialCierres] gastos_fijos sin columnas compatibles:', ultimoError)
+      setGastosEstructura([])
+      setErrorGastosEstructura(
+        `${String(ultimoError?.message || ultimoError || 'Error al leer gastos_fijos.')} Asegúrate de tener al menos mes, anio y las columnas base en la tabla. El resto de la pantalla funciona con normalidad.`
+      )
     } catch (e) {
-      console.error('[HistorialCierres] gastos estructura', e)
+      console.error('[HistorialCierres] gastos estructura (outer)', e)
       setErrorGastosEstructura(String(e?.message || e))
       setGastosEstructura([])
     } finally {
@@ -608,9 +642,23 @@ const HistorialCierres = ({ user }) => {
     }
   }, [año, trimestreFiltro])
 
-  const cargarCierres = async () => {
+  const TIMEOUT_CARGA_CIERRES_MS = 50000
+
+  const cargarCierres = useCallback(async () => {
+    const seq = ++cierreLoadSeqRef.current
     setCargando(true)
+    let timeoutId = null
+    const terminarCargaCierres = () => {
+      if (seq === cierreLoadSeqRef.current) setCargando(false)
+    }
     try {
+      timeoutId = window.setTimeout(() => {
+        console.warn('[HistorialCierres] Tiempo de espera agotado cargando expedientes; se muestra la interfaz sin datos de cierre.')
+        if (seq !== cierreLoadSeqRef.current) return
+        setCierres([])
+        terminarCargaCierres()
+      }, TIMEOUT_CARGA_CIERRES_MS)
+
       const fetchCerrados = async (cols) =>
         supabase
           .from('expedientes')
@@ -643,6 +691,8 @@ const HistorialCierres = ({ user }) => {
         data = r3.data
         error = r3.error
       }
+
+      if (seq !== cierreLoadSeqRef.current) return
 
       if (error) {
         console.error('[HistorialCierres] Error Supabase expedientes:', error.message, error)
@@ -700,18 +750,19 @@ const HistorialCierres = ({ user }) => {
         }
       })
 
-      setCierres(mapeados)
+      if (seq === cierreLoadSeqRef.current) setCierres(mapeados)
     } catch (err) {
       console.error('[HistorialCierres] cargarCierres:', err)
-      setCierres([])
+      if (seq === cierreLoadSeqRef.current) setCierres([])
     } finally {
-      setCargando(false)
+      if (timeoutId != null) window.clearTimeout(timeoutId)
+      terminarCargaCierres()
     }
-  }
+  }, [])
 
   useEffect(() => {
     cargarCierres()
-  }, [])
+  }, [cargarCierres])
 
   /** Año según fecha de referencia (inicio, creación o hoy), alineado con Planning. */
   const expedientesDelAño = useMemo(
@@ -1051,9 +1102,10 @@ const HistorialCierres = ({ user }) => {
       cat === 'otro'
         ? proveedorOtro
         : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
-    const concepto = String(formGastoMensual.concepto || '').trim()
-    const importeTotal = parseFloat(String(formGastoMensual.importeTotal || '').replace(',', '.'))
-    const importeIva = parseFloat(String(formGastoMensual.importeIva || '').replace(',', '.'))
+    const mesNumModal = modalGastoMensual.mesNum
+    const nombreMesModal = NOMBRES_MES[mesNumModal - 1] || ''
+    let concepto = String(formGastoMensual.concepto || '').trim()
+    const importeConIva = parseFloat(String(formGastoMensual.importeConIva || '').replace(',', '.'))
     const fechaStr = String(formGastoMensual.fecha || '').trim()
     const file = archivoGastoMensual
 
@@ -1062,15 +1114,10 @@ const HistorialCierres = ({ user }) => {
       return
     }
     if (!concepto) {
-      alert('Indica el concepto.')
-      return
+      concepto = `${proveedor} — ${nombreMesModal} ${anioEjercicio}`.trim()
     }
-    if (!Number.isFinite(importeTotal) || importeTotal < 0) {
-      alert('Importe total no válido.')
-      return
-    }
-    if (!Number.isFinite(importeIva) || importeIva < 0) {
-      alert('Importe IVA no válido.')
+    if (!Number.isFinite(importeConIva) || importeConIva < 0) {
+      alert('Indica un importe válido (con IVA).')
       return
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
@@ -1100,8 +1147,8 @@ const HistorialCierres = ({ user }) => {
       const { error: insErr } = await supabase.from('gastos_fijos').insert({
         concepto,
         proveedor,
-        importe: importeTotal,
-        importe_iva: importeIva,
+        importe: importeConIva,
+        importe_iva: 0,
         url_pdf: pathStorage,
         mes: mesContable,
         anio: anioContable,
@@ -1310,8 +1357,11 @@ const HistorialCierres = ({ user }) => {
           const colSpanTabla = esAdmin ? 6 : 5
           const filaVaciaListado = (
             <tr>
-              <td colSpan={colSpanTabla} className="px-3 py-6 text-center text-sm text-slate-500 italic">
-                No hay registros en este mes.
+              <td colSpan={colSpanTabla} className="px-4 py-8 text-center bg-gradient-to-b from-slate-50/80 to-white border-t border-slate-100">
+                <p className="text-sm font-medium text-slate-600">Sin gastos de estructura este mes</p>
+                <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                  Los registros que subas con el botón superior aparecerán aquí. La vista de expedientes no se ve afectada si esta tabla falla.
+                </p>
               </td>
             </tr>
           )
@@ -1353,7 +1403,7 @@ const HistorialCierres = ({ user }) => {
                         className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black uppercase tracking-[0.1em] shadow-md transition-colors"
                       >
                         <Plus size={16} />
-                        Añadir gasto
+                        Añadir Gasto de Estructura
                       </button>
                     )}
                     <button
@@ -1373,12 +1423,12 @@ const HistorialCierres = ({ user }) => {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100 text-slate-700">
                       <tr>
-                        {['Fecha', 'Proveedor', 'Concepto', 'Importe', 'PDF', ...(esAdmin ? ['Acciones'] : [])].map(
+                        {['Fecha', 'Proveedor', 'Concepto', 'Importe (c/IVA)', 'PDF', ...(esAdmin ? ['Acciones'] : [])].map(
                           (lab) => (
                             <th
                               key={lab}
                               className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
-                                lab === 'Importe' ? 'text-right' : 'text-left'
+                                String(lab).includes('Importe') ? 'text-right' : 'text-left'
                               }`}
                             >
                               {lab}
@@ -1446,7 +1496,10 @@ const HistorialCierres = ({ user }) => {
                 </div>
                 <div className="sm:hidden space-y-2 mb-4">
                   {rows.length === 0 ? (
-                    <p className="text-sm text-slate-500 text-center py-6 italic">No hay registros en este mes.</p>
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
+                      <p className="text-sm font-medium text-slate-600">Sin gastos de estructura este mes</p>
+                      <p className="text-xs text-slate-400 mt-1">Usa «Añadir Gasto de Estructura» para registrar facturas.</p>
+                    </div>
                   ) : (
                     rows.map((r) => {
                       const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
@@ -1722,9 +1775,12 @@ const HistorialCierres = ({ user }) => {
 
       {/* Acordeones T1–T4 */}
       {cargando ? (
-        <div className="py-16 text-center text-slate-500">
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm py-14 px-6 text-center text-slate-500">
           <TrendingUp className="mx-auto text-slate-300 mb-4 animate-pulse" size={48} />
-          <p>Cargando cierres...</p>
+          <p className="font-semibold text-slate-700">Cargando expedientes cerrados…</p>
+          <p className="text-xs text-slate-400 mt-2 max-w-sm mx-auto">
+            Si la red tarda demasiado, la vista se liberará sola; los gastos de estructura se cargan aparte y no bloquean esta lista.
+          </p>
         </div>
       ) : cierres.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-md border border-slate-200 p-12 text-center">
@@ -1933,7 +1989,7 @@ const HistorialCierres = ({ user }) => {
             <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100 bg-slate-50">
               <div>
                 <h2 id="modal-gasto-mensual-titulo" className="text-lg font-black text-slate-900 tracking-tight">
-                  Añadir gasto
+                  Añadir Gasto de Estructura
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
                   Bloque sugerido: {NOMBRES_MES[modalGastoMensual.mesNum - 1]} · Ejercicio {año}
@@ -1984,39 +2040,26 @@ const HistorialCierres = ({ user }) => {
                 </label>
               )}
               <label className="block text-xs font-semibold text-slate-600">
-                Concepto
+                Concepto <span className="font-normal text-slate-400">(opcional)</span>
                 <input
                   type="text"
                   value={formGastoMensual.concepto || ''}
                   onChange={(e) => setFormGastoMensual((p) => ({ ...p, concepto: e.target.value }))}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                  placeholder="Descripción del gasto"
+                  placeholder="Si lo dejas vacío, se genera a partir del proveedor y el mes"
                 />
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label className="block text-xs font-semibold text-slate-600">
-                  Importe total
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={formGastoMensual.importeTotal || ''}
-                    onChange={(e) => setFormGastoMensual((p) => ({ ...p, importeTotal: e.target.value }))}
-                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                    placeholder="0,00"
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-slate-600">
-                  Importe IVA
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={formGastoMensual.importeIva || ''}
-                    onChange={(e) => setFormGastoMensual((p) => ({ ...p, importeIva: e.target.value }))}
-                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                    placeholder="0,00"
-                  />
-                </label>
-              </div>
+              <label className="block text-xs font-semibold text-slate-600">
+                Importe (con IVA)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={formGastoMensual.importeConIva || ''}
+                  onChange={(e) => setFormGastoMensual((p) => ({ ...p, importeConIva: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                  placeholder="0,00"
+                />
+              </label>
               <label className="block text-xs font-semibold text-slate-600">
                 Fecha de la factura
                 <input
