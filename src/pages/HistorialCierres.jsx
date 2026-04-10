@@ -136,6 +136,75 @@ const nombreArchivoSeguro = (s, maxLen = 80) => {
   return base || 'doc'
 }
 
+const esErrorColumnaSql = (err) =>
+  /column|schema|42703|does not exist|unrecognized|PGRST204/i.test(String(err?.message || ''))
+
+/**
+ * Lee gastos_fijos del ejercicio con reintentos si faltan columnas opcionales.
+ * Filtra por año (`anio`) y solo filas con `mes` no nulo (facturas de estructura mensual).
+ */
+const fetchGastosFijosParaAnio = async (supabaseClient, y) => {
+  if (!Number.isFinite(y)) return { rows: [], error: null, info: null }
+
+  const columnSets = [
+    'id, concepto, proveedor, importe, url_pdf, mes, anio, created_at, fecha_factura',
+    'id, concepto, proveedor, importe, url_pdf, mes, anio, created_at',
+    'id, concepto, importe, url_pdf, mes, anio, created_at',
+    'id, concepto, importe, mes, anio, created_at',
+  ]
+
+  let lastColError = null
+  for (const cols of columnSets) {
+    const { data, error } = await supabaseClient
+      .from('gastos_fijos')
+      .select(cols)
+      .eq('anio', y)
+      .not('mes', 'is', null)
+      .order('mes', { ascending: true })
+      .order('created_at', { ascending: true })
+
+    if (!error) {
+      const rows = (Array.isArray(data) ? data : []).map((r) => ({
+        ...r,
+        proveedor: r.proveedor ?? '',
+        url_pdf: r.url_pdf ?? null,
+        fecha_factura: r.fecha_factura ?? null,
+        mes: r.mes != null ? Number(r.mes) : null,
+        anio: r.anio != null ? Number(r.anio) : null,
+      }))
+      return { rows, error: null, info: null }
+    }
+
+    if (!esErrorColumnaSql(error)) {
+      const msg = error.message || String(error)
+      if (/does not exist|relation|42P01|not find/i.test(msg)) {
+        return {
+          rows: [],
+          error: 'No existe la tabla gastos_fijos o no hay permiso de lectura. Créala en Supabase y revisa RLS.',
+          info: null,
+        }
+      }
+      return { rows: [], error: msg, info: null }
+    }
+    lastColError = error
+    console.warn('[HistorialCierres] gastos_fijos reintento columnas:', cols, error.message)
+  }
+
+  const probe = await supabaseClient.from('gastos_fijos').select('id, concepto, importe, created_at').limit(1)
+  if (!probe.error) {
+    return {
+      rows: [],
+      error: null,
+      info: 'La tabla existe pero faltan columnas mes, anio (y url_pdf). Ejecuta migrations/add-gastos-fijos-estructura-mensual.sql para usar facturas de estructura.',
+    }
+  }
+  return {
+    rows: [],
+    error: lastColError?.message || probe.error?.message || 'No se pudo leer gastos_fijos.',
+    info: null,
+  }
+}
+
 const fusionarFacturasClientePorExpediente = (rowsEmitidas, rowsGlobal) => {
   const map = new Map()
   for (const row of [...(rowsEmitidas || []), ...(rowsGlobal || [])]) {
@@ -154,6 +223,31 @@ const fusionarFacturasClientePorExpediente = (rowsEmitidas, rowsGlobal) => {
     const db = b.fecha_emision ? new Date(b.fecha_emision).getTime() : 0
     return db - da
   })
+}
+
+/** Pagos + facturas cliente para ZIP / modal (misma consulta que abrir auditoría). */
+const cargarDatosAuditoriaExpediente = async (supabaseClient, expedienteId) => {
+  const [pagosRes, emRes, glRes] = await Promise.all([
+    supabaseClient
+      .from('pagos_proveedores')
+      .select('id, concepto, numero_factura, fecha_pago, importe_pagado, url_pdf, proveedor_nombre')
+      .eq('expediente_id', expedienteId)
+      .order('fecha_pago', { ascending: false }),
+    supabaseClient
+      .from('facturas_emitidas')
+      .select('id, numero_factura, fecha_emision, url_pdf, cliente_nombre, importe_total')
+      .eq('expediente_id', expedienteId),
+    supabaseClient
+      .from('facturas_emitidas_global')
+      .select('id, numero_factura, fecha_emision, url_pdf, cliente_nombre, importe_total')
+      .eq('expediente_id', expedienteId),
+  ])
+  const pagos = pagosRes.error ? [] : (pagosRes.data || [])
+  const facturasCliente = fusionarFacturasClientePorExpediente(
+    emRes.error ? [] : emRes.data,
+    glRes.error ? [] : glRes.data
+  )
+  return { pagos, facturasCliente }
 }
 
 /** Partición para ZIP: proveedores vs clientes (mismas URLs que pestañas). */
@@ -205,7 +299,7 @@ const mesesDelTrimestre = (q) => {
 
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
 
-/** Categorías fijas + “Otra”; el valor guardado en BD es `label` salvo “otra” → texto manual. */
+/** Categorías fijas; con `extra` el nombre del proveedor es manual. */
 const CATEGORIAS_ESTRUCTURA_PROVEEDOR = [
   { id: 'arsys', label: 'Arsys' },
   { id: 'copimar', label: 'Copimar' },
@@ -215,7 +309,7 @@ const CATEGORIAS_ESTRUCTURA_PROVEEDOR = [
   { id: 'vodafone', label: 'Vodafone' },
   { id: 'gasolina', label: 'Gasolina' },
   { id: 'segurcaixa', label: 'Segurcaixa' },
-  { id: 'otra', label: 'Otra (especificar)' },
+  { id: 'extra', label: 'Extra' },
 ]
 
 const defaultDraftEstructuraMes = (mesNum, anioNum) => ({
@@ -485,6 +579,7 @@ const HistorialCierres = ({ user }) => {
   const [gastosEstructura, setGastosEstructura] = useState([])
   const [cargandoGastosEstructura, setCargandoGastosEstructura] = useState(false)
   const [errorGastosEstructura, setErrorGastosEstructura] = useState(null)
+  const [infoGastosEstructura, setInfoGastosEstructura] = useState(null)
   const [subiendoEstructuraMes, setSubiendoEstructuraMes] = useState(null)
   const [descargandoPackMes, setDescargandoPackMes] = useState(null)
   const [draftEstructura, setDraftEstructura] = useState({})
@@ -494,25 +589,18 @@ const HistorialCierres = ({ user }) => {
     const y = parseInt(año, 10)
     if (!Number.isFinite(y)) {
       setGastosEstructura([])
+      setErrorGastosEstructura(null)
+      setInfoGastosEstructura(null)
       return
     }
     setCargandoGastosEstructura(true)
     setErrorGastosEstructura(null)
+    setInfoGastosEstructura(null)
     try {
-      const { data, error } = await supabase
-        .from('gastos_fijos')
-        .select('id, concepto, proveedor, importe, url_pdf, mes, anio, created_at, fecha_factura')
-        .eq('anio', y)
-        .not('mes', 'is', null)
-        .order('mes', { ascending: true })
-        .order('created_at', { ascending: true })
-      if (error) {
-        console.error('[HistorialCierres] gastos_fijos (estructura):', error)
-        setErrorGastosEstructura(error.message)
-        setGastosEstructura([])
-        return
-      }
-      setGastosEstructura(Array.isArray(data) ? data : [])
+      const { rows, error, info } = await fetchGastosFijosParaAnio(supabase, y)
+      setGastosEstructura(rows)
+      setErrorGastosEstructura(error || null)
+      setInfoGastosEstructura(info || null)
     } catch (e) {
       console.error('[HistorialCierres] gastos estructura', e)
       setErrorGastosEstructura(String(e?.message || e))
@@ -963,13 +1051,13 @@ const HistorialCierres = ({ user }) => {
       const cat = String(d?.categoria || 'arsys')
       const manual = String(d?.proveedorManual || '').trim()
       const proveedor =
-        cat === 'otra'
+        cat === 'extra'
           ? manual
           : (CATEGORIAS_ESTRUCTURA_PROVEEDOR.find((c) => c.id === cat)?.label || '').trim()
       const importe = parseFloat(String(d?.importe || '').replace(',', '.'))
       const fechaStr = String(d?.fechaFactura || '').trim()
       if (!proveedor) {
-        alert(cat === 'otra' ? 'Indica el nombre del proveedor.' : 'Selecciona un proveedor válido.')
+        alert(cat === 'extra' ? 'Indica el nombre del proveedor (Extra).' : 'Selecciona un proveedor válido.')
         return
       }
       if (!Number.isFinite(importe) || importe < 0) {
@@ -1061,27 +1149,84 @@ const HistorialCierres = ({ user }) => {
   const descargarPackEstructuraMes = useCallback(
     async (mesNum, nombreMes) => {
       const anioNum = parseInt(año, 10)
-      const filas = gastosEstructura.filter(
-        (g) => g.mes === mesNum && Number(g.anio) === anioNum && g.url_pdf
+      if (!Number.isFinite(anioNum)) return
+
+      const expedientesMes = cierres.filter((c) => {
+        const d = c.fechaReferenciaTrimestre
+        if (!d || isNaN(d.getTime())) return false
+        return d.getFullYear() === anioNum && d.getMonth() + 1 === mesNum
+      })
+
+      const filasEstructura = gastosEstructura.filter(
+        (g) => Number(g.mes) === mesNum && Number(g.anio) === anioNum && g.url_pdf
       )
-      if (filas.length === 0) {
-        alert('No hay PDFs de estructura para este mes.')
+
+      if (expedientesMes.length === 0 && filasEstructura.length === 0) {
+        alert('No hay expedientes cerrados ni facturas de estructura para este mes.')
         return
       }
+
       const key = `${anioNum}-${mesNum}`
       setDescargandoPackMes(key)
       try {
         const zip = new JSZip()
-        let fetched = 0
-        const nombreUnicoEnZip = (nombreDeseado) => {
-          if (!zip.files[nombreDeseado]) return nombreDeseado
-          const base = nombreDeseado.replace(/\.pdf$/i, '')
+        const prefExp = 'Expedientes_cerrados'
+        const prefEst = 'Facturas_estructura'
+
+        const nombreUnicoRuta = (rutaCompleta) => {
+          if (!zip.files[rutaCompleta]) return rutaCompleta
+          const base = rutaCompleta.replace(/\.pdf$/i, '')
           let n = 2
           while (zip.files[`${base}_${n}.pdf`]) n += 1
           return `${base}_${n}.pdf`
         }
-        for (let i = 0; i < filas.length; i += 1) {
-          const f = filas[i]
+
+        let entradasZip = 0
+
+        for (const exp of expedientesMes) {
+          const carpetaExp = `${prefExp}/${nombreArchivoSeguro(exp.numero_expediente || String(exp.id))}`
+          try {
+            const datos = await cargarDatosAuditoriaExpediente(supabase, exp.id)
+            const expPdf = (await obtenerExpedienteParaPdfCierres(exp.id)) || exp
+            const lineasInforme = await obtenerLineasInformeComoCierres(supabase, expPdf, {
+              preferPagosPrimero: true,
+            })
+            const docPdf = crearJsPdfInformeCierre(expPdf, lineasInforme)
+            const pdfBuf = docPdf.output('arraybuffer')
+            const nomInf = nombreArchivoInformeCierrePdf(exp.numero_expediente || exp.id)
+            zip.file(nombreUnicoRuta(`${carpetaExp}/${nomInf}`), pdfBuf)
+            entradasZip += 1
+
+            const { proveedores, clientes } = particionarArchivosAuditoriaZip(exp, datos)
+            for (const { url, filename } of proveedores) {
+              try {
+                const res = await fetch(url, { mode: 'cors' })
+                if (!res.ok) continue
+                const ruta = nombreUnicoRuta(`${carpetaExp}/Facturas_Proveedores/${filename}`)
+                zip.file(ruta, await res.arrayBuffer())
+                entradasZip += 1
+              } catch (err) {
+                console.warn('[ZIP pack mes] proveedor omitido', filename, err)
+              }
+            }
+            for (const { url, filename } of clientes) {
+              try {
+                const res = await fetch(url, { mode: 'cors' })
+                if (!res.ok) continue
+                const ruta = nombreUnicoRuta(`${carpetaExp}/Facturas_Clientes/${filename}`)
+                zip.file(ruta, await res.arrayBuffer())
+                entradasZip += 1
+              } catch (err) {
+                console.warn('[ZIP pack mes] cliente omitido', filename, err)
+              }
+            }
+          } catch (err) {
+            console.warn('[ZIP pack mes] expediente omitido', exp.id, err)
+          }
+        }
+
+        for (let i = 0; i < filasEstructura.length; i += 1) {
+          const f = filasEstructura[i]
           const url = resolverUrlPublicaFacturaProveedor(f.url_pdf)
           if (!url) continue
           try {
@@ -1089,27 +1234,31 @@ const HistorialCierres = ({ user }) => {
             if (!res.ok) continue
             const buf = await res.arrayBuffer()
             const deseado = nombrePdfEnZipEstructura(nombreMes, f.proveedor, f.importe)
-            const fn = nombreUnicoEnZip(deseado)
-            zip.file(fn, buf)
-            fetched += 1
+            const ruta = nombreUnicoRuta(`${prefEst}/${deseado}`)
+            zip.file(ruta, buf)
+            entradasZip += 1
           } catch (err) {
             console.warn('[ZIP estructura] omitido', f.id, err)
           }
         }
-        if (fetched === 0) {
-          alert('No se pudieron descargar los PDFs (CORS o red). Abre cada factura desde la lista si hace falta.')
+
+        if (entradasZip === 0) {
+          alert(
+            'No se pudo incluir ningún archivo en el ZIP (sin informes ni PDFs descargables; revisa CORS o red).'
+          )
           return
         }
+
         const blob = await zip.generateAsync({ type: 'blob' })
-        saveAs(blob, `Gastos_Estructura_${nombreMes}_${anioNum}.zip`)
+        saveAs(blob, `Pack_${nombreMes}_${anioNum}.zip`)
       } catch (e) {
         console.error(e)
-        alert('Error al generar el ZIP de estructura.')
+        alert('Error al generar el ZIP del mes.')
       } finally {
         setDescargandoPackMes(null)
       }
     },
-    [año, gastosEstructura]
+    [año, gastosEstructura, cierres]
   )
 
   const renderGastosEstructuraTrimestre = (qTrim) => {
@@ -1129,21 +1278,32 @@ const HistorialCierres = ({ user }) => {
           )}
         </div>
         {errorGastosEstructura && (
-          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            No se pudieron cargar gastos de estructura: {errorGastosEstructura}. Ejecuta en Supabase las migraciones{' '}
-            <code className="text-[10px] bg-white px-1 rounded">add-gastos-fijos-estructura-mensual.sql</code> y{' '}
-            <code className="text-[10px] bg-white px-1 rounded">add-gastos-fijos-fecha-factura.sql</code> si faltan columnas.
+          <p className="text-xs text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            {errorGastosEstructura}
+          </p>
+        )}
+        {!errorGastosEstructura && infoGastosEstructura && (
+          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            {infoGastosEstructura}
           </p>
         )}
         {meses.map((mesNum) => {
           const nombreMes = NOMBRES_MES[mesNum - 1]
-          const rows = gastosEstructura.filter((g) => g.mes === mesNum && Number(g.anio) === anioNum)
+          const rows = gastosEstructura.filter(
+            (g) => Number(g.mes) === mesNum && Number(g.anio) === anioNum
+          )
+          const expedientesMesCalendario = cierres.filter((c) => {
+            const d = c.fechaReferenciaTrimestre
+            if (!d || isNaN(d.getTime())) return false
+            return d.getFullYear() === anioNum && d.getMonth() + 1 === mesNum
+          })
           const draft = { ...defaultDraftEstructuraMes(mesNum, anioNum), ...(draftEstructura[mesNum] || {}) }
           const archivo = archivoEstructuraPorMes[mesNum]
           const subKey = `${anioNum}-${mesNum}`
           const subiendo = subiendoEstructuraMes === subKey
           const descargando = descargandoPackMes === subKey
           const conPdf = rows.filter((r) => r.url_pdf)
+          const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
           const fmtFechaFact = (raw) => {
             if (!raw) return '—'
             const d = parsearFechaADate(raw) || new Date(raw)
@@ -1183,7 +1343,7 @@ const HistorialCierres = ({ user }) => {
                   )}
                   <button
                     type="button"
-                    disabled={descargando || conPdf.length === 0}
+                    disabled={descargando || !puedePackMes}
                     onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
                     className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-500 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.12em] shadow-md transition-colors shrink-0 self-start sm:self-center"
                   >
@@ -1194,7 +1354,7 @@ const HistorialCierres = ({ user }) => {
               </div>
               <div className="p-4">
                 {rows.length === 0 ? (
-                  <p className="text-sm text-slate-400 italic mb-3">Sin facturas registradas para este mes.</p>
+                  <p className="text-sm text-slate-500 mb-3">No hay facturas de estructura este mes.</p>
                 ) : (
                   <div className="hidden sm:block overflow-x-auto mb-4">
                     <table className="w-full text-sm">
@@ -1319,7 +1479,7 @@ const HistorialCierres = ({ user }) => {
                                 [mesNum]: {
                                   ...prev,
                                   categoria: v,
-                                  proveedorManual: v === 'otra' ? prev.proveedorManual : '',
+                                  proveedorManual: v === 'extra' ? prev.proveedorManual : '',
                                 },
                               }
                             })
@@ -1333,9 +1493,9 @@ const HistorialCierres = ({ user }) => {
                           ))}
                         </select>
                       </label>
-                      {draft.categoria === 'otra' && (
+                      {draft.categoria === 'extra' && (
                         <label className="block text-xs font-semibold text-slate-600 sm:col-span-2">
-                          Nombre del proveedor (manual)
+                          Nombre del proveedor (Extra)
                           <input
                             type="text"
                             value={draft.proveedorManual || ''}
