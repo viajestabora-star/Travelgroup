@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown, X, ExternalLink, Package } from 'lucide-react'
+import { FileText, Eye, TrendingUp, FileSpreadsheet, Filter, Loader2, ChevronDown, X, ExternalLink, Package, Trash2, Upload } from 'lucide-react'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import { supabase } from '../supabase'
 import { categorizarPago } from '../utils/finanzasHelpers'
 import { parsearFechaADate } from '../utils/dateNormalizer'
-import { esUsuarioGestoria } from '../utils/userRoles'
-import { resolverUrlPublicaFacturaProveedor, abrirFacturaProveedorPorUrlGuardada } from '../utils/facturaProveedorStorage'
+import { esUsuarioGestoria, esUsuarioAdmin } from '../utils/userRoles'
+import { resolverUrlPublicaFacturaProveedor, abrirFacturaProveedorPorUrlGuardada, eliminarObjetoStorageFacturaProveedor } from '../utils/facturaProveedorStorage'
 import { crearJsPdfInformeCierre, nombreArchivoInformeCierrePdf } from '../utils/informeCierreHaciendaPdf'
 import { obtenerLineasInformeComoCierres, obtenerExpedienteParaPdfCierres } from '../utils/lineasInformeCierres'
 
@@ -189,6 +189,21 @@ const construirListaArchivosAuditoria = (exp, datos) => {
 }
 const añoActual = new Date().getFullYear()
 const AÑOS = Array.from({ length: 6 }, (_, i) => añoActual - i)
+
+const NOMBRES_MES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+]
+
+/** Meses 1–12 del trimestre T1–T4 */
+const mesesDelTrimestre = (q) => {
+  const qn = Number(q)
+  if (qn < 1 || qn > 4) return []
+  const base = (qn - 1) * 3
+  return [base + 1, base + 2, base + 3]
+}
+
+const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
 
 // ─── Generador del Cuaderno HTML-Excel ────────────────────────────────────────
 
@@ -405,6 +420,7 @@ const estadoInicialAcordeon = (añoSeleccionado) => {
 const HistorialCierres = ({ user }) => {
   const navigate = useNavigate()
   const esGestoria = esUsuarioGestoria(user)
+  const esAdmin = esUsuarioAdmin(user)
   const [cierres,    setCierres]    = useState([])
   const [cargando,   setCargando]   = useState(true)
   const [exportando, setExportando] = useState(false)
@@ -418,7 +434,47 @@ const HistorialCierres = ({ user }) => {
   const [datosAuditoria, setDatosAuditoria] = useState({ pagos: [], facturasCliente: [] })
   const [descargandoZip, setDescargandoZip] = useState(false)
 
-  useEffect(() => { cargarCierres() }, [])
+  const [gastosEstructura, setGastosEstructura] = useState([])
+  const [cargandoGastosEstructura, setCargandoGastosEstructura] = useState(false)
+  const [errorGastosEstructura, setErrorGastosEstructura] = useState(null)
+  const [subiendoEstructuraMes, setSubiendoEstructuraMes] = useState(null)
+  const [descargandoPackMes, setDescargandoPackMes] = useState(null)
+  const [draftEstructura, setDraftEstructura] = useState({})
+  const [archivoEstructuraPorMes, setArchivoEstructuraPorMes] = useState({})
+
+  const recargarGastosEstructura = useCallback(async () => {
+    const y = parseInt(año, 10)
+    if (!Number.isFinite(y)) {
+      setGastosEstructura([])
+      return
+    }
+    setCargandoGastosEstructura(true)
+    setErrorGastosEstructura(null)
+    try {
+      const { data, error } = await supabase
+        .from('gastos_fijos')
+        .select('id, concepto, proveedor, importe, url_pdf, mes, anio, created_at')
+        .eq('anio', y)
+        .not('mes', 'is', null)
+        .order('mes', { ascending: true })
+        .order('created_at', { ascending: true })
+      if (error) {
+        console.error('[HistorialCierres] gastos_fijos (estructura):', error)
+        setErrorGastosEstructura(error.message)
+        setGastosEstructura([])
+        return
+      }
+      setGastosEstructura(Array.isArray(data) ? data : [])
+    } catch (e) {
+      console.error('[HistorialCierres] gastos estructura', e)
+      setErrorGastosEstructura(String(e?.message || e))
+      setGastosEstructura([])
+    } finally {
+      setCargandoGastosEstructura(false)
+    }
+  }, [año])
+
+  useEffect(() => { recargarGastosEstructura() }, [recargarGastosEstructura])
 
   useEffect(() => {
     const ySel = año
@@ -543,6 +599,10 @@ const HistorialCierres = ({ user }) => {
       setCargando(false)
     }
   }
+
+  useEffect(() => {
+    cargarCierres()
+  }, [])
 
   /** Año según fecha de referencia (inicio, creación o hoy), alineado con Planning. */
   const expedientesDelAño = useMemo(
@@ -848,6 +908,358 @@ const HistorialCierres = ({ user }) => {
     setAbiertoTrim((s) => ({ ...s, [q]: !s[q] }))
   }
 
+  const subirFacturaEstructuraMes = useCallback(
+    async (mesNum, d, file) => {
+      if (!esAdmin) return
+      const anioNum = parseInt(año, 10)
+      const concepto = String(d?.concepto || '').trim()
+      const proveedor = String(d?.proveedor || '').trim()
+      const importe = parseFloat(String(d?.importe || '').replace(',', '.'))
+      if (!concepto || !proveedor || !Number.isFinite(importe)) {
+        alert('Completa concepto, proveedor e importe.')
+        return
+      }
+      if (!file || file.type !== 'application/pdf') {
+        alert('Selecciona un archivo PDF.')
+        return
+      }
+      const key = `${anioNum}-${mesNum}`
+      setSubiendoEstructuraMes(key)
+      try {
+        const baseNombre = nombreArchivoSeguro(String(file.name || 'factura').replace(/\.pdf$/i, ''))
+        const path = `gestruct-${anioNum}-${mesNum}-${Date.now()}-${baseNombre}.pdf`
+        const { error: upErr } = await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).upload(path, file)
+        if (upErr) {
+          const hint =
+            /rls|row-level security|policy/i.test(String(upErr.message))
+              ? '\n\nSi el error menciona RLS, revisa políticas del bucket facturas_proveedores en Supabase.'
+              : ''
+          alert(`Error al subir PDF: ${upErr.message}${hint}`)
+          return
+        }
+        const { error: insErr } = await supabase.from('gastos_fijos').insert({
+          concepto,
+          proveedor,
+          importe,
+          url_pdf: path,
+          mes: mesNum,
+          anio: anioNum,
+          activo: true,
+          periodicidad: 'mensual',
+        })
+        if (insErr) {
+          await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([path])
+          alert(
+            `Error al guardar en gastos_fijos: ${insErr.message}\n\nSi faltan columnas (proveedor, url_pdf, mes, anio), ejecuta migrations/add-gastos-fijos-estructura-mensual.sql en Supabase.`
+          )
+          return
+        }
+        setDraftEstructura((s) => ({ ...s, [mesNum]: { concepto: '', proveedor: '', importe: '' } }))
+        setArchivoEstructuraPorMes((s) => ({ ...s, [mesNum]: null }))
+        await recargarGastosEstructura()
+      } finally {
+        setSubiendoEstructuraMes(null)
+      }
+    },
+    [esAdmin, año, recargarGastosEstructura]
+  )
+
+  const borrarFacturaEstructura = useCallback(
+    async (row) => {
+      if (!esAdmin) return
+      if (!window.confirm('¿Eliminar esta factura de estructura y su PDF?')) return
+      try {
+        if (row.url_pdf) await eliminarObjetoStorageFacturaProveedor(row.url_pdf)
+        const { error } = await supabase.from('gastos_fijos').delete().eq('id', row.id)
+        if (error) {
+          alert(`No se pudo eliminar: ${error.message}`)
+          return
+        }
+        await recargarGastosEstructura()
+      } catch (e) {
+        console.error(e)
+        alert('Error al eliminar.')
+      }
+    },
+    [esAdmin, recargarGastosEstructura]
+  )
+
+  const descargarPackEstructuraMes = useCallback(
+    async (mesNum, nombreMes) => {
+      const anioNum = parseInt(año, 10)
+      const filas = gastosEstructura.filter(
+        (g) => g.mes === mesNum && Number(g.anio) === anioNum && g.url_pdf
+      )
+      if (filas.length === 0) {
+        alert('No hay PDFs de estructura para este mes.')
+        return
+      }
+      const key = `${anioNum}-${mesNum}`
+      setDescargandoPackMes(key)
+      try {
+        const zip = new JSZip()
+        let fetched = 0
+        for (let i = 0; i < filas.length; i += 1) {
+          const f = filas[i]
+          const url = resolverUrlPublicaFacturaProveedor(f.url_pdf)
+          if (!url) continue
+          try {
+            const res = await fetch(url, { mode: 'cors' })
+            if (!res.ok) continue
+            const buf = await res.arrayBuffer()
+            const base = nombreArchivoSeguro(`${i + 1}_${f.proveedor || 'proveedor'}_${f.concepto || 'factura'}`)
+            const fn = base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`
+            zip.file(fn, buf)
+            fetched += 1
+          } catch (err) {
+            console.warn('[ZIP estructura] omitido', f.id, err)
+          }
+        }
+        if (fetched === 0) {
+          alert('No se pudieron descargar los PDFs (CORS o red). Abre cada factura desde la lista si hace falta.')
+          return
+        }
+        const blob = await zip.generateAsync({ type: 'blob' })
+        saveAs(blob, `Gastos_Estructura_${nombreMes}_${anioNum}.zip`)
+      } catch (e) {
+        console.error(e)
+        alert('Error al generar el ZIP de estructura.')
+      } finally {
+        setDescargandoPackMes(null)
+      }
+    },
+    [año, gastosEstructura]
+  )
+
+  const renderGastosEstructuraTrimestre = (qTrim) => {
+    const anioNum = parseInt(año, 10)
+    if (!Number.isFinite(anioNum) || qTrim < 1 || qTrim > 4) return null
+    const meses = mesesDelTrimestre(qTrim)
+    return (
+      <div className="border-t-2 border-slate-200 bg-gradient-to-b from-slate-50/95 to-slate-100/80 px-4 py-5 sm:px-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
+            Gastos mensuales (estructura)
+          </p>
+          {cargandoGastosEstructura && (
+            <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+              <Loader2 size={14} className="animate-spin" /> Actualizando facturas…
+            </span>
+          )}
+        </div>
+        {errorGastosEstructura && (
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            No se pudieron cargar gastos de estructura: {errorGastosEstructura}. Ejecuta la migración{' '}
+            <code className="text-[10px] bg-white px-1 rounded">add-gastos-fijos-estructura-mensual.sql</code> en Supabase si faltan columnas.
+          </p>
+        )}
+        {meses.map((mesNum) => {
+          const nombreMes = NOMBRES_MES[mesNum - 1]
+          const rows = gastosEstructura.filter((g) => g.mes === mesNum && Number(g.anio) === anioNum)
+          const draft = draftEstructura[mesNum] || { concepto: '', proveedor: '', importe: '' }
+          const archivo = archivoEstructuraPorMes[mesNum]
+          const subKey = `${anioNum}-${mesNum}`
+          const subiendo = subiendoEstructuraMes === subKey
+          const descargando = descargandoPackMes === subKey
+          const conPdf = rows.filter((r) => r.url_pdf)
+          return (
+            <div
+              key={mesNum}
+              className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+            >
+              <div className="px-4 py-3 border-b border-slate-100 bg-slate-800 text-white flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-black uppercase tracking-wide">
+                  Facturas de Estructura — {nombreMes}
+                </h3>
+                <button
+                  type="button"
+                  disabled={descargando || conPdf.length === 0}
+                  onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-500 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.12em] shadow-md transition-colors"
+                >
+                  {descargando ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
+                  DESCARGAR PACK {nombreMes.toUpperCase()}
+                </button>
+              </div>
+              <div className="p-4">
+                {rows.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic mb-3">Sin facturas registradas para este mes.</p>
+                ) : (
+                  <div className="hidden sm:block overflow-x-auto mb-4">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-100 text-slate-700">
+                        <tr>
+                          {(() => {
+                            const labs = ['Concepto', 'Proveedor', 'Importe (€)', 'PDF']
+                            if (esAdmin) labs.push('Acciones')
+                            return labs.map((lab) => (
+                              <th
+                                key={lab}
+                                className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${lab === 'Importe (€)' ? 'text-right' : 'text-left'}`}
+                              >
+                                {lab}
+                              </th>
+                            ))
+                          })()}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {rows.map((r) => {
+                          const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
+                          return (
+                            <tr key={r.id}>
+                              <td className="px-3 py-2 text-slate-800">{r.concepto ?? '—'}</td>
+                              <td className="px-3 py-2 text-slate-600">{r.proveedor ?? '—'}</td>
+                              <td className="px-3 py-2 text-right tabular-nums font-medium">{n(r.importe).toFixed(2)}</td>
+                              <td className="px-3 py-2">
+                                {url ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => abrirFacturaProveedorPorUrlGuardada(r.url_pdf)}
+                                    className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
+                                  >
+                                    <ExternalLink size={14} /> Abrir
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-slate-400">—</span>
+                                )}
+                              </td>
+                              {esAdmin && (
+                                <td className="px-3 py-2 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => borrarFacturaEstructura(r)}
+                                    className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800"
+                                  >
+                                    <Trash2 size={14} /> Eliminar
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {rows.length > 0 && (
+                  <div className="sm:hidden space-y-2 mb-4">
+                    {rows.map((r) => {
+                      const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
+                      return (
+                        <div key={r.id} className="rounded-lg border border-slate-100 p-3 bg-slate-50/80">
+                          <p className="font-semibold text-slate-800 text-sm">{r.concepto ?? '—'}</p>
+                          <p className="text-xs text-slate-600">{r.proveedor ?? '—'}</p>
+                          <p className="text-sm font-bold text-slate-900 mt-1">{n(r.importe).toFixed(2)} €</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {url && (
+                              <button
+                                type="button"
+                                onClick={() => abrirFacturaProveedorPorUrlGuardada(r.url_pdf)}
+                                className="text-xs font-bold text-blue-600"
+                              >
+                                Abrir PDF
+                              </button>
+                            )}
+                            {esAdmin && (
+                              <button type="button" onClick={() => borrarFacturaEstructura(r)} className="text-xs font-bold text-red-600">
+                                Eliminar
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {esAdmin && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-900/80">
+                      Subir factura (admin)
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <label className="block text-xs font-semibold text-slate-600">
+                        Concepto
+                        <input
+                          type="text"
+                          value={draft.concepto}
+                          onChange={(e) =>
+                            setDraftEstructura((s) => {
+                              const prev = s[mesNum] || { concepto: '', proveedor: '', importe: '' }
+                              return { ...s, [mesNum]: { ...prev, concepto: e.target.value } }
+                            })
+                          }
+                          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                          placeholder="Ej. Alquiler oficina"
+                        />
+                      </label>
+                      <label className="block text-xs font-semibold text-slate-600">
+                        Proveedor
+                        <input
+                          type="text"
+                          value={draft.proveedor}
+                          onChange={(e) =>
+                            setDraftEstructura((s) => {
+                              const prev = s[mesNum] || { concepto: '', proveedor: '', importe: '' }
+                              return { ...s, [mesNum]: { ...prev, proveedor: e.target.value } }
+                            })
+                          }
+                          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                          placeholder="Nombre fiscal"
+                        />
+                      </label>
+                      <label className="block text-xs font-semibold text-slate-600">
+                        Importe (€)
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={draft.importe}
+                          onChange={(e) =>
+                            setDraftEstructura((s) => {
+                              const prev = s[mesNum] || { concepto: '', proveedor: '', importe: '' }
+                              return { ...s, [mesNum]: { ...prev, importe: e.target.value } }
+                            })
+                          }
+                          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                          placeholder="0,00"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <label className="block text-xs font-semibold text-slate-600 flex-1 min-w-[200px]">
+                        Archivo PDF
+                        <input
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          onChange={(e) =>
+                            setArchivoEstructuraPorMes((s) => ({
+                              ...s,
+                              [mesNum]: e.target.files?.[0] || null,
+                            }))
+                          }
+                          className="mt-1 block w-full text-sm text-slate-600"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={subiendo}
+                        onClick={() => subirFacturaEstructuraMes(mesNum, draft, archivo)}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-xs font-black uppercase tracking-wide shadow-md transition-colors"
+                      >
+                        {subiendo ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                        Subir factura
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   const renderFila = (c) => {
     const badge = badgeEstadoProps(c)
     return (
@@ -988,6 +1400,7 @@ const HistorialCierres = ({ user }) => {
                 </div>
               </>
             )}
+            {q >= 1 && q <= 4 ? renderGastosEstructuraTrimestre(q) : null}
           </div>
         )}
       </div>
@@ -1008,7 +1421,7 @@ const HistorialCierres = ({ user }) => {
             Solo estado <strong>Cerrado</strong> · T1–T4 por <strong>mes de fecha de referencia</strong> (inicio; si falta, creación; si falta, hoy) · {etiquetaPeriodo}
             {esGestoria && (
               <span className="block mt-1 text-amber-700 font-semibold">
-                Perfil gestoría/auditoría: solo lectura en este historial (sin edición del cierre desde aquí).
+                Perfil gestoría/auditoría: lectura y descarga de packs de estructura; sin subida ni borrado de facturas de estructura ni edición del cierre desde aquí.
               </span>
             )}
           </p>

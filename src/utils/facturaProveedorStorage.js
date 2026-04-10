@@ -42,3 +42,11 @@ export const abrirFacturaProveedorPorUrlGuardada = (valorGuardado) => {
   const t = String(valorGuardado || '').trim()
   if (/^https?:\/\//i.test(t)) window.open(t, '_blank', 'noopener,noreferrer')
 }
+
+export const eliminarObjetoStorageFacturaProveedor = async (urlPdf) => {
+  const path = extraerRutaObjectoFacturaProveedor(urlPdf)
+  if (!path) return { ok: true }
+  const { error } = await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([path])
+  if (error) return { ok: false, error }
+  return { ok: true }
+}
