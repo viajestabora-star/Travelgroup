@@ -13,6 +13,11 @@ import {
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { DATOS_EMISOR } from '../config/empresa'
+import {
+  calcularTotalesInforme as computeTotalesInforme,
+  crearJsPdfInformeCierre,
+  nombreArchivoInformeCierrePdf,
+} from '../utils/informeCierreHaciendaPdf'
 
 // ===================== FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF =====================
 // Función compartida para generar PDFs de facturas con diseño profesional unificado
@@ -469,35 +474,11 @@ const Cierres = ({ user, onClose }) => {
     }
   }
 
-  // Lógica unificada: ingresosTotales = (precio_venta + suplementos) - (bonificaciones + gratuidades)
-  // Beneficio Bruto = ingresosTotales - totalGastosReales | IVA (21%) | Beneficio Neto = Bruto - IVA
-  const calcularTotalesInforme = useMemo(() => {
-    const totalGastosReales = lineasInforme.reduce((acc, l) => acc + (parseFloat(l.importe_real) || 0), 0)
-
-    const exp = expedienteSeleccionado
-    const paxPago = Math.max(1, parseInt(exp?.pax_pago || exp?.total_pax || 0, 10) || 0)
-    const precioVenta = paxPago * (parseFloat(exp?.precio_venta_cliente || 0) || 0)
-    const noches = Math.max(1, Number(exp?.noches) || 1)
-    const totalSupHabitacion = (parseFloat(exp?.sup_individual_pax || 0) || 0) * (parseFloat(exp?.sup_individual_precio_dia || 0) || 0) * noches
-    const totalSupSeguro = (parseFloat(exp?.sup_seguro_pax || 0) || 0) * (parseFloat(exp?.sup_seguro_precio_total || 0) || 0)
-    const suplementosVal = totalSupHabitacion + totalSupSeguro
-    const bonificaciones = (parseFloat(exp?.bonificacion_pax || 0) || 0) * paxPago
-    const gratuidadesVal = Number(exp?.gratuidades_monetario || 0)
-    const ingresosTotales = (precioVenta + suplementosVal) - (bonificaciones + gratuidadesVal)
-
-    const beneficioBruto = ingresosTotales - totalGastosReales
-    const ivaPagado = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
-    const beneficioNeto = beneficioBruto - ivaPagado
-
-    return {
-      totalGastosReales,
-      ingresosTotales,
-      totalFacturadoClientes: ingresosTotales,
-      beneficioBruto,
-      ivaPagado,
-      beneficio: beneficioNeto,
-    }
-  }, [lineasInforme, expedienteSeleccionado])
+  // Lógica unificada: ver computeTotalesInforme en ../utils/informeCierreHaciendaPdf.js
+  const calcularTotalesInforme = useMemo(
+    () => computeTotalesInforme(lineasInforme, expedienteSeleccionado),
+    [lineasInforme, expedienteSeleccionado]
+  )
 
   const cargarInformeParaExpediente = async (exp) => {
     setExpedienteSeleccionado(exp)
@@ -640,91 +621,18 @@ const Cierres = ({ user, onClose }) => {
   }
 
   const exportarInformeHaciendaPDF = () => {
-    if (!expedienteSeleccionado || lineasInforme.length === 0) {
-      alert('Selecciona un expediente y asegúrate de que el informe tenga líneas.')
+    if (!expedienteSeleccionado) {
+      alert('Selecciona un expediente.')
       return
     }
-
-    const { totalGastosReales } = calcularTotalesInforme
-
-    const doc = new jsPDF()
-    const pageWidth = doc.internal.pageSize.getWidth()
-
-    const nombreGrupo =
-      expedienteSeleccionado.nombre_grupo ||
-      expedienteSeleccionado.cliente_nombre ||
-      expedienteSeleccionado.destino ||
-      'Sin nombre'
-
-    doc.setFontSize(16)
-    doc.setFont(undefined, 'bold')
-    doc.text('Informe de Gastos para Hacienda', pageWidth / 2, 20, { align: 'center' })
-
-    doc.setFontSize(11)
-    doc.setFont(undefined, 'normal')
-    doc.text(`Expediente: ${expedienteSeleccionado.numero_expediente || '-'}`, 20, 32)
-    doc.text(`Grupo / Cliente: ${nombreGrupo}`, 20, 38)
-    if (expedienteSeleccionado.destino) {
-      doc.text(`Destino: ${expedienteSeleccionado.destino}`, 20, 44)
-    }
-
-    let y = 56
-    doc.setFontSize(10)
-    doc.setFont(undefined, 'bold')
-    doc.text('Concepto', 20, y)
-    doc.text('Proveedor', 80, y)
-    doc.text('Importe Real (€)', pageWidth - 20, y, { align: 'right' })
-    y += 4
-    doc.setLineWidth(0.3)
-    doc.line(20, y, pageWidth - 20, y)
-    y += 6
-
-    doc.setFont(undefined, 'normal')
-    lineasInforme.forEach((l) => {
-      if (y > 260) {
-        doc.addPage()
-        y = 20
-      }
-      const concepto = String(l.concepto || '')
-      const proveedor = String(l.proveedor || '')
-      const importeReal = Number(l.importe_real || 0).toFixed(2)
-
-      const conceptoLines = doc.splitTextToSize(concepto, 50)
-      const proveedorLines = doc.splitTextToSize(proveedor, 50)
-      const maxLines = Math.max(conceptoLines.length, proveedorLines.length)
-
-      for (let i = 0; i < maxLines; i++) {
-        const c = conceptoLines[i] || ''
-        const p = proveedorLines[i] || ''
-        doc.text(c, 20, y)
-        doc.text(p, 80, y)
-        if (i === 0) {
-          doc.text(importeReal, pageWidth - 20, y, { align: 'right' })
-        }
-        y += 5
-      }
-      y += 2
-    })
-
-    y += 4
-    doc.setLineWidth(0.3)
-    doc.line(20, y, pageWidth - 20, y)
-    y += 6
-
-    doc.setFont(undefined, 'bold')
-    doc.text('Total Gastos Reales:', 20, y)
-    doc.text(`${totalGastosReales.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
-    y += 6
-
-    doc.text('Ingresos Totales (cotización):', 20, y)
-    doc.text(`${calcularTotalesInforme.ingresosTotales.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
-    y += 6
-
-    doc.text('Beneficio Neto Final del Grupo:', 20, y)
-    doc.text(`${calcularTotalesInforme.beneficio.toFixed(2)} €`, pageWidth - 20, y, { align: 'right' })
-
-    const nombreArchivo = `Informe_Hacienda_${expedienteSeleccionado.numero_expediente || nombreGrupo}.pdf`
-    doc.save(nombreArchivo.replace(/[^a-zA-Z0-9_.-]/g, '_'))
+    const doc = crearJsPdfInformeCierre(expedienteSeleccionado, lineasInforme)
+    doc.save(
+      nombreArchivoInformeCierrePdf(
+        expedienteSeleccionado.numero_expediente ||
+          expedienteSeleccionado.nombre_grupo ||
+          expedienteSeleccionado.cliente_nombre
+      )
+    )
   }
 
   // ===================== GENERACIÓN NÚMERO DE FACTURA (ÚNICO Y GLOBAL) =====================
@@ -1478,7 +1386,7 @@ const Cierres = ({ user, onClose }) => {
                   <button
                     type="button"
                     onClick={exportarInformeHaciendaPDF}
-                    disabled={!expedienteSeleccionado || lineasInforme.length === 0}
+                    disabled={!expedienteSeleccionado}
                     className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     <FileText size={14} />

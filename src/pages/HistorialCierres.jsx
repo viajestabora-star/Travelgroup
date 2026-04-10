@@ -8,6 +8,11 @@ import { categorizarPago } from '../utils/finanzasHelpers'
 import { parsearFechaADate } from '../utils/dateNormalizer'
 import { esUsuarioGestoria } from '../utils/userRoles'
 import { resolverUrlPublicaFacturaProveedor, abrirFacturaProveedorPorUrlGuardada } from '../utils/facturaProveedorStorage'
+import {
+  obtenerLineasInformeDesdeExpediente,
+  crearJsPdfInformeCierre,
+  nombreArchivoInformeCierrePdf,
+} from '../utils/informeCierreHaciendaPdf'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -131,30 +136,36 @@ const fusionarFacturasClientePorExpediente = (rowsEmitidas, rowsGlobal) => {
   })
 }
 
-/** Lista de { url, filename } para ZIP / pestañas (auditoría). */
-const construirListaArchivosAuditoria = (exp, datos) => {
-  if (!exp) return []
-  const num = nombreArchivoSeguro(String(exp.numero_expediente || exp.id))
-  const out = []
+/** Partición para ZIP: proveedores vs clientes (mismas URLs que pestañas). */
+const particionarArchivosAuditoriaZip = (exp, datos) => {
+  if (!exp) return { proveedores: [], clientes: [] }
+  const proveedores = []
+  const clientes = []
   let i = 0
   for (const p of datos.pagos || []) {
     const u = resolverUrlPublicaFacturaProveedor(p.url_pdf)
     if (!u) continue
     i += 1
-    const base = `${num}_proveedor_${i}_${p.proveedor_nombre || 'proveedor'}_${p.numero_factura || p.concepto || 'doc'}`
+    const base = `${i}_${p.proveedor_nombre || 'proveedor'}_${p.numero_factura || p.concepto || 'factura'}`
     const fn = nombreArchivoSeguro(base)
-    out.push({ url: u, filename: fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf` })
+    proveedores.push({ url: u, filename: fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf` })
   }
   let j = 0
   for (const f of datos.facturasCliente || []) {
     const u = resolverUrlFacturaCliente(f.url_pdf)
     if (!u) continue
     j += 1
-    const base = `${num}_cliente_${j}_${f.numero_factura || 'factura'}`
+    const base = `${j}_${f.numero_factura || 'factura'}`
     const fn = nombreArchivoSeguro(base)
-    out.push({ url: u, filename: fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf` })
+    clientes.push({ url: u, filename: fn.toLowerCase().endsWith('.pdf') ? fn : `${fn}.pdf` })
   }
-  return out
+  return { proveedores, clientes }
+}
+
+/** Lista plana para «Abrir todos en pestañas». */
+const construirListaArchivosAuditoria = (exp, datos) => {
+  const { proveedores, clientes } = particionarArchivosAuditoriaZip(exp, datos)
+  return [...proveedores, ...clientes]
 }
 const añoActual = new Date().getFullYear()
 const AÑOS = Array.from({ length: 6 }, (_, i) => añoActual - i)
@@ -550,34 +561,56 @@ const HistorialCierres = ({ user }) => {
   const descargarExpedienteZip = useCallback(async () => {
     const exp = modalAuditoria
     if (!exp) return
-    const items = construirListaArchivosAuditoria(exp, datosAuditoria)
-    if (items.length === 0) {
-      alert('No hay PDFs enlazados para descargar. Comprueba facturas de proveedor (adjunto) y factura al cliente (URL).')
-      return
-    }
     setDescargandoZip(true)
     try {
       const zip = new JSZip()
-      const folderName = nombreArchivoSeguro(`Expediente_${exp.numero_expediente || exp.id}`)
-      const folder = zip.folder(folderName)
-      let added = 0
-      for (const { url, filename } of items) {
-        try {
-          const res = await fetch(url, { mode: 'cors' })
-          if (!res.ok) continue
-          const buf = await res.arrayBuffer()
-          folder.file(filename, buf)
-          added += 1
-        } catch (err) {
-          console.warn('[ZIP] omitido', filename, err)
+      const zipNombreBase = nombreArchivoSeguro(`Expediente_${exp.numero_expediente || exp.id}`)
+
+      const { data: expFull, error: expErr } = await supabase
+        .from('expedientes')
+        .select(
+          'id, numero_expediente, nombre_grupo, cliente_nombre, destino, precio_venta_cliente, pax_pago, total_pax, gratuidades, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total, noches, informe_gastos_hacienda, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio, cierre_grupo'
+        )
+        .eq('id', exp.id)
+        .single()
+
+      const expParaInforme = expErr || !expFull ? exp : expFull
+      const lineasInforme = await obtenerLineasInformeDesdeExpediente(supabase, expParaInforme)
+      const docPdf = crearJsPdfInformeCierre(expParaInforme, lineasInforme)
+      const pdfBuf = docPdf.output('arraybuffer')
+      zip.file(nombreArchivoInformeCierrePdf(exp.numero_expediente || exp.id), pdfBuf)
+
+      const { proveedores, clientes } = particionarArchivosAuditoriaZip(exp, datosAuditoria)
+
+      let fetched = 0
+      const pullInto = async (folder, items) => {
+        for (const { url, filename } of items) {
+          try {
+            const res = await fetch(url, { mode: 'cors' })
+            if (!res.ok) continue
+            folder.file(filename, await res.arrayBuffer())
+            fetched += 1
+          } catch (err) {
+            console.warn('[ZIP] omitido', filename, err)
+          }
         }
       }
-      if (added === 0) {
-        alert('No se pudo descargar ningún archivo (CORS o permisos). Usa «Abrir todos en pestañas».')
-        return
+
+      if (proveedores.length > 0) {
+        await pullInto(zip.folder('Facturas_Proveedores'), proveedores)
       }
+      if (clientes.length > 0) {
+        await pullInto(zip.folder('Facturas_Clientes'), clientes)
+      }
+
+      if (fetched === 0 && proveedores.length + clientes.length > 0) {
+        alert(
+          'El informe de cierre se ha incluido en el ZIP, pero no se pudieron descargar los PDFs adjuntos (CORS o red). Usa «Abrir todos en pestañas» para los documentos.'
+        )
+      }
+
       const blob = await zip.generateAsync({ type: 'blob' })
-      saveAs(blob, `${folderName}.zip`)
+      saveAs(blob, `${zipNombreBase}.zip`)
     } catch (e) {
       console.error(e)
       alert('Error al generar el ZIP. Prueba «Abrir todos en pestañas».')
