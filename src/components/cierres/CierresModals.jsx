@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState, memo } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, memo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { X, Loader2, ExternalLink, Package, Upload } from 'lucide-react'
 import JSZip from 'jszip'
@@ -11,7 +11,14 @@ import {
 } from '../../utils/facturaProveedorStorage'
 import { crearJsPdfInformeCierre, nombreArchivoInformeCierrePdf } from '../../utils/informeCierreHaciendaPdf'
 import { obtenerLineasInformeComoCierres, obtenerExpedienteParaPdfCierres } from '../../utils/lineasInformeCierres'
-import { NOMBRES_MES, n, formatEuroAmount, formInicialGastoMensual } from '../../utils/historialCierresFormat'
+import {
+  NOMBRES_MES,
+  n,
+  formatEuroAmount,
+  formInicialGastoMensual,
+  mesEstructuraDesdeNumero,
+  mesNumeroDesdeEstructura,
+} from '../../utils/historialCierresFormat'
 import {
   fusionarFacturasClientePorExpediente,
   particionarArchivosAuditoriaZip,
@@ -40,10 +47,12 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
 }) {
   const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual(añoStr, mesNum))
   const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
+  const importeRef = useRef(null)
 
   useEffect(() => {
     setFormGastoMensual(formInicialGastoMensual(añoStr, mesNum))
     setArchivoGastoMensual(null)
+    if (importeRef.current) importeRef.current.value = ''
   }, [mesNum, añoStr, esExtra])
 
   const guardarGastoMensualDesdeModal = async () => {
@@ -54,18 +63,13 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       cat === 'otro'
         ? proveedorOtro
         : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
-    const nombreMesModal = NOMBRES_MES[mesNum - 1] || ''
-    let concepto = String(formGastoMensual.concepto || '').trim()
-    const importeConIva = parseFloat(String(formGastoMensual.importeConIva || '').replace(',', '.'))
+    const importeConIva = parseFloat(String(importeRef.current?.value ?? '').replace(',', '.'))
     const fechaStr = String(formGastoMensual.fecha || '').trim()
     const file = archivoGastoMensual
 
     if (!proveedor) {
       alert(cat === 'otro' ? 'Indica el nombre del proveedor (Otro).' : 'Selecciona un proveedor.')
       return
-    }
-    if (!concepto) {
-      concepto = `${proveedor} — ${nombreMesModal} ${anioEjercicio}`.trim()
     }
     if (!Number.isFinite(importeConIva) || importeConIva < 0) {
       alert('Indica un importe válido (con IVA).')
@@ -80,7 +84,6 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       alert('Fecha no válida.')
       return
     }
-    const mesContable = fd.getMonth() + 1
     const anioContable = fd.getFullYear()
     if (anioContable !== anioEjercicio) {
       alert(`La fecha debe pertenecer al ejercicio ${anioEjercicio} (año del selector superior).`)
@@ -90,7 +93,7 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       alert('Selecciona un archivo PDF.')
       return
     }
-    if (!fuenteGastosEstructura) {
+    if (fuenteGastosEstructura !== 'gastos_estructura') {
       alert('Los gastos de estructura aún se están cargando. Espera unos segundos y vuelve a intentarlo.')
       return
     }
@@ -99,29 +102,23 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
     let pathStorage = null
     try {
       pathStorage = await subirPdfFacturaProveedorComoExpediente(file)
-      const tb = fuenteGastosEstructura
-      const baseRow = {
-        concepto,
+      const mesTxt = mesEstructuraDesdeNumero(mesNum)
+      const row = {
         proveedor,
-        importe: importeConIva,
-        importe_iva: 0,
+        importe_iva: importeConIva,
         url_pdf: pathStorage,
-        mes: mesContable,
-        anio: anioContable,
+        mes: mesTxt,
+        anio: anioEjercicio,
         fecha_factura: fechaStr,
         activo: true,
         periodicidad: 'mensual',
+        es_extra: !!esExtra,
+        plantilla_id: null,
       }
-      const row =
-        tb === 'gastos_estructura'
-          ? { ...baseRow, es_extra: !!esExtra, plantilla_id: null }
-          : baseRow
-      const { error: insErr } = await supabase.from(tb).insert(row)
+      const { error: insErr } = await supabase.from('gastos_estructura').insert(row)
       if (insErr) {
         if (pathStorage) await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
-        alert(
-          `${insErr.message}\n\nSi usas la tabla nueva: add-gastos-plantilla-gastos-estructura.sql. Si no: add-gastos-fijos-estructura-mensual.sql, add-gastos-fijos-fecha-factura.sql, add-gastos-fijos-importe-iva.sql`
-        )
+        alert(`${insErr.message}\n\nRevisa el esquema de gastos_estructura en Supabase (mes TEXT, anio, importe_iva).`)
         return
       }
       onClose()
@@ -215,22 +212,13 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
           </label>
         )}
         <label className="block text-xs font-semibold text-slate-600">
-          Concepto <span className="font-normal text-slate-400">(opcional)</span>
-          <input
-            type="text"
-            value={formGastoMensual.concepto || ''}
-            onChange={(e) => setFormGastoMensual((p) => ({ ...p, concepto: e.target.value }))}
-            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-            placeholder="Si lo dejas vacío, se genera a partir del proveedor y el mes"
-          />
-        </label>
-        <label className="block text-xs font-semibold text-slate-600">
           Importe (con IVA)
           <input
+            ref={importeRef}
             type="text"
+            name="importe_gasto_estructura"
+            autoComplete="off"
             inputMode="decimal"
-            value={formGastoMensual.importeConIva || ''}
-            onChange={(e) => setFormGastoMensual((p) => ({ ...p, importeConIva: e.target.value }))}
             className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
             placeholder="0,00"
           />
@@ -690,15 +678,14 @@ export function useCierresModals({
   const borrarFacturaEstructura = useCallback(
     async (row) => {
       if (!esAdmin) return
-      if (!fuenteGastosEstructura) {
+      if (fuenteGastosEstructura !== 'gastos_estructura') {
         alert('Los gastos de estructura aún se están cargando.')
         return
       }
       if (!window.confirm('¿Eliminar esta factura de estructura y su PDF?')) return
       try {
         if (row.url_pdf) await eliminarObjetoStorageFacturaProveedor(row.url_pdf)
-        const tb = fuenteGastosEstructura
-        const { error } = await supabase.from(tb).delete().eq('id', row.id)
+        const { error } = await supabase.from('gastos_estructura').delete().eq('id', row.id)
         if (error) {
           alert(`No se pudo eliminar: ${error.message}`)
           return
@@ -715,15 +702,11 @@ export function useCierresModals({
   const guardarEdicionGastoEstructura = useCallback(
     async (row, campos) => {
       if (!esAdmin) return { ok: false, mensaje: 'Sin permiso' }
-      if (!fuenteGastosEstructura) {
+      if (fuenteGastosEstructura !== 'gastos_estructura') {
         return { ok: false, mensaje: 'Los gastos de estructura aún se están cargando.' }
       }
-      const tb = fuenteGastosEstructura
       const payload = { ...campos }
-      if (tb === 'gastos_estructura') {
-        payload.updated_at = new Date().toISOString()
-      }
-      const { error } = await supabase.from(tb).update(payload).eq('id', row.id)
+      const { error } = await supabase.from('gastos_estructura').update(payload).eq('id', row.id)
       if (error) {
         return { ok: false, mensaje: error.message }
       }
@@ -740,7 +723,7 @@ export function useCierresModals({
       if (!esAdmin) return
       const anioNum = parseInt(año, 10)
       if (!Number.isFinite(anioNum) || mesNum < 1 || mesNum > 12) return
-      if (!fuenteGastosEstructura) {
+      if (fuenteGastosEstructura !== 'gastos_estructura') {
         alert('Los gastos de estructura aún se están cargando. Espera unos segundos y vuelve a intentarlo.')
         return
       }
@@ -749,7 +732,7 @@ export function useCierresModals({
       try {
         const { data: mensuales, error: ePlant } = await supabase
           .from('gastos_plantilla')
-          .select('id, concepto, proveedor, periodicidad, importe_sugerido, activo')
+          .select('id, proveedor, periodicidad, importe_base, activo')
           .eq('periodicidad', 'mensual')
           .eq('activo', true)
         if (ePlant) {
@@ -765,29 +748,28 @@ export function useCierresModals({
         const porId = new Map()
         ;(mensuales || []).forEach((p) => porId.set(p.id, p))
         if (mesNum === 11) {
-          const { data: seguroRows, error: eSeg } = await supabase
+          const { data: anuales, error: eSeg } = await supabase
             .from('gastos_plantilla')
-            .select('id, concepto, proveedor, periodicidad, importe_sugerido, activo')
-            .ilike('concepto', '%Seguro coche%')
+            .select('id, proveedor, periodicidad, importe_base, activo')
+            .eq('periodicidad', 'anual')
             .eq('activo', true)
-          if (!eSeg && seguroRows?.length) {
+          if (!eSeg && anuales?.length) {
+            const seguroRows = anuales.filter((p) => /seguro\s*coche|coche.*seguro/i.test(String(p.proveedor || '')))
             seguroRows.forEach((p) => porId.set(p.id, p))
           }
         }
         const plantillas = [...porId.values()]
         if (plantillas.length === 0) {
-          alert('No hay filas en gastos_plantilla (periodicidad mensual). Añade conceptos en Supabase o revisa activo=true.')
+          alert('No hay filas en gastos_plantilla (periodicidad mensual). Revisa activo=true e importe_base en Supabase.')
           return
         }
 
-        const tb = fuenteGastosEstructura
-        const colsExistentes =
-          tb === 'gastos_estructura' ? 'id, plantilla_id, concepto, proveedor' : 'id, concepto, proveedor'
+        const mesTxt = mesEstructuraDesdeNumero(mesNum)
         const { data: existentesRaw, error: eEx } = await supabase
-          .from(tb)
-          .select(colsExistentes)
+          .from('gastos_estructura')
+          .select('id, plantilla_id, proveedor')
           .eq('anio', anioNum)
-          .eq('mes', mesNum)
+          .eq('mes', mesTxt)
         if (eEx) {
           alert(`No se pudieron comprobar duplicados: ${eEx.message}`)
           return
@@ -797,36 +779,29 @@ export function useCierresModals({
         const yaInsertada = (p) =>
           existentes.some((e) => {
             if (e.plantilla_id && p.id === e.plantilla_id) return true
-            return (
-              String(e.concepto || '').trim() === String(p.concepto || '').trim() &&
-              String(e.proveedor || '').trim() === String(p.proveedor || '').trim()
-            )
+            return String(e.proveedor || '').trim() === String(p.proveedor || '').trim()
           })
 
         const fechaDefault = `${anioNum}-${String(mesNum).padStart(2, '0')}-01`
         let insertadas = 0
         for (const p of plantillas) {
           if (yaInsertada(p)) continue
-          const importeBase = p.importe_sugerido != null ? Number(p.importe_sugerido) : 0
-          const baseRow = {
-            concepto: String(p.concepto || '').trim() || 'Gasto estructura',
+          const importeIva = p.importe_base != null ? Number(p.importe_base) : 0
+          const row = {
             proveedor: String(p.proveedor || '').trim(),
-            importe: Number.isFinite(importeBase) ? importeBase : 0,
-            importe_iva: 0,
+            importe_iva: Number.isFinite(importeIva) ? importeIva : 0,
             url_pdf: null,
-            mes: mesNum,
+            mes: mesTxt,
             anio: anioNum,
             fecha_factura: fechaDefault,
             activo: true,
-            periodicidad: 'mensual',
+            periodicidad: String(p.periodicidad || 'mensual'),
+            es_extra: false,
+            plantilla_id: p.id,
           }
-          const row =
-            tb === 'gastos_estructura'
-              ? { ...baseRow, es_extra: false, plantilla_id: p.id }
-              : baseRow
-          const { error: insErr } = await supabase.from(tb).insert(row)
+          const { error: insErr } = await supabase.from('gastos_estructura').insert(row)
           if (insErr) {
-            alert(`Error al insertar «${p.concepto}»: ${insErr.message}`)
+            alert(`Error al insertar «${p.proveedor || '—'}»: ${insErr.message}`)
             return
           }
           insertadas += 1
@@ -857,7 +832,7 @@ export function useCierresModals({
       })
 
       const filasEstructura = gastosEstructura.filter(
-        (g) => Number(g.mes) === mesNum && Number(g.anio) === anioNum && g.url_pdf
+        (g) => mesNumeroDesdeEstructura(g.mes) === mesNum && Number(g.anio) === anioNum && g.url_pdf
       )
 
       if (expedientesMes.length === 0 && filasEstructura.length === 0) {
@@ -979,7 +954,7 @@ export function useCierresModals({
             }
             if (!buf) buf = await descargarArrayBufferFacturaProveedor(f.url_pdf)
             if (buf) {
-              const deseado = nombrePdfEnZipEstructura(nombreMes, f.proveedor, f.importe)
+              const deseado = nombrePdfEnZipEstructura(nombreMes, f.proveedor, f.importe_iva)
               const ruta = nombreUnicoRuta(`${prefEst}/${deseado}`)
               zip.file(ruta, buf, { compression: 'STORE' })
               entradasZip += 1

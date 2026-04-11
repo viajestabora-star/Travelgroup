@@ -242,31 +242,14 @@ const nombreArchivoSeguro = (s, maxLen = 80) => {
   return base || 'doc'
 }
 
-/**
- * Columnas esperadas en `gastos_fijos` para gastos mensuales (mes, anio contables).
- * Si Supabase devuelve error de columna, ejecuta en orden:
- * add-desglose-gastos-gastos-fijos.sql, add-gastos-fijos-estructura-mensual.sql,
- * add-gastos-fijos-fecha-factura.sql, add-gastos-fijos-importe-iva.sql
- */
-const GASTOS_FIJOS_SELECT =
-  'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura, created_at'
-
-/** Si faltan columnas opcionales en Supabase, se reintenta con selects más pequeños (mes + anio siempre en filtros). */
-const GASTOS_FIJOS_SELECT_SIN_CREATED =
-  'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura'
-
-const GASTOS_FIJOS_SELECT_MINIMAL = 'id, concepto, proveedor, importe, url_pdf, mes, anio'
-
-/** Misma forma que gastos_fijos mensual + columnas de plantilla / extra (tabla `gastos_estructura`). */
+/** Columnas de `gastos_estructura` (mes TEXT, anio INTEGER, importe monetario en `importe_iva`). */
 const GASTOS_ESTRUCTURA_SELECT =
-  'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura, created_at, es_extra, plantilla_id'
+  'id, proveedor, importe_iva, url_pdf, mes, anio, fecha_factura, created_at, es_extra, plantilla_id'
 
 const GASTOS_ESTRUCTURA_SELECT_SIN_CREATED =
-  'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura, es_extra, plantilla_id'
+  'id, proveedor, importe_iva, url_pdf, mes, anio, fecha_factura, es_extra, plantilla_id'
 
-const GASTOS_ESTRUCTURA_SELECT_MINIMAL = 'id, concepto, proveedor, importe, url_pdf, mes, anio'
-
-const TABLAS_GASTOS_ESTRUCTURA_MENSUAL = ['gastos_estructura', 'gastos_fijos']
+const GASTOS_ESTRUCTURA_SELECT_MINIMAL = 'id, proveedor, importe_iva, url_pdf, mes, anio'
 
 const esErrorColumnaSql = (err) => /column|42703|does not exist|schema cache/i.test(String(err?.message || err || ''))
 
@@ -644,13 +627,9 @@ export {
   cederAlNavegadorParaZip,
   resolverUrlFacturaCliente,
   nombreArchivoSeguro,
-  GASTOS_FIJOS_SELECT,
-  GASTOS_FIJOS_SELECT_SIN_CREATED,
-  GASTOS_FIJOS_SELECT_MINIMAL,
   GASTOS_ESTRUCTURA_SELECT,
   GASTOS_ESTRUCTURA_SELECT_SIN_CREATED,
   GASTOS_ESTRUCTURA_SELECT_MINIMAL,
-  TABLAS_GASTOS_ESTRUCTURA_MENSUAL,
   esErrorColumnaSql,
   GASTOS_FIJOS_QUERY_TIMEOUT_MS,
   withTimeout,

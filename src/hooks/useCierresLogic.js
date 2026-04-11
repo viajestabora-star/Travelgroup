@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
-import { n, estadoInicialAcordeon } from '../utils/historialCierresFormat'
+import { n, estadoInicialAcordeon, mesNumeroDesdeEstructura } from '../utils/historialCierresFormat'
 import {
   rangoFechasConsultaExpedientes,
   NUMEROS_DIAGNOSTICO_HISTORIAL,
@@ -8,13 +8,9 @@ import {
   fechaInicioADate,
   fechaReferenciaTrimestreDesdeExp,
   clasificarPorFechaInicio,
-  GASTOS_FIJOS_SELECT,
-  GASTOS_FIJOS_SELECT_SIN_CREATED,
-  GASTOS_FIJOS_SELECT_MINIMAL,
   GASTOS_ESTRUCTURA_SELECT,
   GASTOS_ESTRUCTURA_SELECT_SIN_CREATED,
   GASTOS_ESTRUCTURA_SELECT_MINIMAL,
-  TABLAS_GASTOS_ESTRUCTURA_MENSUAL,
   GASTOS_FIJOS_QUERY_TIMEOUT_MS,
   withTimeout,
   logErrorSupabase,
@@ -37,7 +33,7 @@ const esEstadoCierreCargaHistorial = (estadoRaw) => {
 }
 
 /**
- * Carga de expedientes (cierre) y gastos de estructura mensual (`gastos_estructura` o fallback `gastos_fijos`).
+ * Carga de expedientes (cierre) y gastos de estructura mensual (`gastos_estructura` únicamente).
  * `año` y `trimestreFiltro` son strings del selector (refs internas para callbacks estables).
  */
 export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
@@ -47,7 +43,7 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
   const [cargandoGastosEstructura, setCargandoGastosEstructura] = useState(false)
   const [errorGastosEstructura, setErrorGastosEstructura] = useState(null)
   const [errorCargaHistorial, setErrorCargaHistorial] = useState(null)
-  /** Tabla efectiva tras el primer SELECT correcto: `gastos_estructura` o `gastos_fijos` (legacy). */
+  /** Tras carga correcta de `gastos_estructura` (solo esa tabla). */
   const [fuenteGastosEstructura, setFuenteGastosEstructura] = useState(null)
 
   const cierreLoadSeqRef = useRef(0)
@@ -74,106 +70,111 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
         proveedor: r.proveedor ?? '',
         url_pdf: r.url_pdf ?? null,
         fecha_factura: r.fecha_factura ?? null,
-        importe_iva: r.importe_iva != null ? n(r.importe_iva) : 0,
-        mes: r.mes != null ? Number(r.mes) : null,
+        mes: r.mes != null ? String(r.mes) : null,
+        mesNum: mesNumeroDesdeEstructura(r.mes),
+        importe_iva: r.importe_iva != null ? n(r.importe_iva) : null,
         anio: r.anio != null ? Number(r.anio) : null,
         es_extra: r.es_extra === true,
         plantilla_id: r.plantilla_id ?? null,
       })
 
-      const ejecutarSelect = (tablaNombre, columnas) => {
-        let q = supabase.from(tablaNombre).select(columnas).eq('anio', y).not('mes', 'is', null)
-        q = q.order('mes', { ascending: true })
+      const ejecutarSelect = (columnas) => {
+        let q = supabase.from('gastos_estructura').select(columnas).eq('anio', y).not('mes', 'is', null)
         if (columnas !== '*' && /\bcreated_at\b/.test(String(columnas))) {
+          q = q.order('created_at', { ascending: true })
+        } else {
           q = q.order('created_at', { ascending: true })
         }
         return q
       }
 
       let ultimoError = null
-      for (const tablaNombre of TABLAS_GASTOS_ESTRUCTURA_MENSUAL) {
-        const intentos =
-          tablaNombre === 'gastos_estructura'
-            ? ['*', GASTOS_ESTRUCTURA_SELECT, GASTOS_ESTRUCTURA_SELECT_SIN_CREATED, GASTOS_ESTRUCTURA_SELECT_MINIMAL]
-            : ['*', GASTOS_FIJOS_SELECT, GASTOS_FIJOS_SELECT_SIN_CREATED, GASTOS_FIJOS_SELECT_MINIMAL]
+      const tablaNombre = 'gastos_estructura'
+      const intentos = ['*', GASTOS_ESTRUCTURA_SELECT, GASTOS_ESTRUCTURA_SELECT_SIN_CREATED, GASTOS_ESTRUCTURA_SELECT_MINIMAL]
 
-        for (const columnas of intentos) {
+      for (const columnas of intentos) {
+        try {
+          let data
+          let error
           try {
-            let data
-            let error
-            try {
-              const res = await withTimeout(
-                ejecutarSelect(tablaNombre, columnas),
-                GASTOS_FIJOS_QUERY_TIMEOUT_MS,
-                `${tablaNombre} select anio=${y}`
-              )
-              data = res.data
-              error = res.error
-            } catch (timeoutOrNet) {
-              ultimoError = timeoutOrNet
-              logErrorSupabase(
-                `${tablaNombre} — consulta abortada o timeout (columnas solicitadas: ${columnas})`,
-                timeoutOrNet,
-                { anio: y, columnas, tablaNombre }
-              )
-              setGastosEstructura([])
-              setErrorGastosEstructura('Tiempo de espera al cargar gastos de estructura para este ejercicio.')
-              return
-            }
-
-            if (error) {
-              ultimoError = error
-              logErrorSupabase(`${tablaNombre} — error Supabase (SELECT: ${columnas})`, error, { anio: y })
-              if (esErrorTablaInexistenteHistorial(error)) {
-                break
-              }
-              if (esErrorColumnaSql(error)) continue
-              setGastosEstructura([])
-              setErrorGastosEstructura(String(error.message || error) || `Error al leer ${tablaNombre}.`)
-              return
-            }
-
-            const raw = Array.isArray(data) ? data : []
-            const rows = []
-            for (let i = 0; i < raw.length; i += 1) {
-              try {
-                rows.push(mapRow(raw[i]))
-              } catch (rowErr) {
-                console.error(
-                  `[HistorialCierres] ${tablaNombre} — fallo al mapear una fila (revisa tipos/columnas en esta fila)`,
-                  {
-                    indice: i,
-                    filaCruda: raw[i],
-                    columnasUsadas: columnas,
-                    error: rowErr?.message || rowErr,
-                    stack: rowErr?.stack,
-                  }
-                )
-              }
-            }
-            setGastosEstructura(rows)
-            setFuenteGastosEstructura(tablaNombre)
-            setErrorGastosEstructura(null)
-            return
-          } catch (e) {
-            ultimoError = e
-            logErrorSupabase(`${tablaNombre} — excepción en intento de lectura (columnas: ${columnas})`, e, { anio: y })
-            if (esErrorTablaInexistenteHistorial(e)) {
-              break
-            }
-            if (esErrorColumnaSql(e)) continue
-            setErrorGastosEstructura(String(e?.message || e) || `Error al procesar la respuesta de ${tablaNombre}.`)
+            const res = await withTimeout(
+              ejecutarSelect(columnas),
+              GASTOS_FIJOS_QUERY_TIMEOUT_MS,
+              `${tablaNombre} select anio=${y}`
+            )
+            data = res.data
+            error = res.error
+          } catch (timeoutOrNet) {
+            ultimoError = timeoutOrNet
+            logErrorSupabase(
+              `${tablaNombre} — consulta abortada o timeout (columnas solicitadas: ${columnas})`,
+              timeoutOrNet,
+              { anio: y, columnas, tablaNombre }
+            )
             setGastosEstructura([])
+            setErrorGastosEstructura('Tiempo de espera al cargar gastos de estructura para este ejercicio.')
             return
           }
+
+          if (error) {
+            ultimoError = error
+            logErrorSupabase(`${tablaNombre} — error Supabase (SELECT: ${columnas})`, error, { anio: y })
+            if (esErrorTablaInexistenteHistorial(error)) {
+              break
+            }
+            if (esErrorColumnaSql(error)) continue
+            setGastosEstructura([])
+            setErrorGastosEstructura(String(error.message || error) || `Error al leer ${tablaNombre}.`)
+            return
+          }
+
+          const raw = Array.isArray(data) ? data : []
+          const rows = []
+          for (let i = 0; i < raw.length; i += 1) {
+            try {
+              rows.push(mapRow(raw[i]))
+            } catch (rowErr) {
+              console.error(
+                `[HistorialCierres] ${tablaNombre} — fallo al mapear una fila (revisa tipos/columnas en esta fila)`,
+                {
+                  indice: i,
+                  filaCruda: raw[i],
+                  columnasUsadas: columnas,
+                  error: rowErr?.message || rowErr,
+                  stack: rowErr?.stack,
+                }
+              )
+            }
+          }
+          rows.sort((a, b) => {
+            const ma = a.mesNum ?? 13
+            const mb = b.mesNum ?? 13
+            if (ma !== mb) return ma - mb
+            const ta = a.created_at ? new Date(a.created_at).getTime() : 0
+            const tb = b.created_at ? new Date(b.created_at).getTime() : 0
+            return ta - tb
+          })
+          setGastosEstructura(rows)
+          setFuenteGastosEstructura('gastos_estructura')
+          setErrorGastosEstructura(null)
+          return
+        } catch (e) {
+          ultimoError = e
+          logErrorSupabase(`${tablaNombre} — excepción en intento de lectura (columnas: ${columnas})`, e, { anio: y })
+          if (esErrorTablaInexistenteHistorial(e)) {
+            break
+          }
+          if (esErrorColumnaSql(e)) continue
+          setErrorGastosEstructura(String(e?.message || e) || `Error al procesar la respuesta de ${tablaNombre}.`)
+          setGastosEstructura([])
+          return
         }
       }
       logErrorSupabase(
-        'gastos_estructura / gastos_fijos — ningún SELECT compatible con el esquema (ignorado para no bloquear Historial)',
+        'gastos_estructura — ningún SELECT compatible con el esquema (ignorado para no bloquear Historial)',
         ultimoError,
         {
           anio: y,
-          tablas: TABLAS_GASTOS_ESTRUCTURA_MENSUAL.join(' | '),
         }
       )
       setGastosEstructura([])

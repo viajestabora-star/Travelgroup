@@ -96,8 +96,22 @@ export function formInicialGastoMensual(añoStr, mesNum) {
   return {
     categoria: 'arsys',
     proveedorOtro: '',
-    concepto: '',
-    importeConIva: '',
     fecha: `${añoStr}-${String(mesNum).padStart(2, '0')}-01`,
   }
+}
+
+/** Valor de `gastos_estructura.mes` (TEXT) desde el mes de pantalla 1–12. */
+export function mesEstructuraDesdeNumero(mesNum) {
+  if (!Number.isFinite(mesNum) || mesNum < 1 || mesNum > 12) return null
+  return String(mesNum)
+}
+
+/** Interpreta `gastos_estructura.mes` (TEXT) como número de mes 1–12 para filtros y orden. */
+export function mesNumeroDesdeEstructura(mesRaw) {
+  if (mesRaw == null || mesRaw === '') return null
+  const s = String(mesRaw).trim()
+  const n = parseInt(s, 10)
+  if (Number.isFinite(n) && n >= 1 && n <= 12) return n
+  const i = NOMBRES_MES.findIndex((nm) => nm.toLowerCase() === s.toLowerCase())
+  return i >= 0 ? i + 1 : null
 }

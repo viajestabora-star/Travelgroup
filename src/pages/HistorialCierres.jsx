@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback, memo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback, memo, useRef } from 'react'
 import {
   FileText,
   Eye,
@@ -26,6 +26,7 @@ import {
   NOMBRES_MES,
   mesesDelTrimestre,
   inicialesProveedorEstructura,
+  mesNumeroDesdeEstructura,
   n,
   AÑOS,
   añoActual,
@@ -40,9 +41,9 @@ import {
   NUMEROS_DIAGNOSTICO_HISTORIAL,
 } from '../utils/historialCierresShared'
 
-function importeGastoEstructuraPendiente(importe) {
-  if (importe == null || importe === '') return true
-  const x = Number(importe)
+function importeGastoEstructuraPendiente(importeIva) {
+  if (importeIva == null || importeIva === '') return true
+  const x = Number(importeIva)
   return !Number.isFinite(x) || x === 0
 }
 
@@ -57,22 +58,23 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   layout,
 }) {
   const [proveedor, setProveedor] = useState(() => r.proveedor ?? '')
-  const [concepto, setConcepto] = useState(() => r.concepto ?? '')
-  const [importeStr, setImporteStr] = useState(() => (r.importe != null && r.importe !== '' ? String(r.importe) : ''))
+  const importeRef = useRef(null)
   const [fecha, setFecha] = useState(() => (r.fecha_factura ? String(r.fecha_factura).slice(0, 10) : ''))
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
     setProveedor(r.proveedor ?? '')
-    setConcepto(r.concepto ?? '')
-    setImporteStr(r.importe != null && r.importe !== '' ? String(r.importe) : '')
     setFecha(r.fecha_factura ? String(r.fecha_factura).slice(0, 10) : '')
-  }, [r.id, r.proveedor, r.concepto, r.importe, r.fecha_factura])
+    if (importeRef.current) {
+      importeRef.current.value =
+        r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
+    }
+  }, [r.id, r.proveedor, r.importe_iva, r.fecha_factura])
 
-  const importePend = importeGastoEstructuraPendiente(r.importe)
+  const importePend = importeGastoEstructuraPendiente(r.importe_iva)
 
   const aplicarGuardado = async () => {
-    const importeNum = parseFloat(String(importeStr).replace(',', '.'))
+    const importeNum = parseFloat(String(importeRef.current?.value ?? '').replace(',', '.'))
     if (!Number.isFinite(importeNum) || importeNum < 0) {
       alert('Importe no válido.')
       return
@@ -89,10 +91,9 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
     setGuardando(true)
     const res = await onGuardarEdicion(r, {
       proveedor: proveedor.trim(),
-      concepto: concepto.trim(),
-      importe: importeNum,
+      importe_iva: importeNum,
       fecha_factura: fecha,
-      mes: fd.getMonth() + 1,
+      mes: String(fd.getMonth() + 1),
       anio: fd.getFullYear(),
     })
     setGuardando(false)
@@ -112,14 +113,8 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
               {r.proveedor ?? '—'}
             </span>
           </td>
-          <td className="px-3 py-2 text-slate-700 max-w-[220px] truncate" title={r.concepto || ''}>
-            {r.concepto ?? '—'}
-          </td>
           <td className={`px-3 py-2 text-right tabular-nums ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
-            <div className="font-semibold">{formatEuroAmount(r.importe)}</div>
-            {n(r.importe_iva) > 0 && (
-              <div className="text-[11px] text-slate-500 font-normal">IVA {formatEuroAmount(r.importe_iva)}</div>
-            )}
+            <div className="font-semibold">{formatEuroAmount(r.importe_iva)}</div>
           </td>
           <td className="px-3 py-2">
             {url ? (
@@ -145,13 +140,9 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           </span>
           <p className="font-bold text-slate-900 text-sm flex-1">{r.proveedor ?? '—'}</p>
         </div>
-        <p className="text-xs text-slate-600">{r.concepto ?? '—'}</p>
         <p className="text-xs text-slate-500 mt-1">Fecha: {fmtFechaFact(r.fecha_factura)}</p>
         <p className={`text-sm font-bold mt-1 ${importePend ? 'text-red-600' : 'text-slate-900'}`}>
-          {formatEuroAmount(r.importe)}
-          {n(r.importe_iva) > 0 && (
-            <span className="text-xs font-normal text-slate-500"> · IVA {formatEuroAmount(r.importe_iva)}</span>
-          )}
+          {formatEuroAmount(r.importe_iva)}
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
           {url && (
@@ -183,29 +174,15 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
             className="w-full min-w-[120px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
           />
         </td>
-        <td className="px-3 py-2 align-top">
-          <input
-            type="text"
-            value={concepto}
-            onChange={(e) => setConcepto(e.target.value)}
-            className="w-full min-w-[140px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
-          />
-        </td>
         <td className="px-3 py-2 align-top text-right">
           <input
+            ref={importeRef}
             type="text"
+            name={`importe_estructura_${r.id}`}
+            autoComplete="off"
             inputMode="decimal"
-            value={importeStr}
-            onChange={(e) => setImporteStr(e.target.value)}
-            className={`w-full max-w-[7rem] ml-auto border rounded-lg px-2 py-1.5 text-sm tabular-nums text-right ${
-              importeGastoEstructuraPendiente(importeStr === '' ? null : parseFloat(String(importeStr).replace(',', '.')))
-                ? 'border-red-300 bg-red-50/50 text-red-700'
-                : 'border-slate-200'
-            }`}
+            className="w-full max-w-[7rem] ml-auto border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
           />
-          {n(r.importe_iva) > 0 && (
-            <div className="text-[11px] text-slate-500 font-normal mt-1">IVA {formatEuroAmount(r.importe_iva)}</div>
-          )}
         </td>
         <td className="px-3 py-2 align-top">
           {url ? (
@@ -255,26 +232,14 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         />
       </label>
       <label className="block text-xs text-slate-600">
-        Concepto
+        Importe
         <input
+          ref={importeRef}
           type="text"
-          value={concepto}
-          onChange={(e) => setConcepto(e.target.value)}
-          className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
-        />
-      </label>
-      <label className="block text-xs text-slate-600">
-        Importe (c/IVA)
-        <input
-          type="text"
+          name={`importe_estructura_card_${r.id}`}
+          autoComplete="off"
           inputMode="decimal"
-          value={importeStr}
-          onChange={(e) => setImporteStr(e.target.value)}
-          className={`mt-0.5 w-full border rounded-lg px-2 py-1.5 text-sm ${
-            importeGastoEstructuraPendiente(importeStr === '' ? null : parseFloat(String(importeStr).replace(',', '.')))
-              ? 'border-red-300 bg-red-50/50 text-red-700'
-              : 'border-slate-200'
-          }`}
+          className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
         />
       </label>
       <label className="block text-xs text-slate-600">
@@ -719,7 +684,7 @@ const HistorialCierres = ({ user }) => {
         {meses.map((mesNum) => {
           const nombreMes = NOMBRES_MES[mesNum - 1]
           const rows = gastosEstructura.filter(
-            (g) => Number(g.mes) === mesNum && Number(g.anio) === anioNum
+            (g) => mesNumeroDesdeEstructura(g.mes) === mesNum && Number(g.anio) === anioNum
           )
           const expedientesMesCalendario = cierres.filter((c) => {
             const d = c.fechaReferenciaTrimestre
@@ -736,7 +701,7 @@ const HistorialCierres = ({ user }) => {
               ? d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
               : '—'
           }
-          const colSpanTabla = esAdmin ? 6 : 5
+          const colSpanTabla = esAdmin ? 5 : 4
           const filaVaciaListado = (
             <tr>
               <td colSpan={colSpanTabla} className="px-4 py-8 text-center bg-gradient-to-b from-slate-50/80 to-white border-t border-slate-100">
@@ -774,10 +739,10 @@ const HistorialCierres = ({ user }) => {
                           <span className="font-semibold truncate max-w-[130px] sm:max-w-[160px]">{r.proveedor ?? '—'}</span>
                           <span
                             className={`tabular-nums font-bold shrink-0 ${
-                              importeGastoEstructuraPendiente(r.importe) ? 'text-red-300' : 'text-emerald-300'
+                              importeGastoEstructuraPendiente(r.importe_iva) ? 'text-red-300' : 'text-emerald-300'
                             }`}
                           >
-                            {formatEuroAmount(r.importe)}
+                            {formatEuroAmount(r.importe_iva)}
                           </span>
                         </div>
                       ))}
@@ -832,7 +797,7 @@ const HistorialCierres = ({ user }) => {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100 text-slate-700">
                       <tr>
-                        {['Fecha', 'Proveedor', 'Concepto', 'Importe (c/IVA)', 'PDF', ...(esAdmin ? ['Acciones'] : [])].map(
+                        {['Fecha', 'Proveedor', 'Importe', 'PDF', ...(esAdmin ? ['Acciones'] : [])].map(
                           (lab) => (
                             <th
                               key={lab}
