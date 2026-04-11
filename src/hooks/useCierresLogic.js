@@ -2,11 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
 import { n, estadoInicialAcordeon } from '../utils/historialCierresFormat'
 import {
-  fetchExpedientesCierrePorRango,
-  SELECT_EXPEDIENTES_HISTORIAL_EXT,
-  SELECT_EXPEDIENTES_HISTORIAL_MIN,
+  rangoFechasConsultaExpedientes,
   NUMEROS_DIAGNOSTICO_HISTORIAL,
-  esEstadoHistorialCierre,
   extraerFinanzas,
   fechaInicioADate,
   fechaReferenciaTrimestreDesdeExp,
@@ -19,6 +16,20 @@ import {
   logErrorSupabase,
   esErrorColumnaSql,
 } from '../utils/historialCierresShared'
+
+/** Solo tabla `expedientes`; nombres de cliente desde `cliente_nombre`; año fiscal vía `ejercicio`. */
+const TABLA_EXPEDIENTES_CIERRE = 'expedientes'
+
+const SELECT_EXPEDIENTES_CIERRE_MIN =
+  'id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio, ejercicio, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio, cierre_grupo, informe_gastos_hacienda'
+
+const SELECT_EXPEDIENTES_CIERRE_EXT = `${SELECT_EXPEDIENTES_CIERRE_MIN}, created_at, fecha_creacion`
+
+/** Estados admitidos en la carga (solo Cerrado / Finalizado), alineado con el filtro de la consulta. */
+const esEstadoCierreCargaHistorial = (estadoRaw) => {
+  const s = String(estadoRaw ?? '').trim().toLowerCase()
+  return s === 'cerrado' || s === 'finalizado'
+}
 
 /**
  * Carga de expedientes (cierre) y gastos_fijos (estructura) en paralelo.
@@ -154,23 +165,53 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
   const cargarCierres = useCallback(async () => {
     const seq = ++cierreLoadSeqRef.current
     try {
-      const ejecutarFetchExpedientes = async (cols) =>
-        fetchExpedientesCierrePorRango(supabase, cols, filtroAñoRef.current, filtroTrimestreRef.current)
+      /**
+       * Carga desde `expedientes` únicamente:
+       * - `ejercicio` = año del selector (anio).
+       * - Estados: Cerrado o Finalizado (ilike por convención en BD).
+       * - Orden: `fecha_inicio` ascendente (cronológico).
+       * - Si trimestre ≠ "all", se cruza además con rango de fechas en `fecha_inicio` (misma semántica de periodo que antes).
+       * - `cliente_nombre` va en el SELECT; se conserva en la fila tal cual llega de la columna.
+       */
+      const ejecutarFetchExpedientes = async (columnas) => {
+        const anioStr = String(filtroAñoRef.current || '')
+        const trimestreVal = filtroTrimestreRef.current
+        const anioNum = parseInt(anioStr, 10)
+        if (!Number.isFinite(anioNum)) {
+          return { data: [], error: null }
+        }
+
+        let q = supabase
+          .from(TABLA_EXPEDIENTES_CIERRE)
+          .select(columnas)
+          .eq('ejercicio', anioNum)
+          .or('estado.ilike.Cerrado,estado.ilike.Finalizado')
+          .order('fecha_inicio', { ascending: true, nullsFirst: false })
+
+        if (trimestreVal !== 'all') {
+          const rango = rangoFechasConsultaExpedientes(anioStr, trimestreVal)
+          if (rango) {
+            q = q.gte('fecha_inicio', rango.inicio).lte('fecha_inicio', rango.fin)
+          }
+        }
+
+        return q
+      }
 
       const esErrorColumna = (err) => /column|schema|does not exist|42703/i.test(String(err?.message || ''))
 
-      let { data, error } = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_HISTORIAL_EXT)
+      let { data, error } = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_CIERRE_EXT)
 
       if (error && esErrorColumna(error)) {
         const msg = String(error.message || '')
         if (/fecha_creacion/i.test(msg)) {
           console.warn('[HistorialCierres] fecha_creacion ausente en esquema, reintento con created_at:', msg)
-          const rMid = await ejecutarFetchExpedientes(`${SELECT_EXPEDIENTES_HISTORIAL_MIN}, created_at`)
+          const rMid = await ejecutarFetchExpedientes(`${SELECT_EXPEDIENTES_CIERRE_MIN}, created_at`)
           data = rMid.data
           error = rMid.error
         } else {
           console.warn('[HistorialCierres] Select extendido rechazado, reintento columnas mínimas:', msg)
-          const r2 = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_HISTORIAL_MIN)
+          const r2 = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_CIERRE_MIN)
           data = r2.data
           error = r2.error
         }
@@ -178,7 +219,7 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
 
       if (error && esErrorColumna(error)) {
         console.warn('[HistorialCierres] Último reintento solo columnas mínimas:', error.message)
-        const r3 = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_HISTORIAL_MIN)
+        const r3 = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_CIERRE_MIN)
         data = r3.data
         error = r3.error
       }
@@ -193,11 +234,11 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
       }
 
       const crudos = Array.isArray(data) ? data : []
-      const filasHistorial = crudos.filter((e) => esEstadoHistorialCierre(e.estado))
+      const filasHistorial = crudos.filter((e) => esEstadoCierreCargaHistorial(e.estado))
       if (filasHistorial.length !== crudos.length) {
-        const rechazados = crudos.filter((e) => !esEstadoHistorialCierre(e.estado))
+        const rechazados = crudos.filter((e) => !esEstadoCierreCargaHistorial(e.estado))
         console.warn(
-          '[HistorialCierres] Filas excluidas: estado distinto de Cerrado/Liquidado tras la query:',
+          '[HistorialCierres] Filas excluidas: estado distinto de Cerrado/Finalizado tras la query:',
           rechazados.map((e) => ({ numero_expediente: e.numero_expediente, estado: e.estado }))
         )
       }
@@ -205,11 +246,11 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
       const numsApi = new Set(filasHistorial.map((e) => String(e.numero_expediente ?? '').trim()))
       NUMEROS_DIAGNOSTICO_HISTORIAL.forEach((num) => {
         if (!numsApi.has(num)) {
-          console.warn('[HistorialCierres] No devuelto por API (rango trimestre / año / estados):', num)
+          console.warn('[HistorialCierres] No devuelto por API (ejercicio / trimestre / estados):', num)
         }
       })
       console.info(
-        '[HistorialCierres] Expedientes de cierre (Cerrado + Liquidado, rango BD + refinado por referencia):',
+        '[HistorialCierres] Expedientes de cierre (Cerrado + Finalizado, ejercicio + refinado por referencia):',
         filasHistorial.length,
         filasHistorial.map((e) => e.numero_expediente)
       )
@@ -221,23 +262,34 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
           ...exp,
           fechaInicioDate,
         })
-        return { ...exp, ...fin, fechaInicioDate, fechaReferenciaTrimestre }
+        const clienteNombre = exp.cliente_nombre
+        return {
+          ...exp,
+          cliente_nombre: clienteNombre,
+          ...fin,
+          fechaInicioDate,
+          fechaReferenciaTrimestre,
+        }
       })
 
       const anioNum = parseInt(filtroAñoRef.current, 10)
       const trimSel = filtroTrimestreRef.current
       const listaFinal = mapeados.filter((c) => {
-        const y = c.fechaReferenciaTrimestre?.getFullYear?.()
-        if (!Number.isFinite(y) || y !== anioNum) return false
+        const ej = c.ejercicio != null ? Number(c.ejercicio) : NaN
+        if (Number.isFinite(ej) && ej !== anioNum) return false
+        if (!Number.isFinite(ej)) {
+          const y = c.fechaReferenciaTrimestre?.getFullYear?.()
+          if (!Number.isFinite(y) || y !== anioNum) return false
+        }
         if (trimSel === 'all') return true
         const qSel = parseInt(trimSel, 10)
         return clasificarPorFechaInicio(c).trimestre === qSel
       })
 
       listaFinal.sort((a, b) => {
-        const ta = a.fechaReferenciaTrimestre?.getTime() ?? 0
-        const tb = b.fechaReferenciaTrimestre?.getTime() ?? 0
-        if (tb !== ta) return tb - ta
+        const ta = fechaInicioADate(a.fecha_inicio)?.getTime() ?? 0
+        const tb = fechaInicioADate(b.fecha_inicio)?.getTime() ?? 0
+        if (ta !== tb) return ta - tb
         return String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es', { numeric: true })
       })
 
