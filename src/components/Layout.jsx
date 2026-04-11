@@ -7,7 +7,7 @@ import {
   FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
-import { esUsuarioGestoria } from '../utils/userRoles'
+import { esUsuarioGestoria, puedeAccederCierresEconomicos } from '../utils/userRoles'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
 const STORAGE_ATTENDANCE_ID = 'attendance_id'
@@ -117,8 +117,10 @@ const Layout = ({ user, onLogout }) => {
       { path: '/crm',               icon: Plane,           label: 'CRM / Captación' },
       { path: '/composer',             icon: Edit3,      label: 'Composer' },
       { path: '/cierres',              icon: Calculator, label: 'Cierres' },
-      { path: '/historial-cierres', icon: History,         label: 'Historial de Cierres' },
     ]
+    if (puedeAccederCierresEconomicos(user)) {
+      base.push({ path: '/historial-cierres', icon: History, label: 'Cierres Económicos' })
+    }
     if (esAdmin || esGestoria) {
       base.push({ path: '/inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })
     }
@@ -128,7 +130,7 @@ const Layout = ({ user, onLogout }) => {
       return base.filter(item => permitidas.has(item.path))
     }
     return base
-  }, [ejercicioActual, esAdmin, esGestoria])
+  }, [ejercicioActual, esAdmin, esGestoria, user])
 
   return (
     <div className="flex h-screen bg-gray-50">

@@ -5,7 +5,7 @@ import { storage } from '../utils/storage'
 import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { registrarSalidaOnUnload, heartbeatSalida, registrarEntradaSilencioso } from '../utils/controlHorario'
-import { esUsuarioGestoria } from '../utils/userRoles'
+import { esUsuarioGestoria, puedeAccederCierresEconomicos } from '../utils/userRoles'
 import CentralDeInteligencia from '../components/CentralDeInteligencia'
 import ResumenPipeline from '../components/ResumenPipeline'
 import IntegrityPanel from '../components/IntegrityPanel'
@@ -291,9 +291,9 @@ const Dashboard = ({ user = null }) => {
   const cards = [
     { title: 'Total Clientes',    value: stats.totalClientes,     icon: Users,     color: 'bg-blue-500',   link: '/clientes'          },
     { title: 'Expedientes',       value: stats.totalCotizaciones, icon: Calculator, color: 'bg-green-500', link: '/expedientes'        },
-    { title: 'Cierres',           value: stats.totalCierres,      icon: Archive,   color: 'bg-slate-600',  link: '/historial-cierres'  },
+    { title: 'Cierres Económicos', value: stats.totalCierres,      icon: Archive,   color: 'bg-slate-600',  link: '/historial-cierres'  },
     { title: 'Visitas Pendientes',value: stats.visitasPendientes, icon: Briefcase, color: 'bg-orange-500', link: '/crm'                },
-  ]
+  ].filter((c) => c.link !== '/historial-cierres' || puedeAccederCierresEconomicos(user))
 
   return (
     <div>

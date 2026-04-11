@@ -16,7 +16,15 @@ import NotasTrabajo from './pages/NotasTrabajo';
 import Composer from './pages/Composer';
 import InteligenciaEconomica from './pages/InteligenciaEconomica';
 import AdminRouteGuard from './components/AdminRouteGuard';
-import { esUsuarioGestoria } from './utils/userRoles';
+import { esUsuarioGestoria, puedeAccederCierresEconomicos } from './utils/userRoles';
+
+/** Ruta `/historial-cierres`: solo ADMIN o GESTORIA; resto → panel principal. */
+function CierresEconomicosRoute({ user }) {
+  if (!puedeAccederCierresEconomicos(user)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <HistorialCierres user={user} />;
+}
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 const USUARIOS_AUTORIZADOS = {
@@ -28,7 +36,7 @@ const USUARIOS_AUTORIZADOS = {
 const CLAVE_MAESTRA = 'tabora';
 
 // ─── Helpers de rol ──────────────────────────────────────────────────────────
-// esUsuarioGestoria: ./utils/userRoles.js (reutilizable en páginas como Historial de Cierres)
+// esUsuarioGestoria / puedeAccederCierresEconomicos: ./utils/userRoles.js
 
 // Bloquea a usuarios GESTORIA de rutas internas que no les corresponden
 const GestoriaBlockGuard = ({ user, children }) => {
@@ -124,7 +132,14 @@ function App() {
             {/* ── Accesibles a todos ── */}
             <Route path="dashboard"         element={<Dashboard user={session} />} />
             <Route path="cierres"           element={<ProtectedRoute user={session}><Cierres user={session} /></ProtectedRoute>} />
-            <Route path="historial-cierres" element={<ProtectedRoute user={session}><HistorialCierres user={session} /></ProtectedRoute>} />
+            <Route
+              path="historial-cierres"
+              element={
+                <ProtectedRoute user={session}>
+                  <CierresEconomicosRoute user={session} />
+                </ProtectedRoute>
+              }
+            />
             <Route path="proveedores"       element={<ProtectedRoute user={session}><Proveedores user={session} /></ProtectedRoute>} />
 
             {/* ── Bloqueadas para GESTORIA ── */}

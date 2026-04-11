@@ -727,7 +727,7 @@ const HistorialCierres = ({ user }) => {
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-            Historial de Cierres
+            Cierres Económicos
           </h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
             Estados <strong>Cerrado</strong> y <strong>Liquidado</strong> · datos desde <code className="text-[10px] bg-slate-100 px-1 rounded">expedientes_nuevos</code> (si existe) o <code className="text-[10px] bg-slate-100 px-1 rounded">expedientes</code> · sin límite de filas en la consulta · T1–T4 por mes de fecha de referencia · {etiquetaPeriodo}
