@@ -43,6 +43,16 @@ export function importeIvaNumericoParaSupabase(raw) {
   return Number(num)
 }
 
+/**
+ * `importe_iva` listo para `gastos_estructura`: misma limpieza que {@link importeIvaNumericoParaSupabase}
+ * y garantía de `Number` finito (float), o `null` si no es válido.
+ */
+export function importeIvaFloatParaGastosEstructura(raw) {
+  const x = importeIvaNumericoParaSupabase(raw)
+  if (x == null || !Number.isFinite(Number(x))) return null
+  return Number(x)
+}
+
 export function esc(str) {
   return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }

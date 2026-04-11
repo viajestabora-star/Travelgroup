@@ -19,7 +19,7 @@ import {
   mesEstructuraDesdeNumero,
   mesNumeroDesdeEstructura,
   normalizarProveedorEstructura,
-  importeIvaNumericoParaSupabase,
+  importeIvaFloatParaGastosEstructura,
 } from '../../utils/historialCierresFormat'
 import {
   fusionarFacturasClientePorExpediente,
@@ -37,7 +37,7 @@ import {
   esErrorTablaInexistenteHistorial,
 } from '../../utils/historialCierresShared'
 
-/** Columnas permitidas en `gastos_estructura` (inserción manual / generada; nunca concepto, fecha_factura, activo, periodicidad). */
+/** Columnas permitidas en `gastos_estructura` (sin id en cuerpo de insert). */
 const CAMPOS_INSERT_GASTOS_ESTRUCTURA = new Set([
   'proveedor',
   'importe_iva',
@@ -48,26 +48,37 @@ const CAMPOS_INSERT_GASTOS_ESTRUCTURA = new Set([
   'plantilla_id',
 ])
 
+const PROHIBIDOS_GASTOS_ESTRUCTURA = new Set(['concepto', 'fecha_factura', 'activo', 'periodicidad'])
+
+/** Objeto de insert con tipos seguros (importe y anio siempre Number). */
+function filaGastosEstructuraParaSupabase(partial) {
+  const o = {}
+  for (const k of CAMPOS_INSERT_GASTOS_ESTRUCTURA) {
+    if (!Object.prototype.hasOwnProperty.call(partial, k)) continue
+    if (PROHIBIDOS_GASTOS_ESTRUCTURA.has(k)) continue
+    if (k === 'importe_iva') {
+      const v = importeIvaFloatParaGastosEstructura(partial[k])
+      o[k] = v == null || !Number.isFinite(v) ? 0 : v
+    } else if (k === 'anio') {
+      const n = Number(partial[k])
+      o[k] = Number.isFinite(n) ? n : 0
+    } else if (k === 'es_extra') {
+      o[k] = !!partial[k]
+    } else {
+      o[k] = partial[k]
+    }
+  }
+  return o
+}
+
 /**
  * Inserción desde plantilla: objeto nuevo, solo columnas de `gastos_estructura`.
  */
 function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
   const proveedor = normalizarProveedorEstructura(String(plantilla?.proveedor ?? '').trim())
   const plantilla_id = plantilla?.id ?? null
-  let importe_iva = importeIvaNumericoParaSupabase(plantilla?.importe_base)
-  if (importe_iva == null || !Number.isFinite(importe_iva)) {
-    const s = String(plantilla?.importe_base ?? '')
-      .trim()
-      .replace(/\u00a0/g, '')
-      .replace(/\s/g, '')
-      .replace(/€/g, '')
-      .replace(/EUR/gi, '')
-      .replace(/,/g, '.')
-    importe_iva = Number(parseFloat(s))
-  }
-  if (!Number.isFinite(importe_iva)) importe_iva = 0
-  else importe_iva = Number(importe_iva)
-  return {
+  const importe_iva = importeIvaFloatParaGastosEstructura(plantilla?.importe_base) ?? 0
+  return filaGastosEstructuraParaSupabase({
     proveedor,
     importe_iva,
     mes: mesTxt,
@@ -75,7 +86,7 @@ function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
     url_pdf: null,
     es_extra: false,
     plantilla_id,
-  }
+  })
 }
 
 const CAMPOS_UPDATE_GASTOS_ESTRUCTURA = new Set([
@@ -87,6 +98,35 @@ const CAMPOS_UPDATE_GASTOS_ESTRUCTURA = new Set([
   'es_extra',
   'plantilla_id',
 ])
+
+/** Update: solo columnas permitidas; `importe_iva` y `anio` siempre Number; sin claves prohibidas ni `id`. */
+function payloadUpdateGastosEstructuraDesdeCampos(campos) {
+  const out = {}
+  for (const k of Object.keys(campos || {})) {
+    if (k === 'id' || PROHIBIDOS_GASTOS_ESTRUCTURA.has(k)) continue
+    if (!CAMPOS_UPDATE_GASTOS_ESTRUCTURA.has(k)) continue
+    if (k === 'importe_iva') {
+      const v = importeIvaFloatParaGastosEstructura(campos[k])
+      if (v == null || !Number.isFinite(v) || v < 0) {
+        return { ok: false, mensaje: 'Importe no válido (usa números, coma o punto, sin €).' }
+      }
+      out[k] = v
+    } else if (k === 'anio') {
+      const n = Number(campos[k])
+      if (!Number.isFinite(n)) {
+        return { ok: false, mensaje: 'Año no válido.' }
+      }
+      out[k] = n
+    } else if (k === 'es_extra') {
+      out[k] = campos[k] === true
+    } else if (k === 'plantilla_id') {
+      out[k] = campos[k] == null ? null : campos[k]
+    } else {
+      out[k] = campos[k]
+    }
+  }
+  return { ok: true, payload: out }
+}
 
 const GastoMensualModalContent = memo(function GastoMensualModalContent({
   mesNum,
@@ -100,11 +140,13 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
 }) {
   const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual())
   const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
+  const [marcarExtra, setMarcarExtra] = useState(() => !!esExtra)
   const importeModalRef = useRef(null)
 
   useEffect(() => {
     setFormGastoMensual(formInicialGastoMensual())
     setArchivoGastoMensual(null)
+    setMarcarExtra(!!esExtra)
     if (importeModalRef.current) importeModalRef.current.value = ''
   }, [mesNum, añoStr, esExtra])
 
@@ -116,8 +158,7 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       cat === 'otro'
         ? proveedorOtro
         : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
-    const importeConIvaRaw = importeIvaNumericoParaSupabase(importeModalRef.current?.value)
-    const importeConIva = importeConIvaRaw == null ? null : Number(importeConIvaRaw)
+    const importeConIva = importeIvaFloatParaGastosEstructura(importeModalRef.current?.value)
     const file = archivoGastoMensual
 
     if (!proveedor) {
@@ -148,18 +189,15 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         anioEjercicio,
         null
       )
-      const row = {
+      const row = filaGastosEstructuraParaSupabase({
         proveedor: normalizarProveedorEstructura(proveedor),
-        importe_iva: Number(importeConIva),
+        importe_iva: importeConIva,
         url_pdf: pathStorage,
         mes: mesTxt,
         anio: Number(anioEjercicio),
-        es_extra: !!esExtra,
+        es_extra: !!marcarExtra,
         plantilla_id: null,
-      }
-      for (const k of Object.keys(row)) {
-        if (!CAMPOS_INSERT_GASTOS_ESTRUCTURA.has(k)) delete row[k]
-      }
+      })
       const { error: insErr } = await supabase.from('gastos_estructura').insert(row)
       if (insErr) {
         if (pathStorage) await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
@@ -186,15 +224,10 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100 bg-slate-50">
         <div>
           <h2 id="modal-gasto-mensual-titulo" className="text-lg font-black text-slate-900 tracking-tight">
-            {esExtra ? 'Añadir gasto extra' : 'Añadir Gasto de Estructura'}
+            Añadir gasto de estructura
           </h2>
           <p className="text-xs text-slate-500 mt-1">
             Bloque sugerido: {NOMBRES_MES[mesNum - 1]} · Ejercicio {añoStr}
-            {esExtra && (
-              <span className="block mt-1 text-amber-800 font-semibold">
-                Gasto manual fuera de plantilla (se marca como extra).
-              </span>
-            )}
           </p>
         </div>
         <button
@@ -241,10 +274,19 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
             />
           </label>
         )}
+        <label className="flex items-center gap-2 mt-1 text-xs font-semibold text-amber-900 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={marcarExtra}
+            onChange={(e) => setMarcarExtra(e.target.checked)}
+            className="rounded border-amber-400 text-amber-700 focus:ring-amber-500"
+          />
+          Gasto extra (fuera de plantilla)
+        </label>
         <label className="block text-xs font-semibold text-slate-600">
           Importe (con IVA)
           <input
-            key={`imp-modal-${mesNum}-${añoStr}-${esExtra ? 'x' : 'n'}`}
+            key={`imp-modal-${mesNum}-${añoStr}`}
             ref={importeModalRef}
             type="text"
             name="importe_gasto_estructura"
@@ -514,7 +556,7 @@ export const CierresModalsLayer = memo(function CierresModalsLayer({
         >
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
             <GastoMensualModalContent
-              key={`${modalGastoMensual.mesNum}-${modalGastoMensual.esExtra ? 'x' : 'n'}`}
+              key={`modal-gasto-${modalGastoMensual.mesNum}-${año}`}
               mesNum={modalGastoMensual.mesNum}
               esExtra={!!modalGastoMensual.esExtra}
               añoStr={año}
@@ -730,25 +772,9 @@ export function useCierresModals({
       if (fuenteGastosEstructura !== 'gastos_estructura') {
         return { ok: false, mensaje: 'Los gastos de estructura aún se están cargando.' }
       }
-      const prohibidos = ['concepto', 'fecha_factura', 'activo', 'periodicidad']
-      const payload = {}
-      for (const k of Object.keys(campos || {})) {
-        if (prohibidos.includes(k)) continue
-        if (!CAMPOS_UPDATE_GASTOS_ESTRUCTURA.has(k)) continue
-        if (k === 'importe_iva') {
-          const v = importeIvaNumericoParaSupabase(campos[k])
-          if (v == null || !Number.isFinite(Number(v))) {
-            return { ok: false, mensaje: 'Importe no válido (usa números, coma o punto, sin €).' }
-          }
-          payload[k] = Number(v)
-        } else if (k === 'es_extra') {
-          payload[k] = campos[k] === true
-        } else if (k === 'plantilla_id') {
-          payload[k] = campos[k] == null ? null : campos[k]
-        } else {
-          payload[k] = campos[k]
-        }
-      }
+      const built = payloadUpdateGastosEstructuraDesdeCampos(campos)
+      if (!built.ok) return built
+      const { payload } = built
       const { error } = await supabase.from('gastos_estructura').update(payload).eq('id', row.id)
       if (error) {
         return { ok: false, mensaje: error.message }
