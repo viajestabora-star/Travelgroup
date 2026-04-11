@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState, memo } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, memo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { X, Loader2, ExternalLink, Package, Upload } from 'lucide-react'
 import JSZip from 'jszip'
@@ -19,6 +19,7 @@ import {
   mesEstructuraDesdeNumero,
   mesNumeroDesdeEstructura,
   normalizarProveedorEstructura,
+  importeIvaNumericoParaSupabase,
 } from '../../utils/historialCierresFormat'
 import {
   fusionarFacturasClientePorExpediente,
@@ -38,33 +39,19 @@ import {
 
 /** Solo columnas existentes en `gastos_estructura` (no copiar campos de `gastos_plantilla`). */
 function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
-  const base = plantilla.importe_base != null ? Number(plantilla.importe_base) : 0
+  const base = importeIvaNumericoParaSupabase(plantilla.importe_base) ?? 0
   return {
     proveedor: normalizarProveedorEstructura(String(plantilla.proveedor || '').trim()),
-    importe_iva: Number.isFinite(base) ? base : 0,
+    importe_iva: base,
     mes: mesTxt,
     anio: anioNum,
+    url_pdf: null,
+    es_extra: false,
     plantilla_id: plantilla.id,
   }
 }
 
 const CAMPOS_UPDATE_GASTOS_ESTRUCTURA = new Set(['proveedor', 'importe_iva', 'mes', 'anio', 'url_pdf'])
-
-/** Input memoizado fuera del ciclo de vida del modal para evitar pérdida de foco al escribir. */
-const ImporteGastoModalInput = memo(function ImporteGastoModalInput({ value, onChangeValue }) {
-  return (
-    <input
-      type="text"
-      name="importe_gasto_estructura"
-      autoComplete="off"
-      inputMode="decimal"
-      value={value}
-      onChange={(e) => onChangeValue(e.target.value)}
-      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-      placeholder="0,00"
-    />
-  )
-})
 
 const GastoMensualModalContent = memo(function GastoMensualModalContent({
   mesNum,
@@ -78,12 +65,12 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
 }) {
   const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual())
   const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
-  const [importeIvaStr, setImporteIvaStr] = useState('')
+  const importeModalRef = useRef(null)
 
   useEffect(() => {
     setFormGastoMensual(formInicialGastoMensual())
     setArchivoGastoMensual(null)
-    setImporteIvaStr('')
+    if (importeModalRef.current) importeModalRef.current.value = ''
   }, [mesNum, añoStr, esExtra])
 
   const guardarGastoMensualDesdeModal = async () => {
@@ -94,15 +81,15 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       cat === 'otro'
         ? proveedorOtro
         : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
-    const importeConIva = parseFloat(String(importeIvaStr || '').replace(',', '.'))
+    const importeConIva = importeIvaNumericoParaSupabase(importeModalRef.current?.value)
     const file = archivoGastoMensual
 
     if (!proveedor) {
       alert(cat === 'otro' ? 'Indica el nombre del proveedor (Otro).' : 'Selecciona un proveedor.')
       return
     }
-    if (!Number.isFinite(importeConIva) || importeConIva < 0) {
-      alert('Indica un importe válido (con IVA).')
+    if (importeConIva == null || importeConIva < 0) {
+      alert('Indica un importe válido (número; puedes usar coma decimal; sin € ni texto).')
       return
     }
     if (!file || file.type !== 'application/pdf') {
@@ -131,6 +118,8 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         url_pdf: pathStorage,
         mes: mesTxt,
         anio: anioEjercicio,
+        es_extra: !!esExtra,
+        plantilla_id: null,
       }
       const { error: insErr } = await supabase.from('gastos_estructura').insert(row)
       if (insErr) {
@@ -215,7 +204,17 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         )}
         <label className="block text-xs font-semibold text-slate-600">
           Importe (con IVA)
-          <ImporteGastoModalInput value={importeIvaStr} onChangeValue={setImporteIvaStr} />
+          <input
+            key={`imp-modal-${mesNum}-${añoStr}-${esExtra ? 'x' : 'n'}`}
+            ref={importeModalRef}
+            type="text"
+            name="importe_gasto_estructura"
+            autoComplete="off"
+            inputMode="decimal"
+            defaultValue=""
+            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+            placeholder="0,00"
+          />
         </label>
         <label className="block text-xs font-semibold text-slate-600">
           Archivo PDF
@@ -694,7 +693,16 @@ export function useCierresModals({
       }
       const payload = {}
       for (const k of Object.keys(campos || {})) {
-        if (CAMPOS_UPDATE_GASTOS_ESTRUCTURA.has(k)) payload[k] = campos[k]
+        if (!CAMPOS_UPDATE_GASTOS_ESTRUCTURA.has(k)) continue
+        if (k === 'importe_iva') {
+          const v = importeIvaNumericoParaSupabase(campos[k])
+          if (v == null) {
+            return { ok: false, mensaje: 'Importe no válido (usa números, coma o punto, sin €).' }
+          }
+          payload[k] = v
+        } else {
+          payload[k] = campos[k]
+        }
       }
       const { error } = await supabase.from('gastos_estructura').update(payload).eq('id', row.id)
       if (error) {

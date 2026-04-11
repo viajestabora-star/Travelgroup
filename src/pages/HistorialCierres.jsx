@@ -36,6 +36,7 @@ import {
   AÑOS,
   añoActual,
   normalizarProveedorEstructura,
+  importeIvaNumericoParaSupabase,
 } from '../utils/historialCierresFormat'
 import {
   TRIMESTRES,
@@ -49,9 +50,8 @@ import {
 } from '../utils/historialCierresShared'
 
 function importeGastoEstructuraPendiente(importeIva) {
-  if (importeIva == null || importeIva === '') return true
-  const x = Number(importeIva)
-  return !Number.isFinite(x) || x === 0
+  const x = importeIvaNumericoParaSupabase(importeIva)
+  return x == null || x === 0
 }
 
 function fmtImporteInput(importeIva) {
@@ -138,13 +138,13 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   })
 
   const persistirImporteDesdeString = async (strRaw) => {
-    const importeNum = parseFloat(String(strRaw ?? '').replace(',', '.'))
-    if (!Number.isFinite(importeNum) || importeNum < 0) {
-      alert('Importe no válido.')
+    const importeNum = importeIvaNumericoParaSupabase(strRaw)
+    if (importeNum == null || importeNum < 0) {
+      alert('Importe no válido (usa solo números; coma o punto decimal; sin €).')
       return
     }
-    const prev = Number(r.importe_iva)
-    if (Number.isFinite(prev) && Math.abs(prev - importeNum) < 1e-9) return
+    const prev = importeIvaNumericoParaSupabase(r.importe_iva)
+    if (prev != null && Math.abs(prev - importeNum) < 1e-9) return
 
     setGuardando(true)
     const res = await onGuardarEdicion(r, {
@@ -184,8 +184,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
       if (r.url_pdf && r.url_pdf !== pathNuevo) {
         await eliminarObjetoStorageFacturaProveedor(r.url_pdf)
       }
-      const impDesde = parseFloat(String(importeDraftRef.current ?? '').replace(',', '.'))
-      const importeOk = Number.isFinite(impDesde) && impDesde >= 0 ? impDesde : n(r.importe_iva)
+      const importeOk =
+        importeIvaNumericoParaSupabase(importeDraftRef.current) ??
+        importeIvaNumericoParaSupabase(r.importe_iva) ??
+        0
       const res = await onGuardarEdicion(r, {
         ...payloadMesAnio(),
         importe_iva: importeOk,
@@ -237,7 +239,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           accept="application/pdf,.pdf"
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
           disabled={subiendoPdf}
-          onChange={(e) => onPdfElegido(e.target.files?.[0] || null)}
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) onPdfElegido(f)
+          }}
         />
         <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 border border-amber-300 rounded-lg px-2 py-1.5 bg-amber-50 pointer-events-none">
           {subiendoPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
@@ -259,10 +264,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
               {proveedorTxt}
             </span>
           </td>
-          <td className={`px-3 py-2 text-right tabular-nums ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
-            <div className="font-semibold">{formatEuroAmount(r.importe_iva)}</div>
+          <td className={`px-3 py-2 text-right ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
+            <div className="font-semibold tabular-nums">{formatEuroAmount(r.importe_iva)}</div>
+            <div className="mt-1 flex flex-wrap justify-end gap-2">{celdaPdf(true)}</div>
           </td>
-          <td className="px-3 py-2">{celdaPdf(true)}</td>
         </tr>
       )
     }
@@ -304,19 +309,17 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           </span>
         </td>
         <td className="px-3 py-2 align-top text-right">
-          <GastoImporteEditable
-            rowId={r.id}
-            importeServidor={r.importe_iva}
-            className="w-full max-w-[7rem] ml-auto border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
-            onDraftChange={(s) => {
-              importeDraftRef.current = s
-            }}
-            onCommit={(s) => persistirImporteDesdeString(s)}
-          />
-        </td>
-        <td className="px-3 py-2 align-top">
-          <div className="flex flex-col gap-2 items-start">
-            {celdaPdf(true)}
+          <div className="flex flex-col items-end gap-2 max-w-[11rem] ml-auto">
+            <GastoImporteEditable
+              rowId={r.id}
+              importeServidor={r.importe_iva}
+              className="w-full max-w-[7rem] border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
+              onDraftChange={(s) => {
+                importeDraftRef.current = s
+              }}
+              onCommit={(s) => persistirImporteDesdeString(s)}
+            />
+            <div className="flex flex-col gap-1.5 items-end w-full">{celdaPdf(true)}</div>
             {accionesFila}
           </div>
         </td>
@@ -334,7 +337,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         <p className="text-sm font-bold text-slate-900 flex-1 min-w-0 truncate">{proveedorTxt}</p>
       </div>
       <label className="block text-xs text-slate-600">
-        Importe
+        Importe y factura (PDF)
         <GastoImporteEditable
           rowId={r.id}
           importeServidor={r.importe_iva}
@@ -344,11 +347,8 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           }}
           onCommit={(s) => persistirImporteDesdeString(s)}
         />
+        <div className="mt-2">{celdaPdf(false)}</div>
       </label>
-      <div>
-        <p className="text-[10px] font-black uppercase text-slate-400 mb-1">PDF</p>
-        {celdaPdf(false)}
-      </div>
       {accionesFila ? <div className="pt-1">{accionesFila}</div> : null}
     </div>
   )
@@ -775,7 +775,7 @@ const HistorialCierres = ({ user }) => {
           const descargando = descargandoPackMes === `${anioNum}-${mesNum}`
           const conPdf = rows.filter((r) => r.url_pdf)
           const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
-          const colSpanTabla = 3
+          const colSpanTabla = 2
           const puedeEditarGastos = esAdmin || esGestoria
           const filaVaciaListado = (
             <tr>
@@ -844,7 +844,7 @@ const HistorialCierres = ({ user }) => {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100 text-slate-700">
                       <tr>
-                        {['Proveedor', 'Importe', 'PDF'].map(
+                        {['Proveedor', 'Importe'].map(
                           (lab) => (
                             <th
                               key={lab}

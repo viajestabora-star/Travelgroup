@@ -9,7 +9,14 @@ import {
   resolverUrlPublicaFacturaProveedor,
   descargarArrayBufferFacturaProveedor,
 } from './facturaProveedorStorage'
-import { n, esc, fmtEur, mesNumeroDesdeEstructura, normalizarProveedorEstructura } from './historialCierresFormat'
+import {
+  n,
+  esc,
+  fmtEur,
+  mesNumeroDesdeEstructura,
+  normalizarProveedorEstructura,
+  importeIvaNumericoParaSupabase,
+} from './historialCierresFormat'
 
 // ─── Helpers dominio (tras números / moneda / fechas de fila) ─────────────────
 
@@ -242,9 +249,9 @@ const nombreArchivoSeguro = (s, maxLen = 80) => {
   return base || 'doc'
 }
 
-/** Columnas de `gastos_estructura` alineadas con esquema real (sin columnas obsoletas). */
+/** Columnas de `gastos_estructura` (esquema acordado con Supabase). */
 const GASTOS_ESTRUCTURA_SELECT =
-  'id, proveedor, importe_iva, url_pdf, mes, anio, plantilla_id'
+  'id, proveedor, importe_iva, url_pdf, mes, anio, es_extra, plantilla_id'
 
 const GASTOS_ESTRUCTURA_SELECT_SIN_CREATED = GASTOS_ESTRUCTURA_SELECT
 

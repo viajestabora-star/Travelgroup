@@ -11,6 +11,37 @@ export function parseToFiniteNumber(value) {
 
 export const n = parseToFiniteNumber
 
+/**
+ * Normaliza un importe antes de guardarlo en `importe_iva` (NUMERIC): quita €, EUR, espacios/NBSP;
+ * admite coma o punto decimal; devuelve número finito o null si no es parseable.
+ */
+export function importeIvaNumericoParaSupabase(raw) {
+  if (raw == null || raw === '') return null
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) ? raw : null
+  }
+  let s = String(raw)
+    .trim()
+    .replace(/\u00a0/g, '')
+    .replace(/\s+/g, '')
+    .replace(/€/g, '')
+    .replace(/EUR/gi, '')
+  if (s === '') return null
+  if (s.includes(',') && s.includes('.')) {
+    const li = s.lastIndexOf(',')
+    const lj = s.lastIndexOf('.')
+    if (li > lj) {
+      s = s.replace(/\./g, '').replace(',', '.')
+    } else {
+      s = s.replace(/,/g, '')
+    }
+  } else if (s.includes(',')) {
+    s = s.replace(/\./g, '').replace(',', '.')
+  }
+  const num = parseFloat(s)
+  return Number.isFinite(num) ? num : null
+}
+
 export function esc(str) {
   return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }

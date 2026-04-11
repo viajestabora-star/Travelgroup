@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
-import { n, estadoInicialAcordeon, mesNumeroDesdeEstructura, normalizarProveedorEstructura } from '../utils/historialCierresFormat'
+import {
+  n,
+  estadoInicialAcordeon,
+  mesNumeroDesdeEstructura,
+  normalizarProveedorEstructura,
+  importeIvaNumericoParaSupabase,
+} from '../utils/historialCierresFormat'
 import {
   rangoFechasConsultaExpedientes,
   NUMEROS_DIAGNOSTICO_HISTORIAL,
@@ -71,8 +77,9 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
         url_pdf: r.url_pdf ?? null,
         mes: r.mes != null ? String(r.mes) : null,
         mesNum: mesNumeroDesdeEstructura(r.mes),
-        importe_iva: r.importe_iva != null ? n(r.importe_iva) : null,
+        importe_iva: importeIvaNumericoParaSupabase(r.importe_iva) ?? null,
         anio: r.anio != null ? Number(r.anio) : null,
+        es_extra: r.es_extra === true,
         plantilla_id: r.plantilla_id ?? null,
       })
 
