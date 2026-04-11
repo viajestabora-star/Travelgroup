@@ -9,7 +9,6 @@ import {
   ChevronDown,
   Plus,
   Package,
-  Building2,
   ExternalLink,
   Trash2,
   Sparkles,
@@ -30,6 +29,7 @@ import {
   n,
   AÑOS,
   añoActual,
+  normalizarProveedorEstructura,
 } from '../utils/historialCierresFormat'
 import {
   TRIMESTRES,
@@ -41,23 +41,61 @@ import {
   NUMEROS_DIAGNOSTICO_HISTORIAL,
 } from '../utils/historialCierresShared'
 
+function fmtFechaFacturaGastoHistorial(raw) {
+  if (!raw) return '—'
+  const d = parsearFechaADate(raw) || new Date(raw)
+  return !isNaN(d.getTime())
+    ? d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : '—'
+}
+
+/** Input de importe estable (memo) para la tabla de gastos de estructura. */
+const GastoEstructuraImporteCell = memo(function GastoEstructuraImporteCell({ value, onChangeValue, compact }) {
+  return (
+    <input
+      type="text"
+      autoComplete="off"
+      inputMode="decimal"
+      value={value}
+      onChange={(e) => onChangeValue(e.target.value)}
+      className={
+        compact
+          ? 'w-full max-w-[7rem] ml-auto border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right'
+          : 'mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums'
+      }
+    />
+  )
+})
+
 function importeGastoEstructuraPendiente(importeIva) {
   if (importeIva == null || importeIva === '') return true
   const x = Number(importeIva)
   return !Number.isFinite(x) || x === 0
 }
 
+function gastoEstructuraEditorPropsIguales(prev, next) {
+  if (prev.esAdmin !== next.esAdmin || prev.layout !== next.layout) return false
+  if (prev.url !== next.url) return false
+  const a = prev.r
+  const b = next.r
+  return (
+    a.id === b.id &&
+    a.proveedor === b.proveedor &&
+    a.importe_iva === b.importe_iva &&
+    a.fecha_factura === b.fecha_factura &&
+    a.url_pdf === b.url_pdf
+  )
+}
+
 const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   r,
   esAdmin,
-  fmtFechaFact,
   url,
   onAbrirPdf,
   onBorrar,
   onGuardarEdicion,
   layout,
 }) {
-  const [proveedor, setProveedor] = useState(() => r.proveedor ?? '')
   const [importeIvaStr, setImporteIvaStr] = useState(() =>
     r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
   )
@@ -65,13 +103,13 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
-    setProveedor(r.proveedor ?? '')
     setFecha(r.fecha_factura ? String(r.fecha_factura).slice(0, 10) : '')
     setImporteIvaStr(
       r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
     )
   }, [r.id, r.proveedor, r.importe_iva, r.fecha_factura])
 
+  const proveedorTxt = normalizarProveedorEstructura(r.proveedor) || '—'
   const importePend = importeGastoEstructuraPendiente(r.importe_iva)
 
   const aplicarGuardado = async () => {
@@ -91,7 +129,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
     }
     setGuardando(true)
     const res = await onGuardarEdicion(r, {
-      proveedor: proveedor.trim(),
+      proveedor: normalizarProveedorEstructura(r.proveedor),
       importe_iva: importeNum,
       fecha_factura: fecha,
       mes: String(fd.getMonth() + 1),
@@ -105,13 +143,13 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
     if (layout === 'table') {
       return (
         <tr>
-          <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{fmtFechaFact(r.fecha_factura)}</td>
+          <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{fmtFechaFacturaGastoHistorial(r.fecha_factura)}</td>
           <td className="px-3 py-2 text-slate-800">
             <span className="inline-flex items-center gap-2">
               <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
                 {inicialesProveedorEstructura(r.proveedor)}
               </span>
-              {r.proveedor ?? '—'}
+              {proveedorTxt}
             </span>
           </td>
           <td className={`px-3 py-2 text-right tabular-nums ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
@@ -139,9 +177,9 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700">
             {inicialesProveedorEstructura(r.proveedor)}
           </span>
-          <p className="font-bold text-slate-900 text-sm flex-1">{r.proveedor ?? '—'}</p>
+          <p className="font-bold text-slate-900 text-sm flex-1">{proveedorTxt}</p>
         </div>
-        <p className="text-xs text-slate-500 mt-1">Fecha: {fmtFechaFact(r.fecha_factura)}</p>
+        <p className="text-xs text-slate-500 mt-1">Fecha: {fmtFechaFacturaGastoHistorial(r.fecha_factura)}</p>
         <p className={`text-sm font-bold mt-1 ${importePend ? 'text-red-600' : 'text-slate-900'}`}>
           {formatEuroAmount(r.importe_iva)}
         </p>
@@ -167,25 +205,16 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
             className="w-full min-w-[9.5rem] border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
           />
         </td>
-        <td className="px-3 py-2 align-top">
-          <input
-            type="text"
-            value={proveedor}
-            onChange={(e) => setProveedor(e.target.value)}
-            className="w-full min-w-[120px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
-          />
+        <td className="px-3 py-2 align-top text-slate-800">
+          <span className="inline-flex items-center gap-2 min-w-0">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
+              {inicialesProveedorEstructura(r.proveedor)}
+            </span>
+            <span className="text-sm font-medium truncate">{proveedorTxt}</span>
+          </span>
         </td>
         <td className="px-3 py-2 align-top text-right">
-          <input
-            key={`importe-ed-${r.id}`}
-            type="text"
-            name={`importe_estructura_${r.id}`}
-            autoComplete="off"
-            inputMode="decimal"
-            value={importeIvaStr}
-            onChange={(e) => setImporteIvaStr(e.target.value)}
-            className="w-full max-w-[7rem] ml-auto border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
-          />
+          <GastoEstructuraImporteCell value={importeIvaStr} onChangeValue={setImporteIvaStr} compact />
         </td>
         <td className="px-3 py-2 align-top">
           {url ? (
@@ -225,27 +254,15 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   return (
     <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80 space-y-2">
       <p className="text-[10px] font-black uppercase text-slate-400">Edición gasto estructura</p>
-      <label className="block text-xs text-slate-600">
-        Proveedor
-        <input
-          type="text"
-          value={proveedor}
-          onChange={(e) => setProveedor(e.target.value)}
-          className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
-        />
-      </label>
+      <div className="flex items-center gap-2">
+        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700 shrink-0">
+          {inicialesProveedorEstructura(r.proveedor)}
+        </span>
+        <p className="text-sm font-bold text-slate-900 flex-1 min-w-0 truncate">{proveedorTxt}</p>
+      </div>
       <label className="block text-xs text-slate-600">
         Importe
-        <input
-          key={`importe-card-${r.id}`}
-          type="text"
-          name={`importe_estructura_card_${r.id}`}
-          autoComplete="off"
-          inputMode="decimal"
-          value={importeIvaStr}
-          onChange={(e) => setImporteIvaStr(e.target.value)}
-          className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
-        />
+        <GastoEstructuraImporteCell value={importeIvaStr} onChangeValue={setImporteIvaStr} />
       </label>
       <label className="block text-xs text-slate-600">
         Fecha factura
@@ -276,7 +293,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
       </div>
     </div>
   )
-})
+}, gastoEstructuraEditorPropsIguales)
 
 const TrimestreAcordeonPanel = memo(function TrimestreAcordeonPanel({
   bucket,
@@ -699,13 +716,6 @@ const HistorialCierres = ({ user }) => {
           const descargando = descargandoPackMes === `${anioNum}-${mesNum}`
           const conPdf = rows.filter((r) => r.url_pdf)
           const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
-          const fmtFechaFact = (raw) => {
-            if (!raw) return '—'
-            const d = parsearFechaADate(raw) || new Date(raw)
-            return !isNaN(d.getTime())
-              ? d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
-              : '—'
-          }
           const colSpanTabla = esAdmin ? 5 : 4
           const filaVaciaListado = (
             <tr>
@@ -722,38 +732,11 @@ const HistorialCierres = ({ user }) => {
               key={mesNum}
               className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
             >
-              <div className="px-4 py-3 border-b border-slate-100 bg-slate-800 text-white flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="px-4 py-3 border-b border-slate-100 bg-slate-800 text-white flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="text-sm font-black uppercase tracking-wide shrink-0">
                   Gastos mensuales — {nombreMes}
                 </h3>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-1 sm:justify-end sm:gap-4 min-w-0">
-                  {rows.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 sm:justify-end flex-1 min-w-0">
-                      {rows.map((r) => (
-                        <div
-                          key={r.id}
-                          className="flex items-center gap-2 rounded-lg bg-slate-700/90 px-2.5 py-1.5 text-white text-xs border border-slate-600/80"
-                        >
-                          <span
-                            className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-600 font-black text-[10px] shrink-0"
-                            title={r.proveedor || ''}
-                          >
-                            {inicialesProveedorEstructura(r.proveedor)}
-                          </span>
-                          <Building2 size={14} className="text-slate-400 shrink-0 hidden md:block" aria-hidden />
-                          <span className="font-semibold truncate max-w-[130px] sm:max-w-[160px]">{r.proveedor ?? '—'}</span>
-                          <span
-                            className={`tabular-nums font-bold shrink-0 ${
-                              importeGastoEstructuraPendiente(r.importe_iva) ? 'text-red-300' : 'text-emerald-300'
-                            }`}
-                          >
-                            {formatEuroAmount(r.importe_iva)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 justify-end shrink-0">
                     {esAdmin && (
                       <>
                         <button
@@ -796,7 +779,6 @@ const HistorialCierres = ({ user }) => {
                     </button>
                   </div>
                 </div>
-              </div>
               <div className="p-4">
                 <div className="hidden sm:block overflow-x-auto mb-4">
                   <table className="w-full text-sm">
@@ -826,7 +808,6 @@ const HistorialCierres = ({ user }) => {
                                 key={r.id}
                                 r={r}
                                 esAdmin={esAdmin}
-                                fmtFechaFact={fmtFechaFact}
                                 url={url}
                                 onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}
                                 onBorrar={borrarFacturaEstructura}
@@ -852,7 +833,6 @@ const HistorialCierres = ({ user }) => {
                           key={r.id}
                           r={r}
                           esAdmin={esAdmin}
-                          fmtFechaFact={fmtFechaFact}
                           url={url}
                           onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}
                           onBorrar={borrarFacturaEstructura}

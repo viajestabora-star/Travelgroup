@@ -57,8 +57,15 @@ export const mesesDelTrimestre = (q) => {
 }
 
 /** Iniciales para “marca” junto al nombre. */
+/** Corrige erratas conocidas en nombres de proveedor (plantilla / estructura). */
+export function normalizarProveedorEstructura(nombre) {
+  return String(nombre ?? '')
+    .trim()
+    .replace(/Aixarenting/gi, 'Caixarenting')
+}
+
 export const inicialesProveedorEstructura = (nombre) => {
-  const t = String(nombre || '').trim()
+  const t = normalizarProveedorEstructura(nombre)
   if (!t) return '??'
   const parts = t.split(/\s+/).filter(Boolean)
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()

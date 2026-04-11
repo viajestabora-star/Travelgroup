@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
-import { n, estadoInicialAcordeon, mesNumeroDesdeEstructura } from '../utils/historialCierresFormat'
+import { n, estadoInicialAcordeon, mesNumeroDesdeEstructura, normalizarProveedorEstructura } from '../utils/historialCierresFormat'
 import {
   rangoFechasConsultaExpedientes,
   NUMEROS_DIAGNOSTICO_HISTORIAL,
@@ -67,7 +67,7 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
     try {
       const mapRow = (r) => ({
         ...r,
-        proveedor: r.proveedor ?? '',
+        proveedor: normalizarProveedorEstructura(r.proveedor ?? ''),
         url_pdf: r.url_pdf ?? null,
         fecha_factura: r.fecha_factura ?? null,
         mes: r.mes != null ? String(r.mes) : null,

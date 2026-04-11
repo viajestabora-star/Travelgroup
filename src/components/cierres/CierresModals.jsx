@@ -18,6 +18,7 @@ import {
   formInicialGastoMensual,
   mesEstructuraDesdeNumero,
   mesNumeroDesdeEstructura,
+  normalizarProveedorEstructura,
 } from '../../utils/historialCierresFormat'
 import {
   fusionarFacturasClientePorExpediente,
@@ -39,11 +40,10 @@ import {
 function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
   const base = plantilla.importe_base != null ? Number(plantilla.importe_base) : 0
   return {
-    proveedor: String(plantilla.proveedor || '').trim(),
+    proveedor: normalizarProveedorEstructura(String(plantilla.proveedor || '').trim()),
     importe_iva: Number.isFinite(base) ? base : 0,
     mes: mesTxt,
     anio: anioNum,
-    es_extra: false,
     plantilla_id: plantilla.id,
   }
 }
