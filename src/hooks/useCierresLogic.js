@@ -73,23 +73,23 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
         mesNum: mesNumeroDesdeEstructura(r.mes),
         importe_iva: r.importe_iva != null ? n(r.importe_iva) : null,
         anio: r.anio != null ? Number(r.anio) : null,
-        es_extra: r.es_extra === true,
         plantilla_id: r.plantilla_id ?? null,
       })
 
       const ejecutarSelect = (columnas) => {
         let q = supabase.from('gastos_estructura').select(columnas).eq('anio', y).not('mes', 'is', null)
-        if (columnas !== '*' && /\bcreated_at\b/.test(String(columnas))) {
-          q = q.order('created_at', { ascending: true })
-        } else {
-          q = q.order('created_at', { ascending: true })
-        }
+        const orderCol = /\bcreated_at\b/.test(String(columnas)) ? 'created_at' : 'id'
+        q = q.order(orderCol, { ascending: true })
         return q
       }
 
       let ultimoError = null
       const tablaNombre = 'gastos_estructura'
-      const intentos = ['*', GASTOS_ESTRUCTURA_SELECT, GASTOS_ESTRUCTURA_SELECT_SIN_CREATED, GASTOS_ESTRUCTURA_SELECT_MINIMAL]
+      const intentos = [
+        GASTOS_ESTRUCTURA_SELECT_MINIMAL,
+        GASTOS_ESTRUCTURA_SELECT,
+        GASTOS_ESTRUCTURA_SELECT_SIN_CREATED,
+      ]
 
       for (const columnas of intentos) {
         try {
@@ -117,11 +117,15 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
 
           if (error) {
             ultimoError = error
-            logErrorSupabase(`${tablaNombre} — error Supabase (SELECT: ${columnas})`, error, { anio: y })
             if (esErrorTablaInexistenteHistorial(error)) {
+              logErrorSupabase(`${tablaNombre} — tabla inexistente (SELECT: ${columnas})`, error, { anio: y })
               break
             }
-            if (esErrorColumnaSql(error)) continue
+            if (esErrorColumnaSql(error)) {
+              ultimoError = error
+              continue
+            }
+            logErrorSupabase(`${tablaNombre} — error Supabase (SELECT: ${columnas})`, error, { anio: y })
             setGastosEstructura([])
             setErrorGastosEstructura(String(error.message || error) || `Error al leer ${tablaNombre}.`)
             return
@@ -151,7 +155,8 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
             if (ma !== mb) return ma - mb
             const ta = a.created_at ? new Date(a.created_at).getTime() : 0
             const tb = b.created_at ? new Date(b.created_at).getTime() : 0
-            return ta - tb
+            if (ta !== tb) return ta - tb
+            return String(a.id || '').localeCompare(String(b.id || ''))
           })
           setGastosEstructura(rows)
           setFuenteGastosEstructura('gastos_estructura')
@@ -159,23 +164,24 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
           return
         } catch (e) {
           ultimoError = e
-          logErrorSupabase(`${tablaNombre} — excepción en intento de lectura (columnas: ${columnas})`, e, { anio: y })
           if (esErrorTablaInexistenteHistorial(e)) {
+            logErrorSupabase(`${tablaNombre} — excepción tabla inexistente (columnas: ${columnas})`, e, { anio: y })
             break
           }
           if (esErrorColumnaSql(e)) continue
+          logErrorSupabase(`${tablaNombre} — excepción en intento de lectura (columnas: ${columnas})`, e, { anio: y })
           setErrorGastosEstructura(String(e?.message || e) || `Error al procesar la respuesta de ${tablaNombre}.`)
           setGastosEstructura([])
           return
         }
       }
-      logErrorSupabase(
-        'gastos_estructura — ningún SELECT compatible con el esquema (ignorado para no bloquear Historial)',
-        ultimoError,
-        {
-          anio: y,
-        }
-      )
+      if (ultimoError && !esErrorColumnaSql(ultimoError) && !esErrorTablaInexistenteHistorial(ultimoError)) {
+        logErrorSupabase(
+          'gastos_estructura — ningún SELECT compatible (revisa columnas en Supabase)',
+          ultimoError,
+          { anio: y }
+        )
+      }
       setGastosEstructura([])
       setFuenteGastosEstructura(null)
       setErrorGastosEstructura(

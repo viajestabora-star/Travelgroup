@@ -131,8 +131,6 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         url_pdf: pathStorage,
         mes: mesTxt,
         anio: anioEjercicio,
-        es_extra: !!esExtra,
-        plantilla_id: null,
       }
       const { error: insErr } = await supabase.from('gastos_estructura').insert(row)
       if (insErr) {
@@ -662,6 +660,8 @@ export function useCierresModals({
     [año]
   )
 
+  const puedeEditarGastosEstructura = esAdmin || esGestoria
+
   const borrarFacturaEstructura = useCallback(
     async (row) => {
       if (!esAdmin) return
@@ -688,7 +688,7 @@ export function useCierresModals({
 
   const guardarEdicionGastoEstructura = useCallback(
     async (row, campos) => {
-      if (!esAdmin) return { ok: false, mensaje: 'Sin permiso' }
+      if (!puedeEditarGastosEstructura) return { ok: false, mensaje: 'Sin permiso' }
       if (fuenteGastosEstructura !== 'gastos_estructura') {
         return { ok: false, mensaje: 'Los gastos de estructura aún se están cargando.' }
       }
@@ -703,7 +703,7 @@ export function useCierresModals({
       await recargarGastosEstructura()
       return { ok: true }
     },
-    [esAdmin, recargarGastosEstructura, fuenteGastosEstructura]
+    [puedeEditarGastosEstructura, recargarGastosEstructura, fuenteGastosEstructura]
   )
 
   const [generandoGastosMes, setGenerandoGastosMes] = useState(null)
@@ -757,7 +757,7 @@ export function useCierresModals({
         const mesTxt = mesEstructuraDesdeNumero(mesNum)
         const { data: existentesRaw, error: eEx } = await supabase
           .from('gastos_estructura')
-          .select('id, plantilla_id, proveedor')
+          .select('id, proveedor')
           .eq('anio', anioNum)
           .eq('mes', mesTxt)
         if (eEx) {
@@ -767,10 +767,11 @@ export function useCierresModals({
         const existentes = Array.isArray(existentesRaw) ? existentesRaw : []
 
         const yaInsertada = (p) =>
-          existentes.some((e) => {
-            if (e.plantilla_id && p.id === e.plantilla_id) return true
-            return String(e.proveedor || '').trim() === String(p.proveedor || '').trim()
-          })
+          existentes.some(
+            (e) =>
+              normalizarProveedorEstructura(String(e.proveedor || '').trim()).toLowerCase() ===
+              normalizarProveedorEstructura(String(p.proveedor || '').trim()).toLowerCase()
+          )
 
         let insertadas = 0
         for (const p of plantillas) {

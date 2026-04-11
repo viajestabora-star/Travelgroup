@@ -54,8 +54,44 @@ function importeGastoEstructuraPendiente(importeIva) {
   return !Number.isFinite(x) || x === 0
 }
 
+function fmtImporteInput(importeIva) {
+  if (importeIva == null || importeIva === '') return ''
+  return String(importeIva).replace('.', ',')
+}
+
+/** Importe con estado local: las pulsaciones no re-renderizan la fila padre. */
+const GastoImporteEditable = memo(function GastoImporteEditable({
+  rowId,
+  importeServidor,
+  className,
+  onDraftChange,
+  onCommit,
+}) {
+  const [val, setVal] = useState(() => fmtImporteInput(importeServidor))
+  useEffect(() => {
+    setVal(fmtImporteInput(importeServidor))
+  }, [rowId, importeServidor])
+
+  return (
+    <input
+      type="text"
+      autoComplete="off"
+      inputMode="decimal"
+      value={val}
+      onChange={(e) => {
+        const v = e.target.value
+        setVal(v)
+        onDraftChange?.(v)
+      }}
+      onBlur={() => onCommit(val)}
+      className={className}
+    />
+  )
+})
+
 function gastoEstructuraEditorPropsIguales(prev, next) {
-  if (prev.esAdmin !== next.esAdmin || prev.layout !== next.layout) return false
+  if (prev.esAdmin !== next.esAdmin || prev.puedeEditarGastos !== next.puedeEditarGastos) return false
+  if (prev.layout !== next.layout) return false
   if (prev.mesNum !== next.mesNum || prev.anioNum !== next.anioNum) return false
   if (prev.url !== next.url) return false
   const a = prev.r
@@ -71,6 +107,7 @@ function gastoEstructuraEditorPropsIguales(prev, next) {
 const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   r,
   esAdmin,
+  puedeEditarGastos,
   mesNum,
   anioNum,
   url,
@@ -79,7 +116,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   onGuardarEdicion,
   layout,
 }) {
-  const importeRef = useRef(null)
+  const importeDraftRef = useRef('')
   const [guardando, setGuardando] = useState(false)
   const [subiendoPdf, setSubiendoPdf] = useState(false)
   const pdfInputRef = useRef(null)
@@ -88,11 +125,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   const anioFila = r.anio != null ? Number(r.anio) : anioNum
 
   useEffect(() => {
-    const el = importeRef.current
-    if (!el) return
-    const s =
-      r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
-    if (document.activeElement !== el) el.value = s
+    importeDraftRef.current = fmtImporteInput(r.importe_iva)
   }, [r.id, r.importe_iva])
 
   const proveedorTxt = normalizarProveedorEstructura(r.proveedor) || '—'
@@ -104,8 +137,8 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
     proveedor: normalizarProveedorEstructura(r.proveedor),
   })
 
-  const persistirImporteDesdeInput = async () => {
-    const importeNum = parseFloat(String(importeRef.current?.value ?? '').replace(',', '.'))
+  const persistirImporteDesdeString = async (strRaw) => {
+    const importeNum = parseFloat(String(strRaw ?? '').replace(',', '.'))
     if (!Number.isFinite(importeNum) || importeNum < 0) {
       alert('Importe no válido.')
       return
@@ -151,7 +184,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
       if (r.url_pdf && r.url_pdf !== pathNuevo) {
         await eliminarObjetoStorageFacturaProveedor(r.url_pdf)
       }
-      const impDesde = parseFloat(String(importeRef.current?.value ?? '').replace(',', '.'))
+      const impDesde = parseFloat(String(importeDraftRef.current ?? '').replace(',', '.'))
       const importeOk = Number.isFinite(impDesde) && impDesde >= 0 ? impDesde : n(r.importe_iva)
       const res = await onGuardarEdicion(r, {
         ...payloadMesAnio(),
@@ -193,7 +226,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         </div>
       )
     }
-    if (!esAdmin) {
+    if (!puedeEditarGastos) {
       return <span className="text-xs text-slate-400">—</span>
     }
     return (
@@ -214,7 +247,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
     )
   }
 
-  if (!esAdmin) {
+  if (!puedeEditarGastos) {
     if (layout === 'table') {
       return (
         <tr>
@@ -249,6 +282,16 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
     )
   }
 
+  const accionesFila = esAdmin ? (
+    <button
+      type="button"
+      onClick={() => onBorrar(r)}
+      className="text-[10px] font-black uppercase text-red-600 hover:text-red-800"
+    >
+      Eliminar fila
+    </button>
+  ) : null
+
   if (layout === 'table') {
     return (
       <tr>
@@ -261,40 +304,21 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           </span>
         </td>
         <td className="px-3 py-2 align-top text-right">
-          <input
-            ref={importeRef}
-            key={`imp-${r.id}`}
-            type="text"
-            name={`importe_estructura_${r.id}`}
-            autoComplete="off"
-            inputMode="decimal"
-            defaultValue={
-              r.importe_iva != null && r.importe_iva !== ''
-                ? String(r.importe_iva).replace('.', ',')
-                : ''
-            }
-            onBlur={() => persistirImporteDesdeInput()}
+          <GastoImporteEditable
+            rowId={r.id}
+            importeServidor={r.importe_iva}
             className="w-full max-w-[7rem] ml-auto border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
+            onDraftChange={(s) => {
+              importeDraftRef.current = s
+            }}
+            onCommit={(s) => persistirImporteDesdeString(s)}
           />
         </td>
-        <td className="px-3 py-2 align-top">{celdaPdf(true)}</td>
-        <td className="px-3 py-2 align-top text-right whitespace-nowrap">
-          <button
-            type="button"
-            disabled={guardando}
-            onClick={() => persistirImporteDesdeInput()}
-            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 mr-2"
-          >
-            {guardando ? <Loader2 size={14} className="animate-spin" /> : null}
-            Guardar
-          </button>
-          <button
-            type="button"
-            onClick={() => onBorrar(r)}
-            className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800"
-          >
-            <Trash2 size={14} /> Eliminar
-          </button>
+        <td className="px-3 py-2 align-top">
+          <div className="flex flex-col gap-2 items-start">
+            {celdaPdf(true)}
+            {accionesFila}
+          </div>
         </td>
       </tr>
     )
@@ -310,38 +334,22 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         <p className="text-sm font-bold text-slate-900 flex-1 min-w-0 truncate">{proveedorTxt}</p>
       </div>
       <label className="block text-xs text-slate-600">
-        Importe (sale del foco = guardar)
-        <input
-          ref={importeRef}
-          key={`imp-card-${r.id}`}
-          type="text"
-          name={`importe_estructura_card_${r.id}`}
-          autoComplete="off"
-          inputMode="decimal"
-          defaultValue={
-            r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
-          }
-          onBlur={() => persistirImporteDesdeInput()}
+        Importe
+        <GastoImporteEditable
+          rowId={r.id}
+          importeServidor={r.importe_iva}
           className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums"
+          onDraftChange={(s) => {
+            importeDraftRef.current = s
+          }}
+          onCommit={(s) => persistirImporteDesdeString(s)}
         />
       </label>
       <div>
         <p className="text-[10px] font-black uppercase text-slate-400 mb-1">PDF</p>
         {celdaPdf(false)}
       </div>
-      <div className="flex flex-wrap gap-2 pt-1">
-        <button
-          type="button"
-          disabled={guardando}
-          onClick={() => persistirImporteDesdeInput()}
-          className="text-xs font-bold text-emerald-700"
-        >
-          {guardando ? 'Guardando…' : 'Guardar importe'}
-        </button>
-        <button type="button" onClick={() => onBorrar(r)} className="text-xs font-bold text-red-600">
-          Eliminar
-        </button>
-      </div>
+      {accionesFila ? <div className="pt-1">{accionesFila}</div> : null}
     </div>
   )
 }, gastoEstructuraEditorPropsIguales)
@@ -767,7 +775,8 @@ const HistorialCierres = ({ user }) => {
           const descargando = descargandoPackMes === `${anioNum}-${mesNum}`
           const conPdf = rows.filter((r) => r.url_pdf)
           const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
-          const colSpanTabla = esAdmin ? 4 : 3
+          const colSpanTabla = 3
+          const puedeEditarGastos = esAdmin || esGestoria
           const filaVaciaListado = (
             <tr>
               <td colSpan={colSpanTabla} className="px-4 py-8 text-center bg-gradient-to-b from-slate-50/80 to-white border-t border-slate-100">
@@ -835,7 +844,7 @@ const HistorialCierres = ({ user }) => {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100 text-slate-700">
                       <tr>
-                        {['Proveedor', 'Importe', 'PDF', ...(esAdmin ? ['Acciones'] : [])].map(
+                        {['Proveedor', 'Importe', 'PDF'].map(
                           (lab) => (
                             <th
                               key={lab}
@@ -861,6 +870,7 @@ const HistorialCierres = ({ user }) => {
                                 mesNum={mesNum}
                                 anioNum={anioNum}
                                 esAdmin={esAdmin}
+                                puedeEditarGastos={puedeEditarGastos}
                                 url={url}
                                 onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}
                                 onBorrar={borrarFacturaEstructura}
@@ -888,6 +898,7 @@ const HistorialCierres = ({ user }) => {
                           mesNum={mesNum}
                           anioNum={anioNum}
                           esAdmin={esAdmin}
+                          puedeEditarGastos={puedeEditarGastos}
                           url={url}
                           onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}
                           onBorrar={borrarFacturaEstructura}
@@ -909,6 +920,7 @@ const HistorialCierres = ({ user }) => {
     gastosEstructura,
     cargandoGastosEstructura,
     esAdmin,
+    esGestoria,
     cierres,
     descargandoPackMes,
     abrirModalGastoMensual,

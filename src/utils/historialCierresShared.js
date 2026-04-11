@@ -242,12 +242,11 @@ const nombreArchivoSeguro = (s, maxLen = 80) => {
   return base || 'doc'
 }
 
-/** Columnas de `gastos_estructura` (mes TEXT, anio INTEGER, importe monetario en `importe_iva`). */
+/** Columnas de `gastos_estructura` alineadas con esquema real (sin columnas obsoletas). */
 const GASTOS_ESTRUCTURA_SELECT =
-  'id, proveedor, importe_iva, url_pdf, mes, anio, created_at, es_extra, plantilla_id'
+  'id, proveedor, importe_iva, url_pdf, mes, anio, plantilla_id'
 
-const GASTOS_ESTRUCTURA_SELECT_SIN_CREATED =
-  'id, proveedor, importe_iva, url_pdf, mes, anio, es_extra, plantilla_id'
+const GASTOS_ESTRUCTURA_SELECT_SIN_CREATED = GASTOS_ESTRUCTURA_SELECT
 
 const GASTOS_ESTRUCTURA_SELECT_MINIMAL = 'id, proveedor, importe_iva, url_pdf, mes, anio'
 
