@@ -59,7 +59,10 @@ function fmtImporteInput(importeIva) {
   return String(importeIva).replace('.', ',')
 }
 
-/** Importe con estado local: las pulsaciones no re-renderizan la fila padre. */
+/**
+ * Importe no controlado (`defaultValue` + ref): escribir no fuerza `value` desde el padre, el cursor no salta.
+ * Si el servidor cambia el importe y el campo no tiene foco, se sincroniza el texto mostrado.
+ */
 const GastoImporteEditable = memo(function GastoImporteEditable({
   rowId,
   importeServidor,
@@ -67,23 +70,24 @@ const GastoImporteEditable = memo(function GastoImporteEditable({
   onDraftChange,
   onCommit,
 }) {
-  const [val, setVal] = useState(() => fmtImporteInput(importeServidor))
+  const inputRef = useRef(null)
+
   useEffect(() => {
-    setVal(fmtImporteInput(importeServidor))
+    const el = inputRef.current
+    if (!el) return
+    if (document.activeElement === el) return
+    el.value = fmtImporteInput(importeServidor)
   }, [rowId, importeServidor])
 
   return (
     <input
+      ref={inputRef}
       type="text"
       autoComplete="off"
       inputMode="decimal"
-      value={val}
-      onChange={(e) => {
-        const v = e.target.value
-        setVal(v)
-        onDraftChange?.(v)
-      }}
-      onBlur={() => onCommit(val)}
+      defaultValue={fmtImporteInput(importeServidor)}
+      onInput={(e) => onDraftChange?.(e.currentTarget.value)}
+      onBlur={(e) => onCommit(e.currentTarget.value)}
       className={className}
     />
   )

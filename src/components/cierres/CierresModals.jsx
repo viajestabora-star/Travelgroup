@@ -37,17 +37,30 @@ import {
   esErrorTablaInexistenteHistorial,
 } from '../../utils/historialCierresShared'
 
-/** Solo columnas existentes en `gastos_estructura` (no copiar campos de `gastos_plantilla`). */
+/**
+ * Objeto de inserción explícito para «Generar gastos»: nunca reutilizar la fila de `gastos_plantilla` tal cual.
+ * Solo estos campos van a `gastos_estructura` (PostgREST ignora claves extra; aquí no hay ninguna).
+ */
 function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
-  const base = importeIvaNumericoParaSupabase(plantilla.importe_base) ?? 0
+  const proveedor = normalizarProveedorEstructura(String(plantilla?.proveedor ?? '').trim())
+  const plantilla_id = plantilla?.id ?? null
+  let importe_iva = importeIvaNumericoParaSupabase(plantilla?.importe_base)
+  if (importe_iva == null || !Number.isFinite(importe_iva)) {
+    const s = String(plantilla?.importe_base ?? '')
+      .trim()
+      .replace(/\u00a0/g, '')
+      .replace(/\s/g, '')
+      .replace(/€/g, '')
+      .replace(/,/g, '.')
+    importe_iva = parseFloat(s)
+  }
+  if (!Number.isFinite(importe_iva)) importe_iva = 0
   return {
-    proveedor: normalizarProveedorEstructura(String(plantilla.proveedor || '').trim()),
-    importe_iva: base,
+    proveedor,
+    importe_iva,
     mes: mesTxt,
     anio: anioNum,
-    url_pdf: null,
-    es_extra: false,
-    plantilla_id: plantilla.id,
+    plantilla_id,
   }
 }
 
@@ -730,7 +743,7 @@ export function useCierresModals({
       try {
         const { data: mensuales, error: ePlant } = await supabase
           .from('gastos_plantilla')
-          .select('id, proveedor, periodicidad, importe_base, activo')
+          .select('id, proveedor, importe_base')
           .eq('periodicidad', 'mensual')
           .eq('activo', true)
         if (ePlant) {
@@ -748,7 +761,7 @@ export function useCierresModals({
         if (NOMBRES_MES[mesNum - 1] === 'Noviembre') {
           const { data: anuales, error: eSeg } = await supabase
             .from('gastos_plantilla')
-            .select('id, proveedor, periodicidad, importe_base, activo')
+            .select('id, proveedor, importe_base')
             .eq('periodicidad', 'anual')
             .eq('activo', true)
           if (!eSeg && anuales?.length) {
@@ -758,7 +771,7 @@ export function useCierresModals({
         }
         const plantillas = [...porId.values()]
         if (plantillas.length === 0) {
-          alert('No hay filas en gastos_plantilla (periodicidad mensual). Revisa activo=true e importe_base en Supabase.')
+          alert('No hay plantillas mensuales disponibles para generar gastos. Revisa gastos_plantilla en Supabase.')
           return
         }
 
