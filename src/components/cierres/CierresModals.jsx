@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, memo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { X, Loader2, ExternalLink, Package, Upload } from 'lucide-react'
 import JSZip from 'jszip'
@@ -25,9 +25,510 @@ import {
   nombrePdfEnZipEstructura,
   PROVEEDORES_FIJOS_MENSUALES,
   BUCKET_FACTURAS_PROVEEDORES,
+  esErrorTablaInexistenteHistorial,
 } from '../../utils/historialCierresShared'
 
-export function useCierresModals({ esAdmin, esGestoria, año, cierres, gastosEstructura, recargarGastosEstructura }) {
+const GastoMensualModalContent = memo(function GastoMensualModalContent({
+  mesNum,
+  esExtra,
+  añoStr,
+  onClose,
+  subiendoGastoMensual,
+  setSubiendoGastoMensual,
+  recargarGastosEstructura,
+  fuenteGastosEstructura,
+}) {
+  const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual(añoStr, mesNum))
+  const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
+
+  useEffect(() => {
+    setFormGastoMensual(formInicialGastoMensual(añoStr, mesNum))
+    setArchivoGastoMensual(null)
+  }, [mesNum, añoStr, esExtra])
+
+  const guardarGastoMensualDesdeModal = async () => {
+    const anioEjercicio = parseInt(añoStr, 10)
+    const cat = String(formGastoMensual.categoria || 'arsys')
+    const proveedorOtro = String(formGastoMensual.proveedorOtro || '').trim()
+    const proveedor =
+      cat === 'otro'
+        ? proveedorOtro
+        : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
+    const nombreMesModal = NOMBRES_MES[mesNum - 1] || ''
+    let concepto = String(formGastoMensual.concepto || '').trim()
+    const importeConIva = parseFloat(String(formGastoMensual.importeConIva || '').replace(',', '.'))
+    const fechaStr = String(formGastoMensual.fecha || '').trim()
+    const file = archivoGastoMensual
+
+    if (!proveedor) {
+      alert(cat === 'otro' ? 'Indica el nombre del proveedor (Otro).' : 'Selecciona un proveedor.')
+      return
+    }
+    if (!concepto) {
+      concepto = `${proveedor} — ${nombreMesModal} ${anioEjercicio}`.trim()
+    }
+    if (!Number.isFinite(importeConIva) || importeConIva < 0) {
+      alert('Indica un importe válido (con IVA).')
+      return
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
+      alert('Indica la fecha de la factura.')
+      return
+    }
+    const fd = new Date(`${fechaStr}T12:00:00`)
+    if (isNaN(fd.getTime())) {
+      alert('Fecha no válida.')
+      return
+    }
+    const mesContable = fd.getMonth() + 1
+    const anioContable = fd.getFullYear()
+    if (anioContable !== anioEjercicio) {
+      alert(`La fecha debe pertenecer al ejercicio ${anioEjercicio} (año del selector superior).`)
+      return
+    }
+    if (!file || file.type !== 'application/pdf') {
+      alert('Selecciona un archivo PDF.')
+      return
+    }
+    if (!fuenteGastosEstructura) {
+      alert('Los gastos de estructura aún se están cargando. Espera unos segundos y vuelve a intentarlo.')
+      return
+    }
+
+    setSubiendoGastoMensual(true)
+    let pathStorage = null
+    try {
+      pathStorage = await subirPdfFacturaProveedorComoExpediente(file)
+      const tb = fuenteGastosEstructura
+      const baseRow = {
+        concepto,
+        proveedor,
+        importe: importeConIva,
+        importe_iva: 0,
+        url_pdf: pathStorage,
+        mes: mesContable,
+        anio: anioContable,
+        fecha_factura: fechaStr,
+        activo: true,
+        periodicidad: 'mensual',
+      }
+      const row =
+        tb === 'gastos_estructura'
+          ? { ...baseRow, es_extra: !!esExtra, plantilla_id: null }
+          : baseRow
+      const { error: insErr } = await supabase.from(tb).insert(row)
+      if (insErr) {
+        if (pathStorage) await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
+        alert(
+          `${insErr.message}\n\nSi usas la tabla nueva: add-gastos-plantilla-gastos-estructura.sql. Si no: add-gastos-fijos-estructura-mensual.sql, add-gastos-fijos-fecha-factura.sql, add-gastos-fijos-importe-iva.sql`
+        )
+        return
+      }
+      onClose()
+      await recargarGastosEstructura()
+    } catch (e) {
+      console.error(e)
+      if (pathStorage) {
+        try {
+          await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
+        } catch (_) {}
+      }
+      alert(e?.message || 'Error al guardar el gasto.')
+    } finally {
+      setSubiendoGastoMensual(false)
+    }
+  }
+
+  const fechaHint = (() => {
+    const f = formGastoMensual.fecha
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f || '')) return null
+    const d = new Date(`${f}T12:00:00`)
+    if (isNaN(d.getTime())) return null
+    return (
+      <p className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+        Mes y año contables automáticos:{' '}
+        <strong>
+          {NOMBRES_MES[d.getMonth()]} {d.getFullYear()}
+        </strong>
+      </p>
+    )
+  })()
+
+  return (
+    <>
+      <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100 bg-slate-50">
+        <div>
+          <h2 id="modal-gasto-mensual-titulo" className="text-lg font-black text-slate-900 tracking-tight">
+            {esExtra ? 'Añadir gasto extra' : 'Añadir Gasto de Estructura'}
+          </h2>
+          <p className="text-xs text-slate-500 mt-1">
+            Bloque sugerido: {NOMBRES_MES[mesNum - 1]} · Ejercicio {añoStr}
+            {esExtra && (
+              <span className="block mt-1 text-amber-800 font-semibold">
+                Gasto manual fuera de plantilla (se marca como extra).
+              </span>
+            )}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={subiendoGastoMensual}
+          onClick={onClose}
+          className="p-2 rounded-xl hover:bg-slate-200 text-slate-600 transition-colors shrink-0"
+          aria-label="Cerrar"
+        >
+          <X size={22} />
+        </button>
+      </div>
+      <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+        <label className="block text-xs font-semibold text-slate-600">
+          Proveedor
+          <select
+            value={formGastoMensual.categoria || 'arsys'}
+            onChange={(e) => {
+              const v = e.target.value
+              setFormGastoMensual((prev) => ({
+                ...prev,
+                categoria: v,
+                proveedorOtro: v === 'otro' ? prev.proveedorOtro : '',
+              }))
+            }}
+            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+          >
+            {PROVEEDORES_FIJOS_MENSUALES.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {formGastoMensual.categoria === 'otro' && (
+          <label className="block text-xs font-semibold text-slate-600">
+            Nombre del proveedor (manual)
+            <input
+              type="text"
+              value={formGastoMensual.proveedorOtro || ''}
+              onChange={(e) => setFormGastoMensual((p) => ({ ...p, proveedorOtro: e.target.value }))}
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              placeholder="Proveedor"
+            />
+          </label>
+        )}
+        <label className="block text-xs font-semibold text-slate-600">
+          Concepto <span className="font-normal text-slate-400">(opcional)</span>
+          <input
+            type="text"
+            value={formGastoMensual.concepto || ''}
+            onChange={(e) => setFormGastoMensual((p) => ({ ...p, concepto: e.target.value }))}
+            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+            placeholder="Si lo dejas vacío, se genera a partir del proveedor y el mes"
+          />
+        </label>
+        <label className="block text-xs font-semibold text-slate-600">
+          Importe (con IVA)
+          <input
+            type="text"
+            inputMode="decimal"
+            value={formGastoMensual.importeConIva || ''}
+            onChange={(e) => setFormGastoMensual((p) => ({ ...p, importeConIva: e.target.value }))}
+            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+            placeholder="0,00"
+          />
+        </label>
+        <label className="block text-xs font-semibold text-slate-600">
+          Fecha de la factura
+          <input
+            type="date"
+            value={formGastoMensual.fecha || ''}
+            onChange={(e) => setFormGastoMensual((p) => ({ ...p, fecha: e.target.value }))}
+            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+          />
+        </label>
+        {fechaHint}
+        <label className="block text-xs font-semibold text-slate-600">
+          Archivo PDF
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={(e) => setArchivoGastoMensual(e.target.files?.[0] || null)}
+            className="mt-1 block w-full text-sm text-slate-600"
+          />
+        </label>
+        <p className="text-[11px] text-slate-500">
+          El PDF se sube al bucket <code className="bg-slate-100 px-1 rounded">facturas_proveedores</code> con el mismo criterio
+          que en expedientes (<code className="bg-slate-100 px-1 rounded">fac-{'{timestamp}'}.pdf</code>).
+        </p>
+      </div>
+      <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex flex-wrap gap-2 justify-end">
+        <button
+          type="button"
+          disabled={subiendoGastoMensual}
+          onClick={onClose}
+          className="px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white text-slate-800 text-sm font-bold hover:bg-slate-100"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          disabled={subiendoGastoMensual}
+          onClick={() => guardarGastoMensualDesdeModal()}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-sm font-black uppercase tracking-wide shadow-md"
+        >
+          {subiendoGastoMensual ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+          Guardar gasto
+        </button>
+      </div>
+    </>
+  )
+})
+
+export const CierresModalsLayer = memo(function CierresModalsLayer({
+  modalAuditoria,
+  cargandoAuditoria,
+  datosAuditoria,
+  descargandoZip,
+  cerrarModalAuditoria,
+  descargarExpedienteZip,
+  abrirTodosDocumentosPestanas,
+  irAlExpedienteEdicion,
+  esGestoria,
+  modalGastoMensual,
+  esAdmin,
+  año,
+  subiendoGastoMensual,
+  setSubiendoGastoMensual,
+  recargarGastosEstructura,
+  fuenteGastosEstructura,
+  cerrarModalGastoMensual,
+}) {
+  return (
+    <>
+      {modalAuditoria && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-auditoria-titulo"
+          onClick={(e) => e.target === e.currentTarget && cerrarModalAuditoria()}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
+            <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100 bg-slate-50">
+              <div className="min-w-0">
+                <h2 id="modal-auditoria-titulo" className="text-lg font-black text-slate-900 tracking-tight">
+                  Auditoría de expediente
+                </h2>
+                <p className="text-sm text-slate-600 mt-1 font-mono">
+                  {modalAuditoria.numero_expediente ?? '—'} · {modalAuditoria.nombre_grupo || modalAuditoria.cliente_nombre || '—'}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">{modalAuditoria.destino || 'Sin destino'}</p>
+              </div>
+              <button
+                type="button"
+                onClick={cerrarModalAuditoria}
+                className="p-2 rounded-xl hover:bg-slate-200 text-slate-600 transition-colors shrink-0"
+                aria-label="Cerrar"
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-6">
+              {cargandoAuditoria ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-500 gap-3">
+                  <Loader2 className="animate-spin" size={40} />
+                  <p className="text-sm font-medium">Cargando documentación…</p>
+                </div>
+              ) : (
+                <>
+                  {(() => {
+                    let fin
+                    try {
+                      fin = extraerFinanzas(modalAuditoria)
+                    } catch {
+                      fin = {
+                        ingresoTotal: n(modalAuditoria.total_ingresos),
+                        gastoTotal: n(modalAuditoria.total_gastos_reales),
+                        beneficioNeto: n(modalAuditoria.beneficio_neto_real),
+                      }
+                    }
+                    return (
+                      <div>
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Resumen financiero</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {[
+                            { label: 'Ingresos', value: fin.ingresoTotal, color: 'text-emerald-800', bg: 'bg-emerald-50 border-emerald-100' },
+                            { label: 'Gastos (proveedores)', value: fin.gastoTotal, color: 'text-red-800', bg: 'bg-red-50 border-red-100' },
+                            {
+                              label: 'Beneficio neto',
+                              value: fin.beneficioNeto,
+                              color: fin.beneficioNeto >= 0 ? 'text-blue-800' : 'text-red-800',
+                              bg: fin.beneficioNeto >= 0 ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-100',
+                            },
+                          ].map((card) => (
+                            <div key={card.label} className={`rounded-xl border p-4 ${card.bg}`}>
+                              <p className="text-[10px] font-bold uppercase text-slate-500">{card.label}</p>
+                              <p className={`text-xl font-black tabular-nums ${card.color}`}>{formatEuroAmount(card.value)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Facturas de proveedores</h3>
+                    {datosAuditoria.pagos.length === 0 ? (
+                      <p className="text-sm text-slate-400 italic">No hay pagos registrados en este expediente.</p>
+                    ) : (
+                      <ul className="space-y-2 text-sm border border-slate-100 rounded-xl divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                        {datosAuditoria.pagos.map((p) => {
+                          const pdfUrl = resolverUrlPublicaFacturaProveedor(p.url_pdf)
+                          const tienePdf = !!pdfUrl
+                          return (
+                            <li key={p.id} className="px-3 py-2 flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-semibold text-slate-800 truncate">{p.proveedor_nombre || 'Proveedor'}</p>
+                                <p className="text-xs text-slate-500">
+                                  {p.concepto || p.numero_factura || '—'} · {formatEuroAmount(p.importe_pagado)}
+                                </p>
+                                {tienePdf && (
+                                  <p className="mt-1 text-[10px] font-mono text-slate-500 break-all" title={pdfUrl}>
+                                    {pdfUrl}
+                                  </p>
+                                )}
+                              </div>
+                              {tienePdf ? (
+                                <a
+                                  href={pdfUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 shrink-0"
+                                >
+                                  <ExternalLink size={14} /> Abrir PDF
+                                </a>
+                              ) : (
+                                <span className="text-xs text-slate-400 shrink-0">Sin PDF</span>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Factura al cliente</h3>
+                    {datosAuditoria.facturasCliente.length === 0 ? (
+                      <p className="text-sm text-slate-400 italic">No consta factura emitida vinculada al expediente.</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {datosAuditoria.facturasCliente.map((f) => {
+                          const url = resolverUrlFacturaCliente(f.url_pdf)
+                          return (
+                            <li
+                              key={f.id ?? f.numero_factura}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 px-3 py-2 bg-slate-50/80"
+                            >
+                              <div>
+                                <p className="font-bold text-slate-800">{f.numero_factura || '—'}</p>
+                                <p className="text-xs text-slate-600">
+                                  {f.cliente_nombre || 'Cliente'} · {formatEuroAmount(f.importe_total)}
+                                </p>
+                              </div>
+                              {url ? (
+                                <div className="flex flex-col items-end gap-1 max-w-[min(100%,280px)]">
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+                                  >
+                                    <ExternalLink size={14} /> Abrir PDF
+                                  </a>
+                                  <span className="text-[10px] text-slate-500 break-all text-right">{url}</span>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-slate-400">PDF no enlazado (regenerar desde expediente si aplica)</span>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 space-y-3">
+              <button
+                type="button"
+                onClick={descargarExpedienteZip}
+                disabled={descargandoZip || cargandoAuditoria}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-xs sm:text-sm font-black uppercase tracking-[0.12em] shadow-md transition-colors"
+              >
+                {descargandoZip ? <Loader2 size={18} className="animate-spin" /> : <Package size={18} />}
+                Descargar expediente completo
+              </button>
+              <button
+                type="button"
+                onClick={abrirTodosDocumentosPestanas}
+                disabled={cargandoAuditoria}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-sm font-bold transition-colors"
+              >
+                <ExternalLink size={16} />
+                Abrir todos los PDFs en pestañas nuevas
+              </button>
+              {!esGestoria && (
+                <button
+                  type="button"
+                  onClick={irAlExpedienteEdicion}
+                  className="w-full text-center text-xs font-semibold text-slate-500 hover:text-blue-600 underline"
+                >
+                  Ir al expediente (edición avanzada)
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalGastoMensual && esAdmin && (
+        <div
+          className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-gasto-mensual-titulo"
+          onClick={(e) => e.target === e.currentTarget && !subiendoGastoMensual && cerrarModalGastoMensual()}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
+            <GastoMensualModalContent
+              key={`${modalGastoMensual.mesNum}-${modalGastoMensual.esExtra ? 'x' : 'n'}`}
+              mesNum={modalGastoMensual.mesNum}
+              esExtra={!!modalGastoMensual.esExtra}
+              añoStr={año}
+              onClose={cerrarModalGastoMensual}
+              subiendoGastoMensual={subiendoGastoMensual}
+              setSubiendoGastoMensual={setSubiendoGastoMensual}
+              recargarGastosEstructura={recargarGastosEstructura}
+              fuenteGastosEstructura={fuenteGastosEstructura}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  )
+})
+
+export function useCierresModals({
+  esAdmin,
+  esGestoria,
+  año,
+  cierres,
+  gastosEstructura,
+  recargarGastosEstructura,
+  fuenteGastosEstructura,
+}) {
   const navigate = useNavigate()
   const [modalAuditoria, setModalAuditoria] = useState(null)
   const [cargandoAuditoria, setCargandoAuditoria] = useState(false)
@@ -36,14 +537,6 @@ export function useCierresModals({ esAdmin, esGestoria, año, cierres, gastosEst
   const [subiendoGastoMensual, setSubiendoGastoMensual] = useState(false)
   const [descargandoPackMes, setDescargandoPackMes] = useState(null)
   const [modalGastoMensual, setModalGastoMensual] = useState(null)
-  const [formGastoMensual, setFormGastoMensual] = useState({
-    categoria: 'arsys',
-    proveedorOtro: '',
-    concepto: '',
-    importeConIva: '',
-    fecha: '',
-  })
-  const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
 
   const cerrarModalAuditoria = useCallback(() => {
     setModalAuditoria(null)
@@ -183,112 +676,29 @@ export function useCierresModals({ esAdmin, esGestoria, año, cierres, gastosEst
   }
   const cerrarModalGastoMensual = useCallback(() => {
     setModalGastoMensual(null)
-    setArchivoGastoMensual(null)
   }, [])
 
   const abrirModalGastoMensual = useCallback(
-    (mesNum) => {
+    (mesNum, opts = {}) => {
       const y = parseInt(año, 10)
       if (!Number.isFinite(y)) return
-      setFormGastoMensual(formInicialGastoMensual(String(y), mesNum))
-      setArchivoGastoMensual(null)
-      setModalGastoMensual({ mesNum })
+      setModalGastoMensual({ mesNum, esExtra: !!opts.esExtra })
     },
     [año]
   )
 
-  const guardarGastoMensualDesdeModal = useCallback(async () => {
-    if (!esAdmin || !modalGastoMensual) return
-    const anioEjercicio = parseInt(año, 10)
-    const cat = String(formGastoMensual.categoria || 'arsys')
-    const proveedorOtro = String(formGastoMensual.proveedorOtro || '').trim()
-    const proveedor =
-      cat === 'otro'
-        ? proveedorOtro
-        : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
-    const mesNumModal = modalGastoMensual.mesNum
-    const nombreMesModal = NOMBRES_MES[mesNumModal - 1] || ''
-    let concepto = String(formGastoMensual.concepto || '').trim()
-    const importeConIva = parseFloat(String(formGastoMensual.importeConIva || '').replace(',', '.'))
-    const fechaStr = String(formGastoMensual.fecha || '').trim()
-    const file = archivoGastoMensual
-
-    if (!proveedor) {
-      alert(cat === 'otro' ? 'Indica el nombre del proveedor (Otro).' : 'Selecciona un proveedor.')
-      return
-    }
-    if (!concepto) {
-      concepto = `${proveedor} — ${nombreMesModal} ${anioEjercicio}`.trim()
-    }
-    if (!Number.isFinite(importeConIva) || importeConIva < 0) {
-      alert('Indica un importe válido (con IVA).')
-      return
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
-      alert('Indica la fecha de la factura.')
-      return
-    }
-    const fd = new Date(`${fechaStr}T12:00:00`)
-    if (isNaN(fd.getTime())) {
-      alert('Fecha no válida.')
-      return
-    }
-    const mesContable = fd.getMonth() + 1
-    const anioContable = fd.getFullYear()
-    if (anioContable !== anioEjercicio) {
-      alert(`La fecha debe pertenecer al ejercicio ${anioEjercicio} (año del selector superior).`)
-      return
-    }
-    if (!file || file.type !== 'application/pdf') {
-      alert('Selecciona un archivo PDF.')
-      return
-    }
-
-    setSubiendoGastoMensual(true)
-    let pathStorage = null
-    try {
-      pathStorage = await subirPdfFacturaProveedorComoExpediente(file)
-      const { error: insErr } = await supabase.from('gastos_fijos').insert({
-        concepto,
-        proveedor,
-        importe: importeConIva,
-        importe_iva: 0,
-        url_pdf: pathStorage,
-        mes: mesContable,
-        anio: anioContable,
-        fecha_factura: fechaStr,
-        activo: true,
-        periodicidad: 'mensual',
-      })
-      if (insErr) {
-        if (pathStorage) await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
-        alert(
-          `${insErr.message}\n\nEjecuta en Supabase: add-gastos-fijos-estructura-mensual.sql, add-gastos-fijos-fecha-factura.sql, add-gastos-fijos-importe-iva.sql`
-        )
-        return
-      }
-      cerrarModalGastoMensual()
-      await recargarGastosEstructura()
-    } catch (e) {
-      console.error(e)
-      if (pathStorage) {
-        try {
-          await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
-        } catch (_) {}
-      }
-      alert(e?.message || 'Error al guardar el gasto.')
-    } finally {
-      setSubiendoGastoMensual(false)
-    }
-  }, [esAdmin, modalGastoMensual, año, formGastoMensual, archivoGastoMensual, recargarGastosEstructura, cerrarModalGastoMensual])
-
   const borrarFacturaEstructura = useCallback(
     async (row) => {
       if (!esAdmin) return
+      if (!fuenteGastosEstructura) {
+        alert('Los gastos de estructura aún se están cargando.')
+        return
+      }
       if (!window.confirm('¿Eliminar esta factura de estructura y su PDF?')) return
       try {
         if (row.url_pdf) await eliminarObjetoStorageFacturaProveedor(row.url_pdf)
-        const { error } = await supabase.from('gastos_fijos').delete().eq('id', row.id)
+        const tb = fuenteGastosEstructura
+        const { error } = await supabase.from(tb).delete().eq('id', row.id)
         if (error) {
           alert(`No se pudo eliminar: ${error.message}`)
           return
@@ -299,7 +709,140 @@ export function useCierresModals({ esAdmin, esGestoria, año, cierres, gastosEst
         alert('Error al eliminar.')
       }
     },
-    [esAdmin, recargarGastosEstructura]
+    [esAdmin, recargarGastosEstructura, fuenteGastosEstructura]
+  )
+
+  const guardarEdicionGastoEstructura = useCallback(
+    async (row, campos) => {
+      if (!esAdmin) return { ok: false, mensaje: 'Sin permiso' }
+      if (!fuenteGastosEstructura) {
+        return { ok: false, mensaje: 'Los gastos de estructura aún se están cargando.' }
+      }
+      const tb = fuenteGastosEstructura
+      const payload = { ...campos }
+      if (tb === 'gastos_estructura') {
+        payload.updated_at = new Date().toISOString()
+      }
+      const { error } = await supabase.from(tb).update(payload).eq('id', row.id)
+      if (error) {
+        return { ok: false, mensaje: error.message }
+      }
+      await recargarGastosEstructura()
+      return { ok: true }
+    },
+    [esAdmin, recargarGastosEstructura, fuenteGastosEstructura]
+  )
+
+  const [generandoGastosMes, setGenerandoGastosMes] = useState(null)
+
+  const generarGastosMensualesPlantilla = useCallback(
+    async (mesNum) => {
+      if (!esAdmin) return
+      const anioNum = parseInt(año, 10)
+      if (!Number.isFinite(anioNum) || mesNum < 1 || mesNum > 12) return
+      if (!fuenteGastosEstructura) {
+        alert('Los gastos de estructura aún se están cargando. Espera unos segundos y vuelve a intentarlo.')
+        return
+      }
+      const key = `${anioNum}-${mesNum}`
+      setGenerandoGastosMes(key)
+      try {
+        const { data: mensuales, error: ePlant } = await supabase
+          .from('gastos_plantilla')
+          .select('id, concepto, proveedor, periodicidad, importe_sugerido, activo')
+          .eq('periodicidad', 'mensual')
+          .eq('activo', true)
+        if (ePlant) {
+          if (esErrorTablaInexistenteHistorial(ePlant)) {
+            alert(
+              'La tabla gastos_plantilla no existe. Ejecuta en Supabase la migración add-gastos-plantilla-gastos-estructura.sql.'
+            )
+            return
+          }
+          alert(`No se pudo leer la plantilla: ${ePlant.message}`)
+          return
+        }
+        const porId = new Map()
+        ;(mensuales || []).forEach((p) => porId.set(p.id, p))
+        if (mesNum === 11) {
+          const { data: seguroRows, error: eSeg } = await supabase
+            .from('gastos_plantilla')
+            .select('id, concepto, proveedor, periodicidad, importe_sugerido, activo')
+            .ilike('concepto', '%Seguro coche%')
+            .eq('activo', true)
+          if (!eSeg && seguroRows?.length) {
+            seguroRows.forEach((p) => porId.set(p.id, p))
+          }
+        }
+        const plantillas = [...porId.values()]
+        if (plantillas.length === 0) {
+          alert('No hay filas en gastos_plantilla (periodicidad mensual). Añade conceptos en Supabase o revisa activo=true.')
+          return
+        }
+
+        const tb = fuenteGastosEstructura
+        const colsExistentes =
+          tb === 'gastos_estructura' ? 'id, plantilla_id, concepto, proveedor' : 'id, concepto, proveedor'
+        const { data: existentesRaw, error: eEx } = await supabase
+          .from(tb)
+          .select(colsExistentes)
+          .eq('anio', anioNum)
+          .eq('mes', mesNum)
+        if (eEx) {
+          alert(`No se pudieron comprobar duplicados: ${eEx.message}`)
+          return
+        }
+        const existentes = Array.isArray(existentesRaw) ? existentesRaw : []
+
+        const yaInsertada = (p) =>
+          existentes.some((e) => {
+            if (e.plantilla_id && p.id === e.plantilla_id) return true
+            return (
+              String(e.concepto || '').trim() === String(p.concepto || '').trim() &&
+              String(e.proveedor || '').trim() === String(p.proveedor || '').trim()
+            )
+          })
+
+        const fechaDefault = `${anioNum}-${String(mesNum).padStart(2, '0')}-01`
+        let insertadas = 0
+        for (const p of plantillas) {
+          if (yaInsertada(p)) continue
+          const importeBase = p.importe_sugerido != null ? Number(p.importe_sugerido) : 0
+          const baseRow = {
+            concepto: String(p.concepto || '').trim() || 'Gasto estructura',
+            proveedor: String(p.proveedor || '').trim(),
+            importe: Number.isFinite(importeBase) ? importeBase : 0,
+            importe_iva: 0,
+            url_pdf: null,
+            mes: mesNum,
+            anio: anioNum,
+            fecha_factura: fechaDefault,
+            activo: true,
+            periodicidad: 'mensual',
+          }
+          const row =
+            tb === 'gastos_estructura'
+              ? { ...baseRow, es_extra: false, plantilla_id: p.id }
+              : baseRow
+          const { error: insErr } = await supabase.from(tb).insert(row)
+          if (insErr) {
+            alert(`Error al insertar «${p.concepto}»: ${insErr.message}`)
+            return
+          }
+          insertadas += 1
+        }
+        await recargarGastosEstructura()
+        if (insertadas === 0) {
+          alert('No se añadió ninguna fila nueva (todas coincidían con registros ya existentes para ese mes).')
+        }
+      } catch (e) {
+        console.error(e)
+        alert(e?.message || 'Error al generar gastos desde plantilla.')
+      } finally {
+        setGenerandoGastosMes(null)
+      }
+    },
+    [esAdmin, año, fuenteGastosEstructura, recargarGastosEstructura]
   )
 
   const descargarPackEstructuraMes = useCallback(
@@ -488,354 +1031,43 @@ export function useCierresModals({ esAdmin, esGestoria, año, cierres, gastosEst
     return () => window.removeEventListener('keydown', onKey)
   }, [modalGastoMensual, cerrarModalGastoMensual])
 
-  const CierresModalsLayer = useCallback(
-    function CierresModalsLayer() {
-      return (
-        <>
-      {modalAuditoria && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-auditoria-titulo"
-          onClick={(e) => e.target === e.currentTarget && cerrarModalAuditoria()}
-        >
-          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
-            <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100 bg-slate-50">
-              <div className="min-w-0">
-                <h2 id="modal-auditoria-titulo" className="text-lg font-black text-slate-900 tracking-tight">
-                  Auditoría de expediente
-                </h2>
-                <p className="text-sm text-slate-600 mt-1 font-mono">
-                  {modalAuditoria.numero_expediente ?? '—'} · {modalAuditoria.nombre_grupo || modalAuditoria.cliente_nombre || '—'}
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">{modalAuditoria.destino || 'Sin destino'}</p>
-              </div>
-              <button
-                type="button"
-                onClick={cerrarModalAuditoria}
-                className="p-2 rounded-xl hover:bg-slate-200 text-slate-600 transition-colors shrink-0"
-                aria-label="Cerrar"
-              >
-                <X size={22} />
-              </button>
-            </div>
-
-            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-6">
-              {cargandoAuditoria ? (
-                <div className="flex flex-col items-center justify-center py-16 text-slate-500 gap-3">
-                  <Loader2 className="animate-spin" size={40} />
-                  <p className="text-sm font-medium">Cargando documentación…</p>
-                </div>
-              ) : (
-                <>
-                  {(() => {
-                    let fin
-                    try {
-                      fin = extraerFinanzas(modalAuditoria)
-                    } catch {
-                      fin = {
-                        ingresoTotal: n(modalAuditoria.total_ingresos),
-                        gastoTotal: n(modalAuditoria.total_gastos_reales),
-                        beneficioNeto: n(modalAuditoria.beneficio_neto_real),
-                      }
-                    }
-                    return (
-                      <div>
-                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Resumen financiero</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          {[
-                            { label: 'Ingresos', value: fin.ingresoTotal, color: 'text-emerald-800', bg: 'bg-emerald-50 border-emerald-100' },
-                            { label: 'Gastos (proveedores)', value: fin.gastoTotal, color: 'text-red-800', bg: 'bg-red-50 border-red-100' },
-                            { label: 'Beneficio neto', value: fin.beneficioNeto, color: fin.beneficioNeto >= 0 ? 'text-blue-800' : 'text-red-800', bg: fin.beneficioNeto >= 0 ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-100' },
-                          ].map((card) => (
-                            <div key={card.label} className={`rounded-xl border p-4 ${card.bg}`}>
-                              <p className="text-[10px] font-bold uppercase text-slate-500">{card.label}</p>
-                              <p className={`text-xl font-black tabular-nums ${card.color}`}>{formatEuroAmount(card.value)}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  <div>
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Facturas de proveedores</h3>
-                    {datosAuditoria.pagos.length === 0 ? (
-                      <p className="text-sm text-slate-400 italic">No hay pagos registrados en este expediente.</p>
-                    ) : (
-                      <ul className="space-y-2 text-sm border border-slate-100 rounded-xl divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {datosAuditoria.pagos.map((p) => {
-                          const pdfUrl = resolverUrlPublicaFacturaProveedor(p.url_pdf)
-                          const tienePdf = !!pdfUrl
-                          return (
-                            <li key={p.id} className="px-3 py-2 flex flex-wrap items-start justify-between gap-2">
-                              <div className="min-w-0 flex-1">
-                                <p className="font-semibold text-slate-800 truncate">{p.proveedor_nombre || 'Proveedor'}</p>
-                                <p className="text-xs text-slate-500">{p.concepto || p.numero_factura || '—'} · {formatEuroAmount(p.importe_pagado)}</p>
-                                {tienePdf && (
-                                  <p className="mt-1 text-[10px] font-mono text-slate-500 break-all" title={pdfUrl}>
-                                    {pdfUrl}
-                                  </p>
-                                )}
-                              </div>
-                              {tienePdf ? (
-                                <a
-                                  href={pdfUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 shrink-0"
-                                >
-                                  <ExternalLink size={14} /> Abrir PDF
-                                </a>
-                              ) : (
-                                <span className="text-xs text-slate-400 shrink-0">Sin PDF</span>
-                              )}
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    )}
-                  </div>
-
-                  <div>
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Factura al cliente</h3>
-                    {datosAuditoria.facturasCliente.length === 0 ? (
-                      <p className="text-sm text-slate-400 italic">No consta factura emitida vinculada al expediente.</p>
-                    ) : (
-                      <ul className="space-y-2">
-                        {datosAuditoria.facturasCliente.map((f) => {
-                          const url = resolverUrlFacturaCliente(f.url_pdf)
-                          return (
-                            <li
-                              key={f.id ?? f.numero_factura}
-                              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 px-3 py-2 bg-slate-50/80"
-                            >
-                              <div>
-                                <p className="font-bold text-slate-800">{f.numero_factura || '—'}</p>
-                                <p className="text-xs text-slate-600">{f.cliente_nombre || 'Cliente'} · {formatEuroAmount(f.importe_total)}</p>
-                              </div>
-                              {url ? (
-                                <div className="flex flex-col items-end gap-1 max-w-[min(100%,280px)]">
-                                  <a
-                                    href={url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
-                                  >
-                                    <ExternalLink size={14} /> Abrir PDF
-                                  </a>
-                                  <span className="text-[10px] text-slate-500 break-all text-right">{url}</span>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-slate-400">PDF no enlazado (regenerar desde expediente si aplica)</span>
-                              )}
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 space-y-3">
-              <button
-                type="button"
-                onClick={descargarExpedienteZip}
-                disabled={descargandoZip || cargandoAuditoria}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-xs sm:text-sm font-black uppercase tracking-[0.12em] shadow-md transition-colors"
-              >
-                {descargandoZip ? <Loader2 size={18} className="animate-spin" /> : <Package size={18} />}
-                Descargar expediente completo
-              </button>
-              <button
-                type="button"
-                onClick={abrirTodosDocumentosPestanas}
-                disabled={cargandoAuditoria}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-sm font-bold transition-colors"
-              >
-                <ExternalLink size={16} />
-                Abrir todos los PDFs en pestañas nuevas
-              </button>
-              {!esGestoria && (
-                <button
-                  type="button"
-                  onClick={irAlExpedienteEdicion}
-                  className="w-full text-center text-xs font-semibold text-slate-500 hover:text-blue-600 underline"
-                >
-                  Ir al expediente (edición avanzada)
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {modalGastoMensual && esAdmin && (
-        <div
-          className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-gasto-mensual-titulo"
-          onClick={(e) => e.target === e.currentTarget && !subiendoGastoMensual && cerrarModalGastoMensual()}
-        >
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
-            <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100 bg-slate-50">
-              <div>
-                <h2 id="modal-gasto-mensual-titulo" className="text-lg font-black text-slate-900 tracking-tight">
-                  Añadir Gasto de Estructura
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Bloque sugerido: {NOMBRES_MES[modalGastoMensual.mesNum - 1]} · Ejercicio {año}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={subiendoGastoMensual}
-                onClick={cerrarModalGastoMensual}
-                className="p-2 rounded-xl hover:bg-slate-200 text-slate-600 transition-colors shrink-0"
-                aria-label="Cerrar"
-              >
-                <X size={22} />
-              </button>
-            </div>
-            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
-              <label className="block text-xs font-semibold text-slate-600">
-                Proveedor
-                <select
-                  value={formGastoMensual.categoria || 'arsys'}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    setFormGastoMensual((prev) => ({
-                      ...prev,
-                      categoria: v,
-                      proveedorOtro: v === 'otro' ? prev.proveedorOtro : '',
-                    }))
-                  }}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
-                >
-                  {PROVEEDORES_FIJOS_MENSUALES.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {formGastoMensual.categoria === 'otro' && (
-                <label className="block text-xs font-semibold text-slate-600">
-                  Nombre del proveedor (manual)
-                  <input
-                    type="text"
-                    value={formGastoMensual.proveedorOtro || ''}
-                    onChange={(e) => setFormGastoMensual((p) => ({ ...p, proveedorOtro: e.target.value }))}
-                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                    placeholder="Proveedor"
-                  />
-                </label>
-              )}
-              <label className="block text-xs font-semibold text-slate-600">
-                Concepto <span className="font-normal text-slate-400">(opcional)</span>
-                <input
-                  type="text"
-                  value={formGastoMensual.concepto || ''}
-                  onChange={(e) => setFormGastoMensual((p) => ({ ...p, concepto: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                  placeholder="Si lo dejas vacío, se genera a partir del proveedor y el mes"
-                />
-              </label>
-              <label className="block text-xs font-semibold text-slate-600">
-                Importe (con IVA)
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={formGastoMensual.importeConIva || ''}
-                  onChange={(e) => setFormGastoMensual((p) => ({ ...p, importeConIva: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                  placeholder="0,00"
-                />
-              </label>
-              <label className="block text-xs font-semibold text-slate-600">
-                Fecha de la factura
-                <input
-                  type="date"
-                  value={formGastoMensual.fecha || ''}
-                  onChange={(e) => setFormGastoMensual((p) => ({ ...p, fecha: e.target.value }))}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
-                />
-              </label>
-              {(() => {
-                const f = formGastoMensual.fecha
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(f || '')) return null
-                const d = new Date(`${f}T12:00:00`)
-                if (isNaN(d.getTime())) return null
-                return (
-                  <p className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                    Mes y año contables automáticos:{' '}
-                    <strong>
-                      {NOMBRES_MES[d.getMonth()]} {d.getFullYear()}
-                    </strong>
-                  </p>
-                )
-              })()}
-              <label className="block text-xs font-semibold text-slate-600">
-                Archivo PDF
-                <input
-                  type="file"
-                  accept="application/pdf,.pdf"
-                  onChange={(e) => setArchivoGastoMensual(e.target.files?.[0] || null)}
-                  className="mt-1 block w-full text-sm text-slate-600"
-                />
-              </label>
-              <p className="text-[11px] text-slate-500">
-                El PDF se sube al bucket <code className="bg-slate-100 px-1 rounded">facturas_proveedores</code> con el mismo
-                criterio que en expedientes (<code className="bg-slate-100 px-1 rounded">fac-{'{timestamp}'}.pdf</code>).
-              </p>
-            </div>
-            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex flex-wrap gap-2 justify-end">
-              <button
-                type="button"
-                disabled={subiendoGastoMensual}
-                onClick={cerrarModalGastoMensual}
-                className="px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white text-slate-800 text-sm font-bold hover:bg-slate-100"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={subiendoGastoMensual}
-                onClick={() => guardarGastoMensualDesdeModal()}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-sm font-black uppercase tracking-wide shadow-md"
-              >
-                {subiendoGastoMensual ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
-                Guardar gasto
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-        </>
-      )
-    },
-    [
+  const cierresModalsLayerProps = useMemo(
+    () => ({
       modalAuditoria,
-      modalGastoMensual,
-      esAdmin,
-      esGestoria,
-      año,
       cargandoAuditoria,
       datosAuditoria,
       descargandoZip,
-      subiendoGastoMensual,
-      formGastoMensual,
-      archivoGastoMensual,
       cerrarModalAuditoria,
-      cerrarModalGastoMensual,
       descargarExpedienteZip,
       abrirTodosDocumentosPestanas,
       irAlExpedienteEdicion,
-      guardarGastoMensualDesdeModal,
+      esGestoria,
+      modalGastoMensual,
+      esAdmin,
+      año,
+      subiendoGastoMensual,
+      setSubiendoGastoMensual,
+      recargarGastosEstructura,
+      fuenteGastosEstructura,
+      cerrarModalGastoMensual,
+    }),
+    [
+      modalAuditoria,
+      cargandoAuditoria,
+      datosAuditoria,
+      descargandoZip,
+      cerrarModalAuditoria,
+      descargarExpedienteZip,
+      abrirTodosDocumentosPestanas,
+      irAlExpedienteEdicion,
+      esGestoria,
+      modalGastoMensual,
+      esAdmin,
+      año,
+      subiendoGastoMensual,
+      recargarGastosEstructura,
+      fuenteGastosEstructura,
+      cerrarModalGastoMensual,
     ]
   )
 
@@ -845,6 +1077,9 @@ export function useCierresModals({ esAdmin, esGestoria, año, cierres, gastosEst
     borrarFacturaEstructura,
     descargarPackEstructuraMes,
     descargandoPackMes,
-    CierresModalsLayer,
+    cierresModalsLayerProps,
+    generarGastosMensualesPlantilla,
+    generandoGastosMes,
+    guardarEdicionGastoEstructura,
   }
 }

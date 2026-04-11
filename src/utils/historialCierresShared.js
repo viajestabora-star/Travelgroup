@@ -257,6 +257,17 @@ const GASTOS_FIJOS_SELECT_SIN_CREATED =
 
 const GASTOS_FIJOS_SELECT_MINIMAL = 'id, concepto, proveedor, importe, url_pdf, mes, anio'
 
+/** Misma forma que gastos_fijos mensual + columnas de plantilla / extra (tabla `gastos_estructura`). */
+const GASTOS_ESTRUCTURA_SELECT =
+  'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura, created_at, es_extra, plantilla_id'
+
+const GASTOS_ESTRUCTURA_SELECT_SIN_CREATED =
+  'id, concepto, proveedor, importe, importe_iva, url_pdf, mes, anio, fecha_factura, es_extra, plantilla_id'
+
+const GASTOS_ESTRUCTURA_SELECT_MINIMAL = 'id, concepto, proveedor, importe, url_pdf, mes, anio'
+
+const TABLAS_GASTOS_ESTRUCTURA_MENSUAL = ['gastos_estructura', 'gastos_fijos']
+
 const esErrorColumnaSql = (err) => /column|42703|does not exist|schema cache/i.test(String(err?.message || err || ''))
 
 const GASTOS_FIJOS_QUERY_TIMEOUT_MS = 25000
@@ -636,6 +647,10 @@ export {
   GASTOS_FIJOS_SELECT,
   GASTOS_FIJOS_SELECT_SIN_CREATED,
   GASTOS_FIJOS_SELECT_MINIMAL,
+  GASTOS_ESTRUCTURA_SELECT,
+  GASTOS_ESTRUCTURA_SELECT_SIN_CREATED,
+  GASTOS_ESTRUCTURA_SELECT_MINIMAL,
+  TABLAS_GASTOS_ESTRUCTURA_MENSUAL,
   esErrorColumnaSql,
   GASTOS_FIJOS_QUERY_TIMEOUT_MS,
   withTimeout,

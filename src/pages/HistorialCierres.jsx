@@ -12,13 +12,14 @@ import {
   Building2,
   ExternalLink,
   Trash2,
+  Sparkles,
 } from 'lucide-react'
 import { supabase } from '../supabase'
 import { resolverUrlPublicaFacturaProveedor, abrirFacturaProveedorPorUrlGuardada } from '../utils/facturaProveedorStorage'
 import { parsearFechaADate } from '../utils/dateNormalizer'
 import { esUsuarioGestoria, esUsuarioAdmin } from '../utils/userRoles'
 import { useCierresLogic } from '../hooks/useCierresLogic'
-import { useCierresModals } from '../components/cierres/CierresModals'
+import { useCierresModals, CierresModalsLayer } from '../components/cierres/CierresModals'
 import {
   formatEuroAmount,
   formatearFecha,
@@ -38,6 +39,274 @@ import {
   construirHTMLCuaderno,
   NUMEROS_DIAGNOSTICO_HISTORIAL,
 } from '../utils/historialCierresShared'
+
+function importeGastoEstructuraPendiente(importe) {
+  if (importe == null || importe === '') return true
+  const x = Number(importe)
+  return !Number.isFinite(x) || x === 0
+}
+
+const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
+  r,
+  esAdmin,
+  fmtFechaFact,
+  url,
+  onAbrirPdf,
+  onBorrar,
+  onGuardarEdicion,
+  layout,
+}) {
+  const [proveedor, setProveedor] = useState(() => r.proveedor ?? '')
+  const [concepto, setConcepto] = useState(() => r.concepto ?? '')
+  const [importeStr, setImporteStr] = useState(() => (r.importe != null && r.importe !== '' ? String(r.importe) : ''))
+  const [fecha, setFecha] = useState(() => (r.fecha_factura ? String(r.fecha_factura).slice(0, 10) : ''))
+  const [guardando, setGuardando] = useState(false)
+
+  useEffect(() => {
+    setProveedor(r.proveedor ?? '')
+    setConcepto(r.concepto ?? '')
+    setImporteStr(r.importe != null && r.importe !== '' ? String(r.importe) : '')
+    setFecha(r.fecha_factura ? String(r.fecha_factura).slice(0, 10) : '')
+  }, [r.id, r.proveedor, r.concepto, r.importe, r.fecha_factura])
+
+  const importePend = importeGastoEstructuraPendiente(r.importe)
+
+  const aplicarGuardado = async () => {
+    const importeNum = parseFloat(String(importeStr).replace(',', '.'))
+    if (!Number.isFinite(importeNum) || importeNum < 0) {
+      alert('Importe no válido.')
+      return
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      alert('Indica la fecha de factura (YYYY-MM-DD).')
+      return
+    }
+    const fd = new Date(`${fecha}T12:00:00`)
+    if (isNaN(fd.getTime())) {
+      alert('Fecha no válida.')
+      return
+    }
+    setGuardando(true)
+    const res = await onGuardarEdicion(r, {
+      proveedor: proveedor.trim(),
+      concepto: concepto.trim(),
+      importe: importeNum,
+      fecha_factura: fecha,
+      mes: fd.getMonth() + 1,
+      anio: fd.getFullYear(),
+    })
+    setGuardando(false)
+    if (!res.ok) alert(res.mensaje || 'No se pudo guardar.')
+  }
+
+  if (!esAdmin) {
+    if (layout === 'table') {
+      return (
+        <tr>
+          <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{fmtFechaFact(r.fecha_factura)}</td>
+          <td className="px-3 py-2 text-slate-800">
+            <span className="inline-flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
+                {inicialesProveedorEstructura(r.proveedor)}
+              </span>
+              {r.proveedor ?? '—'}
+            </span>
+          </td>
+          <td className="px-3 py-2 text-slate-700 max-w-[220px] truncate" title={r.concepto || ''}>
+            {r.concepto ?? '—'}
+          </td>
+          <td className={`px-3 py-2 text-right tabular-nums ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
+            <div className="font-semibold">{formatEuroAmount(r.importe)}</div>
+            {n(r.importe_iva) > 0 && (
+              <div className="text-[11px] text-slate-500 font-normal">IVA {formatEuroAmount(r.importe_iva)}</div>
+            )}
+          </td>
+          <td className="px-3 py-2">
+            {url ? (
+              <button
+                type="button"
+                onClick={() => onAbrirPdf(r.url_pdf)}
+                className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
+              >
+                <ExternalLink size={14} /> Abrir
+              </button>
+            ) : (
+              <span className="text-xs text-slate-400">—</span>
+            )}
+          </td>
+        </tr>
+      )
+    }
+    return (
+      <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700">
+            {inicialesProveedorEstructura(r.proveedor)}
+          </span>
+          <p className="font-bold text-slate-900 text-sm flex-1">{r.proveedor ?? '—'}</p>
+        </div>
+        <p className="text-xs text-slate-600">{r.concepto ?? '—'}</p>
+        <p className="text-xs text-slate-500 mt-1">Fecha: {fmtFechaFact(r.fecha_factura)}</p>
+        <p className={`text-sm font-bold mt-1 ${importePend ? 'text-red-600' : 'text-slate-900'}`}>
+          {formatEuroAmount(r.importe)}
+          {n(r.importe_iva) > 0 && (
+            <span className="text-xs font-normal text-slate-500"> · IVA {formatEuroAmount(r.importe_iva)}</span>
+          )}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {url && (
+            <button type="button" onClick={() => onAbrirPdf(r.url_pdf)} className="text-xs font-bold text-blue-600">
+              Abrir PDF
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (layout === 'table') {
+    return (
+      <tr>
+        <td className="px-3 py-2 align-top">
+          <input
+            type="date"
+            value={fecha}
+            onChange={(e) => setFecha(e.target.value)}
+            className="w-full min-w-[9.5rem] border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+          />
+        </td>
+        <td className="px-3 py-2 align-top">
+          <input
+            type="text"
+            value={proveedor}
+            onChange={(e) => setProveedor(e.target.value)}
+            className="w-full min-w-[120px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
+          />
+        </td>
+        <td className="px-3 py-2 align-top">
+          <input
+            type="text"
+            value={concepto}
+            onChange={(e) => setConcepto(e.target.value)}
+            className="w-full min-w-[140px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
+          />
+        </td>
+        <td className="px-3 py-2 align-top text-right">
+          <input
+            type="text"
+            inputMode="decimal"
+            value={importeStr}
+            onChange={(e) => setImporteStr(e.target.value)}
+            className={`w-full max-w-[7rem] ml-auto border rounded-lg px-2 py-1.5 text-sm tabular-nums text-right ${
+              importeGastoEstructuraPendiente(importeStr === '' ? null : parseFloat(String(importeStr).replace(',', '.')))
+                ? 'border-red-300 bg-red-50/50 text-red-700'
+                : 'border-slate-200'
+            }`}
+          />
+          {n(r.importe_iva) > 0 && (
+            <div className="text-[11px] text-slate-500 font-normal mt-1">IVA {formatEuroAmount(r.importe_iva)}</div>
+          )}
+        </td>
+        <td className="px-3 py-2 align-top">
+          {url ? (
+            <button
+              type="button"
+              onClick={() => onAbrirPdf(r.url_pdf)}
+              className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
+            >
+              <ExternalLink size={14} /> Abrir
+            </button>
+          ) : (
+            <span className="text-xs text-slate-400">—</span>
+          )}
+        </td>
+        <td className="px-3 py-2 align-top text-right whitespace-nowrap">
+          <button
+            type="button"
+            disabled={guardando}
+            onClick={() => aplicarGuardado()}
+            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 mr-2"
+          >
+            {guardando ? <Loader2 size={14} className="animate-spin" /> : null}
+            Guardar
+          </button>
+          <button
+            type="button"
+            onClick={() => onBorrar(r)}
+            className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800"
+          >
+            <Trash2 size={14} /> Eliminar
+          </button>
+        </td>
+      </tr>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80 space-y-2">
+      <p className="text-[10px] font-black uppercase text-slate-400">Edición gasto estructura</p>
+      <label className="block text-xs text-slate-600">
+        Proveedor
+        <input
+          type="text"
+          value={proveedor}
+          onChange={(e) => setProveedor(e.target.value)}
+          className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
+        />
+      </label>
+      <label className="block text-xs text-slate-600">
+        Concepto
+        <input
+          type="text"
+          value={concepto}
+          onChange={(e) => setConcepto(e.target.value)}
+          className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
+        />
+      </label>
+      <label className="block text-xs text-slate-600">
+        Importe (c/IVA)
+        <input
+          type="text"
+          inputMode="decimal"
+          value={importeStr}
+          onChange={(e) => setImporteStr(e.target.value)}
+          className={`mt-0.5 w-full border rounded-lg px-2 py-1.5 text-sm ${
+            importeGastoEstructuraPendiente(importeStr === '' ? null : parseFloat(String(importeStr).replace(',', '.')))
+              ? 'border-red-300 bg-red-50/50 text-red-700'
+              : 'border-slate-200'
+          }`}
+        />
+      </label>
+      <label className="block text-xs text-slate-600">
+        Fecha factura
+        <input
+          type="date"
+          value={fecha}
+          onChange={(e) => setFecha(e.target.value)}
+          className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm bg-white"
+        />
+      </label>
+      <div className="flex flex-wrap gap-2 pt-1">
+        {url && (
+          <button type="button" onClick={() => onAbrirPdf(r.url_pdf)} className="text-xs font-bold text-blue-600">
+            Abrir PDF
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={guardando}
+          onClick={() => aplicarGuardado()}
+          className="text-xs font-bold text-emerald-700"
+        >
+          {guardando ? 'Guardando…' : 'Guardar'}
+        </button>
+        <button type="button" onClick={() => onBorrar(r)} className="text-xs font-bold text-red-600">
+          Eliminar
+        </button>
+      </div>
+    </div>
+  )
+})
 
 const TrimestreAcordeonPanel = memo(function TrimestreAcordeonPanel({
   bucket,
@@ -170,6 +439,7 @@ const HistorialCierres = ({ user }) => {
     errorGastosEstructura,
     setErrorGastosEstructura,
     recargarGastosEstructura,
+    fuenteGastosEstructura,
   } = useCierresLogic(año, trimestreFiltro, setAbiertoTrim)
 
   const {
@@ -178,7 +448,10 @@ const HistorialCierres = ({ user }) => {
     borrarFacturaEstructura,
     descargarPackEstructuraMes,
     descargandoPackMes,
-    CierresModalsLayer,
+    cierresModalsLayerProps,
+    generarGastosMensualesPlantilla,
+    generandoGastosMes,
+    guardarEdicionGastoEstructura,
   } = useCierresModals({
     esAdmin,
     esGestoria,
@@ -186,6 +459,7 @@ const HistorialCierres = ({ user }) => {
     cierres,
     gastosEstructura,
     recargarGastosEstructura,
+    fuenteGastosEstructura,
   })
 
   useEffect(() => {
@@ -399,23 +673,46 @@ const HistorialCierres = ({ user }) => {
           )}
         </div>
         {esAdmin && meses.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/90 bg-amber-50/90 px-3 py-2.5">
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-900/90 shrink-0">
-              Añadir gasto de estructura
+          <div className="flex flex-col gap-2 rounded-xl border border-amber-200/90 bg-amber-50/90 px-3 py-2.5">
+            <span className="text-[10px] font-black uppercase tracking-widest text-amber-900/90">
+              Gastos de estructura por mes
             </span>
-            <span className="text-[11px] text-amber-800/80 hidden sm:inline">(visible aunque la tabla esté vacía)</span>
             <div className="flex flex-wrap gap-2">
-              {meses.map((mesNum) => (
-                <button
-                  key={mesNum}
-                  type="button"
-                  onClick={() => abrirModalGastoMensual(mesNum)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold shadow-sm"
-                >
-                  <Plus size={12} />
-                  {NOMBRES_MES[mesNum - 1]}
-                </button>
-              ))}
+              {meses.map((mesNum) => {
+                const generando = generandoGastosMes === `${anioNum}-${mesNum}`
+                return (
+                  <div
+                    key={mesNum}
+                    className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-amber-200/90 bg-white/90 px-2 py-1.5"
+                  >
+                    <span className="text-[10px] font-black text-amber-950 pr-1">{NOMBRES_MES[mesNum - 1]}</span>
+                    <button
+                      type="button"
+                      disabled={generando}
+                      onClick={() => generarGastosMensualesPlantilla(mesNum)}
+                      className="inline-flex items-center gap-0.5 px-2 py-1 rounded-md bg-violet-600 hover:bg-violet-700 disabled:bg-slate-400 text-white text-[10px] font-black uppercase tracking-wide"
+                      title="Inserta filas desde gastos_plantilla (mensual + Seguro coche en noviembre)"
+                    >
+                      {generando ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                      Generar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => abrirModalGastoMensual(mesNum, { esExtra: true })}
+                      className="inline-flex items-center gap-0.5 px-2 py-1 rounded-md bg-amber-700 hover:bg-amber-800 text-white text-[10px] font-black uppercase tracking-wide"
+                    >
+                      <Plus size={11} /> Extra
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => abrirModalGastoMensual(mesNum, { esExtra: false })}
+                      className="inline-flex items-center gap-0.5 px-2 py-1 rounded-md border border-amber-300 bg-amber-50 text-amber-950 text-[10px] font-bold hover:bg-amber-100"
+                    >
+                      Factura
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
@@ -475,21 +772,48 @@ const HistorialCierres = ({ user }) => {
                           </span>
                           <Building2 size={14} className="text-slate-400 shrink-0 hidden md:block" aria-hidden />
                           <span className="font-semibold truncate max-w-[130px] sm:max-w-[160px]">{r.proveedor ?? '—'}</span>
-                          <span className="tabular-nums font-bold text-emerald-300 shrink-0">{formatEuroAmount(r.importe)}</span>
+                          <span
+                            className={`tabular-nums font-bold shrink-0 ${
+                              importeGastoEstructuraPendiente(r.importe) ? 'text-red-300' : 'text-emerald-300'
+                            }`}
+                          >
+                            {formatEuroAmount(r.importe)}
+                          </span>
                         </div>
                       ))}
                     </div>
                   )}
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
                     {esAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => abrirModalGastoMensual(mesNum)}
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black uppercase tracking-[0.1em] shadow-md transition-colors"
-                      >
-                        <Plus size={16} />
-                        Añadir Gasto de Estructura
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          disabled={generandoGastosMes === `${anioNum}-${mesNum}`}
+                          onClick={() => generarGastosMensualesPlantilla(mesNum)}
+                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-slate-500 text-white text-[10px] sm:text-xs font-black uppercase tracking-[0.08em] shadow-md transition-colors"
+                        >
+                          {generandoGastosMes === `${anioNum}-${mesNum}` ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <Sparkles size={14} />
+                          )}
+                          Generar gastos mensuales
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => abrirModalGastoMensual(mesNum, { esExtra: true })}
+                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black uppercase tracking-[0.12em] shadow-md transition-colors"
+                        >
+                          <Plus size={16} />+ AÑADIR GASTO
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => abrirModalGastoMensual(mesNum, { esExtra: false })}
+                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border-2 border-amber-400/80 bg-amber-50 hover:bg-amber-100 text-amber-950 text-[10px] sm:text-xs font-black uppercase tracking-[0.08em] shadow-sm transition-colors"
+                        >
+                          Factura estructura
+                        </button>
+                      </>
                     )}
                     <button
                       type="button"
@@ -528,52 +852,17 @@ const HistorialCierres = ({ user }) => {
                         : rows.map((r) => {
                             const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
                             return (
-                              <tr key={r.id}>
-                                <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
-                                  {fmtFechaFact(r.fecha_factura)}
-                                </td>
-                                <td className="px-3 py-2 text-slate-800">
-                                  <span className="inline-flex items-center gap-2">
-                                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
-                                      {inicialesProveedorEstructura(r.proveedor)}
-                                    </span>
-                                    {r.proveedor ?? '—'}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-2 text-slate-700 max-w-[220px] truncate" title={r.concepto || ''}>
-                                  {r.concepto ?? '—'}
-                                </td>
-                                <td className="px-3 py-2 text-right tabular-nums text-slate-900">
-                                  <div className="font-semibold">{formatEuroAmount(r.importe)}</div>
-                                  {n(r.importe_iva) > 0 && (
-                                    <div className="text-[11px] text-slate-500 font-normal">IVA {formatEuroAmount(r.importe_iva)}</div>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {url ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => abrirFacturaProveedorPorUrlGuardada(r.url_pdf)}
-                                      className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
-                                    >
-                                      <ExternalLink size={14} /> Abrir
-                                    </button>
-                                  ) : (
-                                    <span className="text-xs text-slate-400">—</span>
-                                  )}
-                                </td>
-                                {esAdmin && (
-                                  <td className="px-3 py-2 text-right">
-                                    <button
-                                      type="button"
-                                      onClick={() => borrarFacturaEstructura(r)}
-                                      className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800"
-                                    >
-                                      <Trash2 size={14} /> Eliminar
-                                    </button>
-                                  </td>
-                                )}
-                              </tr>
+                              <GastoEstructuraEditor
+                                key={r.id}
+                                r={r}
+                                esAdmin={esAdmin}
+                                fmtFechaFact={fmtFechaFact}
+                                url={url}
+                                onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}
+                                onBorrar={borrarFacturaEstructura}
+                                onGuardarEdicion={guardarEdicionGastoEstructura}
+                                layout="table"
+                              />
                             )
                           })}
                     </tbody>
@@ -589,38 +878,17 @@ const HistorialCierres = ({ user }) => {
                     rows.map((r) => {
                       const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
                       return (
-                        <div key={r.id} className="rounded-lg border border-slate-100 p-3 bg-slate-50/80">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700">
-                              {inicialesProveedorEstructura(r.proveedor)}
-                            </span>
-                            <p className="font-bold text-slate-900 text-sm flex-1">{r.proveedor ?? '—'}</p>
-                          </div>
-                          <p className="text-xs text-slate-600">{r.concepto ?? '—'}</p>
-                          <p className="text-xs text-slate-500 mt-1">Fecha: {fmtFechaFact(r.fecha_factura)}</p>
-                          <p className="text-sm font-bold text-slate-900 mt-1">
-                            {formatEuroAmount(r.importe)}
-                            {n(r.importe_iva) > 0 && (
-                              <span className="text-xs font-normal text-slate-500"> · IVA {formatEuroAmount(r.importe_iva)}</span>
-                            )}
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {url && (
-                              <button
-                                type="button"
-                                onClick={() => abrirFacturaProveedorPorUrlGuardada(r.url_pdf)}
-                                className="text-xs font-bold text-blue-600"
-                              >
-                                Abrir PDF
-                              </button>
-                            )}
-                            {esAdmin && (
-                              <button type="button" onClick={() => borrarFacturaEstructura(r)} className="text-xs font-bold text-red-600">
-                                Eliminar
-                              </button>
-                            )}
-                          </div>
-                        </div>
+                        <GastoEstructuraEditor
+                          key={r.id}
+                          r={r}
+                          esAdmin={esAdmin}
+                          fmtFechaFact={fmtFechaFact}
+                          url={url}
+                          onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}
+                          onBorrar={borrarFacturaEstructura}
+                          onGuardarEdicion={guardarEdicionGastoEstructura}
+                          layout="card"
+                        />
                       )
                     })
                   )}
@@ -641,6 +909,9 @@ const HistorialCierres = ({ user }) => {
     abrirModalGastoMensual,
     descargarPackEstructuraMes,
     borrarFacturaEstructura,
+    generarGastosMensualesPlantilla,
+    generandoGastosMes,
+    guardarEdicionGastoEstructura,
   ])
 
   const renderFila = useCallback((c) => {
@@ -875,7 +1146,7 @@ const HistorialCierres = ({ user }) => {
         </p>
       )}
     </div>
-    <CierresModalsLayer />
+    <CierresModalsLayer {...cierresModalsLayerProps} />
     </>
   )
 }
