@@ -330,7 +330,7 @@ const cargarDatosAuditoriaExpediente = async (supabaseClient, expedienteId) => {
   const [pagosRes, emRes, glRes] = await Promise.all([
     supabaseClient
       .from('pagos_proveedores')
-      .select('id, concepto, numero_factura, fecha_pago, importe_pagado, url_pdf, proveedor_nombre')
+      .select('id, numero_factura, fecha_pago, importe_pagado, url_pdf, proveedor_nombre')
       .eq('expediente_id', expedienteId)
       .order('fecha_pago', { ascending: false }),
     supabaseClient
@@ -360,7 +360,7 @@ const particionarArchivosAuditoriaZip = (exp, datos) => {
     const u = resolverUrlPublicaFacturaProveedor(p.url_pdf)
     if (!u) continue
     i += 1
-    const base = `${i}_${p.proveedor_nombre || 'proveedor'}_${p.numero_factura || p.concepto || 'factura'}`
+    const base = `${i}_${p.proveedor_nombre || 'proveedor'}_${p.numero_factura || p.id || 'factura'}`
     const fn = nombreArchivoSeguro(base)
     proveedores.push({
       url: u,

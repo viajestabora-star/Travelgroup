@@ -35,6 +35,44 @@ import {
   esErrorTablaInexistenteHistorial,
 } from '../../utils/historialCierresShared'
 
+/** Solo columnas existentes en `gastos_estructura` (no copiar campos de `gastos_plantilla`). */
+function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
+  const base = plantilla.importe_base != null ? Number(plantilla.importe_base) : 0
+  return {
+    proveedor: String(plantilla.proveedor || '').trim(),
+    importe_iva: Number.isFinite(base) ? base : 0,
+    mes: mesTxt,
+    anio: anioNum,
+    es_extra: false,
+    plantilla_id: plantilla.id,
+  }
+}
+
+const CAMPOS_UPDATE_GASTOS_ESTRUCTURA = new Set([
+  'proveedor',
+  'importe_iva',
+  'fecha_factura',
+  'mes',
+  'anio',
+  'url_pdf',
+])
+
+/** Input memoizado fuera del ciclo de vida del modal para evitar pérdida de foco al escribir. */
+const ImporteGastoModalInput = memo(function ImporteGastoModalInput({ value, onChangeValue }) {
+  return (
+    <input
+      type="text"
+      name="importe_gasto_estructura"
+      autoComplete="off"
+      inputMode="decimal"
+      value={value}
+      onChange={(e) => onChangeValue(e.target.value)}
+      className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+      placeholder="0,00"
+    />
+  )
+})
+
 const GastoMensualModalContent = memo(function GastoMensualModalContent({
   mesNum,
   esExtra,
@@ -110,7 +148,6 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         mes: mesTxt,
         anio: anioEjercicio,
         fecha_factura: fechaStr,
-        periodicidad: 'mensual',
         es_extra: !!esExtra,
         plantilla_id: null,
       }
@@ -212,17 +249,7 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         )}
         <label className="block text-xs font-semibold text-slate-600">
           Importe (con IVA)
-          <input
-            key="modal-importe-gasto-estructura"
-            type="text"
-            name="importe_gasto_estructura"
-            autoComplete="off"
-            inputMode="decimal"
-            value={importeIvaStr}
-            onChange={(e) => setImporteIvaStr(e.target.value)}
-            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-            placeholder="0,00"
-          />
+          <ImporteGastoModalInput value={importeIvaStr} onChangeValue={setImporteIvaStr} />
         </label>
         <label className="block text-xs font-semibold text-slate-600">
           Fecha de la factura
@@ -378,7 +405,7 @@ export const CierresModalsLayer = memo(function CierresModalsLayer({
                               <div className="min-w-0 flex-1">
                                 <p className="font-semibold text-slate-800 truncate">{p.proveedor_nombre || 'Proveedor'}</p>
                                 <p className="text-xs text-slate-500">
-                                  {p.concepto || p.numero_factura || '—'} · {formatEuroAmount(p.importe_pagado)}
+                                  {p.numero_factura || p.proveedor_nombre || '—'} · {formatEuroAmount(p.importe_pagado)}
                                 </p>
                                 {tienePdf && (
                                   <p className="mt-1 text-[10px] font-mono text-slate-500 break-all" title={pdfUrl}>
@@ -541,7 +568,7 @@ export function useCierresModals({
       const [pagosRes, emRes, glRes] = await Promise.all([
         supabase
           .from('pagos_proveedores')
-          .select('id, concepto, numero_factura, fecha_pago, importe_pagado, url_pdf, proveedor_nombre')
+          .select('id, numero_factura, fecha_pago, importe_pagado, url_pdf, proveedor_nombre')
           .eq('expediente_id', expedienteId)
           .order('fecha_pago', { ascending: false }),
         supabase
@@ -706,7 +733,10 @@ export function useCierresModals({
       if (fuenteGastosEstructura !== 'gastos_estructura') {
         return { ok: false, mensaje: 'Los gastos de estructura aún se están cargando.' }
       }
-      const payload = { ...campos }
+      const payload = {}
+      for (const k of Object.keys(campos || {})) {
+        if (CAMPOS_UPDATE_GASTOS_ESTRUCTURA.has(k)) payload[k] = campos[k]
+      }
       const { error } = await supabase.from('gastos_estructura').update(payload).eq('id', row.id)
       if (error) {
         return { ok: false, mensaje: error.message }
@@ -783,22 +813,10 @@ export function useCierresModals({
             return String(e.proveedor || '').trim() === String(p.proveedor || '').trim()
           })
 
-        const fechaDefault = `${anioNum}-${String(mesNum).padStart(2, '0')}-01`
         let insertadas = 0
         for (const p of plantillas) {
           if (yaInsertada(p)) continue
-          const importeIva = p.importe_base != null ? Number(p.importe_base) : 0
-          const row = {
-            proveedor: String(p.proveedor || '').trim(),
-            importe_iva: Number.isFinite(importeIva) ? importeIva : 0,
-            url_pdf: null,
-            mes: mesTxt,
-            anio: anioNum,
-            fecha_factura: fechaDefault,
-            periodicidad: String(p.periodicidad || 'mensual'),
-            es_extra: false,
-            plantilla_id: p.id,
-          }
+          const row = filaInsertGastosEstructuraDesdePlantilla(p, mesTxt, anioNum)
           const { error: insErr } = await supabase.from('gastos_estructura').insert(row)
           if (insErr) {
             alert(`Error al insertar «${p.proveedor || '—'}»: ${insErr.message}`)
