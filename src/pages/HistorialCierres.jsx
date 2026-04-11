@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback, memo, useRef } from 'react'
+import React, { useEffect, useState, useMemo, useCallback, memo, useRef, forwardRef } from 'react'
 import {
   FileText,
   Eye,
@@ -9,18 +9,16 @@ import {
   ChevronDown,
   Plus,
   Package,
-  ExternalLink,
   Trash2,
   Sparkles,
+  Upload,
 } from 'lucide-react'
 import { supabase } from '../supabase'
 import {
   resolverUrlPublicaFacturaProveedor,
   abrirFacturaProveedorPorUrlGuardada,
-  descargarArrayBufferFacturaProveedor,
   eliminarObjetoStorageFacturaProveedor,
 } from '../utils/facturaProveedorStorage'
-import { saveAs } from 'file-saver'
 import { esUsuarioGestoria, esUsuarioAdmin } from '../utils/userRoles'
 import { useCierresLogic } from '../hooks/useCierresLogic'
 import { useCierresModals, CierresModalsLayer } from '../components/cierres/CierresModals'
@@ -60,38 +58,32 @@ function fmtImporteInput(importeIva) {
 }
 
 /**
- * Importe no controlado (`defaultValue` + ref): escribir no fuerza `value` desde el padre, el cursor no salta.
- * Si el servidor cambia el importe y el campo no tiene foco, se sincroniza el texto mostrado.
+ * Importe no controlado: sin `value` enlazado al padre → el cursor no salta al teclear.
+ * Solo se sincroniza con el servidor cuando el input no tiene foco. El guardado es en `onBlur`.
  */
-const GastoImporteEditable = memo(function GastoImporteEditable({
-  rowId,
-  importeServidor,
-  className,
-  onDraftChange,
-  onCommit,
-}) {
-  const inputRef = useRef(null)
+const GastoImporteEditable = memo(
+  forwardRef(function GastoImporteEditable({ rowId, importeServidor, className, onCommit }, ref) {
+    useEffect(() => {
+      const el = ref && typeof ref === 'object' ? ref.current : null
+      if (!el) return
+      if (document.activeElement === el) return
+      el.value = fmtImporteInput(importeServidor)
+    }, [rowId, importeServidor, ref])
 
-  useEffect(() => {
-    const el = inputRef.current
-    if (!el) return
-    if (document.activeElement === el) return
-    el.value = fmtImporteInput(importeServidor)
-  }, [rowId, importeServidor])
-
-  return (
-    <input
-      ref={inputRef}
-      type="text"
-      autoComplete="off"
-      inputMode="decimal"
-      defaultValue={fmtImporteInput(importeServidor)}
-      onInput={(e) => onDraftChange?.(e.currentTarget.value)}
-      onBlur={(e) => onCommit(e.currentTarget.value)}
-      className={className}
-    />
-  )
-})
+    return (
+      <input
+        ref={ref}
+        type="text"
+        autoComplete="off"
+        inputMode="decimal"
+        defaultValue={fmtImporteInput(importeServidor)}
+        onBlur={(e) => onCommit(e.currentTarget.value)}
+        className={className}
+      />
+    )
+  })
+)
+GastoImporteEditable.displayName = 'GastoImporteEditable'
 
 function gastoEstructuraEditorPropsIguales(prev, next) {
   if (prev.esAdmin !== next.esAdmin || prev.puedeEditarGastos !== next.puedeEditarGastos) return false
@@ -120,7 +112,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   onGuardarEdicion,
   layout,
 }) {
-  const importeDraftRef = useRef('')
+  const importeInputRef = useRef(null)
   const [guardando, setGuardando] = useState(false)
   const [subiendoPdf, setSubiendoPdf] = useState(false)
   const pdfInputRef = useRef(null)
@@ -128,27 +120,24 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   const mesTxt = r.mes != null ? String(r.mes) : mesEstructuraDesdeNumero(mesNum)
   const anioFila = r.anio != null ? Number(r.anio) : anioNum
 
-  useEffect(() => {
-    importeDraftRef.current = fmtImporteInput(r.importe_iva)
-  }, [r.id, r.importe_iva])
-
   const proveedorTxt = normalizarProveedorEstructura(r.proveedor) || '—'
   const importePend = importeGastoEstructuraPendiente(r.importe_iva)
 
   const payloadMesAnio = () => ({
     mes: mesTxt,
-    anio: anioFila,
+    anio: Number(anioFila),
     proveedor: normalizarProveedorEstructura(r.proveedor),
   })
 
   const persistirImporteDesdeString = async (strRaw) => {
-    const importeNum = importeIvaNumericoParaSupabase(strRaw)
-    if (importeNum == null || importeNum < 0) {
+    const parsed = importeIvaNumericoParaSupabase(strRaw)
+    if (parsed == null || !Number.isFinite(Number(parsed)) || Number(parsed) < 0) {
       alert('Importe no válido (usa solo números; coma o punto decimal; sin €).')
       return
     }
+    const importeNum = Number(parsed)
     const prev = importeIvaNumericoParaSupabase(r.importe_iva)
-    if (prev != null && Math.abs(prev - importeNum) < 1e-9) return
+    if (prev != null && Math.abs(Number(prev) - importeNum) < 1e-9) return
 
     setGuardando(true)
     const res = await onGuardarEdicion(r, {
@@ -157,17 +146,6 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
     })
     setGuardando(false)
     if (!res.ok) alert(res.mensaje || 'No se pudo guardar.')
-  }
-
-  const descargarPdf = async () => {
-    if (!r.url_pdf) return
-    const buf = await descargarArrayBufferFacturaProveedor(r.url_pdf)
-    if (!buf) {
-      alert('No se pudo descargar el PDF.')
-      return
-    }
-    const nombre = String(r.url_pdf).split('/').pop() || 'factura.pdf'
-    saveAs(new Blob([buf], { type: 'application/pdf' }), nombre.endsWith('.pdf') ? nombre : `${nombre}.pdf`)
   }
 
   const onPdfElegido = async (file) => {
@@ -188,10 +166,11 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
       if (r.url_pdf && r.url_pdf !== pathNuevo) {
         await eliminarObjetoStorageFacturaProveedor(r.url_pdf)
       }
-      const importeOk =
-        importeIvaNumericoParaSupabase(importeDraftRef.current) ??
+      const rawImporte =
+        importeIvaNumericoParaSupabase(importeInputRef.current?.value) ??
         importeIvaNumericoParaSupabase(r.importe_iva) ??
         0
+      const importeOk = Number(rawImporte)
       const res = await onGuardarEdicion(r, {
         ...payloadMesAnio(),
         importe_iva: importeOk,
@@ -212,31 +191,22 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   }
 
   const celdaPdf = (compacto) => {
-    if (url) {
-      return (
-        <div className={`flex flex-wrap items-center gap-2 ${compacto ? '' : 'pt-0.5'}`}>
-          <button
-            type="button"
-            onClick={() => onAbrirPdf(r.url_pdf)}
-            className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
-          >
-            <ExternalLink size={14} /> Ver
-          </button>
-          <button
-            type="button"
-            onClick={() => descargarPdf()}
-            className="text-xs font-bold text-slate-700 hover:text-slate-900 underline"
-          >
-            Descargar
-          </button>
-        </div>
-      )
-    }
-    if (!puedeEditarGastos) {
-      return <span className="text-xs text-slate-400">—</span>
-    }
-    return (
-      <div className="relative inline-block">
+    const btnPdf =
+      url && r.url_pdf ? (
+        <button
+          type="button"
+          onClick={() => onAbrirPdf(r.url_pdf)}
+          className={`inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-red-600 shadow-sm hover:bg-red-50 hover:border-red-200 transition-colors ${
+            compacto ? 'p-1.5' : 'p-2'
+          }`}
+          title="Ver factura PDF"
+          aria-label="Ver factura PDF"
+        >
+          <FileText size={compacto ? 20 : 22} strokeWidth={2} />
+        </button>
+      ) : null
+    const subir = puedeEditarGastos ? (
+      <div className={`relative inline-block ${compacto ? '' : 'mt-0'}`}>
         <input
           ref={pdfInputRef}
           type="file"
@@ -248,12 +218,27 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
             if (f) onPdfElegido(f)
           }}
         />
-        <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 border border-amber-300 rounded-lg px-2 py-1.5 bg-amber-50 pointer-events-none">
-          {subiendoPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
-          {subiendoPdf ? 'Subiendo…' : 'Subir PDF'}
+        <span
+          className={`inline-flex items-center justify-center rounded-lg border border-amber-300 bg-amber-50 text-amber-900 pointer-events-none ${
+            compacto ? 'p-1.5' : 'p-2'
+          }`}
+          title={subiendoPdf ? 'Subiendo…' : 'Subir PDF'}
+        >
+          {subiendoPdf ? <Loader2 size={compacto ? 18 : 20} className="animate-spin" /> : <Upload size={compacto ? 18 : 20} />}
         </span>
       </div>
-    )
+    ) : null
+
+    if (url && r.url_pdf) {
+      return (
+        <div className={`flex flex-wrap items-center gap-2 ${compacto ? 'justify-center' : ''}`}>
+          {btnPdf}
+          {subir}
+        </div>
+      )
+    }
+    if (subir) return <div className={compacto ? 'flex justify-center' : ''}>{subir}</div>
+    return <span className="text-xs text-slate-400">—</span>
   }
 
   if (!puedeEditarGastos) {
@@ -268,25 +253,34 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
               {proveedorTxt}
             </span>
           </td>
-          <td className={`px-3 py-2 text-right ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
-            <div className="font-semibold tabular-nums">{formatEuroAmount(r.importe_iva)}</div>
-            <div className="mt-1 flex flex-wrap justify-end gap-2">{celdaPdf(true)}</div>
+          <td className={`px-3 py-2 text-right tabular-nums ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
+            <div className="font-semibold">{formatEuroAmount(r.importe_iva)}</div>
           </td>
+          <td className="px-3 py-2 text-center align-middle">{celdaPdf(true)}</td>
         </tr>
       )
     }
     return (
-      <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700">
-            {inicialesProveedorEstructura(r.proveedor)}
-          </span>
-          <p className="font-bold text-slate-900 text-sm flex-1">{proveedorTxt}</p>
+      <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80 grid gap-3 sm:grid-cols-3">
+        <div>
+          <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Proveedor</p>
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700">
+              {inicialesProveedorEstructura(r.proveedor)}
+            </span>
+            <p className="font-bold text-slate-900 text-sm flex-1 min-w-0">{proveedorTxt}</p>
+          </div>
         </div>
-        <p className={`text-sm font-bold mt-1 ${importePend ? 'text-red-600' : 'text-slate-900'}`}>
-          {formatEuroAmount(r.importe_iva)}
-        </p>
-        <div className="mt-2">{celdaPdf(false)}</div>
+        <div>
+          <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Importe</p>
+          <p className={`text-sm font-bold tabular-nums ${importePend ? 'text-red-600' : 'text-slate-900'}`}>
+            {formatEuroAmount(r.importe_iva)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] font-black uppercase text-slate-400 mb-1">PDF</p>
+          {celdaPdf(false)}
+        </div>
       </div>
     )
   }
@@ -311,49 +305,54 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
             </span>
             <span className="text-sm font-medium truncate">{proveedorTxt}</span>
           </span>
+          {accionesFila ? <div className="mt-1.5">{accionesFila}</div> : null}
         </td>
         <td className="px-3 py-2 align-top text-right">
-          <div className="flex flex-col items-end gap-2 max-w-[11rem] ml-auto">
+          <div className="inline-flex flex-col items-end gap-1 max-w-[8rem] ml-auto">
             <GastoImporteEditable
+              ref={importeInputRef}
               rowId={r.id}
               importeServidor={r.importe_iva}
               className="w-full max-w-[7rem] border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
-              onDraftChange={(s) => {
-                importeDraftRef.current = s
-              }}
               onCommit={(s) => persistirImporteDesdeString(s)}
             />
-            <div className="flex flex-col gap-1.5 items-end w-full">{celdaPdf(true)}</div>
-            {accionesFila}
+            {guardando ? <Loader2 size={14} className="animate-spin text-slate-400" aria-hidden /> : null}
           </div>
         </td>
+        <td className="px-3 py-2 text-center align-middle">{celdaPdf(true)}</td>
       </tr>
     )
   }
 
   return (
-    <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80 space-y-2">
-      <p className="text-[10px] font-black uppercase text-slate-400">Gasto de estructura</p>
-      <div className="flex items-center gap-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700 shrink-0">
-          {inicialesProveedorEstructura(r.proveedor)}
-        </span>
-        <p className="text-sm font-bold text-slate-900 flex-1 min-w-0 truncate">{proveedorTxt}</p>
+    <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80 grid gap-3 sm:grid-cols-3">
+      <div>
+        <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Proveedor</p>
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700 shrink-0">
+            {inicialesProveedorEstructura(r.proveedor)}
+          </span>
+          <p className="text-sm font-bold text-slate-900 flex-1 min-w-0 truncate">{proveedorTxt}</p>
+        </div>
+        {accionesFila ? <div className="mt-2">{accionesFila}</div> : null}
       </div>
-      <label className="block text-xs text-slate-600">
-        Importe y factura (PDF)
+      <div>
+        <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Importe</p>
         <GastoImporteEditable
+          ref={importeInputRef}
           rowId={r.id}
           importeServidor={r.importe_iva}
-          className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums"
-          onDraftChange={(s) => {
-            importeDraftRef.current = s
-          }}
+          className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums"
           onCommit={(s) => persistirImporteDesdeString(s)}
         />
-        <div className="mt-2">{celdaPdf(false)}</div>
-      </label>
-      {accionesFila ? <div className="pt-1">{accionesFila}</div> : null}
+        {guardando ? (
+          <Loader2 size={14} className="animate-spin text-slate-400 mt-1" aria-hidden />
+        ) : null}
+      </div>
+      <div>
+        <p className="text-[10px] font-black uppercase text-slate-400 mb-1">PDF</p>
+        {celdaPdf(false)}
+      </div>
     </div>
   )
 }, gastoEstructuraEditorPropsIguales)
@@ -722,50 +721,6 @@ const HistorialCierres = ({ user }) => {
             </span>
           )}
         </div>
-        {esAdmin && meses.length > 0 && (
-          <div className="flex flex-col gap-2 rounded-xl border border-amber-200/90 bg-amber-50/90 px-3 py-2.5">
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-900/90">
-              Gastos de estructura por mes
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {meses.map((mesNum) => {
-                const generando = generandoGastosMes === `${anioNum}-${mesNum}`
-                return (
-                  <div
-                    key={mesNum}
-                    className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-amber-200/90 bg-white/90 px-2 py-1.5"
-                  >
-                    <span className="text-[10px] font-black text-amber-950 pr-1">{NOMBRES_MES[mesNum - 1]}</span>
-                    <button
-                      type="button"
-                      disabled={generando}
-                      onClick={() => generarGastosMensualesPlantilla(mesNum)}
-                      className="inline-flex items-center gap-0.5 px-2 py-1 rounded-md bg-violet-600 hover:bg-violet-700 disabled:bg-slate-400 text-white text-[10px] font-black uppercase tracking-wide"
-                      title="Inserta filas desde gastos_plantilla (mensual + Seguro coche en noviembre)"
-                    >
-                      {generando ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-                      Generar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => abrirModalGastoMensual(mesNum, { esExtra: true })}
-                      className="inline-flex items-center gap-0.5 px-2 py-1 rounded-md bg-amber-700 hover:bg-amber-800 text-white text-[10px] font-black uppercase tracking-wide"
-                    >
-                      <Plus size={11} /> Extra
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => abrirModalGastoMensual(mesNum, { esExtra: false })}
-                      className="inline-flex items-center gap-0.5 px-2 py-1 rounded-md border border-amber-300 bg-amber-50 text-amber-950 text-[10px] font-bold hover:bg-amber-100"
-                    >
-                      Factura
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
         {meses.map((mesNum) => {
           const nombreMes = NOMBRES_MES[mesNum - 1]
           const rows = gastosEstructura.filter(
@@ -779,7 +734,7 @@ const HistorialCierres = ({ user }) => {
           const descargando = descargandoPackMes === `${anioNum}-${mesNum}`
           const conPdf = rows.filter((r) => r.url_pdf)
           const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
-          const colSpanTabla = 2
+          const colSpanTabla = 3
           const puedeEditarGastos = esAdmin || esGestoria
           const filaVaciaListado = (
             <tr>
@@ -807,6 +762,7 @@ const HistorialCierres = ({ user }) => {
                           type="button"
                           disabled={generandoGastosMes === `${anioNum}-${mesNum}`}
                           onClick={() => generarGastosMensualesPlantilla(mesNum)}
+                          title="Desde gastos_plantilla (mensual). El Seguro coche (anual) solo se añade en noviembre."
                           className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-slate-500 text-white text-[10px] sm:text-xs font-black uppercase tracking-[0.08em] shadow-md transition-colors"
                         >
                           {generandoGastosMes === `${anioNum}-${mesNum}` ? (
@@ -848,18 +804,16 @@ const HistorialCierres = ({ user }) => {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100 text-slate-700">
                       <tr>
-                        {['Proveedor', 'Importe'].map(
-                          (lab) => (
-                            <th
-                              key={lab}
-                              className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
-                                String(lab).includes('Importe') ? 'text-right' : 'text-left'
-                              }`}
-                            >
-                              {lab}
-                            </th>
-                          )
-                        )}
+                        {['Proveedor', 'Importe', 'PDF'].map((lab) => (
+                          <th
+                            key={lab}
+                            className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
+                              lab === 'Importe' ? 'text-right' : lab === 'PDF' ? 'text-center' : 'text-left'
+                            }`}
+                          >
+                            {lab}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">

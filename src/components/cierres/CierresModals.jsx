@@ -37,9 +37,19 @@ import {
   esErrorTablaInexistenteHistorial,
 } from '../../utils/historialCierresShared'
 
+/** Columnas permitidas en `gastos_estructura` (inserción manual / generada; nunca concepto, fecha_factura, activo, periodicidad). */
+const CAMPOS_INSERT_GASTOS_ESTRUCTURA = new Set([
+  'proveedor',
+  'importe_iva',
+  'mes',
+  'anio',
+  'url_pdf',
+  'es_extra',
+  'plantilla_id',
+])
+
 /**
- * Objeto de inserción explícito para «Generar gastos»: nunca reutilizar la fila de `gastos_plantilla` tal cual.
- * Solo estos campos van a `gastos_estructura` (PostgREST ignora claves extra; aquí no hay ninguna).
+ * Inserción desde plantilla: objeto nuevo, solo columnas de `gastos_estructura`.
  */
 function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
   const proveedor = normalizarProveedorEstructura(String(plantilla?.proveedor ?? '').trim())
@@ -51,20 +61,32 @@ function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
       .replace(/\u00a0/g, '')
       .replace(/\s/g, '')
       .replace(/€/g, '')
+      .replace(/EUR/gi, '')
       .replace(/,/g, '.')
-    importe_iva = parseFloat(s)
+    importe_iva = Number(parseFloat(s))
   }
   if (!Number.isFinite(importe_iva)) importe_iva = 0
+  else importe_iva = Number(importe_iva)
   return {
     proveedor,
     importe_iva,
     mes: mesTxt,
-    anio: anioNum,
+    anio: Number(anioNum),
+    url_pdf: null,
+    es_extra: false,
     plantilla_id,
   }
 }
 
-const CAMPOS_UPDATE_GASTOS_ESTRUCTURA = new Set(['proveedor', 'importe_iva', 'mes', 'anio', 'url_pdf'])
+const CAMPOS_UPDATE_GASTOS_ESTRUCTURA = new Set([
+  'proveedor',
+  'importe_iva',
+  'mes',
+  'anio',
+  'url_pdf',
+  'es_extra',
+  'plantilla_id',
+])
 
 const GastoMensualModalContent = memo(function GastoMensualModalContent({
   mesNum,
@@ -94,7 +116,8 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       cat === 'otro'
         ? proveedorOtro
         : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
-    const importeConIva = importeIvaNumericoParaSupabase(importeModalRef.current?.value)
+    const importeConIvaRaw = importeIvaNumericoParaSupabase(importeModalRef.current?.value)
+    const importeConIva = importeConIvaRaw == null ? null : Number(importeConIvaRaw)
     const file = archivoGastoMensual
 
     if (!proveedor) {
@@ -127,12 +150,15 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       )
       const row = {
         proveedor: normalizarProveedorEstructura(proveedor),
-        importe_iva: importeConIva,
+        importe_iva: Number(importeConIva),
         url_pdf: pathStorage,
         mes: mesTxt,
-        anio: anioEjercicio,
+        anio: Number(anioEjercicio),
         es_extra: !!esExtra,
         plantilla_id: null,
+      }
+      for (const k of Object.keys(row)) {
+        if (!CAMPOS_INSERT_GASTOS_ESTRUCTURA.has(k)) delete row[k]
       }
       const { error: insErr } = await supabase.from('gastos_estructura').insert(row)
       if (insErr) {
@@ -704,15 +730,21 @@ export function useCierresModals({
       if (fuenteGastosEstructura !== 'gastos_estructura') {
         return { ok: false, mensaje: 'Los gastos de estructura aún se están cargando.' }
       }
+      const prohibidos = ['concepto', 'fecha_factura', 'activo', 'periodicidad']
       const payload = {}
       for (const k of Object.keys(campos || {})) {
+        if (prohibidos.includes(k)) continue
         if (!CAMPOS_UPDATE_GASTOS_ESTRUCTURA.has(k)) continue
         if (k === 'importe_iva') {
           const v = importeIvaNumericoParaSupabase(campos[k])
-          if (v == null) {
+          if (v == null || !Number.isFinite(Number(v))) {
             return { ok: false, mensaje: 'Importe no válido (usa números, coma o punto, sin €).' }
           }
-          payload[k] = v
+          payload[k] = Number(v)
+        } else if (k === 'es_extra') {
+          payload[k] = campos[k] === true
+        } else if (k === 'plantilla_id') {
+          payload[k] = campos[k] == null ? null : campos[k]
         } else {
           payload[k] = campos[k]
         }
@@ -758,7 +790,9 @@ export function useCierresModals({
         }
         const porId = new Map()
         ;(mensuales || []).forEach((p) => porId.set(p.id, p))
-        if (NOMBRES_MES[mesNum - 1] === 'Noviembre') {
+        const mesTxt = mesEstructuraDesdeNumero(mesNum)
+        const esNoviembre = mesTxt === 'Noviembre' || NOMBRES_MES[mesNum - 1] === 'Noviembre'
+        if (esNoviembre) {
           const { data: anuales, error: eSeg } = await supabase
             .from('gastos_plantilla')
             .select('id, proveedor, importe_base')
@@ -775,7 +809,6 @@ export function useCierresModals({
           return
         }
 
-        const mesTxt = mesEstructuraDesdeNumero(mesNum)
         const { data: existentesRaw, error: eEx } = await supabase
           .from('gastos_estructura')
           .select('id, proveedor')

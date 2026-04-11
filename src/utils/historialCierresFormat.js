@@ -18,7 +18,7 @@ export const n = parseToFiniteNumber
 export function importeIvaNumericoParaSupabase(raw) {
   if (raw == null || raw === '') return null
   if (typeof raw === 'number') {
-    return Number.isFinite(raw) ? raw : null
+    return Number.isFinite(raw) ? Number(raw) : null
   }
   let s = String(raw)
     .trim()
@@ -39,7 +39,8 @@ export function importeIvaNumericoParaSupabase(raw) {
     s = s.replace(/\./g, '').replace(',', '.')
   }
   const num = parseFloat(s)
-  return Number.isFinite(num) ? num : null
+  if (!Number.isFinite(num)) return null
+  return Number(num)
 }
 
 export function esc(str) {
