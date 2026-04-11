@@ -37,56 +37,48 @@ import {
   esErrorTablaInexistenteHistorial,
 } from '../../utils/historialCierresShared'
 
-/** Columnas permitidas en `gastos_estructura` (sin id en cuerpo de insert). */
-const CAMPOS_INSERT_GASTOS_ESTRUCTURA = new Set([
-  'proveedor',
-  'importe_iva',
-  'mes',
-  'anio',
-  'url_pdf',
-  'es_extra',
-  'plantilla_id',
-])
-
 const PROHIBIDOS_GASTOS_ESTRUCTURA = new Set(['concepto', 'fecha_factura', 'activo', 'periodicidad'])
 
-/** Objeto de insert con tipos seguros (importe y anio siempre Number). */
-function filaGastosEstructuraParaSupabase(partial) {
-  const o = {}
-  for (const k of CAMPOS_INSERT_GASTOS_ESTRUCTURA) {
-    if (!Object.prototype.hasOwnProperty.call(partial, k)) continue
-    if (PROHIBIDOS_GASTOS_ESTRUCTURA.has(k)) continue
-    if (k === 'importe_iva') {
-      const v = importeIvaFloatParaGastosEstructura(partial[k])
-      o[k] = v == null || !Number.isFinite(v) ? 0 : v
-    } else if (k === 'anio') {
-      const n = Number(partial[k])
-      o[k] = Number.isFinite(n) ? n : 0
-    } else if (k === 'es_extra') {
-      o[k] = !!partial[k]
-    } else {
-      o[k] = partial[k]
-    }
-  }
-  return o
-}
-
 /**
- * Inserción desde plantilla: objeto nuevo, solo columnas de `gastos_estructura`.
+ * Insert desde `gastos_plantilla`: objeto literal, solo las columnas existentes en `gastos_estructura`.
+ * Nunca spread de la fila plantilla (evita PGRST204 por periodicidad, activo, etc.).
  */
 function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
   const proveedor = normalizarProveedorEstructura(String(plantilla?.proveedor ?? '').trim())
-  const plantilla_id = plantilla?.id ?? null
   const importe_iva = importeIvaFloatParaGastosEstructura(plantilla?.importe_base) ?? 0
-  return filaGastosEstructuraParaSupabase({
+  const anio = Number(anioNum)
+  const plantilla_id = plantilla?.id != null ? plantilla.id : null
+  return {
     proveedor,
     importe_iva,
     mes: mesTxt,
-    anio: Number(anioNum),
-    url_pdf: null,
-    es_extra: false,
+    anio: Number.isFinite(anio) ? anio : 0,
     plantilla_id,
-  })
+  }
+}
+
+/**
+ * Insert manual con factura PDF ya subida a storage: mismas claves base + `url_pdf`.
+ * Sin spread; sin columnas de plantilla.
+ */
+function filaInsertGastosEstructuraManualConPdf({
+  proveedor,
+  importe_iva,
+  mes,
+  anio,
+  url_pdf,
+}) {
+  const p = normalizarProveedorEstructura(String(proveedor ?? '').trim())
+  const imp = importeIvaFloatParaGastosEstructura(importe_iva)
+  const y = Number(anio)
+  return {
+    proveedor: p,
+    importe_iva: imp == null || !Number.isFinite(imp) ? 0 : imp,
+    mes: String(mes ?? ''),
+    anio: Number.isFinite(y) ? y : 0,
+    plantilla_id: null,
+    url_pdf: url_pdf == null ? null : String(url_pdf),
+  }
 }
 
 const CAMPOS_UPDATE_GASTOS_ESTRUCTURA = new Set([
@@ -140,13 +132,11 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
 }) {
   const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual())
   const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
-  const [marcarExtra, setMarcarExtra] = useState(() => !!esExtra)
   const importeModalRef = useRef(null)
 
   useEffect(() => {
     setFormGastoMensual(formInicialGastoMensual())
     setArchivoGastoMensual(null)
-    setMarcarExtra(!!esExtra)
     if (importeModalRef.current) importeModalRef.current.value = ''
   }, [mesNum, añoStr, esExtra])
 
@@ -189,14 +179,12 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         anioEjercicio,
         null
       )
-      const row = filaGastosEstructuraParaSupabase({
-        proveedor: normalizarProveedorEstructura(proveedor),
+      const row = filaInsertGastosEstructuraManualConPdf({
+        proveedor,
         importe_iva: importeConIva,
-        url_pdf: pathStorage,
         mes: mesTxt,
-        anio: Number(anioEjercicio),
-        es_extra: !!marcarExtra,
-        plantilla_id: null,
+        anio: anioEjercicio,
+        url_pdf: pathStorage,
       })
       const { error: insErr } = await supabase.from('gastos_estructura').insert(row)
       if (insErr) {
@@ -274,15 +262,6 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
             />
           </label>
         )}
-        <label className="flex items-center gap-2 mt-1 text-xs font-semibold text-amber-900 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={marcarExtra}
-            onChange={(e) => setMarcarExtra(e.target.checked)}
-            className="rounded border-amber-400 text-amber-700 focus:ring-amber-500"
-          />
-          Gasto extra (fuera de plantilla)
-        </label>
         <label className="block text-xs font-semibold text-slate-600">
           Importe (con IVA)
           <input

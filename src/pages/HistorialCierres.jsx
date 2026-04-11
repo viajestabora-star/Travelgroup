@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback, memo, useRef, forwardRef } from 'react'
 import {
   FileText,
+  Download,
   Eye,
   TrendingUp,
   FileSpreadsheet,
@@ -14,9 +15,11 @@ import {
   Upload,
 } from 'lucide-react'
 import { supabase } from '../supabase'
+import { saveAs } from 'file-saver'
 import {
   resolverUrlPublicaFacturaProveedor,
   abrirFacturaProveedorPorUrlGuardada,
+  descargarArrayBufferFacturaProveedor,
   eliminarObjetoStorageFacturaProveedor,
 } from '../utils/facturaProveedorStorage'
 import { esUsuarioGestoria, esUsuarioAdmin } from '../utils/userRoles'
@@ -122,12 +125,8 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
 
   const proveedorTxt = normalizarProveedorEstructura(r.proveedor) || '—'
   const importePend = importeGastoEstructuraPendiente(r.importe_iva)
-
-  const payloadMesAnio = () => ({
-    mes: mesTxt,
-    anio: Number(anioFila),
-    proveedor: normalizarProveedorEstructura(r.proveedor),
-  })
+  const proveedorPayload = normalizarProveedorEstructura(r.proveedor)
+  const anioPayload = Number(anioFila)
 
   const persistirImporteDesdeString = async (strRaw) => {
     const importeNum = importeIvaFloatParaGastosEstructura(strRaw)
@@ -140,11 +139,24 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
 
     setGuardando(true)
     const res = await onGuardarEdicion(r, {
-      ...payloadMesAnio(),
+      proveedor: proveedorPayload,
+      mes: mesTxt,
+      anio: anioPayload,
       importe_iva: importeNum,
     })
     setGuardando(false)
     if (!res.ok) alert(res.mensaje || 'No se pudo guardar.')
+  }
+
+  const descargarPdfFactura = async () => {
+    if (!r.url_pdf) return
+    const buf = await descargarArrayBufferFacturaProveedor(r.url_pdf)
+    if (!buf) {
+      alert('No se pudo descargar el PDF.')
+      return
+    }
+    const nombre = String(r.url_pdf).split('/').pop() || 'factura.pdf'
+    saveAs(new Blob([buf], { type: 'application/pdf' }), nombre.endsWith('.pdf') ? nombre : `${nombre}.pdf`)
   }
 
   const onPdfElegido = async (file) => {
@@ -170,7 +182,9 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         importeIvaFloatParaGastosEstructura(r.importe_iva) ??
         0
       const res = await onGuardarEdicion(r, {
-        ...payloadMesAnio(),
+        proveedor: proveedorPayload,
+        mes: mesTxt,
+        anio: anioPayload,
         importe_iva: importeOk,
         url_pdf: pathNuevo,
       })
@@ -191,17 +205,30 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   const celdaPdf = (compacto) => {
     const btnPdf =
       url && r.url_pdf ? (
-        <button
-          type="button"
-          onClick={() => onAbrirPdf(r.url_pdf)}
-          className={`inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-red-600 shadow-sm hover:bg-red-50 hover:border-red-200 transition-colors ${
-            compacto ? 'p-1.5' : 'p-2'
-          }`}
-          title="Ver factura PDF"
-          aria-label="Ver factura PDF"
-        >
-          <FileText size={compacto ? 20 : 22} strokeWidth={2} />
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => onAbrirPdf(r.url_pdf)}
+            className={`inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-red-600 shadow-sm hover:bg-red-50 hover:border-red-200 transition-colors ${
+              compacto ? 'p-1.5' : 'p-2'
+            }`}
+            title="Ver factura PDF"
+            aria-label="Ver factura PDF"
+          >
+            <FileText size={compacto ? 20 : 22} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            onClick={() => descargarPdfFactura()}
+            className={`inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 transition-colors ${
+              compacto ? 'p-1.5' : 'p-2'
+            }`}
+            title="Descargar PDF"
+            aria-label="Descargar PDF"
+          >
+            <Download size={compacto ? 20 : 22} strokeWidth={2} />
+          </button>
+        </>
       ) : null
     const subir = puedeEditarGastos ? (
       <div className={`relative inline-block ${compacto ? '' : 'mt-0'}`}>
