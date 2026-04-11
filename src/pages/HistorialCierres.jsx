@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback, memo, useRef, forward
 import {
   FileText,
   Download,
+  ExternalLink,
   Eye,
   TrendingUp,
   FileSpreadsheet,
@@ -37,7 +38,6 @@ import {
   AÑOS,
   añoActual,
   normalizarProveedorEstructura,
-  importeIvaFloatParaGastosEstructura,
 } from '../utils/historialCierresFormat'
 import {
   TRIMESTRES,
@@ -50,9 +50,15 @@ import {
   subirPdfGastoEstructuraFacturaProveedor,
 } from '../utils/historialCierresShared'
 
+/** Misma regla que en CierresModals: número puro; si falla el parseo → 0. */
+function importeNumeroGastosEstructura(valor) {
+  const n = Number(String(valor ?? '').replace(',', '.').replace('€', '').trim())
+  return Number.isFinite(n) ? n : 0
+}
+
 function importeGastoEstructuraPendiente(importeIva) {
-  const x = importeIvaFloatParaGastosEstructura(importeIva)
-  return x == null || x === 0
+  const x = importeNumeroGastosEstructura(importeIva)
+  return x === 0
 }
 
 function fmtImporteInput(importeIva) {
@@ -99,7 +105,8 @@ function gastoEstructuraEditorPropsIguales(prev, next) {
     a.id === b.id &&
     a.proveedor === b.proveedor &&
     a.importe_iva === b.importe_iva &&
-    a.url_pdf === b.url_pdf
+    a.url_pdf === b.url_pdf &&
+    a.plantilla_id === b.plantilla_id
   )
 }
 
@@ -129,19 +136,20 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   const anioPayload = Number(anioFila)
 
   const persistirImporteDesdeString = async (strRaw) => {
-    const importeNum = importeIvaFloatParaGastosEstructura(strRaw)
-    if (importeNum == null || importeNum < 0) {
+    const importeNum = importeNumeroGastosEstructura(strRaw)
+    if (!Number.isFinite(importeNum) || importeNum < 0) {
       alert('Importe no válido (usa solo números; coma o punto decimal; sin €).')
       return
     }
-    const prev = importeIvaFloatParaGastosEstructura(r.importe_iva)
-    if (prev != null && Math.abs(prev - importeNum) < 1e-9) return
+    const prev = importeNumeroGastosEstructura(r.importe_iva)
+    if (Math.abs(prev - importeNum) < 1e-9) return
 
     setGuardando(true)
     const res = await onGuardarEdicion(r, {
       proveedor: proveedorPayload,
       mes: mesTxt,
       anio: anioPayload,
+      plantilla_id: r.plantilla_id ?? null,
       importe_iva: importeNum,
     })
     setGuardando(false)
@@ -177,14 +185,14 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
       if (r.url_pdf && r.url_pdf !== pathNuevo) {
         await eliminarObjetoStorageFacturaProveedor(r.url_pdf)
       }
-      const importeOk =
-        importeIvaFloatParaGastosEstructura(importeInputRef.current?.value) ??
-        importeIvaFloatParaGastosEstructura(r.importe_iva) ??
-        0
+      const impInput = importeNumeroGastosEstructura(importeInputRef.current?.value)
+      const impServ = importeNumeroGastosEstructura(r.importe_iva)
+      const importeOk = impInput !== 0 ? impInput : impServ
       const res = await onGuardarEdicion(r, {
         proveedor: proveedorPayload,
         mes: mesTxt,
         anio: anioPayload,
+        plantilla_id: r.plantilla_id ?? null,
         importe_iva: importeOk,
         url_pdf: pathNuevo,
       })
@@ -209,13 +217,13 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           <button
             type="button"
             onClick={() => onAbrirPdf(r.url_pdf)}
-            className={`inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-red-600 shadow-sm hover:bg-red-50 hover:border-red-200 transition-colors ${
+            className={`inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-blue-700 shadow-sm hover:bg-blue-50 transition-colors ${
               compacto ? 'p-1.5' : 'p-2'
             }`}
-            title="Ver factura PDF"
-            aria-label="Ver factura PDF"
+            title="Abrir PDF (nueva pestaña)"
+            aria-label="Abrir PDF en nueva pestaña"
           >
-            <FileText size={compacto ? 20 : 22} strokeWidth={2} />
+            <ExternalLink size={compacto ? 20 : 22} strokeWidth={2} />
           </button>
           <button
             type="button"
@@ -244,7 +252,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           }}
         />
         <span
-          className={`inline-flex items-center justify-center rounded-lg border border-amber-300 bg-amber-50 text-amber-900 pointer-events-none ${
+          className={`inline-flex items-center justify-center rounded-lg border border-slate-300 bg-slate-50 text-slate-700 pointer-events-none ${
             compacto ? 'p-1.5' : 'p-2'
           }`}
           title={subiendoPdf ? 'Subiendo…' : 'Subir PDF'}
@@ -278,15 +286,15 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
               {proveedorTxt}
             </span>
           </td>
-          <td className={`px-3 py-2 text-right ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
-            <div className="font-semibold tabular-nums">{formatEuroAmount(r.importe_iva)}</div>
-            <div className="mt-2 flex flex-wrap justify-end gap-2">{celdaPdf(true)}</div>
+          <td className={`px-3 py-2 text-right tabular-nums ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
+            <div className="font-semibold">{formatEuroAmount(r.importe_iva)}</div>
           </td>
+          <td className="px-3 py-2 text-center align-middle">{celdaPdf(true)}</td>
         </tr>
       )
     }
     return (
-      <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80 grid gap-3 sm:grid-cols-2">
+      <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80 grid gap-3 sm:grid-cols-3">
         <div>
           <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Proveedor</p>
           <div className="flex items-center gap-2">
@@ -301,7 +309,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           <p className={`text-sm font-bold tabular-nums ${importePend ? 'text-red-600' : 'text-slate-900'}`}>
             {formatEuroAmount(r.importe_iva)}
           </p>
-          <div className="mt-2">{celdaPdf(false)}</div>
+        </div>
+        <div>
+          <p className="text-[10px] font-black uppercase text-slate-400 mb-1">PDF</p>
+          {celdaPdf(false)}
         </div>
       </div>
     )
@@ -330,26 +341,24 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           {accionesFila ? <div className="mt-1.5">{accionesFila}</div> : null}
         </td>
         <td className="px-3 py-2 align-top text-right">
-          <div className="inline-flex flex-col items-end gap-2 max-w-[11rem] ml-auto">
-            <div className="inline-flex flex-col items-end gap-1 w-full">
-              <GastoImporteEditable
-                ref={importeInputRef}
-                rowId={r.id}
-                importeServidor={r.importe_iva}
-                className="w-full max-w-[7rem] border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
-                onCommit={(s) => persistirImporteDesdeString(s)}
-              />
-              {guardando ? <Loader2 size={14} className="animate-spin text-slate-400" aria-hidden /> : null}
-            </div>
-            <div className="flex flex-wrap justify-end gap-2">{celdaPdf(true)}</div>
+          <div className="inline-flex flex-col items-end gap-1 max-w-[8rem] ml-auto">
+            <GastoImporteEditable
+              ref={importeInputRef}
+              rowId={r.id}
+              importeServidor={r.importe_iva}
+              className="w-full max-w-[7rem] border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
+              onCommit={(s) => persistirImporteDesdeString(s)}
+            />
+            {guardando ? <Loader2 size={14} className="animate-spin text-slate-400" aria-hidden /> : null}
           </div>
         </td>
+        <td className="px-3 py-2 text-center align-middle">{celdaPdf(true)}</td>
       </tr>
     )
   }
 
   return (
-    <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80 grid gap-3 sm:grid-cols-2">
+    <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80 grid gap-3 sm:grid-cols-3">
       <div>
         <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Proveedor</p>
         <div className="flex items-center gap-2">
@@ -372,7 +381,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         {guardando ? (
           <Loader2 size={14} className="animate-spin text-slate-400 mt-1" aria-hidden />
         ) : null}
-        <div className="mt-2">{celdaPdf(false)}</div>
+      </div>
+      <div>
+        <p className="text-[10px] font-black uppercase text-slate-400 mb-1">PDF</p>
+        {celdaPdf(false)}
       </div>
     </div>
   )
@@ -755,7 +767,7 @@ const HistorialCierres = ({ user }) => {
           const descargando = descargandoPackMes === `${anioNum}-${mesNum}`
           const conPdf = rows.filter((r) => r.url_pdf)
           const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
-          const colSpanTabla = 2
+          const colSpanTabla = 3
           const puedeEditarGastos = esAdmin || esGestoria
           const filaVaciaListado = (
             <tr>
@@ -784,7 +796,7 @@ const HistorialCierres = ({ user }) => {
                           disabled={generandoGastosMes === `${anioNum}-${mesNum}`}
                           onClick={() => generarGastosMensualesPlantilla(mesNum)}
                           title="Desde gastos_plantilla (mensual). El Seguro coche (anual) solo se añade en noviembre."
-                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-slate-500 text-white text-[10px] sm:text-xs font-black uppercase tracking-[0.08em] shadow-md transition-colors"
+                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 disabled:bg-slate-500 text-white text-[10px] sm:text-xs font-black uppercase tracking-[0.08em] shadow-sm transition-colors"
                         >
                           {generandoGastosMes === `${anioNum}-${mesNum}` ? (
                             <Loader2 size={14} className="animate-spin" />
@@ -796,7 +808,7 @@ const HistorialCierres = ({ user }) => {
                         <button
                           type="button"
                           onClick={() => abrirModalGastoMensual(mesNum, { esExtra: false })}
-                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black uppercase tracking-[0.12em] shadow-md transition-colors"
+                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 text-white text-xs font-black uppercase tracking-[0.12em] shadow-sm transition-colors"
                         >
                           <Plus size={16} />
                           Añadir gasto
@@ -807,7 +819,7 @@ const HistorialCierres = ({ user }) => {
                       type="button"
                       disabled={descargando || !puedePackMes}
                       onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
-                      className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-500 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.12em] shadow-md transition-colors"
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 disabled:bg-slate-500 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.12em] shadow-sm transition-colors"
                     >
                       {descargando ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
                       DESCARGAR PACK {nombreMes.toUpperCase()}
@@ -819,11 +831,11 @@ const HistorialCierres = ({ user }) => {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100 text-slate-700">
                       <tr>
-                        {['Proveedor', 'Importe'].map((lab) => (
+                        {['Proveedor', 'Importe', 'PDF'].map((lab) => (
                           <th
                             key={lab}
                             className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
-                              lab === 'Importe' ? 'text-right' : 'text-left'
+                              lab === 'Importe' ? 'text-right' : lab === 'PDF' ? 'text-center' : 'text-left'
                             }`}
                           >
                             {lab}

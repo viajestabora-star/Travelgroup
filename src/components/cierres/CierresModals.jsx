@@ -19,7 +19,6 @@ import {
   mesEstructuraDesdeNumero,
   mesNumeroDesdeEstructura,
   normalizarProveedorEstructura,
-  importeIvaFloatParaGastosEstructura,
 } from '../../utils/historialCierresFormat'
 import {
   fusionarFacturasClientePorExpediente,
@@ -37,69 +36,67 @@ import {
   esErrorTablaInexistenteHistorial,
 } from '../../utils/historialCierresShared'
 
-const PROHIBIDOS_GASTOS_ESTRUCTURA = new Set(['concepto', 'fecha_factura', 'activo', 'periodicidad'])
+const PROHIBIDOS_GASTOS_ESTRUCTURA = new Set(['concepto', 'fecha_factura', 'activo', 'periodicidad', 'es_extra'])
 
-/**
- * Insert desde `gastos_plantilla`: objeto literal, solo las columnas existentes en `gastos_estructura`.
- * Nunca spread de la fila plantilla (evita PGRST204 por periodicidad, activo, etc.).
- */
-function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
-  const proveedor = normalizarProveedorEstructura(String(plantilla?.proveedor ?? '').trim())
-  const importe_iva = importeIvaFloatParaGastosEstructura(plantilla?.importe_base) ?? 0
-  const anio = Number(anioNum)
-  const plantilla_id = plantilla?.id != null ? plantilla.id : null
-  return {
-    proveedor,
-    importe_iva,
-    mes: mesTxt,
-    anio: Number.isFinite(anio) ? anio : 0,
-    plantilla_id,
-  }
+/** Importe numérico puro para `gastos_estructura` (política explícita; si falla → 0). */
+function importeNumeroGastosEstructura(valor) {
+  const n = Number(String(valor ?? '').replace(',', '.').replace('€', '').trim())
+  return Number.isFinite(n) ? n : 0
 }
 
-/**
- * Insert manual con factura PDF ya subida a storage: mismas claves base + `url_pdf`.
- * Sin spread; sin columnas de plantilla.
- */
-function filaInsertGastosEstructuraManualConPdf({
-  proveedor,
-  importe_iva,
-  mes,
-  anio,
-  url_pdf,
-}) {
-  const p = normalizarProveedorEstructura(String(proveedor ?? '').trim())
-  const imp = importeIvaFloatParaGastosEstructura(importe_iva)
-  const y = Number(anio)
-  return {
-    proveedor: p,
-    importe_iva: imp == null || !Number.isFinite(imp) ? 0 : imp,
-    mes: String(mes ?? ''),
-    anio: Number.isFinite(y) ? y : 0,
-    plantilla_id: null,
-    url_pdf: url_pdf == null ? null : String(url_pdf),
-  }
-}
-
-const CAMPOS_UPDATE_GASTOS_ESTRUCTURA = new Set([
+/** Columnas permitidas en insert/update (5 negocio + url_pdf para factura en storage). Sin spread de plantilla. */
+const CAMPOS_GASTOS_ESTRUCTURA = new Set([
   'proveedor',
   'importe_iva',
   'mes',
   'anio',
-  'url_pdf',
-  'es_extra',
   'plantilla_id',
+  'url_pdf',
 ])
 
-/** Update: solo columnas permitidas; `importe_iva` y `anio` siempre Number; sin claves prohibidas ni `id`. */
+/**
+ * Insert desde `gastos_plantilla`: solo las 5 claves de negocio (sin url_pdf).
+ * Campos asignados uno a uno; nunca {...plantilla}.
+ */
+function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
+  const row = {}
+  row.proveedor = normalizarProveedorEstructura(String(plantilla?.proveedor ?? '').trim())
+  row.importe_iva = importeNumeroGastosEstructura(plantilla?.importe_base)
+  row.mes = mesTxt
+  row.anio = (() => {
+    const a = Number(anioNum)
+    return Number.isFinite(a) ? a : 0
+  })()
+  row.plantilla_id = plantilla?.id != null ? plantilla.id : null
+  return row
+}
+
+/**
+ * Insert manual tras subir PDF: mismas 5 claves + `url_pdf` (ruta en facturas_proveedores).
+ */
+function filaInsertGastosEstructuraManualConPdf({ proveedor, importe_iva, mes, anio, url_pdf }) {
+  const row = {}
+  row.proveedor = normalizarProveedorEstructura(String(proveedor ?? '').trim())
+  row.importe_iva = importeNumeroGastosEstructura(importe_iva)
+  row.mes = String(mes ?? '')
+  row.anio = (() => {
+    const y = Number(anio)
+    return Number.isFinite(y) ? y : 0
+  })()
+  row.plantilla_id = null
+  row.url_pdf = url_pdf == null ? null : String(url_pdf)
+  return row
+}
+
+/** Update: solo claves en CAMPOS_GASTOS_ESTRUCTURA; sin `id` en cuerpo. */
 function payloadUpdateGastosEstructuraDesdeCampos(campos) {
   const out = {}
   for (const k of Object.keys(campos || {})) {
     if (k === 'id' || PROHIBIDOS_GASTOS_ESTRUCTURA.has(k)) continue
-    if (!CAMPOS_UPDATE_GASTOS_ESTRUCTURA.has(k)) continue
+    if (!CAMPOS_GASTOS_ESTRUCTURA.has(k)) continue
     if (k === 'importe_iva') {
-      const v = importeIvaFloatParaGastosEstructura(campos[k])
-      if (v == null || !Number.isFinite(v) || v < 0) {
+      const v = importeNumeroGastosEstructura(campos[k])
+      if (v < 0) {
         return { ok: false, mensaje: 'Importe no válido (usa números, coma o punto, sin €).' }
       }
       out[k] = v
@@ -109,10 +106,10 @@ function payloadUpdateGastosEstructuraDesdeCampos(campos) {
         return { ok: false, mensaje: 'Año no válido.' }
       }
       out[k] = n
-    } else if (k === 'es_extra') {
-      out[k] = campos[k] === true
     } else if (k === 'plantilla_id') {
       out[k] = campos[k] == null ? null : campos[k]
+    } else if (k === 'url_pdf') {
+      out[k] = campos[k] == null ? null : String(campos[k])
     } else {
       out[k] = campos[k]
     }
@@ -148,14 +145,14 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       cat === 'otro'
         ? proveedorOtro
         : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
-    const importeConIva = importeIvaFloatParaGastosEstructura(importeModalRef.current?.value)
+    const importeConIva = importeNumeroGastosEstructura(importeModalRef.current?.value)
     const file = archivoGastoMensual
 
     if (!proveedor) {
       alert(cat === 'otro' ? 'Indica el nombre del proveedor (Otro).' : 'Selecciona un proveedor.')
       return
     }
-    if (importeConIva == null || importeConIva < 0) {
+    if (!Number.isFinite(importeConIva) || importeConIva <= 0) {
       alert('Indica un importe válido (número; puedes usar coma decimal; sin € ni texto).')
       return
     }
