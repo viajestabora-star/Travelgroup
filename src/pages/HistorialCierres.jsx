@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback, memo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback, memo, useRef } from 'react'
 import {
   FileText,
   Eye,
@@ -14,8 +14,13 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { supabase } from '../supabase'
-import { resolverUrlPublicaFacturaProveedor, abrirFacturaProveedorPorUrlGuardada } from '../utils/facturaProveedorStorage'
-import { parsearFechaADate } from '../utils/dateNormalizer'
+import {
+  resolverUrlPublicaFacturaProveedor,
+  abrirFacturaProveedorPorUrlGuardada,
+  descargarArrayBufferFacturaProveedor,
+  eliminarObjetoStorageFacturaProveedor,
+} from '../utils/facturaProveedorStorage'
+import { saveAs } from 'file-saver'
 import { esUsuarioGestoria, esUsuarioAdmin } from '../utils/userRoles'
 import { useCierresLogic } from '../hooks/useCierresLogic'
 import { useCierresModals, CierresModalsLayer } from '../components/cierres/CierresModals'
@@ -26,6 +31,7 @@ import {
   mesesDelTrimestre,
   inicialesProveedorEstructura,
   mesNumeroDesdeEstructura,
+  mesEstructuraDesdeNumero,
   n,
   AÑOS,
   añoActual,
@@ -39,33 +45,8 @@ import {
   clasificarPorFechaInicio,
   construirHTMLCuaderno,
   NUMEROS_DIAGNOSTICO_HISTORIAL,
+  subirPdfGastoEstructuraFacturaProveedor,
 } from '../utils/historialCierresShared'
-
-function fmtFechaFacturaGastoHistorial(raw) {
-  if (!raw) return '—'
-  const d = parsearFechaADate(raw) || new Date(raw)
-  return !isNaN(d.getTime())
-    ? d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    : '—'
-}
-
-/** Input de importe estable (memo) para la tabla de gastos de estructura. */
-const GastoEstructuraImporteCell = memo(function GastoEstructuraImporteCell({ value, onChangeValue, compact }) {
-  return (
-    <input
-      type="text"
-      autoComplete="off"
-      inputMode="decimal"
-      value={value}
-      onChange={(e) => onChangeValue(e.target.value)}
-      className={
-        compact
-          ? 'w-full max-w-[7rem] ml-auto border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right'
-          : 'mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums'
-      }
-    />
-  )
-})
 
 function importeGastoEstructuraPendiente(importeIva) {
   if (importeIva == null || importeIva === '') return true
@@ -75,6 +56,7 @@ function importeGastoEstructuraPendiente(importeIva) {
 
 function gastoEstructuraEditorPropsIguales(prev, next) {
   if (prev.esAdmin !== next.esAdmin || prev.layout !== next.layout) return false
+  if (prev.mesNum !== next.mesNum || prev.anioNum !== next.anioNum) return false
   if (prev.url !== next.url) return false
   const a = prev.r
   const b = next.r
@@ -82,7 +64,6 @@ function gastoEstructuraEditorPropsIguales(prev, next) {
     a.id === b.id &&
     a.proveedor === b.proveedor &&
     a.importe_iva === b.importe_iva &&
-    a.fecha_factura === b.fecha_factura &&
     a.url_pdf === b.url_pdf
   )
 }
@@ -90,60 +71,153 @@ function gastoEstructuraEditorPropsIguales(prev, next) {
 const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   r,
   esAdmin,
+  mesNum,
+  anioNum,
   url,
   onAbrirPdf,
   onBorrar,
   onGuardarEdicion,
   layout,
 }) {
-  const [importeIvaStr, setImporteIvaStr] = useState(() =>
-    r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
-  )
-  const [fecha, setFecha] = useState(() => (r.fecha_factura ? String(r.fecha_factura).slice(0, 10) : ''))
+  const importeRef = useRef(null)
   const [guardando, setGuardando] = useState(false)
+  const [subiendoPdf, setSubiendoPdf] = useState(false)
+  const pdfInputRef = useRef(null)
+
+  const mesTxt = r.mes != null ? String(r.mes) : mesEstructuraDesdeNumero(mesNum)
+  const anioFila = r.anio != null ? Number(r.anio) : anioNum
 
   useEffect(() => {
-    setFecha(r.fecha_factura ? String(r.fecha_factura).slice(0, 10) : '')
-    setImporteIvaStr(
+    const el = importeRef.current
+    if (!el) return
+    const s =
       r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
-    )
-  }, [r.id, r.proveedor, r.importe_iva, r.fecha_factura])
+    if (document.activeElement !== el) el.value = s
+  }, [r.id, r.importe_iva])
 
   const proveedorTxt = normalizarProveedorEstructura(r.proveedor) || '—'
   const importePend = importeGastoEstructuraPendiente(r.importe_iva)
 
-  const aplicarGuardado = async () => {
-    const importeNum = parseFloat(String(importeIvaStr || '').replace(',', '.'))
+  const payloadMesAnio = () => ({
+    mes: mesTxt,
+    anio: anioFila,
+    proveedor: normalizarProveedorEstructura(r.proveedor),
+  })
+
+  const persistirImporteDesdeInput = async () => {
+    const importeNum = parseFloat(String(importeRef.current?.value ?? '').replace(',', '.'))
     if (!Number.isFinite(importeNum) || importeNum < 0) {
       alert('Importe no válido.')
       return
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-      alert('Indica la fecha de factura (YYYY-MM-DD).')
-      return
-    }
-    const fd = new Date(`${fecha}T12:00:00`)
-    if (isNaN(fd.getTime())) {
-      alert('Fecha no válida.')
-      return
-    }
+    const prev = Number(r.importe_iva)
+    if (Number.isFinite(prev) && Math.abs(prev - importeNum) < 1e-9) return
+
     setGuardando(true)
     const res = await onGuardarEdicion(r, {
-      proveedor: normalizarProveedorEstructura(r.proveedor),
+      ...payloadMesAnio(),
       importe_iva: importeNum,
-      fecha_factura: fecha,
-      mes: String(fd.getMonth() + 1),
-      anio: fd.getFullYear(),
     })
     setGuardando(false)
     if (!res.ok) alert(res.mensaje || 'No se pudo guardar.')
+  }
+
+  const descargarPdf = async () => {
+    if (!r.url_pdf) return
+    const buf = await descargarArrayBufferFacturaProveedor(r.url_pdf)
+    if (!buf) {
+      alert('No se pudo descargar el PDF.')
+      return
+    }
+    const nombre = String(r.url_pdf).split('/').pop() || 'factura.pdf'
+    saveAs(new Blob([buf], { type: 'application/pdf' }), nombre.endsWith('.pdf') ? nombre : `${nombre}.pdf`)
+  }
+
+  const onPdfElegido = async (file) => {
+    if (!file || file.type !== 'application/pdf') {
+      alert('Selecciona un PDF.')
+      return
+    }
+    setSubiendoPdf(true)
+    let pathNuevo = null
+    try {
+      pathNuevo = await subirPdfGastoEstructuraFacturaProveedor(
+        file,
+        r.proveedor,
+        mesTxt,
+        anioFila,
+        r.id
+      )
+      if (r.url_pdf && r.url_pdf !== pathNuevo) {
+        await eliminarObjetoStorageFacturaProveedor(r.url_pdf)
+      }
+      const impDesde = parseFloat(String(importeRef.current?.value ?? '').replace(',', '.'))
+      const importeOk = Number.isFinite(impDesde) && impDesde >= 0 ? impDesde : n(r.importe_iva)
+      const res = await onGuardarEdicion(r, {
+        ...payloadMesAnio(),
+        importe_iva: importeOk,
+        url_pdf: pathNuevo,
+      })
+      if (!res.ok) {
+        await eliminarObjetoStorageFacturaProveedor(pathNuevo)
+        alert(res.mensaje || 'No se pudo guardar la ruta del PDF.')
+      }
+    } catch (e) {
+      console.error(e)
+      if (pathNuevo) await eliminarObjetoStorageFacturaProveedor(pathNuevo)
+      alert(e?.message || 'Error al subir el PDF.')
+    } finally {
+      setSubiendoPdf(false)
+      if (pdfInputRef.current) pdfInputRef.current.value = ''
+    }
+  }
+
+  const celdaPdf = (compacto) => {
+    if (url) {
+      return (
+        <div className={`flex flex-wrap items-center gap-2 ${compacto ? '' : 'pt-0.5'}`}>
+          <button
+            type="button"
+            onClick={() => onAbrirPdf(r.url_pdf)}
+            className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
+          >
+            <ExternalLink size={14} /> Ver
+          </button>
+          <button
+            type="button"
+            onClick={() => descargarPdf()}
+            className="text-xs font-bold text-slate-700 hover:text-slate-900 underline"
+          >
+            Descargar
+          </button>
+        </div>
+      )
+    }
+    if (!esAdmin) {
+      return <span className="text-xs text-slate-400">—</span>
+    }
+    return (
+      <div className="relative inline-block">
+        <input
+          ref={pdfInputRef}
+          type="file"
+          accept="application/pdf,.pdf"
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+          disabled={subiendoPdf}
+          onChange={(e) => onPdfElegido(e.target.files?.[0] || null)}
+        />
+        <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 border border-amber-300 rounded-lg px-2 py-1.5 bg-amber-50 pointer-events-none">
+          {subiendoPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+          {subiendoPdf ? 'Subiendo…' : 'Subir PDF'}
+        </span>
+      </div>
+    )
   }
 
   if (!esAdmin) {
     if (layout === 'table') {
       return (
         <tr>
-          <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{fmtFechaFacturaGastoHistorial(r.fecha_factura)}</td>
           <td className="px-3 py-2 text-slate-800">
             <span className="inline-flex items-center gap-2">
               <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
@@ -155,19 +229,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           <td className={`px-3 py-2 text-right tabular-nums ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
             <div className="font-semibold">{formatEuroAmount(r.importe_iva)}</div>
           </td>
-          <td className="px-3 py-2">
-            {url ? (
-              <button
-                type="button"
-                onClick={() => onAbrirPdf(r.url_pdf)}
-                className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
-              >
-                <ExternalLink size={14} /> Abrir
-              </button>
-            ) : (
-              <span className="text-xs text-slate-400">—</span>
-            )}
-          </td>
+          <td className="px-3 py-2">{celdaPdf(true)}</td>
         </tr>
       )
     }
@@ -179,17 +241,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           </span>
           <p className="font-bold text-slate-900 text-sm flex-1">{proveedorTxt}</p>
         </div>
-        <p className="text-xs text-slate-500 mt-1">Fecha: {fmtFechaFacturaGastoHistorial(r.fecha_factura)}</p>
         <p className={`text-sm font-bold mt-1 ${importePend ? 'text-red-600' : 'text-slate-900'}`}>
           {formatEuroAmount(r.importe_iva)}
         </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {url && (
-            <button type="button" onClick={() => onAbrirPdf(r.url_pdf)} className="text-xs font-bold text-blue-600">
-              Abrir PDF
-            </button>
-          )}
-        </div>
+        <div className="mt-2">{celdaPdf(false)}</div>
       </div>
     )
   }
@@ -197,14 +252,6 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   if (layout === 'table') {
     return (
       <tr>
-        <td className="px-3 py-2 align-top">
-          <input
-            type="date"
-            value={fecha}
-            onChange={(e) => setFecha(e.target.value)}
-            className="w-full min-w-[9.5rem] border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
-          />
-        </td>
         <td className="px-3 py-2 align-top text-slate-800">
           <span className="inline-flex items-center gap-2 min-w-0">
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
@@ -214,26 +261,28 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           </span>
         </td>
         <td className="px-3 py-2 align-top text-right">
-          <GastoEstructuraImporteCell value={importeIvaStr} onChangeValue={setImporteIvaStr} compact />
+          <input
+            ref={importeRef}
+            key={`imp-${r.id}`}
+            type="text"
+            name={`importe_estructura_${r.id}`}
+            autoComplete="off"
+            inputMode="decimal"
+            defaultValue={
+              r.importe_iva != null && r.importe_iva !== ''
+                ? String(r.importe_iva).replace('.', ',')
+                : ''
+            }
+            onBlur={() => persistirImporteDesdeInput()}
+            className="w-full max-w-[7rem] ml-auto border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
+          />
         </td>
-        <td className="px-3 py-2 align-top">
-          {url ? (
-            <button
-              type="button"
-              onClick={() => onAbrirPdf(r.url_pdf)}
-              className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
-            >
-              <ExternalLink size={14} /> Abrir
-            </button>
-          ) : (
-            <span className="text-xs text-slate-400">—</span>
-          )}
-        </td>
+        <td className="px-3 py-2 align-top">{celdaPdf(true)}</td>
         <td className="px-3 py-2 align-top text-right whitespace-nowrap">
           <button
             type="button"
             disabled={guardando}
-            onClick={() => aplicarGuardado()}
+            onClick={() => persistirImporteDesdeInput()}
             className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 mr-2"
           >
             {guardando ? <Loader2 size={14} className="animate-spin" /> : null}
@@ -253,7 +302,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
 
   return (
     <div className="rounded-lg border border-slate-100 p-3 bg-slate-50/80 space-y-2">
-      <p className="text-[10px] font-black uppercase text-slate-400">Edición gasto estructura</p>
+      <p className="text-[10px] font-black uppercase text-slate-400">Gasto de estructura</p>
       <div className="flex items-center gap-2">
         <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700 shrink-0">
           {inicialesProveedorEstructura(r.proveedor)}
@@ -261,31 +310,33 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         <p className="text-sm font-bold text-slate-900 flex-1 min-w-0 truncate">{proveedorTxt}</p>
       </div>
       <label className="block text-xs text-slate-600">
-        Importe
-        <GastoEstructuraImporteCell value={importeIvaStr} onChangeValue={setImporteIvaStr} />
-      </label>
-      <label className="block text-xs text-slate-600">
-        Fecha factura
+        Importe (sale del foco = guardar)
         <input
-          type="date"
-          value={fecha}
-          onChange={(e) => setFecha(e.target.value)}
-          className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm bg-white"
+          ref={importeRef}
+          key={`imp-card-${r.id}`}
+          type="text"
+          name={`importe_estructura_card_${r.id}`}
+          autoComplete="off"
+          inputMode="decimal"
+          defaultValue={
+            r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
+          }
+          onBlur={() => persistirImporteDesdeInput()}
+          className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums"
         />
       </label>
+      <div>
+        <p className="text-[10px] font-black uppercase text-slate-400 mb-1">PDF</p>
+        {celdaPdf(false)}
+      </div>
       <div className="flex flex-wrap gap-2 pt-1">
-        {url && (
-          <button type="button" onClick={() => onAbrirPdf(r.url_pdf)} className="text-xs font-bold text-blue-600">
-            Abrir PDF
-          </button>
-        )}
         <button
           type="button"
           disabled={guardando}
-          onClick={() => aplicarGuardado()}
+          onClick={() => persistirImporteDesdeInput()}
           className="text-xs font-bold text-emerald-700"
         >
-          {guardando ? 'Guardando…' : 'Guardar'}
+          {guardando ? 'Guardando…' : 'Guardar importe'}
         </button>
         <button type="button" onClick={() => onBorrar(r)} className="text-xs font-bold text-red-600">
           Eliminar
@@ -716,7 +767,7 @@ const HistorialCierres = ({ user }) => {
           const descargando = descargandoPackMes === `${anioNum}-${mesNum}`
           const conPdf = rows.filter((r) => r.url_pdf)
           const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
-          const colSpanTabla = esAdmin ? 5 : 4
+          const colSpanTabla = esAdmin ? 4 : 3
           const filaVaciaListado = (
             <tr>
               <td colSpan={colSpanTabla} className="px-4 py-8 text-center bg-gradient-to-b from-slate-50/80 to-white border-t border-slate-100">
@@ -784,7 +835,7 @@ const HistorialCierres = ({ user }) => {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100 text-slate-700">
                       <tr>
-                        {['Fecha', 'Proveedor', 'Importe', 'PDF', ...(esAdmin ? ['Acciones'] : [])].map(
+                        {['Proveedor', 'Importe', 'PDF', ...(esAdmin ? ['Acciones'] : [])].map(
                           (lab) => (
                             <th
                               key={lab}
@@ -807,6 +858,8 @@ const HistorialCierres = ({ user }) => {
                               <GastoEstructuraEditor
                                 key={r.id}
                                 r={r}
+                                mesNum={mesNum}
+                                anioNum={anioNum}
                                 esAdmin={esAdmin}
                                 url={url}
                                 onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}
@@ -832,6 +885,8 @@ const HistorialCierres = ({ user }) => {
                         <GastoEstructuraEditor
                           key={r.id}
                           r={r}
+                          mesNum={mesNum}
+                          anioNum={anioNum}
                           esAdmin={esAdmin}
                           url={url}
                           onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}

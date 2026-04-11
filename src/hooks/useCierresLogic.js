@@ -69,7 +69,6 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
         ...r,
         proveedor: normalizarProveedorEstructura(r.proveedor ?? ''),
         url_pdf: r.url_pdf ?? null,
-        fecha_factura: r.fecha_factura ?? null,
         mes: r.mes != null ? String(r.mes) : null,
         mesNum: mesNumeroDesdeEstructura(r.mes),
         importe_iva: r.importe_iva != null ? n(r.importe_iva) : null,

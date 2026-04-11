@@ -9,7 +9,7 @@ import {
   resolverUrlPublicaFacturaProveedor,
   descargarArrayBufferFacturaProveedor,
 } from './facturaProveedorStorage'
-import { n, esc, fmtEur } from './historialCierresFormat'
+import { n, esc, fmtEur, mesNumeroDesdeEstructura, normalizarProveedorEstructura } from './historialCierresFormat'
 
 // ─── Helpers dominio (tras números / moneda / fechas de fila) ─────────────────
 
@@ -244,10 +244,10 @@ const nombreArchivoSeguro = (s, maxLen = 80) => {
 
 /** Columnas de `gastos_estructura` (mes TEXT, anio INTEGER, importe monetario en `importe_iva`). */
 const GASTOS_ESTRUCTURA_SELECT =
-  'id, proveedor, importe_iva, url_pdf, mes, anio, fecha_factura, created_at, es_extra, plantilla_id'
+  'id, proveedor, importe_iva, url_pdf, mes, anio, created_at, es_extra, plantilla_id'
 
 const GASTOS_ESTRUCTURA_SELECT_SIN_CREATED =
-  'id, proveedor, importe_iva, url_pdf, mes, anio, fecha_factura, es_extra, plantilla_id'
+  'id, proveedor, importe_iva, url_pdf, mes, anio, es_extra, plantilla_id'
 
 const GASTOS_ESTRUCTURA_SELECT_MINIMAL = 'id, proveedor, importe_iva, url_pdf, mes, anio'
 
@@ -303,6 +303,44 @@ const subirPdfFacturaProveedorComoExpediente = async (file) => {
     throw new Error(String(error.message) + hint)
   }
   return nombreUnico
+}
+
+/**
+ * Nombre de objeto en `facturas_proveedores` para gastos de estructura:
+ * `fac-{proveedor}-{MM}-{YYYY}-{id8}.pdf` (id8 = fragmento UUID, garantiza unicidad por fila).
+ */
+export function nombreStoragePdfGastoEstructura(proveedor, mesRaw, anioNum, rowId) {
+  const prov = normalizarProveedorEstructura(String(proveedor || ''))
+  const rawSlug = nombreArchivoSeguro(prov.replace(/\s+/g, '-'))
+  const slug = String(rawSlug || 'proveedor')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .replace(/_+/g, '-')
+    .slice(0, 40)
+  const mn = mesNumeroDesdeEstructura(mesRaw)
+  const mesFile = String(mn >= 1 && mn <= 12 ? mn : 1).padStart(2, '0')
+  const anio = Number(anioNum)
+  const anioS = Number.isFinite(anio) ? String(anio) : '0'
+  const idPart = rowId
+    ? String(rowId).replace(/-/g, '').slice(0, 8)
+    : `n${Date.now()}`
+  return `fac-${slug}-${mesFile}-${anioS}-${idPart}.pdf`
+}
+
+/** Sube PDF de gasto de estructura al bucket estándar con nombre convencionado. */
+export async function subirPdfGastoEstructuraFacturaProveedor(file, proveedor, mesRaw, anioNum, rowId) {
+  if (!file || file.type !== 'application/pdf') {
+    throw new Error('Selecciona un archivo PDF.')
+  }
+  const nombre = nombreStoragePdfGastoEstructura(proveedor, mesRaw, anioNum, rowId)
+  const { error } = await supabase.storage.from('facturas_proveedores').upload(nombre, file, { upsert: true })
+  if (error) {
+    const hint =
+      /rls|row-level security|policy/i.test(String(error.message))
+        ? '\n\nSi el error menciona RLS, ejecuta migrations/storage-rls-facturas-proveedores.sql en Supabase.'
+        : ''
+    throw new Error(String(error.message) + hint)
+  }
+  return nombre
 }
 
 const fusionarFacturasClientePorExpediente = (rowsEmitidas, rowsGlobal) => {

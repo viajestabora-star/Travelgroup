@@ -25,8 +25,6 @@ CREATE TABLE IF NOT EXISTS gastos_estructura (
   url_pdf TEXT,
   mes TEXT,
   anio INTEGER,
-  fecha_factura DATE,
-  periodicidad TEXT,
   es_extra BOOLEAN NOT NULL DEFAULT false,
   plantilla_id UUID REFERENCES gastos_plantilla (id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -42,8 +40,10 @@ CREATE POLICY "gastos_estructura_all" ON gastos_estructura FOR ALL USING (true) 
 COMMENT ON TABLE gastos_plantilla IS 'Plantilla de gastos (importe_base, periodicidad mensual o anual).';
 COMMENT ON TABLE gastos_estructura IS 'Gastos de estructura por ejercicio; importe en importe_iva; mes en TEXT.';
 
--- Si la tabla se creó antes con columna obsoleta `activo`, eliminarla (no existe en Supabase real).
+-- Si la tabla se creó antes con columnas obsoletas, eliminarlas.
 ALTER TABLE gastos_estructura DROP COLUMN IF EXISTS activo;
+ALTER TABLE gastos_estructura DROP COLUMN IF EXISTS fecha_factura;
+ALTER TABLE gastos_estructura DROP COLUMN IF EXISTS periodicidad;
 
 -- Seguro coche (anual): solo se usa en lógica de noviembre en la app.
 INSERT INTO gastos_plantilla (proveedor, periodicidad, importe_base, activo)

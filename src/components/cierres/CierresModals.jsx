@@ -27,7 +27,7 @@ import {
   nombreArchivoSeguro,
   cederAlNavegadorParaZip,
   cargarDatosAuditoriaExpediente,
-  subirPdfFacturaProveedorComoExpediente,
+  subirPdfGastoEstructuraFacturaProveedor,
   resolverUrlFacturaCliente,
   extraerFinanzas,
   nombrePdfEnZipEstructura,
@@ -48,14 +48,7 @@ function filaInsertGastosEstructuraDesdePlantilla(plantilla, mesTxt, anioNum) {
   }
 }
 
-const CAMPOS_UPDATE_GASTOS_ESTRUCTURA = new Set([
-  'proveedor',
-  'importe_iva',
-  'fecha_factura',
-  'mes',
-  'anio',
-  'url_pdf',
-])
+const CAMPOS_UPDATE_GASTOS_ESTRUCTURA = new Set(['proveedor', 'importe_iva', 'mes', 'anio', 'url_pdf'])
 
 /** Input memoizado fuera del ciclo de vida del modal para evitar pérdida de foco al escribir. */
 const ImporteGastoModalInput = memo(function ImporteGastoModalInput({ value, onChangeValue }) {
@@ -83,12 +76,12 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
   recargarGastosEstructura,
   fuenteGastosEstructura,
 }) {
-  const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual(añoStr, mesNum))
+  const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual())
   const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
   const [importeIvaStr, setImporteIvaStr] = useState('')
 
   useEffect(() => {
-    setFormGastoMensual(formInicialGastoMensual(añoStr, mesNum))
+    setFormGastoMensual(formInicialGastoMensual())
     setArchivoGastoMensual(null)
     setImporteIvaStr('')
   }, [mesNum, añoStr, esExtra])
@@ -102,7 +95,6 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         ? proveedorOtro
         : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
     const importeConIva = parseFloat(String(importeIvaStr || '').replace(',', '.'))
-    const fechaStr = String(formGastoMensual.fecha || '').trim()
     const file = archivoGastoMensual
 
     if (!proveedor) {
@@ -111,20 +103,6 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
     }
     if (!Number.isFinite(importeConIva) || importeConIva < 0) {
       alert('Indica un importe válido (con IVA).')
-      return
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
-      alert('Indica la fecha de la factura.')
-      return
-    }
-    const fd = new Date(`${fechaStr}T12:00:00`)
-    if (isNaN(fd.getTime())) {
-      alert('Fecha no válida.')
-      return
-    }
-    const anioContable = fd.getFullYear()
-    if (anioContable !== anioEjercicio) {
-      alert(`La fecha debe pertenecer al ejercicio ${anioEjercicio} (año del selector superior).`)
       return
     }
     if (!file || file.type !== 'application/pdf') {
@@ -139,15 +117,20 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
     setSubiendoGastoMensual(true)
     let pathStorage = null
     try {
-      pathStorage = await subirPdfFacturaProveedorComoExpediente(file)
       const mesTxt = mesEstructuraDesdeNumero(mesNum)
-      const row = {
+      pathStorage = await subirPdfGastoEstructuraFacturaProveedor(
+        file,
         proveedor,
+        mesTxt,
+        anioEjercicio,
+        null
+      )
+      const row = {
+        proveedor: normalizarProveedorEstructura(proveedor),
         importe_iva: importeConIva,
         url_pdf: pathStorage,
         mes: mesTxt,
         anio: anioEjercicio,
-        fecha_factura: fechaStr,
         es_extra: !!esExtra,
         plantilla_id: null,
       }
@@ -171,21 +154,6 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       setSubiendoGastoMensual(false)
     }
   }
-
-  const fechaHint = (() => {
-    const f = formGastoMensual.fecha
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(f || '')) return null
-    const d = new Date(`${f}T12:00:00`)
-    if (isNaN(d.getTime())) return null
-    return (
-      <p className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-        Mes y año contables automáticos:{' '}
-        <strong>
-          {NOMBRES_MES[d.getMonth()]} {d.getFullYear()}
-        </strong>
-      </p>
-    )
-  })()
 
   return (
     <>
@@ -252,16 +220,6 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
           <ImporteGastoModalInput value={importeIvaStr} onChangeValue={setImporteIvaStr} />
         </label>
         <label className="block text-xs font-semibold text-slate-600">
-          Fecha de la factura
-          <input
-            type="date"
-            value={formGastoMensual.fecha || ''}
-            onChange={(e) => setFormGastoMensual((p) => ({ ...p, fecha: e.target.value }))}
-            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
-          />
-        </label>
-        {fechaHint}
-        <label className="block text-xs font-semibold text-slate-600">
           Archivo PDF
           <input
             type="file"
@@ -271,8 +229,9 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
           />
         </label>
         <p className="text-[11px] text-slate-500">
-          El PDF se sube al bucket <code className="bg-slate-100 px-1 rounded">facturas_proveedores</code> con el mismo criterio
-          que en expedientes (<code className="bg-slate-100 px-1 rounded">fac-{'{timestamp}'}.pdf</code>).
+          El gasto queda en <strong>{NOMBRES_MES[mesNum - 1]} {añoStr}</strong>. PDF en{' '}
+          <code className="bg-slate-100 px-1 rounded">facturas_proveedores</code> como{' '}
+          <code className="bg-slate-100 px-1 rounded">fac-proveedor-MM-YYYY-id.pdf</code> (id corto del registro).
         </p>
       </div>
       <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex flex-wrap gap-2 justify-end">

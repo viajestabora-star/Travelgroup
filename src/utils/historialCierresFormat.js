@@ -99,11 +99,10 @@ export function estadoInicialAcordeon(añoSeleccionado) {
   }
 }
 
-export function formInicialGastoMensual(añoStr, mesNum) {
+export function formInicialGastoMensual() {
   return {
     categoria: 'arsys',
     proveedorOtro: '',
-    fecha: `${añoStr}-${String(mesNum).padStart(2, '0')}-01`,
   }
 }
 
