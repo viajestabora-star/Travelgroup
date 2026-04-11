@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback, memo, useRef } from 'react'
+import React, { useEffect, useState, useMemo, useCallback, memo } from 'react'
 import {
   FileText,
   Eye,
@@ -58,23 +58,24 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   layout,
 }) {
   const [proveedor, setProveedor] = useState(() => r.proveedor ?? '')
-  const importeRef = useRef(null)
+  const [importeIvaStr, setImporteIvaStr] = useState(() =>
+    r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
+  )
   const [fecha, setFecha] = useState(() => (r.fecha_factura ? String(r.fecha_factura).slice(0, 10) : ''))
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
     setProveedor(r.proveedor ?? '')
     setFecha(r.fecha_factura ? String(r.fecha_factura).slice(0, 10) : '')
-    if (importeRef.current) {
-      importeRef.current.value =
-        r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
-    }
+    setImporteIvaStr(
+      r.importe_iva != null && r.importe_iva !== '' ? String(r.importe_iva).replace('.', ',') : ''
+    )
   }, [r.id, r.proveedor, r.importe_iva, r.fecha_factura])
 
   const importePend = importeGastoEstructuraPendiente(r.importe_iva)
 
   const aplicarGuardado = async () => {
-    const importeNum = parseFloat(String(importeRef.current?.value ?? '').replace(',', '.'))
+    const importeNum = parseFloat(String(importeIvaStr || '').replace(',', '.'))
     if (!Number.isFinite(importeNum) || importeNum < 0) {
       alert('Importe no válido.')
       return
@@ -176,11 +177,13 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         </td>
         <td className="px-3 py-2 align-top text-right">
           <input
-            ref={importeRef}
+            key={`importe-ed-${r.id}`}
             type="text"
             name={`importe_estructura_${r.id}`}
             autoComplete="off"
             inputMode="decimal"
+            value={importeIvaStr}
+            onChange={(e) => setImporteIvaStr(e.target.value)}
             className="w-full max-w-[7rem] ml-auto border border-slate-200 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
           />
         </td>
@@ -234,11 +237,13 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
       <label className="block text-xs text-slate-600">
         Importe
         <input
-          ref={importeRef}
+          key={`importe-card-${r.id}`}
           type="text"
           name={`importe_estructura_card_${r.id}`}
           autoComplete="off"
           inputMode="decimal"
+          value={importeIvaStr}
+          onChange={(e) => setImporteIvaStr(e.target.value)}
           className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
         />
       </label>
@@ -363,7 +368,7 @@ const TrimestreAcordeonPanel = memo(function TrimestreAcordeonPanel({
               return renderGastosEstructuraTrimestre(q)
             } catch (renderErr) {
               console.error(
-                '[HistorialCierres] Error renderizando bloque gastos_fijos (trimestre)',
+                '[HistorialCierres] Error renderizando bloque gastos_estructura (trimestre)',
                 {
                   trimestre: q,
                   mensaje: renderErr?.message || String(renderErr),

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState, memo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, memo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { X, Loader2, ExternalLink, Package, Upload } from 'lucide-react'
 import JSZip from 'jszip'
@@ -47,12 +47,12 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
 }) {
   const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual(añoStr, mesNum))
   const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
-  const importeRef = useRef(null)
+  const [importeIvaStr, setImporteIvaStr] = useState('')
 
   useEffect(() => {
     setFormGastoMensual(formInicialGastoMensual(añoStr, mesNum))
     setArchivoGastoMensual(null)
-    if (importeRef.current) importeRef.current.value = ''
+    setImporteIvaStr('')
   }, [mesNum, añoStr, esExtra])
 
   const guardarGastoMensualDesdeModal = async () => {
@@ -63,7 +63,7 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       cat === 'otro'
         ? proveedorOtro
         : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
-    const importeConIva = parseFloat(String(importeRef.current?.value ?? '').replace(',', '.'))
+    const importeConIva = parseFloat(String(importeIvaStr || '').replace(',', '.'))
     const fechaStr = String(formGastoMensual.fecha || '').trim()
     const file = archivoGastoMensual
 
@@ -110,7 +110,6 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         mes: mesTxt,
         anio: anioEjercicio,
         fecha_factura: fechaStr,
-        activo: true,
         periodicidad: 'mensual',
         es_extra: !!esExtra,
         plantilla_id: null,
@@ -214,11 +213,13 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         <label className="block text-xs font-semibold text-slate-600">
           Importe (con IVA)
           <input
-            ref={importeRef}
+            key="modal-importe-gasto-estructura"
             type="text"
             name="importe_gasto_estructura"
             autoComplete="off"
             inputMode="decimal"
+            value={importeIvaStr}
+            onChange={(e) => setImporteIvaStr(e.target.value)}
             className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
             placeholder="0,00"
           />
@@ -747,7 +748,7 @@ export function useCierresModals({
         }
         const porId = new Map()
         ;(mensuales || []).forEach((p) => porId.set(p.id, p))
-        if (mesNum === 11) {
+        if (NOMBRES_MES[mesNum - 1] === 'Noviembre') {
           const { data: anuales, error: eSeg } = await supabase
             .from('gastos_plantilla')
             .select('id, proveedor, periodicidad, importe_base, activo')
@@ -794,7 +795,6 @@ export function useCierresModals({
             mes: mesTxt,
             anio: anioNum,
             fecha_factura: fechaDefault,
-            activo: true,
             periodicidad: String(p.periodicidad || 'mensual'),
             es_extra: false,
             plantilla_id: p.id,
