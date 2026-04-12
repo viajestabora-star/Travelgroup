@@ -413,109 +413,171 @@ const TrimestreAcordeonPanel = memo(function TrimestreAcordeonPanel({
   bucket,
   q,
   renderFila,
-  renderGastosEstructuraTrimestre,
   abrirModalAuditoria,
+  pestañaActiva,
+  onCambiarPestaña,
+  mostrarPestañaGastos,
+  mesesTrimestre,
+  mesGastosSeleccionado,
+  onCambiarMesGastos,
+  cargandoGastosEstructura,
+  childrenGastosEstructura,
 }) {
+  const tabCls = (active) =>
+    `relative px-3 sm:px-5 py-3 text-sm font-semibold transition-colors border-b-2 -mb-px focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 min-w-0 flex-1 sm:flex-initial sm:min-w-[10rem] rounded-t-lg ${
+      active ? 'text-blue-700 border-blue-600 bg-white z-[1]' : 'text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-50/80'
+    }`
   return (
     <div className="bg-white">
-      {bucket.items.length === 0 ? (
-        <p className="text-sm text-slate-400 italic py-10 text-center px-4">Ningún expediente en este trimestre (según mes de fecha de referencia: inicio o creación).</p>
-      ) : (
-        <>
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-800 text-white">
-                <tr>
-                  {[
-                    ['Nº expediente', 'text-left'],
-                    ['Cliente', 'text-left'],
-                    ['Destino', 'text-left'],
-                    ['Fecha inicio', 'text-left'],
-                    ['Total ingresos', 'text-right'],
-                    ['Beneficio neto real', 'text-right'],
-                    ['', 'text-center'],
-                  ].map(([label, al], idx) => (
-                    <th key={idx} className={`px-4 py-3 font-black uppercase tracking-[0.1em] text-[10px] sm:text-xs ${al}`}>
-                      {label || 'Acción'}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">{bucket.items.map(renderFila)}</tbody>
-              <tfoot className="bg-slate-100 border-t-2 border-slate-300">
-                <tr>
-                  <td colSpan={4} className="px-4 py-3 font-black text-slate-700 uppercase text-xs tracking-widest">
-                    Resumen del periodo ({bucket.items.length})
-                  </td>
-                  <td className="px-4 py-3 text-right font-black text-emerald-800 tabular-nums">{formatEuroAmount(bucket.sumIngresos)}</td>
-                  <td className="px-4 py-3 text-right font-black tabular-nums">
-                    <span className={bucket.sumBenefReal >= 0 ? 'text-blue-700' : 'text-red-600'}>{formatEuroAmount(bucket.sumBenefReal)}</span>
-                  </td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <div className="md:hidden p-4 space-y-4">
-            {bucket.items.map((c) => {
-              const badge = badgeEstadoProps(c)
-              return (
-                <div key={c.id} className="rounded-xl border border-slate-200 p-4 bg-slate-50/50">
-                  <p className="text-xs font-mono text-slate-500 inline-flex items-center gap-2">
-                    <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${badge.className}`} title={badge.label} />
-                    {c.numero_expediente ?? '—'}
-                  </p>
-                  <p className="font-bold text-slate-900">{c.cliente_nombre ?? '—'}</p>
-                  <p className="text-sm text-slate-600">{c.destino ?? '—'}</p>
-                  <p className="text-xs text-slate-500 mt-1">Inicio: {formatearFecha(c.fechaInicioDate)}</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <p className="text-[10px] uppercase text-slate-400">Total ingresos</p>
-                      <p className="font-bold text-emerald-800">{formatEuroAmount(ingresoMostradoHistorial(c))}</p>
+      <div className="px-2 sm:px-4 pt-2 bg-slate-50/90 border-b border-slate-200">
+        <div
+          className="flex rounded-t-xl bg-white border border-slate-200 border-b-0 overflow-hidden shadow-sm"
+          role="tablist"
+          aria-label={`Vista del trimestre T${q === 0 ? '—' : q}`}
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={pestañaActiva === 'expedientes'}
+            id={`tab-t${q}-exp`}
+            onClick={() => onCambiarPestaña('expedientes')}
+            className={tabCls(pestañaActiva === 'expedientes')}
+          >
+            Expedientes
+          </button>
+          {mostrarPestañaGastos ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={pestañaActiva === 'gastos_estructura'}
+              id={`tab-t${q}-gastos`}
+              onClick={() => onCambiarPestaña('gastos_estructura')}
+              className={tabCls(pestañaActiva === 'gastos_estructura')}
+            >
+              Gastos Estructura
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {pestañaActiva === 'expedientes' && (
+        <div role="tabpanel" aria-labelledby={`tab-t${q}-exp`}>
+          {bucket.items.length === 0 ? (
+            <p className="text-sm text-slate-400 italic py-10 text-center px-4">
+              Ningún expediente en este trimestre (según mes de fecha de referencia: inicio o creación).
+            </p>
+          ) : (
+            <>
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-white">
+                    <tr>
+                      {[
+                        ['Nº expediente', 'text-left'],
+                        ['Cliente', 'text-left'],
+                        ['Destino', 'text-left'],
+                        ['Fecha inicio', 'text-left'],
+                        ['Total ingresos', 'text-right'],
+                        ['Beneficio neto real', 'text-right'],
+                        ['', 'text-center'],
+                      ].map(([label, al], idx) => (
+                        <th key={idx} className={`px-4 py-3 font-black uppercase tracking-[0.1em] text-[10px] sm:text-xs ${al}`}>
+                          {label || 'Acción'}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">{bucket.items.map(renderFila)}</tbody>
+                  <tfoot className="bg-slate-100 border-t-2 border-slate-300">
+                    <tr>
+                      <td colSpan={4} className="px-4 py-3 font-black text-slate-700 uppercase text-xs tracking-widest">
+                        Resumen del periodo ({bucket.items.length})
+                      </td>
+                      <td className="px-4 py-3 text-right font-black text-emerald-800 tabular-nums">{formatEuroAmount(bucket.sumIngresos)}</td>
+                      <td className="px-4 py-3 text-right font-black tabular-nums">
+                        <span className={bucket.sumBenefReal >= 0 ? 'text-blue-700' : 'text-red-600'}>{formatEuroAmount(bucket.sumBenefReal)}</span>
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div className="md:hidden p-4 space-y-4">
+                {bucket.items.map((c) => {
+                  const badge = badgeEstadoProps(c)
+                  return (
+                    <div key={c.id} className="rounded-xl border border-slate-200 p-4 bg-slate-50/50">
+                      <p className="text-xs font-mono text-slate-500 inline-flex items-center gap-2">
+                        <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${badge.className}`} title={badge.label} />
+                        {c.numero_expediente ?? '—'}
+                      </p>
+                      <p className="font-bold text-slate-900">{c.cliente_nombre ?? '—'}</p>
+                      <p className="text-sm text-slate-600">{c.destino ?? '—'}</p>
+                      <p className="text-xs text-slate-500 mt-1">Inicio: {formatearFecha(c.fechaInicioDate)}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <p className="text-[10px] uppercase text-slate-400">Total ingresos</p>
+                          <p className="font-bold text-emerald-800">{formatEuroAmount(ingresoMostradoHistorial(c))}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase text-slate-400">Benef. neto real</p>
+                          <p className={`font-bold ${beneficioMostradoHistorial(c) >= 0 ? 'text-blue-700' : 'text-red-600'}`}>{formatEuroAmount(beneficioMostradoHistorial(c))}</p>
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => abrirModalAuditoria(c)}
+                        className="mt-3 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold">
+                        <Eye size={16} />Ver
+                      </button>
                     </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-slate-400">Benef. neto real</p>
-                      <p className={`font-bold ${beneficioMostradoHistorial(c) >= 0 ? 'text-blue-700' : 'text-red-600'}`}>{formatEuroAmount(beneficioMostradoHistorial(c))}</p>
-                    </div>
-                  </div>
-                  <button type="button" onClick={() => abrirModalAuditoria(c)}
-                    className="mt-3 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold">
-                    <Eye size={16} />Ver
-                  </button>
+                  )
+                })}
+                <div className="rounded-xl border border-slate-300 bg-slate-100 p-4 text-sm">
+                  <p className="font-black text-slate-700 uppercase text-xs mb-2">Resumen del periodo</p>
+                  <p className="flex justify-between"><span>Σ Total ingresos</span><span className="font-bold text-emerald-800">{formatEuroAmount(bucket.sumIngresos)}</span></p>
+                  <p className="flex justify-between mt-1"><span>Σ Beneficio neto real</span><span className={`font-bold ${bucket.sumBenefReal >= 0 ? 'text-blue-700' : 'text-red-600'}`}>{formatEuroAmount(bucket.sumBenefReal)}</span></p>
                 </div>
-              )
-            })}
-            <div className="rounded-xl border border-slate-300 bg-slate-100 p-4 text-sm">
-              <p className="font-black text-slate-700 uppercase text-xs mb-2">Resumen del periodo</p>
-              <p className="flex justify-between"><span>Σ Total ingresos</span><span className="font-bold text-emerald-800">{formatEuroAmount(bucket.sumIngresos)}</span></p>
-              <p className="flex justify-between mt-1"><span>Σ Beneficio neto real</span><span className={`font-bold ${bucket.sumBenefReal >= 0 ? 'text-blue-700' : 'text-red-600'}`}>{formatEuroAmount(bucket.sumBenefReal)}</span></p>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {pestañaActiva === 'gastos_estructura' && mostrarPestañaGastos && (
+        <div role="tabpanel" aria-labelledby={`tab-t${q}-gastos`} className="bg-gradient-to-b from-slate-50/95 to-slate-100/85">
+          {cargandoGastosEstructura && (
+            <div className="flex items-center gap-2 px-4 py-2.5 text-xs text-slate-600 border-b border-slate-200/80 bg-white/90">
+              <Loader2 size={14} className="animate-spin shrink-0" aria-hidden />
+              Actualizando gastos de estructura…
+            </div>
+          )}
+          <div className="px-3 sm:px-5 py-3 border-b border-slate-200/90 flex flex-wrap items-center gap-2 bg-white/60">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 shrink-0">Mes</span>
+            <div className="flex flex-wrap gap-1.5">
+              {mesesTrimestre.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => onCambiarMesGastos(m)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    mesGastosSeleccionado === m
+                      ? 'bg-blue-600 text-white shadow-md ring-1 ring-blue-500/30'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {NOMBRES_MES[m - 1]}
+                </button>
+              ))}
             </div>
           </div>
-        </>
+          <div className="p-3 sm:p-4">{childrenGastosEstructura}</div>
+        </div>
       )}
-      {q >= 1 && q <= 4
-        ? (() => {
-            try {
-              return renderGastosEstructuraTrimestre(q)
-            } catch (renderErr) {
-              console.error(
-                '[HistorialCierres] Error renderizando bloque gastos_estructura (trimestre)',
-                {
-                  trimestre: q,
-                  mensaje: renderErr?.message || String(renderErr),
-                  stack: renderErr?.stack,
-                  objeto: renderErr,
-                }
-              )
-              return (
-                <div className="border-t-2 border-red-200 bg-red-50/80 px-4 py-4 text-xs text-red-900">
-                  No se pudo mostrar el bloque de gastos de estructura. Revisa la consola para el detalle. Los
-                  expedientes de arriba no se ven afectados.
-                </div>
-              )
-            }
-          })()
-        : null}
+
+      {pestañaActiva === 'gastos_estructura' && !mostrarPestañaGastos && (
+        <div role="tabpanel" className="px-4 py-10 text-center text-sm text-slate-500 border-t border-slate-100">
+          Los gastos de estructura mensual se asocian a trimestres T1–T4 del calendario fiscal.
+        </div>
+      )}
     </div>
   )
 })
@@ -528,7 +590,14 @@ const HistorialCierres = ({ user }) => {
   const [año, setAño] = useState(String(añoActual))
   const [trimestreFiltro, setTrimestreFiltro] = useState('all')
   const [abiertoTrim, setAbiertoTrim] = useState({ 1: true, 2: false, 3: false, 4: false, 0: false })
+  const [trimPestaña, setTrimPestaña] = useState({})
+  const [trimMesGastos, setTrimMesGastos] = useState({})
   const [cuadernoIncluirPdfs, setCuadernoIncluirPdfs] = useState(false)
+
+  useEffect(() => {
+    setTrimPestaña({})
+    setTrimMesGastos({})
+  }, [año])
 
   const {
     cierres,
@@ -757,187 +826,139 @@ const HistorialCierres = ({ user }) => {
     setAbiertoTrim((s) => ({ ...s, [q]: !s[q] }))
   }
 
-  const renderGastosEstructuraTrimestre = useCallback((qTrim) => {
+  const renderBloqueGastosMesUnMes = useCallback((mesNum) => {
     const anioNum = parseInt(año, 10)
-    if (!Number.isFinite(anioNum) || qTrim < 1 || qTrim > 4) return null
-    const meses = mesesDelTrimestre(qTrim)
-    return (
-      <div className="border-t-2 border-slate-200 bg-gradient-to-b from-slate-50/95 to-slate-100/80 px-4 py-5 sm:px-6 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
-            Gastos mensuales (estructura)
+    if (!Number.isFinite(anioNum) || mesNum < 1 || mesNum > 12) return null
+    const nombreMes = NOMBRES_MES[mesNum - 1]
+    const rows = gastosEstructura.filter(
+      (g) => mesNumeroDesdeEstructura(g.mes) === mesNum && Number(g.anio) === anioNum
+    )
+    const expedientesMesCalendario = cierres.filter((c) => {
+      const d = c.fechaReferenciaTrimestre
+      if (!d || isNaN(d.getTime())) return false
+      return d.getFullYear() === anioNum && d.getMonth() + 1 === mesNum
+    })
+    const descargando = descargandoPackMes === `${anioNum}-${mesNum}`
+    const conPdf = rows.filter((r) => r.url_pdf)
+    const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
+    const colSpanTabla = 3
+    const totalGastosMesIntel = sumaImportesGastosEstructura(rows)
+    const puedeEditarGastos = esAdmin || esGestoria
+    const generarTitle =
+      mesNum === 11
+        ? 'Genera desde gastos_plantilla: mensuales y, si existe, el seguro coche (plantilla anual).'
+        : 'Genera desde gastos_plantilla solo líneas mensuales. El seguro coche anual solo se incluye en noviembre (cambia el mes arriba).'
+    const filaVaciaListado = (
+      <tr>
+        <td colSpan={colSpanTabla} className="px-4 py-8 text-center bg-gradient-to-b from-slate-50/80 to-white border-t border-slate-100">
+          <p className="text-sm font-medium text-slate-600">Sin gastos de estructura este mes</p>
+          <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+            Los registros que subas con «Añadir gasto» aparecerán aquí.
           </p>
-          {cargandoGastosEstructura && (
-            <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-              <Loader2 size={14} className="animate-spin" /> Actualizando facturas…
-            </span>
-          )}
-        </div>
-        {meses.map((mesNum) => {
-          const nombreMes = NOMBRES_MES[mesNum - 1]
-          const rows = gastosEstructura.filter(
-            (g) => mesNumeroDesdeEstructura(g.mes) === mesNum && Number(g.anio) === anioNum
-          )
-          const expedientesMesCalendario = cierres.filter((c) => {
-            const d = c.fechaReferenciaTrimestre
-            if (!d || isNaN(d.getTime())) return false
-            return d.getFullYear() === anioNum && d.getMonth() + 1 === mesNum
-          })
-          const descargando = descargandoPackMes === `${anioNum}-${mesNum}`
-          const conPdf = rows.filter((r) => r.url_pdf)
-          const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
-          const colSpanTabla = 3
-          const totalGastosMesIntel = sumaImportesGastosEstructura(rows)
-          const puedeEditarGastos = esAdmin || esGestoria
-          const filaVaciaListado = (
-            <tr>
-              <td colSpan={colSpanTabla} className="px-4 py-8 text-center bg-gradient-to-b from-slate-50/80 to-white border-t border-slate-100">
-                <p className="text-sm font-medium text-slate-600">Sin gastos de estructura este mes</p>
-                <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                  Los registros que subas con el botón superior aparecerán aquí. La vista de expedientes no se ve afectada si esta tabla falla.
-                </p>
-              </td>
-            </tr>
-          )
-          return (
-            <div
-              key={mesNum}
-              className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
-            >
-              <div className="px-4 py-3 border-b border-slate-100 bg-slate-800 text-white flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="text-sm font-black uppercase tracking-wide shrink-0">
-                  Gastos mensuales — {nombreMes}
-                </h3>
-                <div className="flex flex-wrap items-center gap-2 justify-end shrink-0">
-                    {esAdmin && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={generandoGastosMes === `${anioNum}-${mesNum}`}
-                          onClick={() => generarGastosMensualesPlantilla(mesNum)}
-                          title="Desde gastos_plantilla (mensual). El Seguro coche (anual) solo se añade en noviembre."
-                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 disabled:bg-slate-500 text-white text-[10px] sm:text-xs font-semibold uppercase tracking-wide shadow-sm transition-colors"
-                        >
-                          {generandoGastosMes === `${anioNum}-${mesNum}` ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <Sparkles size={14} />
-                          )}
-                          Generar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => abrirModalGastoMensual(mesNum, { esExtra: false })}
-                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 text-white text-xs font-semibold uppercase tracking-wide shadow-sm transition-colors"
-                        >
-                          <Plus size={16} />
-                          Añadir gasto
-                        </button>
-                      </>
-                    )}
-                    <details className="relative group">
-                      <summary className="list-none cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/25 text-white/90 text-xs font-medium hover:bg-white/10 [&::-webkit-details-marker]:hidden">
-                        Más
-                        <ChevronDown size={14} className="opacity-80" />
-                      </summary>
-                      <div className="absolute right-0 top-full mt-1 z-20 min-w-[14rem] rounded-xl border border-slate-200 bg-white py-1 shadow-lg text-slate-800">
-                        <button
-                          type="button"
-                          disabled={descargando || !puedePackMes}
-                          onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
-                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {descargando ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Package size={14} className="shrink-0" />}
-                          Descargar pack de {nombreMes}
-                        </button>
-                      </div>
-                    </details>
-                  </div>
-                </div>
-              <div className="p-4">
-                <div className="mb-4 rounded-2xl border border-slate-200/90 bg-gradient-to-br from-white via-slate-50/90 to-indigo-50/30 p-4 sm:p-5 shadow-sm ring-1 ring-slate-100/80">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-600/90">
-                        Inteligencia económica
-                      </p>
-                      <h4 className="mt-1 text-sm sm:text-base font-bold text-slate-900 tracking-tight">
-                        Gastos mensuales
-                      </h4>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {nombreMes} {anioNum}
-                        {rows.length > 0 ? (
-                          <span className="text-slate-400"> · {rows.length} registro{rows.length === 1 ? '' : 's'}</span>
-                        ) : null}
-                      </p>
-                    </div>
-                    <div className="rounded-xl bg-white/70 p-2 text-indigo-700 shadow-inner border border-indigo-100/80 shrink-0">
-                      <TrendingUp size={22} strokeWidth={2} aria-hidden />
-                    </div>
-                  </div>
-                  <p
-                    className="mt-3 text-2xl sm:text-3xl md:text-4xl font-bold tabular-nums tracking-tight text-slate-900"
-                    title="Suma de importe (IVA) de todas las filas de este mes en gastos_estructura"
-                  >
-                    {formatoEuroTotalDestacado(totalGastosMesIntel)}
-                  </p>
-                  <p className="mt-2 text-[11px] text-slate-500 leading-snug max-w-xl">
-                    Total del ejercicio y mes mostrados. Al guardar un importe o añadir/borrar filas, la cifra se
-                    recalcula al sincronizar con el servidor.
-                  </p>
-                </div>
-                <div className="hidden sm:block overflow-x-auto mb-4">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-100 text-slate-700">
-                      <tr>
-                        {['Proveedor', 'Importe', 'PDF'].map((lab) => (
-                          <th
-                            key={lab}
-                            className={`px-3 py-2 font-semibold uppercase tracking-wider ${
-                              lab === 'Proveedor'
-                                ? 'text-left text-sm sm:text-base text-slate-700'
-                                : lab === 'Importe'
-                                  ? 'text-right text-[10px] text-slate-500'
-                                  : 'text-center text-[10px] text-slate-500'
-                            }`}
-                          >
-                            {lab}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {rows.length === 0
-                        ? filaVaciaListado
-                        : rows.map((r) => {
-                            const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
-                            return (
-                              <GastoEstructuraEditor
-                                key={r.id}
-                                r={r}
-                                mesNum={mesNum}
-                                anioNum={anioNum}
-                                esAdmin={esAdmin}
-                                puedeEditarGastos={puedeEditarGastos}
-                                url={url}
-                                onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}
-                                onBorrar={borrarFacturaEstructura}
-                                onGuardarEdicion={guardarEdicionGastoEstructura}
-                                layout="table"
-                              />
-                            )
-                          })}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="sm:hidden space-y-2 mb-4">
-                  {rows.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
-                      <p className="text-sm font-medium text-slate-600">Sin gastos de estructura este mes</p>
-                      <p className="text-xs text-slate-400 mt-1">Usa «Añadir Gasto de Estructura» para registrar facturas.</p>
-                    </div>
+        </td>
+      </tr>
+    )
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 bg-slate-800 text-white flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="text-sm font-black uppercase tracking-wide shrink-0">Gastos — {nombreMes}</h3>
+          <div className="flex flex-wrap items-center gap-2 justify-end shrink-0">
+            {esAdmin && (
+              <>
+                <button
+                  type="button"
+                  disabled={generandoGastosMes === `${anioNum}-${mesNum}`}
+                  onClick={() => generarGastosMensualesPlantilla(mesNum)}
+                  title={generarTitle}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 disabled:bg-slate-500 text-white text-[10px] sm:text-xs font-semibold uppercase tracking-wide shadow-sm transition-colors"
+                >
+                  {generandoGastosMes === `${anioNum}-${mesNum}` ? (
+                    <Loader2 size={14} className="animate-spin" />
                   ) : (
-                    rows.map((r) => {
+                    <Sparkles size={14} />
+                  )}
+                  Generar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => abrirModalGastoMensual(mesNum, { esExtra: false })}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 text-white text-xs font-semibold uppercase tracking-wide shadow-sm transition-colors"
+                >
+                  <Plus size={16} />
+                  Añadir gasto
+                </button>
+              </>
+            )}
+            <details className="relative group">
+              <summary className="list-none cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/25 text-white/90 text-xs font-medium hover:bg-white/10 [&::-webkit-details-marker]:hidden">
+                Más
+                <ChevronDown size={14} className="opacity-80" />
+              </summary>
+              <div className="absolute right-0 top-full mt-1 z-20 min-w-[14rem] rounded-xl border border-slate-200 bg-white py-1 shadow-lg text-slate-800">
+                <button
+                  type="button"
+                  disabled={descargando || !puedePackMes}
+                  onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {descargando ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Package size={14} className="shrink-0" />}
+                  Descargar pack de {nombreMes}
+                </button>
+              </div>
+            </details>
+          </div>
+        </div>
+        <div className="p-4">
+          <div className="mb-4 rounded-2xl border border-slate-200/90 bg-gradient-to-br from-white via-slate-50/90 to-indigo-50/30 p-4 sm:p-5 shadow-sm ring-1 ring-slate-100/80">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-600/90">Inteligencia económica</p>
+                <h4 className="mt-1 text-sm sm:text-base font-bold text-slate-900 tracking-tight">Resumen del mes</h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {nombreMes} {anioNum}
+                  {rows.length > 0 ? (
+                    <span className="text-slate-400"> · {rows.length} registro{rows.length === 1 ? '' : 's'}</span>
+                  ) : null}
+                </p>
+              </div>
+              <div className="rounded-xl bg-white/70 p-2 text-indigo-700 shadow-inner border border-indigo-100/80 shrink-0">
+                <TrendingUp size={22} strokeWidth={2} aria-hidden />
+              </div>
+            </div>
+            <p
+              className="mt-3 text-2xl sm:text-3xl md:text-4xl font-bold tabular-nums tracking-tight text-slate-900"
+              title="Suma de importe (IVA) de todas las filas de este mes en gastos_estructura"
+            >
+              {formatoEuroTotalDestacado(totalGastosMesIntel)}
+            </p>
+            <p className="mt-2 text-[11px] text-slate-500 leading-snug max-w-xl">
+              Total del mes seleccionado en esta pestaña. Se actualiza al guardar importes o al recargar datos.
+            </p>
+          </div>
+          <div className="hidden sm:block overflow-x-auto mb-4">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100 text-slate-700">
+                <tr>
+                  {['Proveedor', 'Importe', 'PDF'].map((lab) => (
+                    <th
+                      key={lab}
+                      className={`px-3 py-2 font-semibold uppercase tracking-wider ${
+                        lab === 'Proveedor'
+                          ? 'text-left text-sm sm:text-base text-slate-700'
+                          : lab === 'Importe'
+                            ? 'text-right text-[10px] text-slate-500'
+                            : 'text-center text-[10px] text-slate-500'
+                      }`}
+                    >
+                      {lab}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.length === 0
+                  ? filaVaciaListado
+                  : rows.map((r) => {
                       const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
                       return (
                         <GastoEstructuraEditor
@@ -951,22 +972,46 @@ const HistorialCierres = ({ user }) => {
                           onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}
                           onBorrar={borrarFacturaEstructura}
                           onGuardarEdicion={guardarEdicionGastoEstructura}
-                          layout="card"
+                          layout="table"
                         />
                       )
-                    })
-                  )}
-                </div>
+                    })}
+              </tbody>
+            </table>
+          </div>
+          <div className="sm:hidden space-y-2 mb-4">
+            {rows.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
+                <p className="text-sm font-medium text-slate-600">Sin gastos de estructura este mes</p>
+                <p className="text-xs text-slate-400 mt-1">Usa «Añadir gasto» para registrar facturas.</p>
               </div>
-            </div>
-          )
-        })}
+            ) : (
+              rows.map((r) => {
+                const url = resolverUrlPublicaFacturaProveedor(r.url_pdf)
+                return (
+                  <GastoEstructuraEditor
+                    key={r.id}
+                    r={r}
+                    mesNum={mesNum}
+                    anioNum={anioNum}
+                    esAdmin={esAdmin}
+                    puedeEditarGastos={puedeEditarGastos}
+                    url={url}
+                    onAbrirPdf={abrirFacturaProveedorPorUrlGuardada}
+                    onBorrar={borrarFacturaEstructura}
+                    onGuardarEdicion={guardarEdicionGastoEstructura}
+                    layout="card"
+                  />
+                )
+              })
+            )}
+          </div>
+        </div>
       </div>
     )
   }, [
     año,
     gastosEstructura,
-    cargandoGastosEstructura,
     esAdmin,
     esGestoria,
     cierres,
@@ -1013,6 +1058,32 @@ const HistorialCierres = ({ user }) => {
   const renderBloqueTrimestre = (bucket) => {
     const q = bucket.q
     const abierto = abiertoTrim[q] ?? false
+    const mesesQ = q >= 1 && q <= 4 ? mesesDelTrimestre(q) : []
+    const mesDefault = mesesQ[0] ?? 1
+    const mesGuardado = trimMesGastos[q]
+    const mesGastosActivo = mesesQ.includes(mesGuardado) ? mesGuardado : mesDefault
+    const pestañaActiva = trimPestaña[q] === 'gastos_estructura' ? 'gastos_estructura' : 'expedientes'
+
+    let childrenGastosEstructura = null
+    if (q >= 1 && q <= 4) {
+      try {
+        childrenGastosEstructura = renderBloqueGastosMesUnMes(mesGastosActivo)
+      } catch (renderErr) {
+        console.error('[HistorialCierres] Error renderizando gastos_estructura (mes)', {
+          trimestre: q,
+          mes: mesGastosActivo,
+          mensaje: renderErr?.message || String(renderErr),
+          stack: renderErr?.stack,
+          objeto: renderErr,
+        })
+        childrenGastosEstructura = (
+          <div className="rounded-xl border border-red-200 bg-red-50/90 px-4 py-4 text-xs text-red-900">
+            No se pudo mostrar el bloque de gastos. Revisa la consola para el detalle.
+          </div>
+        )
+      }
+    }
+
     return (
       <div key={bucket.key} className="mb-4 rounded-2xl border border-slate-200 bg-white shadow-md overflow-hidden">
         <button
@@ -1047,8 +1118,15 @@ const HistorialCierres = ({ user }) => {
             bucket={bucket}
             q={q}
             renderFila={renderFila}
-            renderGastosEstructuraTrimestre={renderGastosEstructuraTrimestre}
             abrirModalAuditoria={abrirModalAuditoria}
+            pestañaActiva={pestañaActiva}
+            onCambiarPestaña={(tab) => setTrimPestaña((s) => ({ ...s, [q]: tab }))}
+            mostrarPestañaGastos={q >= 1 && q <= 4}
+            mesesTrimestre={mesesQ}
+            mesGastosSeleccionado={mesGastosActivo}
+            onCambiarMesGastos={(m) => setTrimMesGastos((s) => ({ ...s, [q]: m }))}
+            cargandoGastosEstructura={cargandoGastosEstructura}
+            childrenGastosEstructura={childrenGastosEstructura}
           />
         )}
       </div>

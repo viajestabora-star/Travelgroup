@@ -136,6 +136,15 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
   const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
   const importeModalRef = useRef(null)
 
+  const opcionesProveedorGasto = useMemo(() => {
+    const sinOtro = PROVEEDORES_FIJOS_MENSUALES.filter((c) => c.id !== 'otro')
+    const otro = PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === 'otro')
+    const out = [...sinOtro]
+    if (mesNum === 11) out.push({ id: 'seguro_coche', label: 'Seguro coche' })
+    if (otro) out.push(otro)
+    return out
+  }, [mesNum])
+
   useEffect(() => {
     setFormGastoMensual(formInicialGastoMensual())
     setArchivoGastoMensual(null)
@@ -149,7 +158,7 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
     const proveedor =
       cat === 'otro'
         ? proveedorOtro
-        : (PROVEEDORES_FIJOS_MENSUALES.find((c) => c.id === cat)?.label || '').trim()
+        : (opcionesProveedorGasto.find((c) => c.id === cat)?.label || '').trim()
     const importeConIva = importeNumeroGastosEstructura(importeModalRef.current?.value)
     const file = archivoGastoMensual
 
@@ -245,7 +254,7 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
             }}
             className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
           >
-            {PROVEEDORES_FIJOS_MENSUALES.map((c) => (
+            {opcionesProveedorGasto.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
               </option>
@@ -798,7 +807,7 @@ export function useCierresModals({
         const porId = new Map()
         ;(mensuales || []).forEach((p) => porId.set(p.id, p))
         const mesTxt = mesEstructuraDesdeNumero(mesNum)
-        const esNoviembre = mesTxt === 'Noviembre' || NOMBRES_MES[mesNum - 1] === 'Noviembre'
+        const esNoviembre = mesNum === 11
         if (esNoviembre) {
           const { data: anuales, error: eSeg } = await supabase
             .from('gastos_plantilla')
