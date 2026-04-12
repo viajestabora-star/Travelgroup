@@ -50,7 +50,7 @@ import {
   subirPdfGastoEstructuraFacturaProveedor,
 } from '../utils/historialCierresShared'
 
-/** Misma regla que en CierresModals: número puro; si falla el parseo → 0. */
+/** Número puro para `importe_iva` (misma regla que CierresModals). Si no es finito → 0. */
 function importeNumeroGastosEstructura(valor) {
   const n = Number(String(valor ?? '').replace(',', '.').replace('€', '').trim())
   return Number.isFinite(n) ? n : 0
@@ -137,7 +137,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
 
   const persistirImporteDesdeString = async (strRaw) => {
     const importeNum = importeNumeroGastosEstructura(strRaw)
-    if (!Number.isFinite(importeNum) || importeNum < 0) {
+    if (importeNum < 0) {
       alert('Importe no válido (usa solo números; coma o punto decimal; sin €).')
       return
     }
@@ -279,11 +279,13 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
       return (
         <tr>
           <td className="px-3 py-2 text-slate-800">
-            <span className="inline-flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
+            <span className="inline-flex items-center gap-2.5 min-w-0">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200 text-[10px] font-black text-slate-700 shrink-0">
                 {inicialesProveedorEstructura(r.proveedor)}
               </span>
-              {proveedorTxt}
+              <span className="text-base sm:text-lg font-semibold text-slate-900 leading-snug truncate">
+                {proveedorTxt}
+              </span>
             </span>
           </td>
           <td className={`px-3 py-2 text-right tabular-nums ${importePend ? 'text-red-600 font-bold' : 'text-slate-900'}`}>
@@ -301,7 +303,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700">
               {inicialesProveedorEstructura(r.proveedor)}
             </span>
-            <p className="font-bold text-slate-900 text-sm flex-1 min-w-0">{proveedorTxt}</p>
+            <p className="text-base sm:text-lg font-semibold text-slate-900 leading-snug flex-1 min-w-0">{proveedorTxt}</p>
           </div>
         </div>
         <div>
@@ -322,7 +324,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
     <button
       type="button"
       onClick={() => onBorrar(r)}
-      className="text-[10px] font-black uppercase text-red-600 hover:text-red-800"
+      className="mt-1.5 text-[11px] font-normal text-slate-500 hover:text-red-600 underline underline-offset-2 decoration-slate-300 hover:decoration-red-400"
     >
       Eliminar fila
     </button>
@@ -332,13 +334,15 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
     return (
       <tr>
         <td className="px-3 py-2 align-top text-slate-800">
-          <span className="inline-flex items-center gap-2 min-w-0">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black text-slate-700 shrink-0">
+          <span className="inline-flex items-center gap-2.5 min-w-0">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200 text-[10px] font-black text-slate-700 shrink-0">
               {inicialesProveedorEstructura(r.proveedor)}
             </span>
-            <span className="text-sm font-medium truncate">{proveedorTxt}</span>
+            <span className="text-base sm:text-lg font-semibold text-slate-900 leading-snug truncate min-w-0">
+              {proveedorTxt}
+            </span>
           </span>
-          {accionesFila ? <div className="mt-1.5">{accionesFila}</div> : null}
+          {accionesFila ? <div>{accionesFila}</div> : null}
         </td>
         <td className="px-3 py-2 align-top text-right">
           <div className="inline-flex flex-col items-end gap-1 max-w-[8rem] ml-auto">
@@ -365,7 +369,9 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
           <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700 shrink-0">
             {inicialesProveedorEstructura(r.proveedor)}
           </span>
-          <p className="text-sm font-bold text-slate-900 flex-1 min-w-0 truncate">{proveedorTxt}</p>
+          <p className="text-base sm:text-lg font-semibold text-slate-900 leading-snug flex-1 min-w-0 truncate">
+            {proveedorTxt}
+          </p>
         </div>
         {accionesFila ? <div className="mt-2">{accionesFila}</div> : null}
       </div>
@@ -796,34 +802,42 @@ const HistorialCierres = ({ user }) => {
                           disabled={generandoGastosMes === `${anioNum}-${mesNum}`}
                           onClick={() => generarGastosMensualesPlantilla(mesNum)}
                           title="Desde gastos_plantilla (mensual). El Seguro coche (anual) solo se añade en noviembre."
-                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 disabled:bg-slate-500 text-white text-[10px] sm:text-xs font-black uppercase tracking-[0.08em] shadow-sm transition-colors"
+                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 disabled:bg-slate-500 text-white text-[10px] sm:text-xs font-semibold uppercase tracking-wide shadow-sm transition-colors"
                         >
                           {generandoGastosMes === `${anioNum}-${mesNum}` ? (
                             <Loader2 size={14} className="animate-spin" />
                           ) : (
                             <Sparkles size={14} />
                           )}
-                          Generar gastos mensuales
+                          Generar
                         </button>
                         <button
                           type="button"
                           onClick={() => abrirModalGastoMensual(mesNum, { esExtra: false })}
-                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 text-white text-xs font-black uppercase tracking-[0.12em] shadow-sm transition-colors"
+                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-600 hover:bg-slate-500 text-white text-xs font-semibold uppercase tracking-wide shadow-sm transition-colors"
                         >
                           <Plus size={16} />
                           Añadir gasto
                         </button>
                       </>
                     )}
-                    <button
-                      type="button"
-                      disabled={descargando || !puedePackMes}
-                      onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
-                      className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 disabled:bg-slate-500 disabled:cursor-not-allowed text-white text-xs font-black uppercase tracking-[0.12em] shadow-sm transition-colors"
-                    >
-                      {descargando ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
-                      DESCARGAR PACK {nombreMes.toUpperCase()}
-                    </button>
+                    <details className="relative group">
+                      <summary className="list-none cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/25 text-white/90 text-xs font-medium hover:bg-white/10 [&::-webkit-details-marker]:hidden">
+                        Más
+                        <ChevronDown size={14} className="opacity-80" />
+                      </summary>
+                      <div className="absolute right-0 top-full mt-1 z-20 min-w-[14rem] rounded-xl border border-slate-200 bg-white py-1 shadow-lg text-slate-800">
+                        <button
+                          type="button"
+                          disabled={descargando || !puedePackMes}
+                          onClick={() => descargarPackEstructuraMes(mesNum, nombreMes)}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {descargando ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Package size={14} className="shrink-0" />}
+                          Descargar pack de {nombreMes}
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 </div>
               <div className="p-4">
@@ -834,8 +848,12 @@ const HistorialCierres = ({ user }) => {
                         {['Proveedor', 'Importe', 'PDF'].map((lab) => (
                           <th
                             key={lab}
-                            className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider ${
-                              lab === 'Importe' ? 'text-right' : lab === 'PDF' ? 'text-center' : 'text-left'
+                            className={`px-3 py-2 font-semibold uppercase tracking-wider ${
+                              lab === 'Proveedor'
+                                ? 'text-left text-xs sm:text-sm text-slate-800'
+                                : lab === 'Importe'
+                                  ? 'text-right text-[10px] text-slate-600'
+                                  : 'text-center text-[10px] text-slate-600'
                             }`}
                           >
                             {lab}
