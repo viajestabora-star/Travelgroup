@@ -249,13 +249,13 @@ const nombreArchivoSeguro = (s, maxLen = 80) => {
   return base || 'doc'
 }
 
-/** Columnas de `gastos_estructura` (esquema acordado con Supabase). */
+/** Columnas de `gastos_estructura` (solo lectura UI; sin concepto/fecha_factura/periodicidad). */
 const GASTOS_ESTRUCTURA_SELECT =
-  'id, proveedor, importe_iva, url_pdf, mes, anio, es_extra, plantilla_id'
+  'id, proveedor, importe_iva, url_pdf, mes, anio, plantilla_id'
 
 const GASTOS_ESTRUCTURA_SELECT_SIN_CREATED = GASTOS_ESTRUCTURA_SELECT
 
-const GASTOS_ESTRUCTURA_SELECT_MINIMAL = 'id, proveedor, importe_iva, url_pdf, mes, anio'
+const GASTOS_ESTRUCTURA_SELECT_MINIMAL = 'id, proveedor, importe_iva, url_pdf, mes, anio, plantilla_id'
 
 const esErrorColumnaSql = (err) => /column|42703|does not exist|schema cache/i.test(String(err?.message || err || ''))
 

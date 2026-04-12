@@ -56,6 +56,19 @@ function importeNumeroGastosEstructura(valor) {
   return Number.isFinite(n) ? n : 0
 }
 
+/** Total mensual para el globo (misma regla numérica que el guardado). */
+function sumaImportesGastosEstructura(filas) {
+  return filas.reduce((acc, r) => acc + importeNumeroGastosEstructura(r?.importe_iva), 0)
+}
+
+/** EUR destacado tipo 4.520,30€ (sin espacio delante del símbolo). */
+function formatoEuroTotalDestacado(value) {
+  return formatEuroAmount(value)
+    .replace(/\u00a0/g, '')
+    .replace(/\s*€\s*$/u, '€')
+    .trim()
+}
+
 function importeGastoEstructuraPendiente(importeIva) {
   const x = importeNumeroGastosEstructura(importeIva)
   return x === 0
@@ -280,10 +293,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         <tr>
           <td className="px-3 py-2 text-slate-800">
             <span className="inline-flex items-center gap-2.5 min-w-0">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200 text-[10px] font-black text-slate-700 shrink-0">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-200 text-[11px] font-black text-slate-700 shrink-0">
                 {inicialesProveedorEstructura(r.proveedor)}
               </span>
-              <span className="text-base sm:text-lg font-semibold text-slate-900 leading-snug truncate">
+              <span className="text-lg sm:text-xl font-semibold text-slate-900 leading-snug truncate">
                 {proveedorTxt}
               </span>
             </span>
@@ -300,10 +313,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         <div>
           <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Proveedor</p>
           <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700">
+            <span className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-200 text-[11px] font-black text-slate-700">
               {inicialesProveedorEstructura(r.proveedor)}
             </span>
-            <p className="text-base sm:text-lg font-semibold text-slate-900 leading-snug flex-1 min-w-0">{proveedorTxt}</p>
+            <p className="text-lg sm:text-xl font-semibold text-slate-900 leading-snug flex-1 min-w-0">{proveedorTxt}</p>
           </div>
         </div>
         <div>
@@ -324,7 +337,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
     <button
       type="button"
       onClick={() => onBorrar(r)}
-      className="mt-1.5 text-[11px] font-normal text-slate-500 hover:text-red-600 underline underline-offset-2 decoration-slate-300 hover:decoration-red-400"
+      className="mt-1.5 text-[10px] font-light text-slate-500 hover:text-red-600 underline underline-offset-2 decoration-slate-300 hover:decoration-red-400"
     >
       Eliminar fila
     </button>
@@ -335,10 +348,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
       <tr>
         <td className="px-3 py-2 align-top text-slate-800">
           <span className="inline-flex items-center gap-2.5 min-w-0">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200 text-[10px] font-black text-slate-700 shrink-0">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-200 text-[11px] font-black text-slate-700 shrink-0">
               {inicialesProveedorEstructura(r.proveedor)}
             </span>
-            <span className="text-base sm:text-lg font-semibold text-slate-900 leading-snug truncate min-w-0">
+            <span className="text-lg sm:text-xl font-semibold text-slate-900 leading-snug truncate min-w-0">
               {proveedorTxt}
             </span>
           </span>
@@ -366,10 +379,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
       <div>
         <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Proveedor</p>
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-200 text-[10px] font-black text-slate-700 shrink-0">
+          <span className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-200 text-[11px] font-black text-slate-700 shrink-0">
             {inicialesProveedorEstructura(r.proveedor)}
           </span>
-          <p className="text-base sm:text-lg font-semibold text-slate-900 leading-snug flex-1 min-w-0 truncate">
+          <p className="text-lg sm:text-xl font-semibold text-slate-900 leading-snug flex-1 min-w-0 truncate">
             {proveedorTxt}
           </p>
         </div>
@@ -774,6 +787,7 @@ const HistorialCierres = ({ user }) => {
           const conPdf = rows.filter((r) => r.url_pdf)
           const puedePackMes = expedientesMesCalendario.length > 0 || conPdf.length > 0
           const colSpanTabla = 3
+          const totalGastosMesIntel = sumaImportesGastosEstructura(rows)
           const puedeEditarGastos = esAdmin || esGestoria
           const filaVaciaListado = (
             <tr>
@@ -841,6 +855,37 @@ const HistorialCierres = ({ user }) => {
                   </div>
                 </div>
               <div className="p-4">
+                <div className="mb-4 rounded-2xl border border-slate-200/90 bg-gradient-to-br from-white via-slate-50/90 to-indigo-50/30 p-4 sm:p-5 shadow-sm ring-1 ring-slate-100/80">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-600/90">
+                        Inteligencia económica
+                      </p>
+                      <h4 className="mt-1 text-sm sm:text-base font-bold text-slate-900 tracking-tight">
+                        Gastos mensuales
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {nombreMes} {anioNum}
+                        {rows.length > 0 ? (
+                          <span className="text-slate-400"> · {rows.length} registro{rows.length === 1 ? '' : 's'}</span>
+                        ) : null}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-white/70 p-2 text-indigo-700 shadow-inner border border-indigo-100/80 shrink-0">
+                      <TrendingUp size={22} strokeWidth={2} aria-hidden />
+                    </div>
+                  </div>
+                  <p
+                    className="mt-3 text-2xl sm:text-3xl md:text-4xl font-bold tabular-nums tracking-tight text-slate-900"
+                    title="Suma de importe (IVA) de todas las filas de este mes en gastos_estructura"
+                  >
+                    {formatoEuroTotalDestacado(totalGastosMesIntel)}
+                  </p>
+                  <p className="mt-2 text-[11px] text-slate-500 leading-snug max-w-xl">
+                    Total del ejercicio y mes mostrados. Al guardar un importe o añadir/borrar filas, la cifra se
+                    recalcula al sincronizar con el servidor.
+                  </p>
+                </div>
                 <div className="hidden sm:block overflow-x-auto mb-4">
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100 text-slate-700">
@@ -850,10 +895,10 @@ const HistorialCierres = ({ user }) => {
                             key={lab}
                             className={`px-3 py-2 font-semibold uppercase tracking-wider ${
                               lab === 'Proveedor'
-                                ? 'text-left text-xs sm:text-sm text-slate-800'
+                                ? 'text-left text-sm sm:text-base text-slate-700'
                                 : lab === 'Importe'
-                                  ? 'text-right text-[10px] text-slate-600'
-                                  : 'text-center text-[10px] text-slate-600'
+                                  ? 'text-right text-[10px] text-slate-500'
+                                  : 'text-center text-[10px] text-slate-500'
                             }`}
                           >
                             {lab}

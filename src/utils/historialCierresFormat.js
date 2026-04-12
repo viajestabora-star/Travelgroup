@@ -104,6 +104,7 @@ export function normalizarProveedorEstructura(nombre) {
   return String(nombre ?? '')
     .trim()
     .replace(/Aixarenting/gi, 'Caixarenting')
+    .replace(/Caixa[\s\-]*renting/gi, 'Caixarenting')
 }
 
 export const inicialesProveedorEstructura = (nombre) => {

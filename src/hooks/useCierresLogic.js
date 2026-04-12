@@ -71,15 +71,15 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
     setCargandoGastosEstructura(true)
     setErrorGastosEstructura(null)
     try {
+      /** Sin `...r`: solo campos usados en UI / guardado explícito. */
       const mapRow = (r) => ({
-        ...r,
+        id: r.id,
         proveedor: normalizarProveedorEstructura(r.proveedor ?? ''),
-        url_pdf: r.url_pdf ?? null,
+        importe_iva: importeIvaNumericoParaSupabase(r.importe_iva) ?? null,
         mes: r.mes != null ? String(r.mes) : null,
         mesNum: mesNumeroDesdeEstructura(r.mes),
-        importe_iva: importeIvaNumericoParaSupabase(r.importe_iva) ?? null,
         anio: r.anio != null ? Number(r.anio) : null,
-        es_extra: r.es_extra === true,
+        url_pdf: r.url_pdf ?? null,
         plantilla_id: r.plantilla_id ?? null,
       })
 

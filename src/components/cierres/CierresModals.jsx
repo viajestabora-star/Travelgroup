@@ -38,6 +38,11 @@ import {
 
 const PROHIBIDOS_GASTOS_ESTRUCTURA = new Set(['concepto', 'fecha_factura', 'activo', 'periodicidad', 'es_extra'])
 
+/**
+ * Modelo persistido (lectura/escritura): id, proveedor, importe_iva, mes, anio, url_pdf, plantilla_id.
+ * PROHIBIDO armar inserts con spread de la fila leída (`...gasto`); usar filaInsert* o asignación literal.
+ */
+
 /** Importe numérico puro para `gastos_estructura` (política explícita; si falla → 0). */
 function importeNumeroGastosEstructura(valor) {
   const n = Number(String(valor ?? '').replace(',', '.').replace('€', '').trim())
