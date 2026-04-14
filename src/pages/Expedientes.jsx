@@ -380,6 +380,9 @@ const Expedientes = () => {
           gratuidades: exp.gratuidades ?? 0,
           precio_venta_cliente: exp.precio_venta_cliente ?? 0,
           bonificacion_pax: exp.bonificacion_pax ?? 0,
+          total_ingresos: exp.total_ingresos != null ? Number(exp.total_ingresos) : null,
+          total_cobrado: exp.total_cobrado != null ? Number(exp.total_cobrado) : 0,
+          presupuesto_total: exp.presupuesto_total != null ? Number(exp.presupuesto_total) : null,
 
           // Cierre de Grupo - pasar tal cual, sin parsear (JSONB en Supabase)
           cierre_grupo: exp?.cierre_grupo ?? null,

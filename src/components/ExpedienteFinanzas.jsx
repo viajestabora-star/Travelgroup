@@ -3,6 +3,11 @@ import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown } from 'luci
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
+import CobrosPagosModal, {
+  sincronizarTotalCobradoExpediente,
+  calcularPendienteCobro,
+  esCobroLiquidado,
+} from './expedientes/CobrosPagosModal'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { DATOS_EMISOR } from '../config/empresa'
 
@@ -91,8 +96,7 @@ const ExpedienteFinanzas = ({
   const paxPago = Math.max(0, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
   const totalPax = Math.max(0, toNum(expediente?.total_pax) || toNum(formData?.total_pax))
 
-  // presupuesto_total y total_cobrado: confiar en Supabase (trigger DB actualiza total_cobrado)
-  // No recalcular total_cobrado en frontend; fallback de presupuesto si no existe columna
+  // presupuesto_total: referencia comercial; pendiente de cobro en UI = total_ingresos − total_cobrado (sin columna pendiente_cobro)
   const presupuestoTotal = expediente?.presupuesto_total != null
     ? toNum(expediente.presupuesto_total)
     : (() => {
@@ -103,8 +107,12 @@ const ExpedienteFinanzas = ({
         const gratuidadesVal = toNum(expediente?.gratuidades_monetario ?? 0)
         return (precioVenta + suplementosVal) - (bonificaciones + gratuidadesVal)
       })()
+  const totalIngresosParaPendiente =
+    expediente?.total_ingresos != null && expediente?.total_ingresos !== ''
+      ? toNum(expediente.total_ingresos)
+      : presupuestoTotal
   const totalCobrado = toNum(expediente?.total_cobrado)
-  const pendiente = presupuestoTotal - totalCobrado
+  const pendienteCobro = calcularPendienteCobro(totalIngresosParaPendiente, totalCobrado)
 
   // State
   const [formCobro, setFormCobro] = useState({
@@ -347,6 +355,16 @@ const ExpedienteFinanzas = ({
         return
       }
 
+      try {
+        const nuevoTotal = await sincronizarTotalCobradoExpediente(supabase, expediente.id)
+        if (typeof onUpdate === 'function') {
+          onUpdate({ ...expediente, total_cobrado: nuevoTotal })
+        }
+      } catch (syncErr) {
+        console.error(syncErr)
+        alert(`⚠️ Cobro guardado, pero no se pudo actualizar total_cobrado en expedientes:\n\n${syncErr?.message || syncErr}`)
+      }
+
       await cargarCobros()
       await onExpedienteRefresh?.()
       alert(numeroReciboGenerado
@@ -385,6 +403,15 @@ const ExpedienteFinanzas = ({
       if (error) {
         alert(`❌ Error al eliminar el cobro: ${error.message}`)
         return
+      }
+      try {
+        const nuevoTotal = await sincronizarTotalCobradoExpediente(supabase, expediente.id)
+        if (typeof onUpdate === 'function') {
+          onUpdate({ ...expediente, total_cobrado: nuevoTotal })
+        }
+      } catch (syncErr) {
+        console.error(syncErr)
+        alert(`⚠️ Cobro eliminado, pero no se pudo actualizar total_cobrado:\n\n${syncErr?.message || syncErr}`)
       }
       await cargarCobros()
       await onExpedienteRefresh?.()
@@ -1160,15 +1187,20 @@ const ExpedienteFinanzas = ({
             </div>
           )}
 
-          {/* Banner Estado Financiero: Presupuesto - Cobrado = Pendiente (total_cobrado desde Supabase/trigger) */}
-          <div className={`p-4 rounded-xl border-2 ${pendiente > 0 ? 'bg-red-50 text-red-800 border-red-200' : 'bg-green-50 text-green-800 border-green-200'}`}>
+          {/* Banner: pendiente = total_ingresos − total_cobrado (solo UI; total_cobrado se sincroniza al mutar cobros) */}
+          <div
+            className={`p-4 rounded-xl border-2 ${
+              esCobroLiquidado(pendienteCobro)
+                ? 'bg-green-50 text-green-800 border-green-200'
+                : 'bg-red-50 text-red-800 border-red-200'
+            }`}
+          >
             <p className="font-bold text-lg">
-              Estado Financiero: {pendiente > 0
-                ? `Pendiente de cobro: ${pendiente.toFixed(2)}€`
-                : 'Pagado totalmente'}
+              Estado Financiero:{' '}
+              {esCobroLiquidado(pendienteCobro) ? 'Liquidado' : `Pendiente: ${pendienteCobro.toFixed(2)}€`}
             </p>
             <p className="text-sm mt-1 opacity-90">
-              Presupuesto: {presupuestoTotal.toFixed(2)}€ — Cobrado: {totalCobrado.toFixed(2)}€
+              Total ingresos: {Number(totalIngresosParaPendiente).toFixed(2)}€ — Cobrado: {Number(totalCobrado).toFixed(2)}€
             </p>
           </div>
 
@@ -1633,146 +1665,25 @@ const ExpedienteFinanzas = ({
         </div>
       )}
 
-      {/* Modal de Registro de Cobro */}
-      {showModalCobro && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold text-navy-900">
-                {cobroEnEdicionId ? 'Editar Cobro' : 'Registrar Nuevo Cobro'}
-              </h3>
-              <button
-                onClick={() => {
-                  setShowModalCobro(false)
-                  setFormCobro({
-                    importe: '',
-                    metodo_pago: 'Transferencia',
-                    cuenta_destino: 'Caixabank',
-                    concepto: ''
-                  })
-                  setCobroEnEdicionId(null)
-                }}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {cobroEnEdicionId && (() => {
-                const cobroEdit = (cobros || []).find(c => c.id === cobroEnEdicionId)
-                const nr = cobroEdit?.numero_recibo
-                if (!nr) return null
-                return (
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Nº Recibo (inmutable)</label>
-                    <p className="text-sm font-mono font-bold text-navy-900">{nr}</p>
-                  </div>
-                )
-              })()}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Importe (€) <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={formCobro.importe}
-                  onChange={(e) => {
-                    let valor = e.target.value
-                    if (valor.includes(',')) {
-                      valor = valor.replace(',', '.')
-                    }
-                    setFormCobro({ ...formCobro, importe: valor })
-                  }}
-                  onWheel={handleWheel}
-                  onBlur={(e) => {
-                    const valorLimpio = limpiarNumero(e.target.value)
-                    setFormCobro({ ...formCobro, importe: valorLimpio > 0 ? valorLimpio.toFixed(2) : '' })
-                  }}
-                  placeholder="Ej: 66.50"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Método de Pago <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formCobro.metodo_pago}
-                  onChange={(e) => setFormCobro({ ...formCobro, metodo_pago: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                >
-                  <option value="Transferencia">Transferencia</option>
-                  <option value="Efectivo">Efectivo</option>
-                  <option value="Tarjeta">Tarjeta</option>
-                  <option value="Talon">Talón</option>
-                  <option value="Mixto">Mixto</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Cuenta Destino <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formCobro.cuenta_destino}
-                  onChange={(e) => setFormCobro({ ...formCobro, cuenta_destino: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                >
-                  <option value="Caixabank">Caixabank</option>
-                  <option value="Santander">Santander</option>
-                  <option value="Caja">Caja</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Concepto <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formCobro.concepto}
-                  onChange={(e) => setFormCobro({ ...formCobro, concepto: e.target.value })}
-                  placeholder="Ej: Depósito, Pago 2, Total"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={guardarCobro}
-                className="btn-primary flex-1 flex items-center justify-center gap-2"
-              >
-                <Save size={20} />
-                {cobroEnEdicionId ? 'Actualizar Cobro' : 'Guardar Cobro'}
-              </button>
-              <button
-                onClick={() => {
-                  setShowModalCobro(false)
-                  setFormCobro({
-                    importe: '',
-                    metodo_pago: 'Transferencia',
-                    cuenta_destino: 'Caixabank',
-                    concepto: ''
-                  })
-                  setCobroEnEdicionId(null)
-                }}
-                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CobrosPagosModal
+        open={showModalCobro}
+        onClose={() => {
+          setShowModalCobro(false)
+          setFormCobro({
+            importe: '',
+            metodo_pago: 'Transferencia',
+            cuenta_destino: 'Caixabank',
+            concepto: '',
+          })
+          setCobroEnEdicionId(null)
+        }}
+        cobroEnEdicionId={cobroEnEdicionId}
+        cobros={cobros}
+        formCobro={formCobro}
+        setFormCobro={setFormCobro}
+        onGuardar={guardarCobro}
+        onWheel={handleWheel}
+      />
 
       {/* Modal de Historial de Logs Financieros */}
       {showModalLogs && (

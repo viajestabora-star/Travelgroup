@@ -5932,8 +5932,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 onCobrosReload={cargarCobros}
                 onExpedienteRefresh={async () => {
                   if (!expediente?.id || !onUpdate) return
-                  const { data } = await supabase.from('expedientes').select('presupuesto_total, total_cobrado').eq('id', expediente.id).single()
-                  if (data) onUpdate({ ...expediente, presupuesto_total: data.presupuesto_total, total_cobrado: data.total_cobrado })
+                  const { data } = await supabase
+                    .from('expedientes')
+                    .select('presupuesto_total, total_cobrado, total_ingresos')
+                    .eq('id', expediente.id)
+                    .single()
+                  if (data) {
+                    onUpdate({
+                      ...expediente,
+                      presupuesto_total: data.presupuesto_total != null ? Number(data.presupuesto_total) : expediente.presupuesto_total,
+                      total_cobrado: data.total_cobrado != null ? Number(data.total_cobrado) : 0,
+                      total_ingresos: data.total_ingresos != null ? Number(data.total_ingresos) : expediente.total_ingresos,
+                    })
+                  }
                 }}
                 servicios={servicios}
                 versiones={versiones}
@@ -6293,8 +6304,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 onCobrosReload={cargarCobros}
                 onExpedienteRefresh={async () => {
                   if (!expediente?.id || !onUpdate) return
-                  const { data } = await supabase.from('expedientes').select('presupuesto_total, total_cobrado').eq('id', expediente.id).single()
-                  if (data) onUpdate({ ...expediente, presupuesto_total: data.presupuesto_total, total_cobrado: data.total_cobrado })
+                  const { data } = await supabase
+                    .from('expedientes')
+                    .select('presupuesto_total, total_cobrado, total_ingresos')
+                    .eq('id', expediente.id)
+                    .single()
+                  if (data) {
+                    onUpdate({
+                      ...expediente,
+                      presupuesto_total: data.presupuesto_total != null ? Number(data.presupuesto_total) : expediente.presupuesto_total,
+                      total_cobrado: data.total_cobrado != null ? Number(data.total_cobrado) : 0,
+                      total_ingresos: data.total_ingresos != null ? Number(data.total_ingresos) : expediente.total_ingresos,
+                    })
+                  }
                 }}
                 servicios={serviciosParaCierre}
                 formData={formData}
