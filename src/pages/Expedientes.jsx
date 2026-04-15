@@ -6,7 +6,12 @@ import ExpedienteDetalle from '../components/ExpedienteDetalle'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
 import { getEjercicioActual, subscribeToEjercicioChanges, setEjercicioActual as guardarEjercicioGlobal, getAñosDisponibles } from '../utils/ejercicioGlobal'
 import { supabase } from '../supabase'
-import { existeNumeroExpedienteEnSupabase } from '../utils/expedienteNumero'
+import {
+  existeNumeroExpedienteEnSupabase,
+  esNumeroExpedienteValido,
+  obtenerSiguienteNumeroExpedienteCorrelativo,
+  esErrorUnicidadNumeroExpediente,
+} from '../utils/expedienteNumero'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { DURACION_VIAJE_OPTIONS, TIPO_COLECTIVO_OPTIONS } from '../constants/viaje'
 import { sanitizarExpedienteParaDB } from '../utils/constraintValidator'
@@ -55,6 +60,9 @@ const convertirFechaAISO = (fecha) => {
 
 const MENSAJE_DUPLICADO_EXPEDIENTE =
   'Ya existe un expediente para este cliente, fecha y destino. Por favor, revísalo para evitar duplicados.'
+
+const MENSAJE_COLISION_NUMERO_EXPEDIENTE =
+  'El número de expediente ya se había asignado (otro usuario creando al mismo tiempo). Se ha reintentado con el siguiente correlativo.'
 
 /** PostgreSQL 23505 / mensajes habituales de restricción única */
 const esErrorRestriccionUnicidad = (error) => {
@@ -126,50 +134,11 @@ const manejarErrorSupabase = (error, operacion = 'operación') => {
   };
 }
 // ============================================================================
-// GENERACIÓN AUTOMÁTICA DEL NÚMERO DE EXPEDIENTE
-// Formato: YYYY-000 (ej: 2026-001) - NUNCA vacío ni UUID
+// NÚMERO DE EXPEDIENTE: correlativo por ejercicio (orden de entrada), ver expedienteNumero.js
 // ============================================================================
-const FORMATO_NUMERO_EXP = /^\d{4}-\d+$/; // YYYY-NNN
 const REGEX_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const esNumeroExpedienteValido = (v) => v && typeof v === 'string' && FORMATO_NUMERO_EXP.test(v.trim());
 const pareceUUID = (v) => v && typeof v === 'string' && REGEX_UUID.test(String(v).trim());
-
-// LÓGICA SEGURA: Consulta MAX en Supabase - NUNCA confiar en estado local.
-// Formato YYYY-XXX con ceros a la izquierda (ej: 2026-012).
-const obtenerSiguienteNumeroExpediente = async (año) => {
-  try {
-    const añoNum = parseInt(String(año), 10) || new Date().getFullYear();
-    const prefijo = `${añoNum}-`;
-    // Consulta directa: orden descendente + limit 1 = el máximo existente
-    const { data, error } = await supabase
-      .from('expedientes')
-      .select('numero_expediente')
-      .ilike('numero_expediente', `${prefijo}%`)
-      .order('numero_expediente', { ascending: false })
-      .limit(1);
-
-    if (error) return `${añoNum}-001`;
-
-    let maxSecuencia = 0;
-    const filas = Array.isArray(data) ? data : [];
-    for (const row of filas) {
-      const num = String(row?.numero_expediente || '').trim();
-      if (!esNumeroExpedienteValido(num)) continue;
-      const partes = num.split('-');
-      if (partes.length === 2) {
-        const seq = parseInt(partes[1], 10);
-        if (!isNaN(seq) && seq > maxSecuencia) maxSecuencia = seq;
-      }
-    }
-
-    const siguienteSecuencia = maxSecuencia + 1;
-    const sufijo = String(siguienteSecuencia).padStart(3, '0');
-    return `${añoNum}-${sufijo}`;
-  } catch (err) {
-    return `${parseInt(String(año), 10) || new Date().getFullYear()}-001`;
-  }
-};
 
 // Sistema de 5 Estados: Petición, Confirmado, Finalizado, Cerrado, Cancelado
 const ESTADOS = {
@@ -493,10 +462,8 @@ const Expedientes = () => {
         // numero_expediente: NUNCA vacío ni UUID (ID interno) - forzar 2026-XXX si se detecta UUID
         let numeroExpFinal = String(expediente.numero_expediente || expediente.numeroExpediente || '').trim();
         if (!esNumeroExpedienteValido(numeroExpFinal) || pareceUUID(numeroExpFinal)) {
-          const añoExp = expediente.fecha_inicio || expediente.fechaInicio
-            ? (parsearFecha(expediente.fecha_inicio || expediente.fechaInicio)?.getFullYear?.() || new Date().getFullYear())
-            : new Date().getFullYear();
-          numeroExpFinal = await obtenerSiguienteNumeroExpediente(añoExp);
+          const añoExp = getEjercicioActual()
+          numeroExpFinal = await obtenerSiguienteNumeroExpedienteCorrelativo(añoExp);
         } else {
           // VALIDACIÓN: Si el usuario puso un número manualmente, comprobar que no exista
           const idExpediente = expediente.id;
@@ -514,8 +481,17 @@ const Expedientes = () => {
           }
         }
 
+        const añoEjPersist =
+          expediente.ejercicio != null && expediente.ejercicio !== '' && Number.isFinite(Number(expediente.ejercicio))
+            ? Number(expediente.ejercicio)
+            : (() => {
+                const fi = expediente.fecha_inicio || expediente.fechaInicio
+                return fi ? (parsearFecha(fi)?.getFullYear?.() || getEjercicioActual()) : getEjercicioActual()
+              })()
+
         const datosParaSupabase = {
           numero_expediente: numeroExpFinal,
+          ejercicio: añoEjPersist,
           cliente_id: (clienteIdUUID && clienteIdUUID !== '') ? clienteIdUUID : null,
           cliente_nombre: String(expediente.cliente_nombre || expediente.clienteNombre || ''),
           fecha_inicio: convertirFechaAISO(expediente.fecha_inicio || expediente.fechaInicio || ''),
@@ -712,43 +688,52 @@ const Expedientes = () => {
         return;
       }
 
-      // Obtener número de expediente correlativo (obligatorio) - NUNCA vacío ni UUID
-      const añoExpediente = expedienteForm.fechaInicio
-        ? (parsearFecha(expedienteForm.fechaInicio)?.getFullYear?.() || new Date().getFullYear())
-        : new Date().getFullYear();
-      let numeroExp = await obtenerSiguienteNumeroExpediente(añoExpediente);
-      if (!esNumeroExpedienteValido(numeroExp)) {
-        numeroExp = `${añoExpediente}-001`;
-      }
-      datosInsertar.numero_expediente = numeroExp;
+      // Numeración por orden de entrada: correlativo del ejercicio seleccionado (no por fecha del viaje).
+      const añoNumeracion = Number(ejercicioActual) || new Date().getFullYear();
+      datosInsertar.ejercicio = añoNumeracion;
 
-      // Insertar sin id - Supabase generará automáticamente el UUID
-      let data;
-      try {
+      const MAX_REINTENTOS_NUMERO = 12
+      let data = null
+      let huboColisionNumero = false
+      for (let intento = 0; intento < MAX_REINTENTOS_NUMERO; intento++) {
+        let numeroExp = await obtenerSiguienteNumeroExpedienteCorrelativo(añoNumeracion);
+        if (!esNumeroExpedienteValido(numeroExp)) {
+          numeroExp = `${añoNumeracion}-001`;
+        }
+        datosInsertar.numero_expediente = numeroExp
+
         const result = await supabase
           .from('expedientes')
           .insert([datosInsertar])
           .select()
-          .single();
-        data = result.data;
-        const error = result.error;
+          .single()
+        const error = result.error
 
-        if (error) {
-          if (esErrorRestriccionUnicidad(error)) {
-            setAvisoFormularioExpediente(MENSAJE_DUPLICADO_EXPEDIENTE);
-            return;
-          }
-          const errorInfo = manejarErrorSupabase(error, 'crear expediente');
-          const mensaje = errorInfo ? errorInfo.mensaje : `Error al guardar: ${error.message || String(error)}`;
-          alert(mensaje);
-          throw new Error(mensaje);
+        if (!error) {
+          data = result.data
+          break
         }
-      } catch (insertErr) {
-        if (esErrorRestriccionUnicidad(insertErr)) {
+
+        if (esErrorUnicidadNumeroExpediente(error)) {
+          huboColisionNumero = true
+          continue
+        }
+        if (esErrorRestriccionUnicidad(error)) {
           setAvisoFormularioExpediente(MENSAJE_DUPLICADO_EXPEDIENTE);
           return;
         }
-        throw insertErr;
+        const errorInfo = manejarErrorSupabase(error, 'crear expediente');
+        const mensaje = errorInfo ? errorInfo.mensaje : `Error al guardar: ${error.message || String(error)}`;
+        alert(mensaje);
+        throw new Error(mensaje);
+      }
+
+      if (!data) {
+        alert('No se pudo asignar un número de expediente único tras varios intentos. Reintenta en unos segundos.')
+        return
+      }
+      if (huboColisionNumero) {
+        setAvisoFormularioExpediente(MENSAJE_COLISION_NUMERO_EXPEDIENTE)
       }
 
       // 3. Refrescar la lista completa desde Supabase para mostrar el ID generado
@@ -758,7 +743,7 @@ const Expedientes = () => {
       resetExpedienteForm();
       setClienteInputValue('');
       setShowSuggestions(false);
-      alert(`✅ Expediente creado con éxito. ID: ${data.id}`);
+      alert(`✅ Expediente creado: ${data.numero_expediente || 'sin número'} (ID interno: ${data.id})`);
       } catch (err) {
         if (esErrorRestriccionUnicidad(err)) {
           setAvisoFormularioExpediente(MENSAJE_DUPLICADO_EXPEDIENTE);
@@ -1201,9 +1186,11 @@ const Expedientes = () => {
   const expedientesFiltradosPorEjercicioYBusqueda = expedientes.filter(exp => {
     // Filtro por ejercicio (expedientes sin fecha no aparecen en el listado por ejercicio)
     const fechaInicio = exp.fecha_inicio || exp.fechaInicio
-    if (!fechaInicio) return false
-    const añoExpediente = extraerAño(fechaInicio)
-    if (añoExpediente !== ejercicioActual) return false
+    const añoEjercicioRegistro =
+      exp.ejercicio != null && exp.ejercicio !== '' && Number.isFinite(Number(exp.ejercicio))
+        ? Number(exp.ejercicio)
+        : (fechaInicio ? extraerAño(fechaInicio) : null)
+    if (añoEjercicioRegistro == null || añoEjercicioRegistro !== ejercicioActual) return false
     
     // Filtro por búsqueda (cliente, responsable, destino, observaciones)
     if (!searchTermExpedientes.trim()) return true
