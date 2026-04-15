@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { FileText, Plus, Trash2, X, Search, UserPlus, Download, Calendar, MapPin } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { FileText, Plus, Trash2, X, Search, UserPlus, Download, Calendar } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
@@ -10,6 +10,7 @@ import { existeNumeroExpedienteEnSupabase } from '../utils/expedienteNumero'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { DURACION_VIAJE_OPTIONS, TIPO_COLECTIVO_OPTIONS } from '../constants/viaje'
 import { sanitizarExpedienteParaDB } from '../utils/constraintValidator'
+import { DestinoExpedienteEditable } from '../components/expedientes/FichaDelGrupo'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -242,6 +243,17 @@ const Expedientes = () => {
     if (!showExpedienteModal) return
     setAvisoFormularioExpediente((prev) => (prev ? null : prev))
   }, [expedienteForm.clienteId, expedienteForm.fechaInicio, expedienteForm.destino, showExpedienteModal])
+
+  const aplicarDestinoLocal = useCallback((id, destino) => {
+    const d = destino ?? ''
+    setExpedientes((prev) => (prev || []).map((e) => (e.id === id ? { ...e, destino: d } : e)))
+    setExpedienteActual((prev) => (prev?.id === id ? { ...prev, destino: d } : prev))
+    try {
+      const raw = storage.get('expedientes') || []
+      const next = Array.isArray(raw) ? raw.map((e) => (e.id === id ? { ...e, destino: d } : e)) : raw
+      storage.set('expedientes', next)
+    } catch (_) {}
+  }, [])
 
   const [clienteForm, setClienteForm] = useState({
     nombre: '',
@@ -1407,7 +1419,6 @@ const Expedientes = () => {
                 const cliente = clientes.find(c => String(c.id) === String(expediente.cliente_id || expediente.clienteId)) || {}
                 const nombreGrupo = expediente.cliente_nombre || cliente.nombre || 'GRUPO SIN NOMBRE'
                 const responsableCompleto = expediente.responsable || cliente.responsable || ''
-                const destino = expediente.destino || 'Sin destino'
                 const fechaInicio = expediente.fecha_inicio || expediente.fechaInicio || ''
                 const fechaFin = expediente.fecha_final || expediente.fechaFin || expediente.fecha_fin || ''
 
@@ -1425,10 +1436,12 @@ const Expedientes = () => {
                             👤 {responsableCompleto}
                           </p>
                         )}
-                        <p className="flex items-center gap-2 text-xl text-blue-700 font-bold" style={{ fontSize: '16px' }}>
-                          <MapPin size={18} className="text-blue-700" title="Destino" />
-                          <span>{destino}</span>
-                        </p>
+                        <DestinoExpedienteEditable
+                          expedienteId={expediente.id}
+                          value={expediente.destino}
+                          variant="card"
+                          onSaved={(d) => aplicarDestinoLocal(expediente.id, d)}
+                        />
                     </div>
                       <button
                         type="button"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, MapPin, Printer, FileDown, CheckCircle, CreditCard, Paperclip, Eye } from 'lucide-react'
+import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload, Trash2, Plus, FileText, Pencil, Printer, FileDown, CheckCircle, CreditCard, Paperclip, Eye } from 'lucide-react'
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { supabase } from '../supabase'
@@ -12,6 +12,7 @@ import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
 import TablaServiciosVariante from './TablaServiciosVariante'
 import EditableInput from './EditableInput'
+import { DestinoExpedienteEditable } from './expedientes/FichaDelGrupo'
 import jsPDF from 'jspdf'
 import {
   categorizarPagoInformeCierre,
@@ -4043,10 +4044,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 <p className="text-sm text-gray-600 mb-2">
                   👤 {expediente.cliente_responsable || expediente.responsable || grupo.responsable || 'Sin Responsable'}
                 </p>
-                <p className="flex items-center gap-2 text-2xl font-bold text-blue-700">
-                  <MapPin size={20} className="text-blue-700" />
-                  <span>{expediente.destino || 'Sin destino'}</span>
-                </p>
+                <DestinoExpedienteEditable
+                  expedienteId={expediente.id}
+                  value={expediente.destino}
+                  variant="header"
+                  onSaved={(d) => onUpdate && onUpdate({ ...expediente, destino: d })}
+                />
           </div>
               <button 
                 onClick={handleClose} 
@@ -4483,6 +4486,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           Dirección postal para envíos, documentación y facturación
                         </p>
                       </div>
+
+                      <DestinoExpedienteEditable
+                        expedienteId={expediente.id}
+                        value={expediente.destino}
+                        variant="form"
+                        onSaved={(d) => onUpdate && onUpdate({ ...expediente, destino: d })}
+                      />
 
                       <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                         Dirección
