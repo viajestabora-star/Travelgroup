@@ -12,7 +12,14 @@ import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
 import TablaServiciosVariante from './TablaServiciosVariante'
 import EditableInput from './EditableInput'
-import { DestinoExpedienteEditable } from './expedientes/FichaDelGrupo'
+import {
+  DestinoExpedienteEditable,
+  normalizarServicioFuentePresupuestoParaPagos,
+  filtrarServiciosParaTabPagosProveedores,
+  unificarServiciosPagosPorNombreYProveedor,
+  limpiarDesgloseGruposParaSupabase,
+  idsServicioFilaPagos,
+} from './expedientes/FichaDelGrupo'
 import jsPDF from 'jspdf'
 import {
   categorizarPagoInformeCierre,
@@ -74,6 +81,11 @@ const pagoProveedorCoincideServicioCot = (pago, servicioId) => {
   return String(pago.servicio_id ?? '') === String(servicioId)
 }
 
+const pagoProveedorCoincideFilaServiciosCot = (pago, filaServicio) => {
+  const ids = idsServicioFilaPagos(filaServicio)
+  return ids.some((id) => pagoProveedorCoincideServicioCot(pago, id))
+}
+
 // Función helper para normalizar tipos: minúsculas + sin tildes
 // Ejemplo: 'Autobús' -> 'autobus', 'Restaurante' -> 'restaurante'
 const normalizarTipo = (tipo) => {
@@ -120,7 +132,7 @@ const tipoServicioLegibleParaConcepto = (servicio) => {
 /** proveedor_id (FK) y nombre mostrado desde fila servicios_cotizacion enriquecida. */
 const datosProveedorDesdeServicioCot = (servicio) => {
   if (!servicio) return { proveedorId: null, proveedorNombre: null }
-  const rawId = servicio.proveedor_id_int
+  const rawId = servicio.proveedor_id_int ?? servicio.proveedorId
   const proveedorId =
     rawId != null && rawId !== '' && !Number.isNaN(Number(rawId)) ? Number(rawId) : null
   const proveedorNombre =
@@ -1876,8 +1888,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [tab, expediente?.id])
 
-  // Carga servicios_cotizacion cuando la pestaña de pagos está activa.
-  // Dependencia en expediente.estado → se re-ejecuta si el expediente pasa a Confirmado/Cerrado/Finalizado.
+  // Firma del presupuesto activo: al cambiar servicios (o al cargar variantes), la pestaña Pagos se rehidrata.
+  const firmaServiciosPresupuestoPagos = useMemo(() => {
+    try {
+      if (!Array.isArray(versiones) || versiones.length === 0) return `db:${expediente?.id || ''}`
+      const list = versiones[versionActiva]?.servicios || []
+      return `v${versionActiva}:` + JSON.stringify(
+        list.map((s) => ({
+          id: s?.id,
+          tipo: s?.tipo_servicio || s?.tipo,
+          nom: s?.nombre_especifico || s?.nombreEspecifico,
+          pid: s?.proveedor_id_int ?? s?.proveedorId,
+          tm: s?.total_servicio_manual,
+          ts: s?.total_servicio,
+          c: s?.coste_unitario,
+        }))
+      )
+    } catch {
+      return ''
+    }
+  }, [versiones, versionActiva, expediente?.id])
+
+  // Carga servicios para Pagos: misma fuente que el presupuesto (versiones_json) si existe; si no, servicios_cotizacion.
+  // Se sincroniza al montar la pestaña y cuando cambia la firma del presupuesto (sin botón de refresco).
   useEffect(() => {
     if (tab !== 'pagosProveedores' || !expediente?.id) return
 
@@ -1897,34 +1930,44 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
     ;(async () => {
       try {
-        // select('*') evita errores por columnas inexistentes en distintos entornos
-        let res = await supabase
-          .from('servicios_cotizacion')
-          .select('*')
-          .eq('id_expediente', expId)
-          .order('orden', { ascending: true })
-          .order('created_at', { ascending: true, nullsFirst: false })
-          .order('id', { ascending: true })
+        let serviciosFuente = []
 
-        // Fallback si created_at no existe en esta BD
-        if (res.error && (res.error.code === 'PGRST204' || String(res.error.message || '').includes('created_at'))) {
-          res = await supabase
+        if (Array.isArray(versiones) && versiones.length > 0 && versionActiva >= 0 && versionActiva < versiones.length) {
+          const rawList = versiones[versionActiva]?.servicios || []
+          serviciosFuente = rawList
+            .map((row) => normalizarServicioFuentePresupuestoParaPagos(row))
+            .filter(Boolean)
+        } else {
+          let res = await supabase
             .from('servicios_cotizacion')
             .select('*')
             .eq('id_expediente', expId)
             .order('orden', { ascending: true })
+            .order('created_at', { ascending: true, nullsFirst: false })
             .order('id', { ascending: true })
+
+          if (res.error && (res.error.code === 'PGRST204' || String(res.error.message || '').includes('created_at'))) {
+            res = await supabase
+              .from('servicios_cotizacion')
+              .select('*')
+              .eq('id_expediente', expId)
+              .order('orden', { ascending: true })
+              .order('id', { ascending: true })
+          }
+
+          console.log('[Pagos] id_expediente:', expId, '| estado:', estadoActual, '→', res.data?.length ?? 0, 'filas', res.error || '')
+          if (res.error) throw res.error
+
+          serviciosFuente = (res.data || [])
+            .map((row) => normalizarServicioFuentePresupuestoParaPagos(row))
+            .filter(Boolean)
         }
 
-        console.log('[Pagos] id_expediente:', expId, '| estado:', estadoActual, '→', res.data?.length ?? 0, 'filas', res.error || '')
-        if (res.error) throw res.error
-
-        const serviciosFiltrados = (res.data || []).filter(s => {
+        const serviciosFiltrados = serviciosFuente.filter(s => {
           const t = (s.tipo_servicio || '').toLowerCase().trim()
           return t !== 'guía' && t !== 'guia'
         })
 
-        // Resolver nombres de proveedor desde la tabla proveedores usando proveedor_id_int
         const idsNumericos = [...new Set(
           serviciosFiltrados
             .map(s => s.proveedor_id_int)
@@ -1943,7 +1986,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           }
         }
 
-        // Enriquecer cada servicio con _proveedorNombre resuelto
         const enriquecidos = serviciosFiltrados.map(s => {
           const provId = s.proveedor_id_int != null ? Number(s.proveedor_id_int) : null
           const _proveedorNombre =
@@ -1955,7 +1997,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           return { ...s, _proveedorNombre }
         })
 
-        setServiciosCot(enriquecidos)
+        const filtrados = filtrarServiciosParaTabPagosProveedores(enriquecidos)
+        const unificados = unificarServiciosPagosPorNombreYProveedor(filtrados)
+        setServiciosCot(unificados)
       } catch (err) {
         console.error('[Pagos] Error cargando servicios:', err)
         setErrorCot('No se pudieron cargar los servicios de la cotización.')
@@ -1963,7 +2007,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         setCargandoCot(false)
       }
     })()
-  }, [tab, expediente?.id, expediente?.estado]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tab, expediente?.id, expediente?.estado, firmaServiciosPresupuestoPagos])
 
   // ============ CARGAR VERSIONES DE FACTURAS ============
   // ============ CARGAR VERSIONES DE FACTURA (SINCRONIZADO) ============
@@ -2929,7 +2973,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
     setSubiendoPdfCot(true)
     try {
-      const existente = pagosProveedores.find((p) => pagoProveedorCoincideServicioCot(p, servicio.id))
+      const existente = pagosProveedores.find((p) => pagoProveedorCoincideFilaServiciosCot(p, servicio))
       const urlAnterior = existente?.url_pdf?.trim() || ''
 
       let urlPdf = null
@@ -2945,13 +2989,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const conceptoTitulo = tituloServicioParaConcepto(servicio)
       const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicio)
       const urlPdfFinal = urlPdf != null && urlPdf !== '' ? urlPdf : (existente?.url_pdf ?? null)
+      const servicioIdPersistencia =
+        existente?.servicio_id != null && existente.servicio_id !== ''
+          ? existente.servicio_id
+          : servicio.id
 
       if (existente?.id) {
         const fila = filaPagosProveedores({
           expediente_id: expediente.id,
           proveedor_id: proveedorId,
           proveedor_nombre: proveedorNombre,
-          servicio_id: servicio.id,
+          servicio_id: servicioIdPersistencia,
           fecha_pago: fInline.fecha_pago,
           importe_pagado: importe,
           numero_factura: fInline.numero_factura || existente.numero_factura || null,
@@ -2974,7 +3022,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               expediente_id: expediente.id,
               proveedor_id: proveedorId,
               proveedor_nombre: proveedorNombre,
-              servicio_id: servicio.id,
+              servicio_id: servicioIdPersistencia,
               fecha_pago: fInline.fecha_pago,
               importe_pagado: importe,
               numero_factura: fInline.numero_factura || null,
@@ -3812,10 +3860,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         sup_individual_precio_dia: toNum(fd?.sup_individual_precio_dia),
         sup_seguro_pax: toNum(fd?.sup_seguro_pax),
         sup_seguro_precio_total: toNum(fd?.sup_seguro_precio_total),
-        // Multigrupo: guardar solo filas con datos; array vacío si no hay grupos
-        desglose_grupos: Array.isArray(desgloseGrupos)
-          ? desgloseGrupos.filter(g => g.nombre_grupo || Number(g.pax) > 0)
-          : [],
+        // Multigrupo: sin entradas vacías/nulas (columna expedientes: desglose_grupos)
+        desglose_grupos: limpiarDesgloseGruposParaSupabase(desgloseGrupos),
       }
       let versionesGuardadas = null
       if (versiones?.length > 0) {
@@ -6007,14 +6053,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   <div className="space-y-3 mb-6">
                     {serviciosCot.map(s => {
                       const pagoRegistrado = pagosProveedores.find((p) =>
-                        pagoProveedorCoincideServicioCot(p, s.id)
+                        pagoProveedorCoincideFilaServiciosCot(p, s)
                       )
                       // "Documentado" requiere pago + url_pdf con contenido real
                       const urlPdf = String(pagoRegistrado?.url_pdf ?? '').trim()
                       const documentado = Boolean(pagoRegistrado && urlPdf.length > 0)
-                      const abierto = inlineId === s.id
+                      const idsFila = idsServicioFilaPagos(s)
+                      const abierto = idsFila.some((id) => String(inlineId ?? '') === id)
                       return (
-                        <div key={s.id} className={`rounded-xl border transition-all ${
+                        <div key={idsFila.join('-')} className={`rounded-xl border transition-all ${
                           abierto         ? 'border-blue-400 bg-blue-50'
                           : documentado   ? 'border-green-300 bg-green-50'
                           : pagoRegistrado? 'border-amber-300 bg-amber-50'

@@ -7,6 +7,138 @@ function normalizarDestinoParaDb(raw) {
   return t === '' ? null : t
 }
 
+// ── Pagos a proveedores: misma fuente que el presupuesto (variante / servicios_cotizacion) ──
+
+function normalizarClavePagos(text) {
+  if (text == null) return ''
+  return String(text)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+}
+
+/** Importe mostrado como «Presupuestado» en la pestaña Pagos (alineado con ExpedienteDetalle). */
+export function importePresupuestadoServicioParaPagos(s) {
+  if (!s) return 0
+  const n = Number(s.total_servicio_manual || s.total_servicio || s.coste_unitario || 0)
+  return Number.isFinite(n) ? n : 0
+}
+
+/** True si hay proveedor por id FK o por nombre (manual / temporal / resuelto). */
+export function servicioTieneProveedorAsignadoParaPagos(s) {
+  if (!s) return false
+  const rawId = s.proveedor_id_int ?? s.proveedorId
+  if (rawId != null && rawId !== '' && !Number.isNaN(Number(rawId)) && Number(rawId) > 0) return true
+  const nom = String(
+    s._proveedorNombre
+      || s.nombre_proveedor_texto
+      || s.nombre_proveedor_manual
+      || s.proveedorNombreTemporal
+      || ''
+  ).trim()
+  return nom.length > 0
+}
+
+/**
+ * Descarta filas sin proveedor e importe 0 (ruido en la pestaña).
+ * Debe aplicarse tras enriquecer `_proveedorNombre` si se usa resolución por id.
+ */
+export function filtrarServiciosParaTabPagosProveedores(servicios) {
+  if (!Array.isArray(servicios)) return []
+  return servicios.filter((s) => {
+    if (!s) return false
+    const tieneProv = servicioTieneProveedorAsignadoParaPagos(s)
+    const imp = importePresupuestadoServicioParaPagos(s)
+    if (!tieneProv && imp === 0) return false
+    return true
+  })
+}
+
+/**
+ * Unifica filas con el mismo tipo+nombre de servicio y mismo proveedor (id o nombre resuelto).
+ * Expone `_idsServiciosAgrupados` para enlazar pagos_proveedores.servicio_id con cualquier id del grupo.
+ */
+export function unificarServiciosPagosPorNombreYProveedor(servicios) {
+  if (!Array.isArray(servicios)) return []
+  const map = new Map()
+  const order = []
+  for (const raw of servicios) {
+    if (!raw) continue
+    const nombreKey = `${normalizarClavePagos(raw.tipo_servicio || raw.tipo)}|${normalizarClavePagos(raw.nombre_especifico || raw.nombreEspecifico || '')}`
+    let provKey
+    if (raw.proveedor_id_int != null && raw.proveedor_id_int !== '' && !Number.isNaN(Number(raw.proveedor_id_int))) {
+      provKey = `id:${Number(raw.proveedor_id_int)}`
+    } else {
+      provKey = `nom:${normalizarClavePagos(raw._proveedorNombre)}`
+    }
+    const key = `${nombreKey}@@${provKey}`
+    if (!map.has(key)) {
+      map.set(key, { ...raw, _idsServiciosAgrupados: [raw.id] })
+      order.push(key)
+      continue
+    }
+    const prev = map.get(key)
+    const prevIds = prev._idsServiciosAgrupados || [prev.id]
+    const sumImp =
+      importePresupuestadoServicioParaPagos(prev) + importePresupuestadoServicioParaPagos(raw)
+    map.set(key, {
+      ...prev,
+      _idsServiciosAgrupados: [...prevIds, raw.id],
+      total_servicio_manual: sumImp,
+      total_servicio: sumImp,
+    })
+  }
+  return order.map((k) => map.get(k))
+}
+
+/** Alinea campos snake/camel del presupuesto antes del pipeline de Pagos. */
+export function normalizarServicioFuentePresupuestoParaPagos(s) {
+  if (!s || typeof s !== 'object') return null
+  const pid =
+    s.proveedor_id_int != null && s.proveedor_id_int !== '' && !Number.isNaN(Number(s.proveedor_id_int))
+      ? Number(s.proveedor_id_int)
+      : (s.proveedorId != null && s.proveedorId !== '' && !Number.isNaN(Number(s.proveedorId))
+        ? Number(s.proveedorId)
+        : null)
+  const manual = String(s.nombre_proveedor_manual || '').trim()
+  const temp = String(s.proveedorNombreTemporal || '').trim()
+  return {
+    ...s,
+    tipo_servicio: s.tipo_servicio || s.tipo || 'Hotel',
+    nombre_especifico: s.nombre_especifico ?? s.nombreEspecifico ?? '',
+    proveedor_id_int: pid,
+    nombre_proveedor_manual: manual || temp || '',
+  }
+}
+
+export function idsServicioFilaPagos(fila) {
+  if (!fila) return []
+  if (Array.isArray(fila._idsServiciosAgrupados) && fila._idsServiciosAgrupados.length > 0) {
+    return [...new Set(fila._idsServiciosAgrupados.map((x) => String(x)))]
+  }
+  return fila.id != null ? [String(fila.id)] : []
+}
+
+/**
+ * Limpia el array persistido en expedientes (columna real: desglose_grupos).
+ * Elimina entradas nulas / no objeto y claves undefined/null antes de Supabase.
+ */
+export function limpiarDesgloseGruposParaSupabase(grupos) {
+  if (!Array.isArray(grupos)) return []
+  return grupos
+    .filter((g) => g != null && typeof g === 'object' && !Array.isArray(g))
+    .map((g) => {
+      const out = { ...g }
+      Object.keys(out).forEach((k) => {
+        if (out[k] === undefined || out[k] === null) delete out[k]
+      })
+      out.nombre_grupo = String(out.nombre_grupo ?? '').trim()
+      return out
+    })
+    .filter((g) => g.nombre_grupo || Number(g.pax) > 0)
+}
+
 /** Persiste `expedientes.destino` (text / null). Devuelve cadena vacía o texto para estado local. */
 export async function persistirDestinoExpediente(expedienteId, destinoRaw) {
   if (!expedienteId) throw new Error('Falta expediente')
