@@ -9,6 +9,7 @@ import CobrosPagosModal, {
   esCobroLiquidado,
 } from './expedientes/CobrosPagosModal'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
+import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { DATOS_EMISOR } from '../config/empresa'
 
 /**
@@ -836,24 +837,47 @@ const ExpedienteFinanzas = ({
       const ivaCalculado = n(ivaPagado)
       const beneficioCalculado = n(beneficioLimpio)
 
-      const cierreGrupoJson = {
+      const costesRealesArr = (informeLiquidacion.costesReales || []).map((c) => ({
+        id_servicio: c.id_servicio,
+        concepto: c.concepto || '',
+        proveedor: c.proveedor || '',
+        coste_cotizado: n(c.coste_cotizado),
+        coste_real: n(c.coste_real),
+      }))
+      const gastosImprevistosArr = (informeLiquidacion.gastosImprevistos || []).map((g) => ({
+        id: g.id,
+        concepto: g.concepto || '',
+        importe: n(g.importe),
+      }))
+      const totales = construirBloqueTotalesCierre({
         ingresos_totales: ingresosCalculados,
-        gastos_totales: gastosCalculados,
+        gastos_totales_formulario: gastosCalculados,
         beneficio_bruto: beneficioBruto,
         iva_pagado: ivaCalculado,
         beneficio_limpio: beneficioCalculado,
+        costesReales: costesRealesArr,
+        gastosImprevistos: gastosImprevistosArr,
+      })
+
+      const cierreGrupoJson = {
+        ingresos_totales: ingresosCalculados,
+        gastos_totales: totales.gastos_totales,
+        beneficio_bruto: totales.beneficio_bruto,
+        iva_pagado: totales.iva_pagado,
+        beneficio_limpio: totales.beneficio_limpio,
+        totales,
         fecha: new Date().toISOString(),
         ingresos: { precioViaje: n(informeLiquidacion?.ingresos?.precioViaje), suplementos: n(informeLiquidacion?.ingresos?.suplementos), descuentos: n(informeLiquidacion?.ingresos?.descuentos) },
-        costesReales: (informeLiquidacion.costesReales || []).map((c) => ({ id_servicio: c.id_servicio, concepto: c.concepto || '', proveedor: c.proveedor || '', coste_cotizado: n(c.coste_cotizado), coste_real: n(c.coste_real) })),
-        gastosImprevistos: (informeLiquidacion.gastosImprevistos || []).map((g) => ({ id: g.id, concepto: g.concepto || '', importe: n(g.importe) })),
+        costesReales: costesRealesArr,
+        gastosImprevistos: gastosImprevistosArr,
         pax_por_asociacion: paxPorAsociacion.filter((p) => p.cliente_id).map((p) => ({ cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre || '', pax: p.pax })),
       }
 
       const financialPayload = {
-        total_ingresos: ingresosCalculados,
-        total_gastos_reales: gastosCalculados,
-        beneficio_neto_real: beneficioCalculado,
-        cuota_iva: ivaCalculado,
+        total_ingresos: totales.ingresos_totales,
+        total_gastos_reales: totales.gastos_totales,
+        beneficio_neto_real: totales.beneficio_limpio,
+        cuota_iva: totales.iva_pagado,
         estado: 'Cerrado',
         cierre_grupo: cierreGrupoJson,
       }
@@ -879,7 +903,7 @@ const ExpedienteFinanzas = ({
       const bonificacionPax = n(formData?.bonificacion_pax) || n(expediente?.bonificacion_pax)
       const precioVentaCliente = n(formData?.precio_venta_cliente) || n(expediente?.precio_venta_cliente)
       const paxPago = Math.max(1, paxTotal - gratuidades)
-      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: cierreGrupoJson, total_ingresos: ingresosCalculados, total_gastos_reales: gastosCalculados, cuota_iva: ivaCalculado, beneficio_neto_real: beneficioCalculado, estado: 'Cerrado', total_pax: paxTotal, gratuidades, bonificacion_pax: bonificacionPax, precio_venta_cliente: precioVentaCliente, pax_pago: paxPago })
+      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: cierreGrupoJson, total_ingresos: totales.ingresos_totales, total_gastos_reales: totales.gastos_totales, cuota_iva: totales.iva_pagado, beneficio_neto_real: totales.beneficio_limpio, estado: 'Cerrado', total_pax: paxTotal, gratuidades, bonificacion_pax: bonificacionPax, precio_venta_cliente: precioVentaCliente, pax_pago: paxPago })
       alert('Cierre guardado correctamente.')
     } catch (err) {
       alert('Error al guardar el cierre: ' + (err?.message || String(err)))

@@ -19,6 +19,7 @@ import {
   nombreArchivoInformeCierrePdf,
 } from '../utils/informeCierreHaciendaPdf'
 import { obtenerLineasInformeComoCierres } from '../utils/lineasInformeCierres'
+import { finanzasExpedienteParaInformes } from '../utils/cierreGrupoFuenteVerdad'
 
 // ===================== FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF =====================
 // Función compartida para generar PDFs de facturas con diseño profesional unificado
@@ -1251,17 +1252,20 @@ const Cierres = ({ user, onClose }) => {
                         {exp.destino && (
                           <span className="text-[11px] text-slate-500">{exp.destino}</span>
                         )}
-                        {(typeof exp.liquidacion_final_beneficio === 'number' || (exp?.cierre_grupo && typeof (exp.cierre_grupo?.beneficio_limpio ?? exp.cierre_grupo?.beneficio ?? exp.cierre_grupo?.beneficio_neto) === 'number')) && (
+                        {(() => {
+                          const fin = finanzasExpedienteParaInformes(exp)
+                          if (!fin.desdeCierreGrupo && exp?.liquidacion_final_beneficio == null) return null
+                          const ben = fin.beneficio_limpio
+                          return (
                           <span
                             className={`text-[11px] font-semibold ${
-                              (exp.liquidacion_final_beneficio ?? exp?.cierre_grupo?.beneficio_limpio ?? exp?.cierre_grupo?.beneficio ?? exp?.cierre_grupo?.beneficio_neto ?? 0) >= 0
-                                ? 'text-emerald-600'
-                                : 'text-red-600'
+                              ben >= 0 ? 'text-emerald-600' : 'text-red-600'
                             }`}
                           >
-                            Beneficio: {(exp.liquidacion_final_beneficio ?? exp?.cierre_grupo?.beneficio_limpio ?? exp?.cierre_grupo?.beneficio ?? exp?.cierre_grupo?.beneficio_neto ?? 0).toFixed(2)} €
+                            Beneficio: {ben.toFixed(2)} €
                           </span>
-                        )}
+                          )
+                        })()}
                       </button>
                     )
                   })}

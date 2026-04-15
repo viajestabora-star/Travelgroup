@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { X, TrendingUp, Users, AlertCircle, CreditCard, Wallet } from 'lucide-react'
 import { supabase } from '../supabase'
+import { finanzasExpedienteParaInformes } from '../utils/cierreGrupoFuenteVerdad'
 
 /**
  * ModalDesgloseInteligencia - Desgloses de Central de Inteligencia con pestañas.
@@ -105,22 +106,22 @@ const ModalDesgloseInteligencia = ({ isOpen, onClose, expedientes = [], tabInici
     cliente_nombre: (e?.cliente_nombre || e?.nombre_grupo || 'Sin asignar').toUpperCase(),
     numero_expediente: fmtNumExp(e?.numero_expediente ?? e?.numeroExpediente),
     destino: (e?.destino || '—').toUpperCase(),
-    beneficio_neto_real: toNum(e?.beneficio_neto_real ?? 0),
+    beneficio_neto_real: finanzasExpedienteParaInformes(e).beneficio_limpio,
   })).sort((a, b) => b.beneficio_neto_real - a.beneficio_neto_real)
 
   // b) Análisis Pasajeros
   const totalPax = lista.reduce((acc, e) => acc + toNum(e?.total_pax ?? 0), 0)
   const mediaPax = lista.length > 0 ? totalPax / lista.length : 0
-  const beneficioTotal = lista.reduce((acc, e) => acc + toNum(e?.beneficio_neto_real ?? 0), 0)
+  const beneficioTotal = lista.reduce((acc, e) => acc + finanzasExpedienteParaInformes(e).beneficio_limpio, 0)
   const beneficioPorPax = totalPax > 0 ? beneficioTotal / totalPax : 0
 
   // c) Control Deuda global
-  const totalIngresos = lista.reduce((acc, e) => acc + toNum(e?.total_ingresos ?? 0), 0)
+  const totalIngresos = lista.reduce((acc, e) => acc + finanzasExpedienteParaInformes(e).ingresos_totales, 0)
   const totalCobrado = lista.reduce((acc, e) => acc + toNum(e?.total_cobrado ?? 0), 0)
   const deudaPendiente = Math.max(0, totalIngresos - totalCobrado)
 
   // d) Listado Cobros: [CLIENTE | EXPEDIENTE | DESTINO | IMPORTE] - lógica de cobros preservada
-  const getIngresos = (e) => toNum(e?.total_ingresos) || toNum(e?.cierre_grupo?.ingresos_totales ?? e?.cierre_grupo?.total_ingresos)
+  const getIngresos = (e) => finanzasExpedienteParaInformes(e).ingresos_totales
   const cobrosPorExpediente = lista.map((e) => ({
     id: e.id,
     cliente_nombre: (e?.cliente_nombre || e?.nombre_grupo || 'Sin asignar').toUpperCase(),

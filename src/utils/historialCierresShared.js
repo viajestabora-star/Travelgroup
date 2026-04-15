@@ -17,6 +17,10 @@ import {
   normalizarProveedorEstructura,
   importeIvaNumericoParaSupabase,
 } from './historialCierresFormat'
+import {
+  leerFinanzasCierreDesdeSoloCierreGrupo,
+  cierreGrupoTieneFinanzasVerificadas,
+} from './cierreGrupoFuenteVerdad'
 
 // ─── Helpers dominio (tras números / moneda / fechas de fila) ─────────────────
 
@@ -67,31 +71,47 @@ const clasificarPorFechaInicio = (exp) => {
 
 /**
  * Extrae finanzas canónicas de un expediente.
- * Cascade: cierre_grupo → columnas directas → 0
+ * Si existe cierre verificado (`cierre_grupo` con datos), solo se usa ese JSON (`totales` o legacy dentro del JSON).
+ * Sin cierre: columnas planas del expediente.
  */
 const extraerFinanzas = (exp) => {
-  const cg = exp.cierre_grupo || {}
+  const cg = exp?.cierre_grupo
+  const tieneCierre = cierreGrupoTieneFinanzasVerificadas(cg)
 
-  const ingresoTotal  = n(cg.ingresos_totales ?? cg.total_ingresos ?? exp.total_ingresos)
-  const ivaPagado     = n(cg.iva_pagado)
-  const beneficioNeto = n(cg.beneficio_limpio ?? cg.beneficio_neto ?? cg.beneficio ?? exp.beneficio_neto_real ?? exp.liquidacion_final_beneficio)
+  const fechaCierre = cg?.fecha
+    ? new Date(cg.fecha)
+    : exp?.fecha_inicio ? new Date(exp.fecha_inicio) : null
 
-  // Gastos: gastos_totales → sum(costesReales) → total_gastos_reales
-  let gastoTotal = n(cg.gastos_totales ?? cg.gastos_reales ?? exp.total_gastos_reales)
-  const costesReales     = Array.isArray(cg.costesReales)      ? cg.costesReales      : []
-  const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
-  if (gastoTotal === 0 && costesReales.length > 0) {
-    gastoTotal = costesReales.reduce((s, c) => s + n(c.coste_real), 0)
-      + gastosImprevistos.reduce((s, g) => s + n(g.importe), 0)
+  if (tieneCierre) {
+    const f = leerFinanzasCierreDesdeSoloCierreGrupo(cg)
+    return {
+      ingresoTotal: f.ingresos_totales,
+      gastoTotal: f.gastos_totales,
+      ivaPagado: f.iva_pagado,
+      beneficioBruto: f.beneficio_bruto,
+      beneficioNeto: f.beneficio_limpio,
+      fechaCierre,
+      costesReales: f.costesReales,
+      gastosImprevistos: f.gastosImprevistos,
+    }
   }
 
-  const beneficioBruto = n(cg.beneficio_bruto ?? (beneficioNeto + ivaPagado))
+  const ingresoTotal = n(exp?.total_ingresos)
+  const gastoTotal = n(exp?.total_gastos_reales)
+  const ivaPagado = n(exp?.cuota_iva)
+  const beneficioNeto = n(exp?.beneficio_neto_real ?? exp?.liquidacion_final_beneficio)
+  const beneficioBruto = ingresoTotal - gastoTotal
 
-  const fechaCierre = cg.fecha
-    ? new Date(cg.fecha)
-    : exp.fecha_inicio ? new Date(exp.fecha_inicio) : null
-
-  return { ingresoTotal, gastoTotal, ivaPagado, beneficioBruto, beneficioNeto, fechaCierre, costesReales, gastosImprevistos }
+  return {
+    ingresoTotal,
+    gastoTotal,
+    ivaPagado,
+    beneficioBruto,
+    beneficioNeto,
+    fechaCierre,
+    costesReales: [],
+    gastosImprevistos: [],
+  }
 }
 
 // ─── Constantes UI ────────────────────────────────────────────────────────────

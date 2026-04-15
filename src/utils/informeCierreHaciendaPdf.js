@@ -1,4 +1,11 @@
 import jsPDF from 'jspdf'
+import {
+  n as nCierre,
+  leerTotalesCierreGrupo,
+  sumarDesgloseGastosCierreGrupo,
+  leerFinanzasCierreDesdeSoloCierreGrupo,
+  cierreGrupoTieneFinanzasVerificadas,
+} from './cierreGrupoFuenteVerdad'
 
 /**
  * Categorización alineada con la ficha de expediente + Hotel y «Autobús» (conceptos reales en pagos_proveedores).
@@ -40,10 +47,29 @@ export function normalizarLineasInforme(lineas) {
 }
 
 export function calcularTotalesInforme(lineasInforme, expedienteSeleccionado) {
-  const lineas = normalizarLineasInforme(lineasInforme)
-  const totalGastosReales = lineas.reduce((acc, l) => acc + n(l.importe_real), 0)
-
   const exp = expedienteSeleccionado
+  const cg = exp?.cierre_grupo
+  const tieneCierre = cierreGrupoTieneFinanzasVerificadas(cg)
+
+  const lineas = normalizarLineasInforme(lineasInforme)
+  const totalGastosDesdeLineasEditor = lineas.reduce((acc, l) => acc + n(l.importe_real), 0)
+
+  if (tieneCierre) {
+    const f = leerFinanzasCierreDesdeSoloCierreGrupo(cg)
+    const gastosDesgloseCierre = sumarDesgloseGastosCierreGrupo(cg)
+    const totalGastosReales =
+      gastosDesgloseCierre > 0 ? gastosDesgloseCierre : f.gastos_totales
+    return {
+      totalGastosReales,
+      ingresosTotales: f.ingresos_totales,
+      totalFacturadoClientes: f.ingresos_totales,
+      beneficioBruto: f.beneficio_bruto,
+      ivaPagado: f.iva_pagado,
+      beneficio: f.beneficio_limpio,
+    }
+  }
+
+  const totalGastosReales = totalGastosDesdeLineasEditor
   const paxPago = Math.max(1, parseInt(exp?.pax_pago || exp?.total_pax || 0, 10) || 0)
   const precioVenta = paxPago * n(exp?.precio_venta_cliente)
   const noches = Math.max(1, Number(exp?.noches) || 1)
@@ -56,8 +82,7 @@ export function calcularTotalesInforme(lineasInforme, expedienteSeleccionado) {
   let ingresosTotales = precioVenta + suplementosVal - (bonificaciones + gratuidadesVal)
 
   if (ingresosTotales <= 0) {
-    ingresosTotales =
-      n(exp?.total_ingresos ?? exp?.cierre_grupo?.ingresos_totales ?? exp?.cierre_grupo?.total_ingresos)
+    ingresosTotales = n(exp?.total_ingresos)
   }
 
   const beneficioBruto = ingresosTotales - totalGastosReales
@@ -74,27 +99,28 @@ export function calcularTotalesInforme(lineasInforme, expedienteSeleccionado) {
   }
 }
 
-/** Payload para el PDF idéntico al de la ficha (cierre_grupo guardado). */
+/** Payload para el PDF idéntico al desglose del cierre (cada línea de coste_real; totales desde `totales` / JSON). */
 export function payloadDesdeCierreGrupo(expediente) {
   const cg = expediente?.cierre_grupo
-  if (!cg || typeof cg !== 'object') return null
+  if (!cierreGrupoTieneFinanzasVerificadas(cg)) return null
 
   const costesReales = Array.isArray(cg.costesReales)
     ? cg.costesReales.map((c) => ({
         concepto: c.concepto || '—',
         proveedor: c.proveedor || '—',
-        coste_real: n(c.coste_real),
+        coste_real: nCierre(c.coste_real),
       }))
     : []
   const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
 
-  const ingresosTotales = n(cg.ingresos_totales ?? cg.total_ingresos ?? 0)
-  const gastosTotales = n(cg.gastos_totales ?? cg.gastos ?? 0)
-  const beneficioBruto = n(
-    cg.beneficio_bruto ?? n(cg.beneficio_limpio ?? cg.beneficio) + n(cg.iva_pagado ?? 0)
-  )
-  const ivaPagado = n(cg.iva_pagado ?? 0)
-  const beneficioNetoReal = n(cg.beneficio_limpio ?? cg.beneficio ?? beneficioBruto - ivaPagado)
+  const sumaLineas = sumarDesgloseGastosCierreGrupo({ ...cg, costesReales, gastosImprevistos })
+  const t = leerTotalesCierreGrupo(cg)
+
+  const gastosTotales = sumaLineas > 0 ? sumaLineas : t.gastos_totales
+  const ingresosTotales = t.ingresos_totales
+  const ivaPagado = t.iva_pagado
+  const beneficioNetoReal = t.beneficio_limpio
+  const beneficioBruto = t.beneficio_bruto
 
   return {
     grupo: expediente.nombre_grupo || expediente.cliente_nombre || 'Sin grupo',
@@ -110,8 +136,11 @@ export function payloadDesdeCierreGrupo(expediente) {
   }
 }
 
-/** Pestaña Informe Hacienda (Cierres.jsx): mismas cifras que calcularTotalesInforme + líneas editadas. */
+/** Pestaña Informe Hacienda (Cierres.jsx): si hay cierre verificado, mismo payload que la ficha; si no, líneas editadas. */
 export function payloadDesdeLineasHacienda(expedienteSeleccionado, lineasInforme) {
+  const desdeCierre = payloadDesdeCierreGrupo(expedienteSeleccionado)
+  if (desdeCierre) return desdeCierre
+
   const lineas = normalizarLineasInforme(lineasInforme)
   const costesReales = lineas.map((l) => ({
     concepto: l.concepto,

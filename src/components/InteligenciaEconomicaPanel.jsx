@@ -5,6 +5,7 @@ import ModalDesgloseInteligencia from './ModalDesgloseInteligencia'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { esUsuarioGestoria } from '../utils/userRoles'
+import { finanzasExpedienteParaInformes } from '../utils/cierreGrupoFuenteVerdad'
 
 /** Usuarios a controlar en Control de Personal */
 const USUARIOS_CONTROL = [
@@ -68,10 +69,10 @@ const calcularMinutosTrabajados = (r) => {
   }
 }
 
-const getIngresos = (e) => toNum(e.total_ingresos) || toNum(e.cierre_grupo?.ingresos_totales ?? e.cierre_grupo?.total_ingresos)
-const getGastos = (e) => toNum(e.total_gastos_reales) || toNum(e.cierre_grupo?.gastos_totales ?? e.cierre_grupo?.total_gastos)
-const getIva = (e) => toNum(e.cuota_iva) || toNum(e.cierre_grupo?.iva_pagado)
-const getBeneficioNeto = (e) => toNum(e.beneficio_neto_real) || toNum(e.cierre_grupo?.beneficio_limpio ?? e.cierre_grupo?.beneficio)
+const getIngresos = (e) => finanzasExpedienteParaInformes(e).ingresos_totales
+const getGastos = (e) => finanzasExpedienteParaInformes(e).gastos_totales
+const getIva = (e) => finanzasExpedienteParaInformes(e).iva_pagado
+const getBeneficioNeto = (e) => finanzasExpedienteParaInformes(e).beneficio_limpio
 
 /**
  * InteligenciaEconomicaPanel - Panel financiero dinámico desde Supabase.
@@ -187,11 +188,11 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   ]
 
   const cards = [
-    { title: 'Ingresos Totales', value: formatEuro(ingresosTotales), subtitle: 'Suma de total_ingresos', icon: TrendingUp, bg: 'bg-emerald-50', border: 'border-emerald-200', iconBg: 'bg-emerald-500', iconColor: 'text-white', tabApertura: 'cobros' },
-    { title: 'Gastos Totales', value: formatEuro(gastosTotales), subtitle: 'Suma de total_gastos_reales', icon: Wallet, bg: 'bg-red-50', border: 'border-red-200', iconBg: 'bg-red-500', iconColor: 'text-white', tabApertura: 'gastos' },
+    { title: 'Ingresos Totales', value: formatEuro(ingresosTotales), subtitle: 'Cierre verificado (cierre_grupo.totales) o columnas expediente', icon: TrendingUp, bg: 'bg-emerald-50', border: 'border-emerald-200', iconBg: 'bg-emerald-500', iconColor: 'text-white', tabApertura: 'cobros' },
+    { title: 'Gastos Totales', value: formatEuro(gastosTotales), subtitle: 'Misma fuente que el cierre', icon: Wallet, bg: 'bg-red-50', border: 'border-red-200', iconBg: 'bg-red-500', iconColor: 'text-white', tabApertura: 'gastos' },
     { title: 'Margen Bruto', value: formatEuro(margenBruto), subtitle: 'Ingresos - Gastos', icon: BarChart3, bg: 'bg-sky-50', border: 'border-sky-200', iconBg: 'bg-sky-500', iconColor: 'text-white', tabApertura: 'general' },
-    { title: 'IVA Acumulado', value: formatEuro(ivaAcumulado), subtitle: 'Suma de cuota_iva', icon: Receipt, bg: 'bg-amber-50', border: 'border-amber-200', iconBg: 'bg-amber-500', iconColor: 'text-white', tabApertura: 'general' },
-    { title: 'Beneficio Neto', value: formatEuro(beneficioNeto), subtitle: 'Suma de beneficio_neto_real', icon: PiggyBank, bg: beneficioNeto >= 0 ? 'bg-purple-50' : 'bg-red-50', border: beneficioNeto >= 0 ? 'border-purple-200' : 'border-red-300', iconBg: beneficioNeto >= 0 ? 'bg-purple-600' : 'bg-red-600', iconColor: 'text-white', valueClass: beneficioNeto < 0 ? 'text-red-700 font-black' : undefined, tabApertura: 'rentabilidad' },
+    { title: 'IVA Acumulado', value: formatEuro(ivaAcumulado), subtitle: 'IVA del cierre verificado (no estimación presupuesto)', icon: Receipt, bg: 'bg-amber-50', border: 'border-amber-200', iconBg: 'bg-amber-500', iconColor: 'text-white', tabApertura: 'general' },
+    { title: 'Beneficio Neto', value: formatEuro(beneficioNeto), subtitle: 'Beneficio neto según cierre', icon: PiggyBank, bg: beneficioNeto >= 0 ? 'bg-purple-50' : 'bg-red-50', border: beneficioNeto >= 0 ? 'border-purple-200' : 'border-red-300', iconBg: beneficioNeto >= 0 ? 'bg-purple-600' : 'bg-red-600', iconColor: 'text-white', valueClass: beneficioNeto < 0 ? 'text-red-700 font-black' : undefined, tabApertura: 'rentabilidad' },
   ]
 
   const abrirModalConTab = (tab) => {

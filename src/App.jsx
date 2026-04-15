@@ -11,7 +11,7 @@ import Proveedores from './pages/Proveedores';
 import Planning from './pages/Planning';
 import CRM from './pages/CRM';
 import Cierres from './pages/Cierres';
-import HistorialCierres from './pages/HistorialCierres';
+import CierresEconomicos from './pages/CierresEconomicos';
 import NotasTrabajo from './pages/NotasTrabajo';
 import Composer from './pages/Composer';
 import InteligenciaEconomica from './pages/InteligenciaEconomica';
@@ -23,7 +23,7 @@ function CierresEconomicosRoute({ user }) {
   if (!puedeAccederCierresEconomicos(user)) {
     return <Navigate to="/dashboard" replace />;
   }
-  return <HistorialCierres user={user} />;
+  return <CierresEconomicos user={user} />;
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
