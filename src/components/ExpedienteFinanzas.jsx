@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown } from 'lucide-react'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
-import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
+import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago, desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
 import CobrosPagosModal, {
   sincronizarTotalCobradoExpediente,
   calcularPendienteCobro,
@@ -796,9 +796,7 @@ const ExpedienteFinanzas = ({
     const gastosReales = (informeLiquidacion.costesReales || []).reduce((a, c) => a + toNum(c.coste_real), 0)
     const gastosImprevistos = (informeLiquidacion.gastosImprevistos || []).reduce((a, g) => a + toNum(g.importe), 0)
     const gastosTotales = gastosReales + gastosImprevistos
-    const beneficioBruto = ingresosTotales - gastosTotales
-    const ivaPagado = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
-    const beneficioLimpio = beneficioBruto - ivaPagado
+    const { beneficioBruto, ivaPagado, beneficioLimpio } = desgloseIvaBeneficioBruto(ingresosTotales - gastosTotales)
     return { ingresosTotales, gastosTotales, beneficioLimpio, ivaPagado, beneficioBruto }
   }
 
@@ -989,7 +987,7 @@ const ExpedienteFinanzas = ({
     <div class="section-title">Resumen de resultados</div>
     <table style="width:100%; border-collapse: collapse;">
       <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0;">Beneficio Bruto</td><td style="text-align:right; font-weight: 600;">${beneficioBruto.toFixed(2)} €</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0;">IVA (21%): impuesto restado</td><td style="text-align:right; font-weight: 600; color: #b45309;">− ${ivaPagado.toFixed(2)} €</td></tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0;">Cuota IVA (21% s/ base imponible)</td><td style="text-align:right; font-weight: 600; color: #b45309;">− ${ivaPagado.toFixed(2)} €</td></tr>
       <tr style="background: #f0fdf4;"><td style="padding: 12px 0; font-weight: 700;">BENEFICIO NETO</td><td style="text-align:right; font-size: 1.25rem; font-weight: 700; color: #059669;">${beneficioLimpio.toFixed(2)} €</td></tr>
     </table>
   </div>
@@ -1112,7 +1110,7 @@ const ExpedienteFinanzas = ({
 
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
-    doc.text('IVA (21%): impuesto restado', 20, y)
+    doc.text('Cuota IVA (21% s/ base imponible)', 20, y)
     doc.text(`− ${ivaPagado.toFixed(2)} €`, pageW - 20, y, { align: 'right' })
     y += 10
 
@@ -1157,7 +1155,7 @@ const ExpedienteFinanzas = ({
       '',
       'Resumen de resultados',
       `Beneficio Bruto,${beneficioBruto.toFixed(2)}`,
-      `IVA (21%): impuesto restado,-${ivaPagado.toFixed(2)}`,
+      `Cuota IVA (21% s/ base imponible),-${ivaPagado.toFixed(2)}`,
       `BENEFICIO NETO FINAL,${beneficioLimpio.toFixed(2)}`
     ]
     const blob = new Blob(['\ufeff' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' })
@@ -1654,7 +1652,7 @@ const ExpedienteFinanzas = ({
                           <td className="px-4 py-3 text-right font-semibold text-slate-900">{beneficioBruto.toFixed(2)} €</td>
                         </tr>
                         <tr className="border-b border-slate-100">
-                          <td className="px-4 py-3 text-slate-600">IVA (21%)</td>
+                          <td className="px-4 py-3 text-slate-600">Cuota IVA (21% s/ base)</td>
                           <td className="px-4 py-3 text-right font-semibold text-amber-700">− {ivaSobreBeneficio.toFixed(2)} €</td>
                         </tr>
                         <tr className="bg-emerald-50">

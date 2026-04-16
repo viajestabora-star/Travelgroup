@@ -625,7 +625,7 @@ const construirHTMLCuaderno = (cierresEnriquecidos, etiquetaPeriodo, pdfLinksByE
     <td class="num">${fmtEur(c.beneficioBruto)} €</td>
   </tr>
   <tr class="row-iva">
-    <td>IVA sobre Beneficio (21%)</td>
+    <td>Cuota IVA (21% s/ base imponible)</td>
     <td class="num-neg">− ${fmtEur(c.ivaPagado)} €</td>
   </tr>
   <tr class="row-neto">

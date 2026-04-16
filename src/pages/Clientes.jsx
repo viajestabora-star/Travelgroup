@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import { desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
 import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone, Users, Navigation } from 'lucide-react'
 
 const Clientes = () => {
@@ -133,8 +134,7 @@ const Clientes = () => {
             const paxPago = parseInt(exp.pax_pago) || parseInt(exp.total_pax) || 0
             const precioVentaTotal = precioVenta * paxPago
             const beneficioTotal = precioVentaTotal - costeTotal
-            const iva = beneficioTotal * 0.21
-            const beneficioNeto = beneficioTotal - iva
+            const { beneficioNeto } = desgloseIvaBeneficioBruto(beneficioTotal)
 
             return {
               ...exp,

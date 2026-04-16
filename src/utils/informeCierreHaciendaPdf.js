@@ -6,6 +6,7 @@ import {
   leerFinanzasCierreDesdeSoloCierreGrupo,
   cierreGrupoTieneFinanzasVerificadas,
 } from './cierreGrupoFuenteVerdad'
+import { desgloseIvaBeneficioBruto } from './finanzasHelpers'
 
 /**
  * Categorización alineada con la ficha de expediente + Hotel y «Autobús» (conceptos reales en pagos_proveedores).
@@ -85,9 +86,7 @@ export function calcularTotalesInforme(lineasInforme, expedienteSeleccionado) {
     ingresosTotales = n(exp?.total_ingresos)
   }
 
-  const beneficioBruto = ingresosTotales - totalGastosReales
-  const ivaPagado = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
-  const beneficioNeto = beneficioBruto - ivaPagado
+  const { beneficioBruto, ivaPagado, beneficioNeto } = desgloseIvaBeneficioBruto(ingresosTotales - totalGastosReales)
 
   return {
     totalGastosReales,
@@ -311,7 +310,7 @@ export function crearJsPdfInformeCierreFinanciero(payload) {
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text('IVA (21%): impuesto restado', 20, y)
+  doc.text('Cuota IVA (21% s/ base imponible)', 20, y)
   doc.text(`− ${Number(ivaPagado).toFixed(2)} €`, pageW - 20, y, { align: 'right' })
   y += 10
 

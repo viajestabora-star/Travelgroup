@@ -7,7 +7,7 @@ import { validarProveedoresServicios, consolidarGastosExpediente } from '../util
 import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { detectarCamposPendientes } from '../utils/constraintValidator'
 import { existeNumeroExpedienteEnSupabase, esNumeroExpedienteValido } from '../utils/expedienteNumero'
-import { normalizarMetodoPago } from '../utils/finanzasHelpers'
+import { normalizarMetodoPago, desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
 import { DATOS_EMISOR } from '../config/empresa'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
@@ -467,9 +467,10 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
     const margenPorPersona = precioVentaPorPersona - costeRealPorPersona;
     const beneficioTotal = beneficioReal;
     const margenPorcentaje = costeRealPorPersona > 0 ? ((margenPorPersona / costeRealPorPersona) * 100) : 0;
-    const beneficioNetoBase = beneficioTotal;
-    const iva = beneficioNetoBase * 0.21;
-    const beneficioNeto = beneficioNetoBase - iva;
+    const desgloseBen = desgloseIvaBeneficioBruto(beneficioTotal)
+    const iva = desgloseBen.ivaPagado
+    const beneficioNeto = desgloseBen.beneficioNeto
+    const beneficioNetoBase = desgloseBen.beneficioBruto
 
     return {
       costeBusPorPax: trunc2(costeBusPorPax),
@@ -1026,8 +1027,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             const paxPago = parseInt(exp.pax_pago) || parseInt(exp.total_pax) || 0
             const precioVentaTotal = precioVenta * paxPago
             const beneficioTotal = precioVentaTotal - costeTotal
-            const iva = beneficioTotal * 0.21
-            const beneficioNeto = beneficioTotal - iva
+            const { beneficioNeto } = desgloseIvaBeneficioBruto(beneficioTotal)
 
             return {
               ...exp,
@@ -1402,7 +1402,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     <div class="section-title">Resumen de resultados</div>
     <table style="width:100%; border-collapse: collapse;">
       <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0;">Beneficio Bruto</td><td style="text-align:right; font-weight: 600;">${beneficioBruto.toFixed(2)} €</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0;">IVA (21%): impuesto restado</td><td style="text-align:right; font-weight: 600; color: #b45309;">− ${ivaPagado.toFixed(2)} €</td></tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0;">Cuota IVA (21% s/ base imponible)</td><td style="text-align:right; font-weight: 600; color: #b45309;">− ${ivaPagado.toFixed(2)} €</td></tr>
       <tr style="background: #f0fdf4;"><td style="padding: 12px 0; font-weight: 700;">BENEFICIO NETO REAL</td><td style="text-align:right; font-size: 1.25rem; font-weight: 700; color: #059669;">${beneficioLimpio.toFixed(2)} €</td></tr>
     </table>
   </div>
@@ -1444,7 +1444,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       '',
       'Resumen de resultados',
       `Beneficio Bruto,${beneficioBruto.toFixed(2)}`,
-      `IVA (21%): impuesto restado,-${ivaPagado.toFixed(2)}`,
+      `Cuota IVA (21% s/ base imponible),-${ivaPagado.toFixed(2)}`,
       `BENEFICIO NETO FINAL,${beneficioLimpio.toFixed(2)}`
     ]
     const blob = new Blob(['\ufeff' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' })
@@ -1458,7 +1458,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // ============ CÁLCULO CIERRE FINANCIERO ============
   // Lógica de cotización: ingresosTotales = (precio_venta + suplementos) - (bonificaciones + gratuidades)
-  // Beneficio Bruto = ingresosTotales - totalGastosReales | IVA (21%) = Beneficio Bruto * 0.21 | Beneficio Neto = Bruto - IVA
+  // Beneficio bruto = ingresos − gastos (IVA 21% incluido) | Neto = bruto/1,21 | Cuota IVA = bruto − neto (ver desgloseIvaBeneficioBruto)
   const calcularCierreFinanciero = () => {
     const paxPago = Math.max(1, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
     const precioVenta = paxPago * toNum(expediente?.precio_venta_cliente ?? formData?.precio_venta_cliente ?? 0)
@@ -1471,9 +1471,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const gastosReales = (informeLiquidacion.costesReales || []).reduce((a, c) => a + toNum(c.coste_real), 0)
     const gastosImprevistos = (informeLiquidacion.gastosImprevistos || []).reduce((a, g) => a + toNum(g.importe), 0)
     const gastosTotales = gastosReales + gastosImprevistos
-    const beneficioBruto = ingresosTotales - gastosTotales
-    const ivaPagado = beneficioBruto > 0 ? beneficioBruto * 0.21 : 0
-    const beneficioLimpio = beneficioBruto - ivaPagado
+    const { beneficioBruto, ivaPagado, beneficioLimpio } = desgloseIvaBeneficioBruto(ingresosTotales - gastosTotales)
     return { ingresosTotales, gastosTotales, beneficioLimpio, ivaPagado, beneficioBruto }
   }
 
@@ -5787,11 +5785,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
                     {/* Desglose de IVA y Beneficio Líquido */}
                     <div className="mt-4 space-y-3">
-                      {/* IVA a pagar (21%) */}
+                      {/* Cuota IVA desglose base imponible */}
                       <div className="bg-red-50 p-4 rounded-lg border-2 border-red-300">
                         <div className="flex justify-between items-center">
                           <span className="text-sm font-bold text-red-700">
-                            IVA a pagar (21%):
+                            Cuota IVA (21% s/ base imponible):
                           </span>
                           <span className="text-xl font-bold text-red-700">
                             {parseFloat(resultados?.iva) >= 0 ? '+' : ''}{resultados?.iva ?? 0}€

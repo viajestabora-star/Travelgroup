@@ -21,3 +21,5 @@ export {
   crearJsPdfInformeCierre,
   nombreArchivoInformeCierrePdf,
 } from './informeCierreHaciendaPdf'
+
+export { desgloseIvaBeneficioBruto, roundEur2 } from './finanzasHelpers'

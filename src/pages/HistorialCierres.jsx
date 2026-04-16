@@ -49,6 +49,7 @@ import {
   NUMEROS_DIAGNOSTICO_HISTORIAL,
   subirPdfGastoEstructuraFacturaProveedor,
 } from '../utils/historialCierresShared'
+import { desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
 
 /** Número puro para `importe_iva` (misma regla que CierresModals). Si no es finito → 0. */
 function importeNumeroGastosEstructura(valor) {
@@ -760,8 +761,7 @@ const HistorialCierres = ({ user }) => {
           : detalle.reduce((s, d) => s + n(d.coste_real), 0)
             + (c.gastosImprevistos || []).reduce((s, g) => s + n(g.importe), 0)
 
-        const beneficioNeto = c.ingresoTotal - gastoReal
-        const beneficioBruto = beneficioNeto > 0 ? beneficioNeto + c.ivaPagado : beneficioNeto
+        const { beneficioBruto, beneficioNeto, ivaPagado } = desgloseIvaBeneficioBruto(c.ingresoTotal - gastoReal)
 
         return {
           ...c,
@@ -769,6 +769,7 @@ const HistorialCierres = ({ user }) => {
           gastoTotal:    gastoReal,
           beneficioNeto,
           beneficioBruto,
+          ivaPagado,
         }
       })
 
