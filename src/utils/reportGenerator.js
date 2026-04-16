@@ -22,4 +22,9 @@ export {
   nombreArchivoInformeCierrePdf,
 } from './informeCierreHaciendaPdf'
 
-export { desgloseIvaBeneficioBruto, roundEur2 } from './finanzasHelpers'
+export {
+  desgloseIvaBeneficioBruto,
+  roundEur2,
+  beneficioNetoDesdeTotalConIvaIncluido,
+  cuotaIvaDesdeTotalConIvaIncluido,
+} from './finance'

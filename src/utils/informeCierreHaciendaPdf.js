@@ -6,7 +6,7 @@ import {
   leerFinanzasCierreDesdeSoloCierreGrupo,
   cierreGrupoTieneFinanzasVerificadas,
 } from './cierreGrupoFuenteVerdad'
-import { desgloseIvaBeneficioBruto } from './finanzasHelpers'
+import { desgloseIvaBeneficioBruto } from './finance'
 
 /**
  * Categorización alineada con la ficha de expediente + Hotel y «Autobús» (conceptos reales en pagos_proveedores).

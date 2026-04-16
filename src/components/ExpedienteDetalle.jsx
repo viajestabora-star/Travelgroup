@@ -7,7 +7,8 @@ import { validarProveedoresServicios, consolidarGastosExpediente } from '../util
 import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { detectarCamposPendientes } from '../utils/constraintValidator'
 import { existeNumeroExpedienteEnSupabase, esNumeroExpedienteValido } from '../utils/expedienteNumero'
-import { normalizarMetodoPago, desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
+import { normalizarMetodoPago } from '../utils/finanzasHelpers'
+import { desgloseIvaBeneficioBruto } from '../utils/finance'
 import { DATOS_EMISOR } from '../config/empresa'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
@@ -174,6 +175,26 @@ const filaPagosProveedores = ({
   url_pdf: url_pdf ?? null,
   concepto,
 })
+
+/**
+ * Vista «Pagos a Proveedores»: ocultar en pantalla (no borrar datos) líneas con importe 0 € y sin proveedor.
+ * Criterio alineado con la tarjeta: nombre vacío e id ausente.
+ */
+const filaPagoProveedorOcultaEnVistaPagosTab = (p) => {
+  const imp = Math.round(Number(p?.importe_pagado ?? 0) * 100) / 100
+  const nom = String(p?.proveedor_nombre ?? '').trim()
+  const id = p?.proveedor_id
+  const tieneProveedor = nom.length > 0 || (id != null && String(id).trim() !== '')
+  return imp === 0 && !tieneProveedor
+}
+
+const tarjetaServicioCotOcultaEnVistaPagosTab = (s) => {
+  const imp = Math.round(
+    Number(s?.total_servicio_manual ?? s?.total_servicio ?? s?.coste_unitario ?? 0) * 100
+  ) / 100
+  const tieneProveedor = String(s?._proveedorNombre ?? '').trim().length > 0
+  return imp === 0 && !tieneProveedor
+}
 
 /** Título del servicio como en la tarjeta (tipo_servicio / tipo); si vacío, etiqueta legible. */
 const tituloServicioParaConcepto = (servicio) => {
@@ -6083,12 +6104,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       const idsFila = idsServicioFilaPagos(s)
                       const abierto = idsFila.some((id) => String(inlineId ?? '') === id)
                       return (
-                        <div key={idsFila.join('-')} className={`rounded-xl border transition-all ${
+                        <div
+                          key={idsFila.join('-')}
+                          className={`rounded-xl border transition-all ${
                           abierto         ? 'border-blue-400 bg-blue-50'
                           : documentado   ? 'border-green-300 bg-green-50'
                           : pagoRegistrado? 'border-amber-300 bg-amber-50'
                           :                 'border-gray-200 bg-gray-50'
-                        }`}>
+                          } ${tarjetaServicioCotOcultaEnVistaPagosTab(s) ? 'hidden' : ''}`}
+                        >
                           {/* Fila principal */}
                           <div className="flex items-center justify-between px-4 py-3">
                             <div className="min-w-0">
@@ -6336,7 +6360,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {pagosProveedores.map((p) => (
-                          <tr key={p.id || `${p.servicio_id}-${p.fecha_pago}`} className="hover:bg-slate-50/80 transition-colors">
+                          <tr
+                            key={p.id || `${p.servicio_id}-${p.fecha_pago}`}
+                            className={`hover:bg-slate-50/80 transition-colors${filaPagoProveedorOcultaEnVistaPagosTab(p) ? ' hidden' : ''}`}
+                          >
                             <td className="py-2.5 pr-3">
                               {(p.servicio_id == null || String(p.servicio_id).trim() === '')
                                 ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Extra</span>

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react'
 import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown } from 'lucide-react'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
-import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago, desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
+import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
+import { desgloseIvaBeneficioBruto } from '../utils/finance'
 import CobrosPagosModal, {
   sincronizarTotalCobradoExpediente,
   calcularPendienteCobro,

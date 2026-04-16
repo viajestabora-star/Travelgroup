@@ -97,35 +97,9 @@ export const numeroATexto = (numero) => {
   return numero.toString()
 }
 
-/** Redondeo monetario a 2 decimales (evita descuadres en BD e informes). */
-export function roundEur2(v) {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return 0
-  return Math.round(n * 100) / 100
-}
-
-const IVA_SOBRE_BENEFICIO_INCLUIDO = 1.21
-
-/**
- * Cuota de IVA sobre el beneficio: el margen bruto (ingresos − gastos) se entiende con IVA 21% incluido.
- * Base imponible (beneficio neto) = bruto / 1,21 · Cuota IVA = bruto − base. Todo redondeado a 2 decimales.
- */
-export function desgloseIvaBeneficioBruto(beneficioBrutoRaw) {
-  const bruto = roundEur2(beneficioBrutoRaw)
-  if (bruto <= 0) {
-    return {
-      beneficioBruto: bruto,
-      beneficioNeto: bruto,
-      beneficioLimpio: bruto,
-      ivaPagado: 0,
-    }
-  }
-  const baseImponible = roundEur2(bruto / IVA_SOBRE_BENEFICIO_INCLUIDO)
-  const ivaPagado = roundEur2(bruto - baseImponible)
-  return {
-    beneficioBruto: bruto,
-    beneficioNeto: baseImponible,
-    beneficioLimpio: baseImponible,
-    ivaPagado,
-  }
-}
+export {
+  roundEur2,
+  beneficioNetoDesdeTotalConIvaIncluido,
+  cuotaIvaDesdeTotalConIvaIncluido,
+  desgloseIvaBeneficioBruto,
+} from './finance'
