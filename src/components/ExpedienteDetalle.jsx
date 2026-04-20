@@ -3196,6 +3196,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return 1
   }
 
+  const calcularDuracionSeguroDesdeFechas = (fechaInicioRaw, fechaFinRaw) => {
+    try {
+      const inicio = parsearFechaADate(fechaInicioRaw)
+      const fin = parsearFechaADate(fechaFinRaw)
+      if (!inicio || !fin || isNaN(inicio.getTime()) || isNaN(fin.getTime()) || fin.getTime() < inicio.getTime()) {
+        return { dias: null, noches: null, texto: null }
+      }
+      const diffMs = fin.getTime() - inicio.getTime()
+      const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1
+      const noches = Math.max(0, dias - 1)
+      return {
+        dias: Number(dias),
+        noches: Number(noches),
+        texto: `${dias} día${dias !== 1 ? 's' : ''} / ${noches} noche${noches !== 1 ? 's' : ''}`,
+      }
+    } catch (_) {
+      return { dias: null, noches: null, texto: null }
+    }
+  }
+
   // ============ CÁLCULOS DE SUPLEMENTOS (INDIVIDUAL Y SEGURO) ============
   const suplementos = useMemo(() => {
     const fd = formDataParaVariante
@@ -4881,10 +4901,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           // Input type="date" devuelve YYYY-MM-DD
                           const fechaISO = e.target.value
                           const fechaEspañola = convertirISOAEspañol(fechaISO)
+                          const fechaFinVigente = expediente?.fecha_final || expediente?.fecha_fin || expediente?.fechaFin || ''
+                          const duracion = calcularDuracionSeguroDesdeFechas(fechaISO, fechaFinVigente)
                           const expedienteActualizado = {
                             ...expediente,
                             fechaInicio: fechaEspañola,
                             fecha_inicio: fechaISO, // Sobrescribir para que la UI y Duración se actualicen al instante
+                            dias: duracion.dias,
+                            noches: duracion.noches,
+                            duracion_calculada: duracion.texto,
                           }
                           onUpdate(expedienteActualizado)
                         }}
@@ -4918,10 +4943,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           // Input type="date" devuelve YYYY-MM-DD
                           const fechaISO = e.target.value
                           const fechaEspañola = convertirISOAEspañol(fechaISO)
+                          const fechaInicioVigente = expediente?.fecha_inicio || expediente?.fechaInicio || ''
+                          const duracion = calcularDuracionSeguroDesdeFechas(fechaInicioVigente, fechaISO)
                           const expedienteActualizado = {
                             ...expediente,
                             fechaFin: fechaEspañola,
                             fecha_final: fechaISO, // Sobrescribir para que la UI y Duración se actualicen al instante
+                            dias: duracion.dias,
+                            noches: duracion.noches,
+                            duracion_calculada: duracion.texto,
                           }
                           onUpdate(expedienteActualizado)
                         }}

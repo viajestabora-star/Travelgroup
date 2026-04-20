@@ -79,6 +79,15 @@ const esErrorRestriccionUnicidad = (error) => {
   )
 }
 
+const toIntOrNull = (value) => {
+  if (value === null || value === undefined) return null
+  const raw = String(value).trim()
+  if (raw === '') return null
+  const num = Number(raw)
+  if (!Number.isFinite(num)) return null
+  return Math.trunc(num)
+}
+
 /**
  * Comprueba si ya existe un expediente con el mismo cliente_id, fecha_inicio y destino.
  * Alineado con los valores que se insertarán (null vs cadena vacía → null en destino).
@@ -883,10 +892,7 @@ const Expedientes = () => {
       }
 
       // Extraer total_pax desde el propio expediente (modelo plano, sin JSON cotizacion)
-      let totalPaxTexto = ''
-      if (expedienteActualizado.total_pax !== undefined && expedienteActualizado.total_pax !== null) {
-        totalPaxTexto = String(expedienteActualizado.total_pax)
-      }
+      const totalPaxNumNormalizado = toIntOrNull(expedienteActualizado.total_pax)
       
       // Objeto exacto para Supabase - Asegurar que todos los campos obligatorios estén presentes y no sean NULL
       // IMPORTANTE: Las fechas deben estar en formato YYYY-MM-DD para Supabase
@@ -902,9 +908,10 @@ const Expedientes = () => {
         }
       }
       
-      const totalPaxNum = expedienteActualizado.total_pax != null ? Number(expedienteActualizado.total_pax) : NaN
-      const gratuidadesNum = expedienteActualizado.gratuidades != null ? Number(expedienteActualizado.gratuidades) : 0
-      const paxPagoNum = Math.max(1, (isNaN(totalPaxNum) ? 1 : totalPaxNum) - (isNaN(gratuidadesNum) ? 0 : gratuidadesNum))
+      const gratuidadesNum = toIntOrNull(expedienteActualizado.gratuidades) ?? 0
+      const paxPagoNum = totalPaxNumNormalizado == null
+        ? (toIntOrNull(expedienteActualizado.pax_pago) ?? 1)
+        : Math.max(1, totalPaxNumNormalizado - gratuidadesNum)
 
       // numero_expediente: normalizar formato YYYY-XXX con ceros a la izquierda
       let numeroExpParaSupabase = null
@@ -933,7 +940,7 @@ const Expedientes = () => {
         duracion_viaje: ((expedienteActualizado?.duracion_viaje || '').trim()) || null,
         observaciones: String(expedienteActualizado.observaciones || ''),
         itinerario: String(expedienteActualizado.itinerario || ''),
-        total_pax: String(totalPaxTexto),
+        total_pax: totalPaxNumNormalizado == null ? null : Number(totalPaxNumNormalizado),
         gratuidades: isNaN(gratuidadesNum) ? 0 : gratuidadesNum,
         pax_pago: paxPagoNum,
         precio_venta_cliente: expedienteActualizado.precio_venta_cliente != null ? Number(expedienteActualizado.precio_venta_cliente) : 0,
