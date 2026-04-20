@@ -999,8 +999,10 @@ const Expedientes = () => {
       if (debeConsolidar && expediente) {
         const validacion = await validarProveedoresServicios(id, expediente?.versiones_json)
         if (!validacion.ok) {
-          alert(validacion.error || 'Error: Faltan proveedores por asignar en los servicios. No se puede consolidar.')
-          return
+          const confirmarSinProveedor = window.confirm(
+            validacion.warning || 'Faltan proveedores por asignar. ¿Deseas consolidar el cierre de todas formas?'
+          )
+          if (!confirmarSinProveedor) return
         }
         const cons = await consolidarGastosExpediente(id, expediente, true)
         if (!cons.ok) {

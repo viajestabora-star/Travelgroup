@@ -1,8 +1,8 @@
 /**
  * Consolidación de gastos al cambiar estado a Finalizado/Cerrado.
- * - Valida proveedorId en todos los servicios antes de insertar.
+ * - Detecta servicios sin proveedor para permitir aviso previo en UI.
  * - DELETE previo, INSERT solo si estado es Finalizado/Cerrado.
- * - Sin parches: si falla inserción, cancela toda la transacción.
+ * - Inserta también servicios sin proveedor (proveedor_id null).
  */
 
 import { supabase } from '../supabase'
@@ -69,8 +69,8 @@ const obtenerServiciosParaConsolidar = async (expedienteId, versionesJson) => {
 }
 
 /**
- * Valida que todos los servicios tengan proveedorId válido.
- * @returns { { ok: boolean, error?: string } }
+ * Detecta servicios sin proveedor para aviso no bloqueante.
+ * @returns { { ok: boolean, warning?: string, detalle?: string } }
  */
 export const validarProveedoresServicios = async (expedienteId, versionesJson) => {
   const servicios = await obtenerServiciosParaConsolidar(expedienteId, versionesJson)
@@ -85,7 +85,7 @@ export const validarProveedoresServicios = async (expedienteId, versionesJson) =
       const nombre = s.nombreEspecifico || s.nombre_especifico || s.tipo_servicio || s.tipo || 'Servicio'
       return {
         ok: false,
-        error: 'Error: Faltan proveedores por asignar en los servicios. No se puede consolidar.',
+        warning: 'Faltan proveedores por asignar. ¿Deseas consolidar el cierre de todas formas?',
         detalle: nombre,
       }
     }
@@ -113,16 +113,12 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
 
     if (!debeConsolidar) return { ok: true }
 
-    const validacion = await validarProveedoresServicios(expedienteId, expediente?.versiones_json)
-    if (!validacion.ok) return validacion
-
     const servicios = await obtenerServiciosParaConsolidar(expedienteId, expediente?.versiones_json)
     const añoEjercicio = extraerAñoEjercicio(expediente?.numero_expediente)
 
     const filas = []
     for (const s of servicios) {
       const provId = obtenerProveedorIdValido(s)
-      if (provId == null) continue
       const costeTotal = calcularCosteTotal(s)
       if (costeTotal <= 0) continue
       const tipoServicio = (
@@ -135,7 +131,7 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
       )
       filas.push({
         expediente_id: expedienteId,
-        proveedor_id: provId,
+        proveedor_id: provId ?? null,
         tipo_servicio: String(tipoServicio).trim() || 'Otros',
         coste_total: costeTotal,
         año_ejercicio: añoEjercicio,

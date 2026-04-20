@@ -1538,9 +1538,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const expConVersiones = expData || expediente
       const validacion = await validarProveedoresServicios(expediente.id, expConVersiones?.versiones_json)
       if (!validacion.ok) {
-        alert(validacion.error || 'Error: Faltan proveedores por asignar en los servicios. No se puede consolidar.')
-        setGuardandoCierre(false)
-        return
+        const confirmarSinProveedor = window.confirm(
+          validacion.warning || 'Faltan proveedores por asignar. ¿Deseas consolidar el cierre de todas formas?'
+        )
+        if (!confirmarSinProveedor) {
+          setGuardandoCierre(false)
+          return
+        }
       }
       const { ingresosTotales, gastosTotales, beneficioBruto, ivaPagado, beneficioLimpio } = calcularCierreFinanciero()
       const n = (v) => (v != null && !Number.isNaN(Number(v)) ? Number(v) : 0)

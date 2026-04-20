@@ -824,9 +824,13 @@ const ExpedienteFinanzas = ({
       const expData = expDataRaw || expediente
       const validacion = await validarProveedoresServicios(expediente.id, expData?.versiones_json)
       if (!validacion.ok) {
-        alert(validacion.error || 'Error: Faltan proveedores por asignar en los servicios. No se puede consolidar.')
-        setGuardandoCierre(false)
-        return
+        const confirmarSinProveedor = window.confirm(
+          validacion.warning || 'Faltan proveedores por asignar. ¿Deseas consolidar el cierre de todas formas?'
+        )
+        if (!confirmarSinProveedor) {
+          setGuardandoCierre(false)
+          return
+        }
       }
       const { ingresosTotales, gastosTotales, beneficioBruto, ivaPagado, beneficioLimpio } = calcularCierreFinanciero()
 
