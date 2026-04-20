@@ -27,6 +27,28 @@ const Layout = ({ user, onLogout }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
+  // Garantiza que el JWT incluya app_metadata.empresa_id para usuarios autenticados.
+  useEffect(() => {
+    const asegurarEmpresaIdEnToken = async () => {
+      const userId = authSession?.user?.id
+      if (!userId) return
+      const empresaIdActual = Number(authSession?.user?.app_metadata?.empresa_id ?? 0)
+      if (empresaIdActual > 0) return
+
+      const { error } = await supabase.rpc('ensure_empresa_id_claim', { p_empresa_id: 1 })
+      if (error) {
+        console.warn('[Auth] No se pudo asegurar empresa_id en app_metadata:', error.message)
+        return
+      }
+
+      // Refresca token para que el claim actualizado esté disponible en el JWT actual.
+      const { data, error: refreshError } = await supabase.auth.refreshSession()
+      if (!refreshError && data?.session) setAuthSession(data.session)
+    }
+
+    asegurarEmpresaIdEnToken()
+  }, [authSession?.user?.id, authSession?.user?.app_metadata?.empresa_id])
+
   // CONTROL HORARIO - Orden lógico estricto para evitar duplicados al refrescar
   useEffect(() => {
     const sessionEmail = authSession?.user?.email || user?.email
