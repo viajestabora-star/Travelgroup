@@ -97,6 +97,7 @@ const ExpedienteFinanzas = ({
   onVersionChange,
   desgloseGrupos = [],
 }) => {
+  const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
 
   // paxPago and totalPax computed from expediente/formData
@@ -130,6 +131,7 @@ const ExpedienteFinanzas = ({
   })
   const [showModalCobro, setShowModalCobro] = useState(false)
   const [cobroEnEdicionId, setCobroEnEdicionId] = useState(null)
+  const [isSubmittingCobro, setIsSubmittingCobro] = useState(false)
   const [logsFinancieros, setLogsFinancieros] = useState([])
   const [showModalLogs, setShowModalLogs] = useState(false)
   const [informeLiquidacion, setInformeLiquidacion] = useState({
@@ -140,6 +142,16 @@ const ExpedienteFinanzas = ({
   const [paxPorAsociacion, setPaxPorAsociacion] = useState([])
   const [guardandoCierre, setGuardandoCierre] = useState(false)
   const informeLiquidacionInicializadoRef = useRef(false)
+  const lastSubmitRef = useRef({})
+
+  const esSubmitDuplicadoReciente = (key, payload) => {
+    const ahora = Date.now()
+    const previo = lastSubmitRef.current[key]
+    const firma = JSON.stringify(payload)
+    if (previo && previo.firma === firma && ahora - previo.ts < SUBMIT_DEDUPE_MS) return true
+    lastSubmitRef.current[key] = { firma, ts: ahora }
+    return false
+  }
 
   // Effect: restore informeLiquidacion from expediente.cierre_grupo when modal opens or cierre_grupo loads
   useEffect(() => {
@@ -225,6 +237,7 @@ const ExpedienteFinanzas = ({
   }
 
   const guardarCobro = async () => {
+    if (isSubmittingCobro) return
     if (!expediente?.id) {
       alert('❌ No se puede guardar: expediente no válido')
       return
@@ -247,6 +260,19 @@ const ExpedienteFinanzas = ({
       return
     }
 
+    const firmaCobro = {
+      expediente_id: expediente.id,
+      cliente_id: String(clienteId),
+      importe: Number(importeLimpio.toFixed(2)),
+      metodo_pago: normalizarMetodoPago(formCobro.metodo_pago),
+      cuenta_destino: String(formCobro.cuenta_destino || 'Caixabank'),
+      concepto: String(formCobro.concepto || '').trim(),
+      modo: cobroEnEdicionId ? 'edit' : 'new',
+      cobro_id: cobroEnEdicionId || null,
+    }
+    if (esSubmitDuplicadoReciente('guardarCobro', firmaCobro)) return
+
+    setIsSubmittingCobro(true)
     try {
       const importeNumerico = Number(parseFloat(String(importeLimpio))) || 0
       const datosCobro = {
@@ -388,6 +414,8 @@ const ExpedienteFinanzas = ({
       setShowModalCobro(false)
     } catch (error) {
       alert(`❌ Error inesperado al guardar el cobro:\n\n${error.message || JSON.stringify(error)}`)
+    } finally {
+      setIsSubmittingCobro(false)
     }
   }
 
@@ -822,7 +850,15 @@ const ExpedienteFinanzas = ({
 
   const handleGuardarCierre = async () => {
     if (!expediente?.id) return
+    if (guardandoCierre) return
     if (!window.confirm('¿Confirmar cierre? Se consolidarán los costes para el análisis financiero.')) return
+    const firmaCierre = {
+      expediente_id: expediente.id,
+      estado_objetivo: 'Cerrado',
+      total_costes: (informeLiquidacion?.costesReales || []).length,
+      total_imprevistos: (informeLiquidacion?.gastosImprevistos || []).length,
+    }
+    if (esSubmitDuplicadoReciente('guardarCierre', firmaCierre)) return
     setGuardandoCierre(true)
     try {
       const { data: expDataRaw } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json').eq('id', expediente.id).single()
@@ -1241,6 +1277,7 @@ const ExpedienteFinanzas = ({
             {/* Botón siempre activo: permite añadir cobros incluso tras cierre (cobros_expediente sin restricción) */}
             <button
               onClick={() => {
+                if (isSubmittingCobro) return
                 setCobroEnEdicionId(null)
                 setFormCobro({
                   importe: '',
@@ -1250,10 +1287,11 @@ const ExpedienteFinanzas = ({
                 })
                 setShowModalCobro(true)
               }}
-              className="btn-primary flex items-center gap-2"
+              disabled={isSubmittingCobro}
+              className="btn-primary flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Plus size={20} />
-              Añadir Cobro (Incluso tras cierre)
+              {isSubmittingCobro ? 'Guardando...' : 'Añadir Cobro (Incluso tras cierre)'}
             </button>
           </div>
 
@@ -1715,6 +1753,7 @@ const ExpedienteFinanzas = ({
         setFormCobro={setFormCobro}
         onGuardar={guardarCobro}
         onWheel={handleWheel}
+        isSubmitting={isSubmittingCobro}
       />
 
       {/* Modal de Historial de Logs Financieros */}

@@ -1,5 +1,5 @@
 import React from 'react'
-import { X, Save } from 'lucide-react'
+import { X, Save, Loader2 } from 'lucide-react'
 import { limpiarNumero } from '../../utils/finanzasHelpers'
 
 /**
@@ -50,6 +50,7 @@ export default function CobrosPagosModal({
   setFormCobro,
   onGuardar,
   onWheel,
+  isSubmitting = false,
 }) {
   if (!open) return null
 
@@ -67,6 +68,7 @@ export default function CobrosPagosModal({
           <button
             type="button"
             onClick={resetCerrar}
+            disabled={isSubmitting}
             className="text-gray-400 hover:text-gray-600 transition-colors"
             aria-label="Cerrar"
           >
@@ -100,6 +102,7 @@ export default function CobrosPagosModal({
                 if (valor.includes(',')) valor = valor.replace(',', '.')
                 setFormCobro({ ...formCobro, importe: valor })
               }}
+              disabled={isSubmitting}
               onWheel={onWheel}
               onBlur={(e) => {
                 const valorLimpio = limpiarNumero(e.target.value)
@@ -121,6 +124,7 @@ export default function CobrosPagosModal({
             <select
               value={formCobro.metodo_pago}
               onChange={(e) => setFormCobro({ ...formCobro, metodo_pago: e.target.value })}
+              disabled={isSubmitting}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
             >
@@ -139,6 +143,7 @@ export default function CobrosPagosModal({
             <select
               value={formCobro.cuenta_destino}
               onChange={(e) => setFormCobro({ ...formCobro, cuenta_destino: e.target.value })}
+              disabled={isSubmitting}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
             >
@@ -156,6 +161,7 @@ export default function CobrosPagosModal({
               type="text"
               value={formCobro.concepto}
               onChange={(e) => setFormCobro({ ...formCobro, concepto: e.target.value })}
+              disabled={isSubmitting}
               placeholder="Ej: Depósito, Pago 2, Total"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
@@ -164,11 +170,21 @@ export default function CobrosPagosModal({
         </div>
 
         <div className="flex gap-3 mt-6">
-          <button type="button" onClick={onGuardar} className="btn-primary flex-1 flex items-center justify-center gap-2">
-            <Save size={20} />
-            {cobroEnEdicionId ? 'Actualizar Cobro' : 'Guardar Cobro'}
+          <button
+            type="button"
+            onClick={onGuardar}
+            disabled={isSubmitting}
+            className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+            {isSubmitting ? 'Guardando...' : (cobroEnEdicionId ? 'Actualizar Cobro' : 'Guardar Cobro')}
           </button>
-          <button type="button" onClick={resetCerrar} className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+          <button
+            type="button"
+            onClick={resetCerrar}
+            disabled={isSubmitting}
+            className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
             Cancelar
           </button>
         </div>

@@ -31,6 +31,7 @@ import {
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
+const SUBMIT_DEDUPE_MS = 2000
 
 const proveedorInformeTexto = (proveedor) => {
   const txt = String(proveedor ?? '').trim()
@@ -678,6 +679,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [pagosProveedores, setPagosProveedores] = useState([])
   const [cargandoPagosProveedores, setCargandoPagosProveedores] = useState(false)
   const [formPago, setFormPago] = useState({ servicio_id: '', fecha_pago: '', importe_pagado: '' })
+  const [isSubmittingPagoProveedor, setIsSubmittingPagoProveedor] = useState(false)
 
   // Lista inteligente de servicios (solo activa en la pestaña de pagos)
   const [serviciosCot,     setServiciosCot]     = useState([])
@@ -691,6 +693,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [fExtra,           setFExtra]            = useState({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '' })
   const [pdfExtra,         setPdfExtra]          = useState(null)
   const [mensajeExitoFacturaProveedor, setMensajeExitoFacturaProveedor] = useState(null)
+  const lastSubmitRef = useRef({})
+
+  const esSubmitDuplicadoReciente = (key, payload) => {
+    const ahora = Date.now()
+    const previo = lastSubmitRef.current[key]
+    const firma = JSON.stringify(payload)
+    if (previo && previo.firma === firma && ahora - previo.ts < SUBMIT_DEDUPE_MS) return true
+    lastSubmitRef.current[key] = { firma, ts: ahora }
+    return false
+  }
 
   // Cliente(s) del expediente: relación directa expedientes.cliente_id → clientes (tabla expediente_clientes NO existe)
   const expedienteClientes = useMemo(() => {
@@ -2962,6 +2974,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Registrar pago a proveedor (insert en pagos_proveedores)
   const registrarPagoProveedor = async () => {
+    if (isSubmittingPagoProveedor) return
     if (!expediente?.id || !formPago.servicio_id || !formPago.fecha_pago || !formPago.importe_pagado) {
       alert('Completa Servicio, Fecha e Importe.')
       return
@@ -2971,6 +2984,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       alert('El importe debe ser un número positivo.')
       return
     }
+    const firmaPago = {
+      expediente_id: expediente.id,
+      servicio_id: String(formPago.servicio_id),
+      fecha_pago: formPago.fecha_pago,
+      importe: Number(importe.toFixed(2)),
+    }
+    if (esSubmitDuplicadoReciente('registrarPagoProveedor', firmaPago)) return
+    setIsSubmittingPagoProveedor(true)
     try {
       const servicioRow = serviciosCot.find((sc) => String(sc.id) === String(formPago.servicio_id))
       const concepto = servicioRow ? tituloServicioParaConcepto(servicioRow) : 'Servicio'
@@ -2999,6 +3020,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (typeof onRefresh === 'function') onRefresh()
     } catch (e) {
       alert('Error inesperado al registrar el pago.')
+    } finally {
+      setIsSubmittingPagoProveedor(false)
     }
   }
 
@@ -3020,9 +3043,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   const guardarFacturaCot = async (servicio) => {
+    if (subiendoPdfCot) return
     if (!fInline.fecha_pago || !fInline.importe_pagado) { alert('Completa Fecha e Importe.'); return }
     const importe = parseFloat(String(fInline.importe_pagado).replace(',', '.'))
     if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
+    const firmaFactura = {
+      expediente_id: expediente?.id || null,
+      servicio_id: String(servicio?.id ?? ''),
+      fecha_pago: fInline.fecha_pago,
+      importe: Number(importe.toFixed(2)),
+      numero_factura: String(fInline.numero_factura || '').trim(),
+      pdf_nombre: pdfInline?.name || null,
+    }
+    if (esSubmitDuplicadoReciente('guardarFacturaCot', firmaFactura)) return
     setSubiendoPdfCot(true)
     try {
       const existente = pagosProveedores.find((p) => pagoProveedorCoincideFilaServiciosCot(p, servicio))
@@ -3139,9 +3172,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   const guardarGastoExtra = async () => {
+    if (subiendoPdfCot) return
     if (!fExtra.concepto || !fExtra.importe_pagado || !fExtra.fecha_pago) { alert('Completa Concepto, Fecha e Importe.'); return }
     const importe = parseFloat(String(fExtra.importe_pagado).replace(',', '.'))
     if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
+    const firmaGastoExtra = {
+      expediente_id: expediente?.id || null,
+      concepto: String(fExtra.concepto || '').trim(),
+      proveedor_nombre: String(fExtra.proveedor_nombre || '').trim(),
+      fecha_pago: fExtra.fecha_pago,
+      importe: Number(importe.toFixed(2)),
+      numero_factura: String(fExtra.numero_factura || '').trim(),
+      pdf_nombre: pdfExtra?.name || null,
+    }
+    if (esSubmitDuplicadoReciente('guardarGastoExtra', firmaGastoExtra)) return
     setSubiendoPdfCot(true)
     try {
       const urlPdf = pdfExtra ? await subirPdfFacturaCot(pdfExtra) : null
