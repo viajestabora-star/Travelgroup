@@ -17,6 +17,7 @@ import Composer from './pages/Composer';
 import InteligenciaEconomica from './pages/InteligenciaEconomica';
 import AdminRouteGuard from './components/AdminRouteGuard';
 import { esUsuarioGestoria, puedeAccederCierresEconomicos } from './utils/userRoles';
+import { sincronizarNivelAccesoEnSesion } from './utils/nivelAcceso';
 
 /** Ruta `/historial-cierres`: solo ADMIN o GESTORIA; resto → panel principal. */
 function CierresEconomicosRoute({ user }) {
@@ -28,10 +29,10 @@ function CierresEconomicosRoute({ user }) {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 const USUARIOS_AUTORIZADOS = {
-  'andres@viajestabora.com': { nombre: 'Andrés',        rol: 'ADMIN'    },
-  'info@viajestabora.com':   { nombre: 'Germán',         rol: 'ADMIN'    },
-  'grupos@viajestabora.com': { nombre: 'Marisa',         rol: 'STAFF'    },
-  'alcor@asesores.com':      { nombre: 'Gestoria Alcor', rol: 'GESTORIA' },
+  'andres@viajestabora.com': { nombre: 'Andrés',        nivel_acceso: 'ADMIN'    },
+  'info@viajestabora.com':   { nombre: 'Germán',         nivel_acceso: 'ADMIN'    },
+  'grupos@viajestabora.com': { nombre: 'Marisa',         nivel_acceso: 'STAFF'    },
+  'alcor@asesores.com':      { nombre: 'Gestoria Alcor', nivel_acceso: 'GESTORIA' },
 };
 const CLAVE_MAESTRA = 'tabora';
 
@@ -51,7 +52,8 @@ function App() {
       const stored = localStorage.getItem('sesion_tabora');
       if (!stored) return null;
       const parsed = JSON.parse(stored);
-      return parsed && parsed.email ? parsed : null;
+      if (!parsed || !parsed.email) return null;
+      return sincronizarNivelAccesoEnSesion(parsed);
     } catch (e) {
       return null;
     }
@@ -64,7 +66,10 @@ function App() {
     const emailNorm        = email.toLowerCase().trim();
     const usuarioEncontrado = USUARIOS_AUTORIZADOS[emailNorm];
     if (usuarioEncontrado && pass === CLAVE_MAESTRA) {
-      const datosSesion = { email: emailNorm, ...usuarioEncontrado };
+      const datosSesion = sincronizarNivelAccesoEnSesion({
+        email: emailNorm,
+        ...usuarioEncontrado,
+      });
       localStorage.setItem('sesion_tabora', JSON.stringify(datosSesion));
       setUser(datosSesion);
     } else {

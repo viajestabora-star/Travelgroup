@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
+import { esUsuarioAdmin } from '../utils/userRoles'
 
 /**
  * InteligenciaPredictivaPanel - Panel de ranking de rentabilidad por cliente.
@@ -195,7 +196,7 @@ const InteligenciaPredictivaPanel = ({ user }) => {
   const [error, setError] = useState(null)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [detalleModal, setDetalleModal] = useState({ open: false, data: null })
-  const esAdmin = user?.rol === 'ADMIN'
+  const esAdmin = esUsuarioAdmin(user)
 
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {

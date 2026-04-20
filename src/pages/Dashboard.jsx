@@ -5,7 +5,7 @@ import { storage } from '../utils/storage'
 import { supabase } from '../supabase'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { registrarSalidaOnUnload, heartbeatSalida, registrarEntradaSilencioso } from '../utils/controlHorario'
-import { esUsuarioGestoria, puedeAccederCierresEconomicos } from '../utils/userRoles'
+import { esUsuarioGestoria, puedeAccederCierresEconomicos, esUsuarioAdmin } from '../utils/userRoles'
 import CentralDeInteligencia from '../components/CentralDeInteligencia'
 import ResumenPipeline from '../components/ResumenPipeline'
 import IntegrityPanel from '../components/IntegrityPanel'
@@ -20,7 +20,7 @@ const Dashboard = ({ user = null }) => {
   const [ejercicioActual, setEjercicioActual]   = useState(getEjercicioActual())
   const [showIntelligenceHub, setShowIntelligenceHub] = useState(false)
   const [showIntegrityPanel, setShowIntegrityPanel]   = useState(false)
-  const esAdmin = user?.rol === 'ADMIN'
+  const esAdmin = esUsuarioAdmin(user)
 
   // Corrección silenciosa en segundo plano: al cargar el dashboard,
   // ADMIN lanza un escaneo y auto-corrige duraciones legacy en Supabase sin molestar al usuario.

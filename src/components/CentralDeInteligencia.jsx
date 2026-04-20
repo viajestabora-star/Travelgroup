@@ -2,14 +2,15 @@ import React, { useState } from 'react'
 import { Users, TrendingUp } from 'lucide-react'
 import CrmIntelligencePanel from './CrmIntelligencePanel'
 import InteligenciaEconomicaPanel from './InteligenciaEconomicaPanel'
+import { esUsuarioAdmin } from '../utils/userRoles'
 
 /**
  * CentralDeInteligencia - Contenedor principal de la Central de Inteligencia.
- * El tab "Inteligencia Económica" solo se muestra si user.rol === 'ADMIN'.
+ * El tab "Inteligencia Económica" solo se muestra si el nivel de acceso es ADMIN.
  */
 const CentralDeInteligencia = ({ user }) => {
   const [panelActivo, setPanelActivo] = useState('crm')
-  const esAdmin = user?.rol === 'ADMIN'
+  const esAdmin = esUsuarioAdmin(user)
 
   return (
     <div className="space-y-6">

@@ -4,7 +4,7 @@ import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3, Clock, User } from '
 import ModalDesgloseInteligencia from './ModalDesgloseInteligencia'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
-import { esUsuarioGestoria } from '../utils/userRoles'
+import { esUsuarioGestoria, esUsuarioAdmin, nivelAccesoEfectivo } from '../utils/userRoles'
 import { finanzasExpedienteParaInformes } from '../utils/cierreGrupoFuenteVerdad'
 
 /** Usuarios a controlar en Control de Personal */
@@ -90,9 +90,9 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   const [loadingControl, setLoadingControl] = useState(false)
   const [filtroEmpleado, setFiltroEmpleado] = useState('todos')
   // esAdmin: ADMIN puro + Gestoría (alcor@asesores.com) tienen acceso a los datos financieros
-  const esAdmin = user?.rol === 'ADMIN' || esUsuarioGestoria(user)
-  const esAdminPuro = user?.rol === 'ADMIN'   // solo para tabs exclusivos como Control de Personal
-  const rol = user?.rol
+  const esAdmin = esUsuarioAdmin(user) || esUsuarioGestoria(user)
+  const esAdminPuro = esUsuarioAdmin(user)   // solo para tabs exclusivos como Control de Personal
+  const rol = nivelAccesoEfectivo(user)
   const controlHorarioCargadoRef = useRef(false)
 
   useEffect(() => {
