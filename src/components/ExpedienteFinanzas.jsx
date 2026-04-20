@@ -72,6 +72,11 @@ const finalizarCalculoModulo = (servicio, paxPago = 31, paxTotal = 35) => {
   return { ...s, coste_pax: Number(costePorPersona.toFixed(2)), total_servicio: Number(totalFinal.toFixed(2)) }
 }
 
+const proveedorInformeTexto = (proveedor) => {
+  const txt = String(proveedor ?? '').trim()
+  return txt || 'Varios/Sin asignar'
+}
+
 const ExpedienteFinanzas = ({
   expediente,
   onUpdate,
@@ -825,7 +830,7 @@ const ExpedienteFinanzas = ({
       const validacion = await validarProveedoresServicios(expediente.id, expData?.versiones_json)
       if (!validacion.ok) {
         const confirmarSinProveedor = window.confirm(
-          validacion.warning || 'Faltan proveedores por asignar. ¿Deseas consolidar el cierre de todas formas?'
+          validacion.warning || 'Falta proveedor por asignar. ¿Deseas consolidar de todas formas?'
         )
         if (!confirmarSinProveedor) {
           setGuardandoCierre(false)
@@ -941,7 +946,7 @@ const ExpedienteFinanzas = ({
     const filasPagos = []
     CATEGORIAS.forEach(cat => {
       porCategoria[cat].forEach(c => {
-        filasPagos.push(`<tr><td>${cat}</td><td>${(c.concepto || '—').replace(/</g, '&lt;')}</td><td>${(c.proveedor || '—').replace(/</g, '&lt;')}</td><td class="num">${Number(c.coste_real || 0).toFixed(2)} €</td></tr>`)
+        filasPagos.push(`<tr><td>${cat}</td><td>${(c.concepto || '—').replace(/</g, '&lt;')}</td><td>${proveedorInformeTexto(c.proveedor).replace(/</g, '&lt;')}</td><td class="num">${Number(c.coste_real || 0).toFixed(2)} €</td></tr>`)
       })
     })
     gastosImprevistos.forEach(g => {
@@ -1070,7 +1075,7 @@ const ExpedienteFinanzas = ({
       doc.setTextColor(100, 116, 139)
       items.forEach(c => {
         if (y > 270) { doc.addPage(); y = 20 }
-        doc.text(`  ${(c.concepto || '—').substring(0, 50)} | ${(c.proveedor || '—').substring(0, 25)}`, 25, y)
+        doc.text(`  ${(c.concepto || '—').substring(0, 50)} | ${proveedorInformeTexto(c.proveedor).substring(0, 25)}`, 25, y)
         doc.text(`${Number(c.coste_real || 0).toFixed(2)} €`, pageW - 25, y, { align: 'right' })
         y += 4
       })

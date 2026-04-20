@@ -34,11 +34,16 @@ const n = (v) => {
   return Number.isFinite(num) ? num : 0
 }
 
+const proveedorInformeTexto = (proveedor) => {
+  const txt = String(proveedor ?? '').trim()
+  return txt || 'Varios/Sin asignar'
+}
+
 export function normalizarLineaInforme(raw) {
   if (!raw || typeof raw !== 'object') return null
   const c = String(raw.concepto ?? raw.descripcion ?? '').trim()
   const concepto = c || 'Servicio sin nombre'
-  const proveedor = String(raw.proveedor ?? raw.proveedor_nombre ?? '—').trim() || '—'
+  const proveedor = proveedorInformeTexto(raw.proveedor ?? raw.proveedor_nombre)
   const importe = parseFloat(raw.importe_real ?? raw.importe_pagado ?? raw.importe ?? 0) || 0
   return { concepto, proveedor, importe_real: +importe.toFixed(2) }
 }
@@ -106,7 +111,7 @@ export function payloadDesdeCierreGrupo(expediente) {
   const costesReales = Array.isArray(cg.costesReales)
     ? cg.costesReales.map((c) => ({
         concepto: c.concepto || '—',
-        proveedor: c.proveedor || '—',
+        proveedor: proveedorInformeTexto(c.proveedor),
         coste_real: nCierre(c.coste_real),
       }))
     : []
@@ -245,7 +250,7 @@ export function crearJsPdfInformeCierreFinanciero(payload) {
         doc.addPage()
         y = 20
       }
-      const linea = `  ${(c.concepto || '—').substring(0, 50)} | ${(c.proveedor || '—').substring(0, 25)}`
+      const linea = `  ${(c.concepto || '—').substring(0, 50)} | ${proveedorInformeTexto(c.proveedor).substring(0, 25)}`
       doc.text(linea, 25, y)
       doc.text(`${n(c.coste_real).toFixed(2)} €`, pageW - 25, y, { align: 'right' })
       y += 4

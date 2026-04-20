@@ -32,6 +32,11 @@ import {
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
 
+const proveedorInformeTexto = (proveedor) => {
+  const txt = String(proveedor ?? '').trim()
+  return txt || 'Varios/Sin asignar'
+}
+
 /** Ruta relativa del objeto dentro del bucket (p. ej. para remove y getPublicUrl). */
 const extraerRutaObjectoFacturaProveedor = (urlPdf) => {
   if (!urlPdf || typeof urlPdf !== 'string') return null
@@ -1372,7 +1377,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const filasPagos = []
     ;['Bus', 'Hotel', 'Restaurante', 'Guía', 'Otros'].forEach(cat => {
       porCategoria[cat].forEach(c => {
-        filasPagos.push(`<tr><td>${cat}</td><td>${(c.concepto || '—').replace(/</g, '&lt;')}</td><td>${(c.proveedor || '—').replace(/</g, '&lt;')}</td><td class="num">${Number(c.coste_real || 0).toFixed(2)} €</td></tr>`)
+        filasPagos.push(`<tr><td>${cat}</td><td>${(c.concepto || '—').replace(/</g, '&lt;')}</td><td>${proveedorInformeTexto(c.proveedor).replace(/</g, '&lt;')}</td><td class="num">${Number(c.coste_real || 0).toFixed(2)} €</td></tr>`)
       })
     })
     gastosImprevistos.forEach(g => {
@@ -1539,7 +1544,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const validacion = await validarProveedoresServicios(expediente.id, expConVersiones?.versiones_json)
       if (!validacion.ok) {
         const confirmarSinProveedor = window.confirm(
-          validacion.warning || 'Faltan proveedores por asignar. ¿Deseas consolidar el cierre de todas formas?'
+          validacion.warning || 'Falta proveedor por asignar. ¿Deseas consolidar de todas formas?'
         )
         if (!confirmarSinProveedor) {
           setGuardandoCierre(false)

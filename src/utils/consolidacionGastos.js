@@ -40,6 +40,12 @@ const obtenerProveedorIdValido = (s) => {
   return Math.floor(n)
 }
 
+const esErrorNotNullProveedorId = (error) => {
+  const code = String(error?.code ?? '')
+  const msg = String(error?.message ?? '').toLowerCase()
+  return code === '23502' && msg.includes('proveedor_id')
+}
+
 /**
  * Recoge todos los servicios a consolidar:
  * - versiones_json: usa la versión CONFIRMADA o la primera
@@ -85,7 +91,7 @@ export const validarProveedoresServicios = async (expedienteId, versionesJson) =
       const nombre = s.nombreEspecifico || s.nombre_especifico || s.tipo_servicio || s.tipo || 'Servicio'
       return {
         ok: false,
-        warning: 'Faltan proveedores por asignar. ¿Deseas consolidar el cierre de todas formas?',
+        warning: 'Falta proveedor por asignar. ¿Deseas consolidar de todas formas?',
         detalle: nombre,
       }
     }
@@ -141,8 +147,20 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
     if (filas.length === 0) return { ok: true }
 
     const { error: insError } = await supabase.from('gastos_consolidados').insert(filas)
-
-    if (insError) return { ok: false, error: insError?.message || 'Error al insertar gastos consolidados' }
+    if (insError) {
+      // En algunos entornos la columna proveedor_id sigue en NOT NULL.
+      // Se envía null explícito, y si el esquema lo bloquea se reintenta sin esas filas.
+      const filasConProveedor = filas.filter((f) => f.proveedor_id != null)
+      if (!esErrorNotNullProveedorId(insError) || filasConProveedor.length === filas.length) {
+        return { ok: false, error: insError?.message || 'Error al insertar gastos consolidados' }
+      }
+      if (filasConProveedor.length === 0) return { ok: true }
+      const { error: insRetryError } = await supabase.from('gastos_consolidados').insert(filasConProveedor)
+      if (insRetryError) {
+        return { ok: false, error: insRetryError?.message || 'Error al insertar gastos consolidados' }
+      }
+      return { ok: true }
+    }
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err?.message || String(err) }

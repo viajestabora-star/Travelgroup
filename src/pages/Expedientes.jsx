@@ -1000,7 +1000,7 @@ const Expedientes = () => {
         const validacion = await validarProveedoresServicios(id, expediente?.versiones_json)
         if (!validacion.ok) {
           const confirmarSinProveedor = window.confirm(
-            validacion.warning || 'Faltan proveedores por asignar. ¿Deseas consolidar el cierre de todas formas?'
+            validacion.warning || 'Falta proveedor por asignar. ¿Deseas consolidar de todas formas?'
           )
           if (!confirmarSinProveedor) return
         }
