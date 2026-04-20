@@ -16,8 +16,10 @@ import NotasTrabajo from './pages/NotasTrabajo';
 import Composer from './pages/Composer';
 import InteligenciaEconomica from './pages/InteligenciaEconomica';
 import GestionEquipo from './pages/GestionEquipo';
+import AdminMaster from './pages/AdminMaster';
 import AdminRouteGuard from './components/AdminRouteGuard';
 import AdminOnlyRouteGuard from './components/AdminOnlyRouteGuard';
+import AdminMasterRouteGuard from './components/AdminMasterRouteGuard';
 import { esUsuarioGestoria, puedeAccederCierresEconomicos } from './utils/userRoles';
 import { sincronizarNivelAccesoEnSesion } from './utils/nivelAcceso';
 import { DEFAULT_EMPRESA_ID } from './config/empresa';
@@ -181,6 +183,18 @@ function App() {
                     <AdminOnlyRouteGuard user={session}>
                       <GestionEquipo user={session} />
                     </AdminOnlyRouteGuard>
+                  </GestoriaBlockGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="admin-master"
+              element={
+                <ProtectedRoute user={session}>
+                  <GestoriaBlockGuard user={session}>
+                    <AdminMasterRouteGuard user={session}>
+                      <AdminMaster />
+                    </AdminMasterRouteGuard>
                   </GestoriaBlockGuard>
                 </ProtectedRoute>
               }

@@ -4,10 +4,11 @@ import { supabase } from '../supabase'
 import { registrarSalidaOnUnload, heartbeatSalidaById } from '../utils/controlHorario'
 import { 
   LayoutDashboard, Users, Calculator, Calendar, Briefcase, 
-  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut, UserCog
+  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut, UserCog, Shield
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { esUsuarioGestoria, puedeAccederCierresEconomicos, esUsuarioAdmin } from '../utils/userRoles'
+import { puedeAccederAdminMaster } from '../utils/adminMasterAccess'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
 const STORAGE_ATTENDANCE_ID = 'attendance_id'
@@ -149,6 +150,9 @@ const Layout = ({ user, onLogout }) => {
     if (esAdmin) {
       base.push({ path: '/gestion-equipo', icon: UserCog, label: 'Gestión de Equipo' })
     }
+    if (puedeAccederAdminMaster(user)) {
+      base.push({ path: '/admin-master', icon: Shield, label: 'Panel Master' })
+    }
     // Gestoría: filtrar solo secciones autorizadas
     if (esGestoria) {
       const permitidas = new Set(['/cierres', '/historial-cierres', '/proveedores', '/inteligencia-economica'])
@@ -156,6 +160,24 @@ const Layout = ({ user, onLogout }) => {
     }
     return base
   }, [ejercicioActual, esAdmin, esGestoria, user])
+
+  // Si la agencia está marcada inactiva en BD, cortar sesión Supabase.
+  useEffect(() => {
+    const uid = authSession?.user?.id
+    if (!uid) return
+    let cancelled = false
+    supabase.rpc('mi_empresa_activa').then(({ data, error }) => {
+      if (cancelled || error) return
+      if (data === false) {
+        window.alert('Tu agencia está desactivada. Contacta con soporte.')
+        sessionStorage.removeItem(STORAGE_ATTENDANCE_ID)
+        onLogout?.()
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [authSession?.user?.id])
 
   return (
     <div className="flex h-screen bg-gray-50">
