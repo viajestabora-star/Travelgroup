@@ -1,23 +1,27 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { Outlet, NavLink } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { registrarSalidaOnUnload, heartbeatSalidaById } from '../utils/controlHorario'
 import { 
   LayoutDashboard, Users, Calculator, Calendar, Briefcase, 
-  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut, UserCog, Shield
+  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut, UserCog, Shield, KeyRound
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { esUsuarioGestoria, puedeAccederCierresEconomicos, esUsuarioAdmin } from '../utils/userRoles'
 import { puedeAccederAdminMaster } from '../utils/adminMasterAccess'
+import CuentaPasswordModal from './CuentaPasswordModal'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
 const STORAGE_ATTENDANCE_ID = 'attendance_id'
 const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 const Layout = ({ user, onLogout }) => {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [authSession, setAuthSession] = useState(null)
+  const [cuentaModalOpen, setCuentaModalOpen] = useState(false)
   const [currentSessionId, setCurrentSessionId] = useState(null)
   const currentSessionIdRef = useRef(null)
   const isProcessing = useRef(false)
@@ -161,10 +165,28 @@ const Layout = ({ user, onLogout }) => {
     return base
   }, [ejercicioActual, esAdmin, esGestoria, user])
 
+  // Suscripción vencida: pantalla dedicada (no datos del ERP).
+  useEffect(() => {
+    const uid = authSession?.user?.id
+    if (!uid) return
+    if (location.pathname === '/suscripcion-expirada') return
+    let cancelled = false
+    supabase.rpc('mi_empresa_suscripcion_vigente').then(({ data, error }) => {
+      if (cancelled || error) return
+      if (data === false) {
+        navigate('/suscripcion-expirada', { replace: true })
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [authSession?.user?.id, location.pathname, navigate])
+
   // Si la agencia está marcada inactiva en BD, cortar sesión Supabase.
   useEffect(() => {
     const uid = authSession?.user?.id
     if (!uid) return
+    if (location.pathname === '/suscripcion-expirada') return
     let cancelled = false
     supabase.rpc('mi_empresa_activa').then(({ data, error }) => {
       if (cancelled || error) return
@@ -177,7 +199,7 @@ const Layout = ({ user, onLogout }) => {
     return () => {
       cancelled = true
     }
-  }, [authSession?.user?.id])
+  }, [authSession?.user?.id, location.pathname, onLogout])
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -201,13 +223,21 @@ const Layout = ({ user, onLogout }) => {
               {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
             </NavLink>
           ))}
+          <button
+            type="button"
+            onClick={() => setCuentaModalOpen(true)}
+            className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-2"
+          >
+            <KeyRound size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
+            {sidebarOpen && <span className="text-sm font-medium">Cuenta</span>}
+          </button>
           {onLogout && (
             <button
               onClick={() => {
                 sessionStorage.removeItem(STORAGE_ATTENDANCE_ID)
                 onLogout()
               }}
-              className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-4 border-t border-slate-700"
+              className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-1 border-t border-slate-700"
             >
               <LogOut size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
               {sidebarOpen && <span className="text-sm font-medium">Cerrar sesión</span>}
@@ -218,6 +248,11 @@ const Layout = ({ user, onLogout }) => {
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
+      <CuentaPasswordModal
+        open={cuentaModalOpen}
+        onClose={() => setCuentaModalOpen(false)}
+        tieneSesionSupabase={!!authSession?.user}
+      />
     </div>
   )
 }

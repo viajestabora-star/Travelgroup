@@ -17,6 +17,7 @@ import Composer from './pages/Composer';
 import InteligenciaEconomica from './pages/InteligenciaEconomica';
 import GestionEquipo from './pages/GestionEquipo';
 import AdminMaster from './pages/AdminMaster';
+import SuscripcionExpirada from './pages/SuscripcionExpirada';
 import AdminRouteGuard from './components/AdminRouteGuard';
 import AdminOnlyRouteGuard from './components/AdminOnlyRouteGuard';
 import AdminMasterRouteGuard from './components/AdminMasterRouteGuard';
@@ -200,6 +201,14 @@ function App() {
               }
             />
           </Route>
+          <Route
+            path="/suscripcion-expirada"
+            element={
+              <ProtectedRoute user={session}>
+                <SuscripcionExpirada user={session} onLogout={handleLogout} />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
       </BrowserRouter>
     </ErrorBoundary>
