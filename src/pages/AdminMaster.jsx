@@ -21,6 +21,7 @@ const AdminMaster = () => {
   const [modalNueva, setModalNueva] = useState(false)
   const [nombreNueva, setNombreNueva] = useState('')
   const [limiteNueva, setLimiteNueva] = useState(1)
+  const [emailClienteNueva, setEmailClienteNueva] = useState('')
   const [guardandoNueva, setGuardandoNueva] = useState(false)
   const [ajusteId, setAjusteId] = useState(null)
   const [ultimaEmpresaCreadaId, setUltimaEmpresaCreadaId] = useState(null)
@@ -70,14 +71,20 @@ const AdminMaster = () => {
   const abrirNueva = () => {
     setNombreNueva('')
     setLimiteNueva(1)
+    setEmailClienteNueva('')
     setModalNueva(true)
   }
 
   const crearAgencia = async (e) => {
     e.preventDefault()
     const nombre = nombreNueva.trim()
+    const emailCli = emailClienteNueva.trim().toLowerCase()
     if (!nombre) {
-      alert('Indica el nombre de la agencia.')
+      alert('Indica el nombre comercial de la agencia.')
+      return
+    }
+    if (!emailCli || !emailCli.includes('@')) {
+      alert('Indica el email del cliente (administrador inicial).')
       return
     }
     const limEntero = Math.floor(Number(limiteNueva))
@@ -85,14 +92,15 @@ const AdminMaster = () => {
 
     setGuardandoNueva(true)
     const { data, error: err } = await supabase.rpc('master_crear_empresa', {
-      p_nombre: nombre,
+      p_nombre_comercial: nombre,
       p_limite_usuarios_staff: limiteFinal,
+      p_email_cliente: emailCli,
     })
     setGuardandoNueva(false)
 
     if (err) {
       const detalle = [err.message, err.details, err.hint].filter(Boolean).join(' — ')
-      alert(detalle || 'No se pudo crear la agencia. Comprueba permisos RPC y migraciones.')
+      alert(detalle || 'No se pudo crear la agencia. Comprueba permisos RPC y migraciones (firma RPC: text, integer, text).')
       return
     }
 
@@ -105,6 +113,7 @@ const AdminMaster = () => {
     setModalNueva(false)
     setNombreNueva('')
     setLimiteNueva(1)
+    setEmailClienteNueva('')
     await cargar()
   }
 
@@ -215,8 +224,7 @@ const AdminMaster = () => {
           Vincular administrador
         </h2>
         <p className="text-sm text-slate-600 mb-4">
-          Asigna el email del cliente como <strong>ADMIN</strong> de la agencia elegida (registro en{' '}
-          <code className="text-xs bg-slate-100 px-1 rounded">roles_usuarios</code>). Solo agencias con id ≥ 2.
+          Opcional: cambia el administrador de una agencia ya creada (misma lógica que al crear con «Nueva agencia»). Solo id ≥ 2.
         </p>
         <form onSubmit={vincularAdmin} className="flex flex-col sm:flex-row flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[160px]">
@@ -360,7 +368,7 @@ const AdminMaster = () => {
             </div>
             <form onSubmit={crearAgencia} className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre comercial</label>
                 <input
                   type="text"
                   required
@@ -371,7 +379,7 @@ const AdminMaster = () => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Límite usuarios staff (inicial)</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Límite de usuarios (staff)</label>
                 <input
                   type="number"
                   min={1}
@@ -380,7 +388,23 @@ const AdminMaster = () => {
                   onChange={(e) => setLimiteNueva(Math.max(1, parseInt(e.target.value, 10) || 1))}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-violet-500 outline-none"
                 />
-                <p className="text-xs text-slate-500 mt-1">Por defecto 1. Se envía a la RPC como entero.</p>
+                <p className="text-xs text-slate-500 mt-1">Mínimo 1. Parámetro <code className="text-xs">p_limite_usuarios_staff</code>.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Email del cliente (admin inicial)</label>
+                <input
+                  type="email"
+                  required
+                  value={emailClienteNueva}
+                  onChange={(e) => setEmailClienteNueva(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-violet-500 outline-none"
+                  placeholder="admin@cliente.com"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Se envía como <code className="text-xs">p_email_cliente</code>; la RPC crea la empresa y el registro ADMIN en{' '}
+                  <code className="text-xs">roles_usuarios</code>.
+                </p>
               </div>
               <div className="flex gap-2 pt-2">
                 <button

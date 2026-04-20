@@ -10,6 +10,7 @@ import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejerci
 import { esUsuarioGestoria, puedeAccederCierresEconomicos, esUsuarioAdmin } from '../utils/userRoles'
 import { puedeAccederAdminMaster } from '../utils/adminMasterAccess'
 import CuentaPasswordModal from './CuentaPasswordModal'
+import { NOMBRE_APP_DEFAULT } from '../utils/marcaBlanca'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
 const STORAGE_ATTENDANCE_ID = 'attendance_id'
@@ -132,6 +133,7 @@ const Layout = ({ user, onLogout }) => {
 
   const esAdmin    = esUsuarioAdmin(user)
   const esGestoria = esUsuarioGestoria(user)
+  const nombreMarca = user?.nombre_app && String(user.nombre_app).trim() ? String(user.nombre_app).trim() : NOMBRE_APP_DEFAULT
 
   const menuItems = useMemo(() => {
     const base = [
@@ -207,8 +209,9 @@ const Layout = ({ user, onLogout }) => {
         <div className="border-b border-slate-700">
           <div className="flex items-center justify-between p-4">
             {sidebarOpen && (
-              <div className="flex items-center justify-center flex-1 py-8 px-4">
-                <img src={LOGO_TABORA} alt="Tabora" className="h-14 w-auto object-contain" />
+              <div className="flex flex-col items-center justify-center flex-1 py-6 px-4 gap-2">
+                <img src={LOGO_TABORA} alt={nombreMarca} className="h-12 w-auto object-contain" />
+                <p className="text-center text-xs font-semibold text-slate-300 tracking-wide">{nombreMarca}</p>
               </div>
             )}
             <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-700 rounded">

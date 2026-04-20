@@ -21,7 +21,7 @@ const SuscripcionExpirada = ({ user, onLogout }) => {
         <h1 className="text-2xl font-bold tracking-tight">Suscripción expirada</h1>
         <p className="text-slate-300 text-sm leading-relaxed">
           El periodo contratado para tu agencia ha finalizado. Para seguir accediendo a los datos del ERP,
-          renueva el plan con Viajes Tabora o contacta con soporte.
+          renueva el plan o contacta con soporte.
         </p>
         {user?.email && (
           <p className="text-xs text-slate-500">

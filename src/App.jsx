@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -24,6 +24,8 @@ import AdminMasterRouteGuard from './components/AdminMasterRouteGuard';
 import { esUsuarioGestoria, puedeAccederCierresEconomicos } from './utils/userRoles';
 import { sincronizarNivelAccesoEnSesion } from './utils/nivelAcceso';
 import { DEFAULT_EMPRESA_ID } from './config/empresa';
+import LoginPortal from './components/LoginPortal';
+import { aplicarMarcaDocumento, NOMBRE_APP_DEFAULT } from './utils/marcaBlanca';
 
 /** Ruta `/historial-cierres`: solo ADMIN o GESTORIA; resto → panel principal. */
 function CierresEconomicosRoute({ user }) {
@@ -62,31 +64,13 @@ function App() {
       return sincronizarNivelAccesoEnSesion({
         ...parsed,
         empresa_id: parsed.empresa_id ?? DEFAULT_EMPRESA_ID,
+        nombre_app: parsed.nombre_app ?? NOMBRE_APP_DEFAULT,
+        favicon_url: parsed.favicon_url ?? null,
       });
     } catch (e) {
       return null;
     }
   });
-  const [email, setEmail] = useState('');
-  const [pass, setPass]   = useState('');
-
-  const handleLogin = (e) => {
-    e.preventDefault();
-    const emailNorm        = email.toLowerCase().trim();
-    const usuarioEncontrado = USUARIOS_AUTORIZADOS[emailNorm];
-    if (usuarioEncontrado && pass === CLAVE_MAESTRA) {
-      const datosSesion = sincronizarNivelAccesoEnSesion({
-        email: emailNorm,
-        ...usuarioEncontrado,
-        empresa_id: usuarioEncontrado.empresa_id ?? DEFAULT_EMPRESA_ID,
-      });
-      localStorage.setItem('sesion_tabora', JSON.stringify(datosSesion));
-      setUser(datosSesion);
-    } else {
-      alert('Credenciales no válidas para Viajes Tabora');
-    }
-  };
-
   const handleLogout = async () => {
     await registrarSalida();
     localStorage.removeItem('sesion_tabora');
@@ -97,34 +81,23 @@ function App() {
   window.confirmarAccionBorrar = (item) =>
     window.confirm(`¿Estás seguro de que quieres borrar ${item}?`);
 
-  // REGLA DE ORO: Sin sesión = SOLO Login.
   const session = user;
+
+  useEffect(() => {
+    if (session?.email) {
+      aplicarMarcaDocumento(session.nombre_app || NOMBRE_APP_DEFAULT, session.favicon_url);
+    }
+  }, [session]);
+
   if (!session || !session.email) {
     return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5', fontFamily: 'sans-serif' }}>
-        <form onSubmit={handleLogin} style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '320px' }}>
-          <h2 style={{ textAlign: 'center', color: '#1a73e8' }}>Viajes Tabora ERP</h2>
-          <input
-            type="email"
-            placeholder="Correo electrónico"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            style={{ width: '100%', padding: '12px', marginBottom: '15px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
-            required
-          />
-          <input
-            type="password"
-            placeholder="Contraseña"
-            value={pass}
-            onChange={e => setPass(e.target.value)}
-            style={{ width: '100%', padding: '12px', marginBottom: '20px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
-            required
-          />
-          <button type="submit" style={{ width: '100%', padding: '12px', background: '#1a73e8', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-            Entrar
-          </button>
-        </form>
-      </div>
+      <ErrorBoundary>
+        <LoginPortal
+          usuariosInternos={USUARIOS_AUTORIZADOS}
+          claveMaestra={CLAVE_MAESTRA}
+          onSesion={(u) => setUser(u)}
+        />
+      </ErrorBoundary>
     );
   }
 

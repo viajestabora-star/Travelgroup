@@ -1,7 +1,7 @@
 {
-  "name": "TravelGroup",
-  "short_name": "TravelGroup",
-  "description": "CRM Viajes Tabora - Gestión de expedientes y grupos",
+  "name": "Flowtrix ERP",
+  "short_name": "Flowtrix",
+  "description": "Flowtrix — gestión de expedientes, grupos y operación agencia",
   "display": "standalone",
   "start_url": "/",
   "scope": "/",
