@@ -15,9 +15,12 @@ import CierresEconomicos from './pages/CierresEconomicos';
 import NotasTrabajo from './pages/NotasTrabajo';
 import Composer from './pages/Composer';
 import InteligenciaEconomica from './pages/InteligenciaEconomica';
+import GestionEquipo from './pages/GestionEquipo';
 import AdminRouteGuard from './components/AdminRouteGuard';
+import AdminOnlyRouteGuard from './components/AdminOnlyRouteGuard';
 import { esUsuarioGestoria, puedeAccederCierresEconomicos } from './utils/userRoles';
 import { sincronizarNivelAccesoEnSesion } from './utils/nivelAcceso';
+import { DEFAULT_EMPRESA_ID } from './config/empresa';
 
 /** Ruta `/historial-cierres`: solo ADMIN o GESTORIA; resto → panel principal. */
 function CierresEconomicosRoute({ user }) {
@@ -29,10 +32,10 @@ function CierresEconomicosRoute({ user }) {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 const USUARIOS_AUTORIZADOS = {
-  'andres@viajestabora.com': { nombre: 'Andrés',        nivel_acceso: 'ADMIN'    },
-  'info@viajestabora.com':   { nombre: 'Germán',         nivel_acceso: 'ADMIN'    },
-  'grupos@viajestabora.com': { nombre: 'Marisa',         nivel_acceso: 'STAFF'    },
-  'alcor@asesores.com':      { nombre: 'Gestoria Alcor', nivel_acceso: 'GESTORIA' },
+  'andres@viajestabora.com': { nombre: 'Andrés',        nivel_acceso: 'ADMIN',    empresa_id: DEFAULT_EMPRESA_ID },
+  'info@viajestabora.com':   { nombre: 'Germán',         nivel_acceso: 'ADMIN',    empresa_id: DEFAULT_EMPRESA_ID },
+  'grupos@viajestabora.com': { nombre: 'Marisa',         nivel_acceso: 'STAFF',    empresa_id: DEFAULT_EMPRESA_ID },
+  'alcor@asesores.com':      { nombre: 'Gestoria Alcor', nivel_acceso: 'GESTORIA', empresa_id: DEFAULT_EMPRESA_ID },
 };
 const CLAVE_MAESTRA = 'tabora';
 
@@ -53,7 +56,10 @@ function App() {
       if (!stored) return null;
       const parsed = JSON.parse(stored);
       if (!parsed || !parsed.email) return null;
-      return sincronizarNivelAccesoEnSesion(parsed);
+      return sincronizarNivelAccesoEnSesion({
+        ...parsed,
+        empresa_id: parsed.empresa_id ?? DEFAULT_EMPRESA_ID,
+      });
     } catch (e) {
       return null;
     }
@@ -69,6 +75,7 @@ function App() {
       const datosSesion = sincronizarNivelAccesoEnSesion({
         email: emailNorm,
         ...usuarioEncontrado,
+        empresa_id: usuarioEncontrado.empresa_id ?? DEFAULT_EMPRESA_ID,
       });
       localStorage.setItem('sesion_tabora', JSON.stringify(datosSesion));
       setUser(datosSesion);
@@ -163,6 +170,18 @@ function App() {
                   <AdminRouteGuard user={session}>
                     <InteligenciaEconomica user={session} />
                   </AdminRouteGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="gestion-equipo"
+              element={
+                <ProtectedRoute user={session}>
+                  <GestoriaBlockGuard user={session}>
+                    <AdminOnlyRouteGuard user={session}>
+                      <GestionEquipo user={session} />
+                    </AdminOnlyRouteGuard>
+                  </GestoriaBlockGuard>
                 </ProtectedRoute>
               }
             />

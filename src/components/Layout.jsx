@@ -4,7 +4,7 @@ import { supabase } from '../supabase'
 import { registrarSalidaOnUnload, heartbeatSalidaById } from '../utils/controlHorario'
 import { 
   LayoutDashboard, Users, Calculator, Calendar, Briefcase, 
-  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut
+  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut, UserCog
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { esUsuarioGestoria, puedeAccederCierresEconomicos, esUsuarioAdmin } from '../utils/userRoles'
@@ -145,6 +145,9 @@ const Layout = ({ user, onLogout }) => {
     }
     if (esAdmin || esGestoria) {
       base.push({ path: '/inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })
+    }
+    if (esAdmin) {
+      base.push({ path: '/gestion-equipo', icon: UserCog, label: 'Gestión de Equipo' })
     }
     // Gestoría: filtrar solo secciones autorizadas
     if (esGestoria) {

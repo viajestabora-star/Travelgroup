@@ -1,0 +1,5 @@
+# Config mínima para desplegar Edge Functions con Supabase CLI.
+# Ajusta project_id si usas `supabase link`.
+
+[functions.invite-team-member]
+verify_jwt = false
