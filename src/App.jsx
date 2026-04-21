@@ -134,7 +134,7 @@ function App() {
             <Route path="clientes"    element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Clientes user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
             <Route path="expedientes" element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Expedientes user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
             <Route path="planning"    element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Planning user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
-            <Route path="crm"         element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><CRM user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
+            <Route path="crm"         element={<ProtectedRoute user={session}><CRM user={session} /></ProtectedRoute>} />
             <Route path="notas"       element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><NotasTrabajo user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
             <Route path="composer"             element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Composer user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
 

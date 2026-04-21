@@ -161,7 +161,7 @@ const Layout = ({ user, onLogout }) => {
     }
     // Gestoría: filtrar solo secciones autorizadas
     if (esGestoria) {
-      const permitidas = new Set(['/cierres', '/historial-cierres', '/proveedores', '/inteligencia-economica'])
+      const permitidas = new Set(['/cierres', '/historial-cierres', '/proveedores', '/inteligencia-economica', '/crm'])
       return base.filter(item => permitidas.has(item.path))
     }
     return base
