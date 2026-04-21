@@ -51,7 +51,11 @@ const LoginPortal = ({ onSesion }) => {
     const { data, error } = await supabase.rpc('portal_estado_primer_acceso', { p_email: em })
     setCargando(false)
     if (error) {
-      setMensaje(error.message || 'No se pudo comprobar el correo.')
+      // Fallback seguro: si la RPC no está disponible por cambios de esquema,
+      // no bloqueamos el acceso y pasamos al login estándar de Supabase.
+      setMensaje('No se pudo validar el estado de primer acceso. Puedes iniciar sesión con tu contraseña de Supabase.')
+      setPaso('supabase_login')
+      setPass('')
       return
     }
     const st = data && typeof data === 'object' ? data : {}
