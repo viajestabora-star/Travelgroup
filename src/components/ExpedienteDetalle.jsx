@@ -2708,7 +2708,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             concepto: datosCobro.concepto,
             metodo_pago: datosCobro.metodo_pago,
             cuenta_destino: datosCobro.cuenta_destino,
-            fecha: datosCobro.fecha
+            fecha: datosCobro.fecha,
+            empresa_id: empresaId
           }
           const { error: errRecibo } = await supabase
             .from('recibos_oficiales')
