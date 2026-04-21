@@ -4136,6 +4136,31 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }
 
+  const obtenerUrlDocumentoRooming = (doc) => {
+    const raw =
+      doc?.url_publica ||
+      doc?.public_url ||
+      doc?.url ||
+      doc?.url_pdf ||
+      doc?.path ||
+      doc?.ruta ||
+      null
+    if (!raw) return null
+    const valor = String(raw).trim()
+    if (!valor) return null
+    if (/^https?:\/\//i.test(valor)) return valor
+
+    const bucket =
+      doc?.bucket ||
+      doc?.bucket_name ||
+      (valor.includes('/') ? valor.split('/')[0] : 'rooming_list')
+    const path = doc?.bucket || doc?.bucket_name ? valor : valor.split('/').slice(1).join('/')
+    if (!path) return null
+
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path)
+    return data?.publicUrl || null
+  }
+
   // Regla 1.14: Confirmación doble antes de borrar documento oficial
   const eliminarDocumento = (id) => {
     const doc = documentos.find(d => d.id === id)
@@ -6085,7 +6110,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           <div className="flex items-center gap-3">
                             <FileUp className="text-blue-600" size={20} />
                             <div>
-                              <p className="font-medium text-gray-900">{doc.nombre}</p>
+                              {(() => {
+                                const urlDoc = obtenerUrlDocumentoRooming(doc)
+                                if (!urlDoc) {
+                                  return <p className="font-medium text-gray-900">{doc.nombre}</p>
+                                }
+                                return (
+                                  <a
+                                    href={urlDoc}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-medium text-blue-700 hover:text-blue-900 inline-flex items-center gap-2 underline"
+                                    title="Abrir documento en nueva pestaña"
+                                  >
+                                    {doc.nombre}
+                                    <Eye size={16} />
+                                  </a>
+                                )
+                              })()}
                               <p className="text-xs text-gray-500">{new Date(doc.fecha).toLocaleDateString()}</p>
                             </div>
                           </div>
