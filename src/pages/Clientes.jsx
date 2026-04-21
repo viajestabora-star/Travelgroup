@@ -3,7 +3,7 @@ import { supabase } from '../supabase'
 import { desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
 import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone, Users, Navigation } from 'lucide-react'
 
-const Clientes = () => {
+const Clientes = ({ user = null }) => {
   const getMensajeErrorBd = (error, accion) => {
     const detalle = error?.message || 'No se pudo completar la operación.'
     return `No ha sido posible ${accion}. Revisa los datos e inténtalo de nuevo. Detalle: ${detalle}`
@@ -62,7 +62,10 @@ const Clientes = () => {
 
     const action = editingId 
       ? supabase.from('clientes').update(formData).eq('id', editingId)
-      : supabase.from('clientes').insert([formData])
+      : supabase.from('clientes').insert([{
+          ...formData,
+          empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1
+        }])
     
     const { error } = await action
     if (!error) {

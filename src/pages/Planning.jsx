@@ -34,7 +34,7 @@ const ESTADOS = {
 
 // ============ COMPONENTE PRINCIPAL ============
 
-const Planning = () => {
+const Planning = ({ user = null }) => {
   const [expedientes, setExpedientes] = useState([])
   // ============ EJERCICIO GLOBAL (PERSISTENTE) ============
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
@@ -658,6 +658,7 @@ const Planning = () => {
           onUpdate={actualizarExpediente}
           onRefresh={loadExpedientes}
           clientes={[]} // Planning no necesita lista de clientes para el modal
+          user={user}
         />
       )}
 

@@ -96,6 +96,7 @@ const ExpedienteFinanzas = ({
   versionActiva = 0,
   onVersionChange,
   desgloseGrupos = [],
+  user = null,
 }) => {
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
@@ -282,7 +283,8 @@ const ExpedienteFinanzas = ({
         metodo_pago: normalizarMetodoPago(formCobro.metodo_pago),
         cuenta_destino: String(formCobro.cuenta_destino || 'Caixabank'),
         concepto: String(formCobro.concepto || '').trim(),
-        fecha: new Date().toISOString()
+        fecha: new Date().toISOString(),
+        empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1
       }
 
       let errorOperacion = null

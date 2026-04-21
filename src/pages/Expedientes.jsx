@@ -178,7 +178,7 @@ const TABS_EXPEDIENTES = [
 const parsearFecha = parsearFechaADate  // Devuelve Date object para comparaciones
 const formatearFecha = formatearFechaVisual  // Devuelve DD/MM/AAAA para mostrar
 
-const Expedientes = () => {
+const Expedientes = ({ user = null }) => {
   const location = useLocation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -519,6 +519,7 @@ const Expedientes = () => {
           pax_pago: paxPagoNum,
           precio_venta_cliente: expediente.precio_venta_cliente != null ? Number(expediente.precio_venta_cliente) : 0,
           bonificacion_pax: expediente.bonificacion_pax != null ? Number(expediente.bonificacion_pax) : 0,
+          empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1,
         };
 
         const idExpediente = expediente.id;
@@ -590,7 +591,11 @@ const Expedientes = () => {
       try {
       const { data, error } = await supabase
         .from('clientes')
-        .insert([{ nombre: finalNombre, responsable: expedienteForm.responsable || '' }])
+        .insert([{
+          nombre: finalNombre,
+          responsable: expedienteForm.responsable || '',
+          empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1
+        }])
         .select().single();
         if (error) {
           const errorInfo = manejarErrorSupabase(error, 'crear cliente');
@@ -664,6 +669,7 @@ const Expedientes = () => {
         total_pax: totalPaxSanitizado || null,
         pax_pago: paxPagoNum,
         precio_venta_cliente: 0, // Valor por defecto para evitar NOT NULL
+        empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1,
       };
 
       // VERIFICACIÓN EXPLÍCITA: Asegurar que id NO esté en el objeto
@@ -787,7 +793,8 @@ const Expedientes = () => {
       movil: clienteForm.telefono || '', // Usar teléfono como móvil si no hay móvil específico
       email: clienteForm.email || '',
       bonificaciones: '',
-      gratuidades: ''
+      gratuidades: '',
+      empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1
     }
 
     try {
@@ -2023,6 +2030,7 @@ const Expedientes = () => {
         <ExpedienteDetalle
           expediente={expedienteActual}
           clientes={clientes}
+          user={user}
           onClose={() => {
             setShowDetalleModal(false)
             setTabInicialParaDetalle(null)
