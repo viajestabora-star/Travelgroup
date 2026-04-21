@@ -29,7 +29,7 @@ const fetchCrmData = async (setProspectos, setVisitas, setClientes) => {
   }
 }
 
-const CRM = () => {
+const CRM = ({ user = null }) => {
   // Estados principales
   const [activeTab, setActiveTab] = useState('prospectos') // prospectos | calendario | proximas | historial | estadisticas | embudo
   const [prospectos, setProspectos] = useState([])
@@ -59,6 +59,9 @@ const CRM = () => {
   
   // Visitas del prospecto seleccionado
   const [visitasProspecto, setVisitasProspecto] = useState([])
+  const [empresaIdSesion, setEmpresaIdSesion] = useState(
+    Number(user?.empresa_id) > 0 ? Number(user?.empresa_id) : null
+  )
 
   // Modal Gestionar Visita (editar fecha / eliminar)
   const [showGestionVisitaModal, setShowGestionVisitaModal] = useState(false)
@@ -111,6 +114,32 @@ const CRM = () => {
   useEffect(() => {
     fetchCrmData(setProspectos, setVisitas, setClientes).finally(() => setLoading(false))
   }, [])
+
+  // Resolver empresa_id activo para inserts (fallback a profile si no viene en sesión local).
+  useEffect(() => {
+    let cancelled = false
+    const resolverEmpresaId = async () => {
+      const empresaLocal = Number(user?.empresa_id)
+      if (empresaLocal > 0) {
+        if (!cancelled) setEmpresaIdSesion(empresaLocal)
+        return
+      }
+      const { data: authData } = await supabase.auth.getUser()
+      const uid = authData?.user?.id
+      if (!uid) return
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('empresa_id')
+        .eq('id', uid)
+        .maybeSingle()
+      const empresaPerfil = Number(profile?.empresa_id)
+      if (!cancelled && empresaPerfil > 0) setEmpresaIdSesion(empresaPerfil)
+    }
+    resolverEmpresaId()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.empresa_id])
 
   // Comprobar si un prospecto existe ya como cliente (por nombre/grupo)
   const esCliente = useMemo(() => {
@@ -437,15 +466,27 @@ const CRM = () => {
         return
       }
 
-    const { error } = await supabase.from('visitas').insert({
-      prospecto_id: prospectoSelected.id,
+    const empresaId = Number(empresaIdSesion)
+    if (!(empresaId > 0)) {
+      alert('No se pudo resolver empresa_id para registrar la visita.')
+      return
+    }
+    const payloadVisita = {
       fecha: nuevaVisita.fecha,
-      comentario: nuevaVisita.comentario
-    })
+      prospecto_id: prospectoSelected.id,
+      comentario: nuevaVisita.comentario,
+      empresa_id: empresaId
+    }
+    const { data: visitaNueva, error } = await supabase
+      .from('visitas')
+      .insert(payloadVisita)
+      .select('*')
+      .single()
 
     if (error) {
       alert('Error al registrar visita: ' + error.message)
     } else {
+      if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
       setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '' })
       alert('Visita registrada con éxito')
       await recalcularPuntuacionLead(prospectoSelected.id)
@@ -603,15 +644,27 @@ const CRM = () => {
       prospectoIdFinal = agendaProspectoId
     }
 
-    const { error } = await supabase.from('visitas').insert({
-      prospecto_id: prospectoIdFinal,
+    const empresaId = Number(empresaIdSesion)
+    if (!(empresaId > 0)) {
+      alert('No se pudo resolver empresa_id para agendar la visita.')
+      return
+    }
+    const payloadVisita = {
       fecha: fechaSeleccionada,
-      comentario: agendaComentario
-    })
+      prospecto_id: prospectoIdFinal,
+      comentario: agendaComentario,
+      empresa_id: empresaId
+    }
+    const { data: visitaNueva, error } = await supabase
+      .from('visitas')
+      .insert(payloadVisita)
+      .select('*')
+      .single()
 
     if (error) {
       alert('Error al agendar visita: ' + error.message)
     } else {
+      if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
       await supabase
         .from('prospectos')
         .update({ proxima_visita: fechaSeleccionada })
