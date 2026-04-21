@@ -115,31 +115,53 @@ const CRM = ({ user = null }) => {
     fetchCrmData(setProspectos, setVisitas, setClientes).finally(() => setLoading(false))
   }, [])
 
-  // Resolver empresa_id activo para inserts (fallback a profile si no viene en sesión local).
+  // Resolver empresa_id para inserts de visitas:
+  // 1) estado local, 2) roles_usuarios por email sesión, 3) profiles por uid.
+  const resolverEmpresaIdSeguridad = async () => {
+    const empresaLocal = Number(user?.empresa_id ?? empresaIdSesion)
+    if (empresaLocal > 0) return empresaLocal
+
+    const { data: authData } = await supabase.auth.getUser()
+    const authUser = authData?.user
+    const emailSesion = String(authUser?.email || user?.email || '').trim().toLowerCase()
+
+    if (emailSesion) {
+      const { data: roleRow } = await supabase
+        .from('roles_usuarios')
+        .select('empresa_id')
+        .eq('email', emailSesion)
+        .maybeSingle()
+      const empresaRoles = Number(roleRow?.empresa_id)
+      if (empresaRoles > 0) {
+        setEmpresaIdSesion(empresaRoles)
+        return empresaRoles
+      }
+    }
+
+    const uid = authUser?.id
+    if (!uid) return null
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('empresa_id')
+      .eq('id', uid)
+      .maybeSingle()
+    const empresaPerfil = Number(profile?.empresa_id)
+    if (empresaPerfil > 0) {
+      setEmpresaIdSesion(empresaPerfil)
+      return empresaPerfil
+    }
+    return null
+  }
+
   useEffect(() => {
     let cancelled = false
-    const resolverEmpresaId = async () => {
-      const empresaLocal = Number(user?.empresa_id)
-      if (empresaLocal > 0) {
-        if (!cancelled) setEmpresaIdSesion(empresaLocal)
-        return
-      }
-      const { data: authData } = await supabase.auth.getUser()
-      const uid = authData?.user?.id
-      if (!uid) return
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('empresa_id')
-        .eq('id', uid)
-        .maybeSingle()
-      const empresaPerfil = Number(profile?.empresa_id)
-      if (!cancelled && empresaPerfil > 0) setEmpresaIdSesion(empresaPerfil)
+    const init = async () => {
+      const empresa = await resolverEmpresaIdSeguridad()
+      if (!cancelled && Number(empresa) > 0) setEmpresaIdSesion(Number(empresa))
     }
-    resolverEmpresaId()
-    return () => {
-      cancelled = true
-    }
-  }, [user?.empresa_id])
+    init()
+    return () => { cancelled = true }
+  }, [user?.empresa_id, user?.email])
 
   // Comprobar si un prospecto existe ya como cliente (por nombre/grupo)
   const esCliente = useMemo(() => {
@@ -466,7 +488,7 @@ const CRM = ({ user = null }) => {
         return
       }
 
-    const empresaId = Number(empresaIdSesion)
+    const empresaId = Number(await resolverEmpresaIdSeguridad())
     if (!(empresaId > 0)) {
       alert('No se pudo resolver empresa_id para registrar la visita.')
       return
@@ -644,7 +666,7 @@ const CRM = ({ user = null }) => {
       prospectoIdFinal = agendaProspectoId
     }
 
-    const empresaId = Number(empresaIdSesion)
+    const empresaId = Number(await resolverEmpresaIdSeguridad())
     if (!(empresaId > 0)) {
       alert('No se pudo resolver empresa_id para agendar la visita.')
       return
