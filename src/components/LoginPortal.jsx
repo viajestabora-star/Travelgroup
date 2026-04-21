@@ -5,16 +5,15 @@ import { aplicarMarcaDocumento, NOMBRE_APP_DEFAULT } from '../utils/marcaBlanca'
 import { DEFAULT_EMPRESA_ID } from '../config/empresa'
 
 /**
- * Login multi-paso: primer acceso (roles_usuarios + signUp), Supabase, o acceso interno maestro.
+ * Login multi-paso: primer acceso (roles_usuarios + signUp) y acceso Supabase estándar.
  */
-const LoginPortal = ({ usuariosInternos, claveMaestra, onSesion }) => {
+const LoginPortal = ({ onSesion }) => {
   const [nombreMarca, setNombreMarca] = useState(NOMBRE_APP_DEFAULT)
   const [faviconMarca, setFaviconMarca] = useState(null)
   const [email, setEmail] = useState('')
   const [paso, setPaso] = useState('email')
   const [pass, setPass] = useState('')
   const [pass2, setPass2] = useState('')
-  const [claveInterna, setClaveInterna] = useState('')
   const [cargando, setCargando] = useState(false)
   const [mensaje, setMensaje] = useState('')
 
@@ -66,13 +65,8 @@ const LoginPortal = ({ usuariosInternos, claveMaestra, onSesion }) => {
       setPass2('')
       return
     }
-    if (st.tiene_auth === true) {
-      setPaso('supabase_login')
-      setPass('')
-      return
-    }
-    setPaso('interno')
-    setClaveInterna('')
+    setPaso('supabase_login')
+    setPass('')
   }
 
   const activarPrimerAcceso = async (e) => {
@@ -185,35 +179,10 @@ const LoginPortal = ({ usuariosInternos, claveMaestra, onSesion }) => {
     onSesion(merged)
   }
 
-  const entrarInterno = async (e) => {
-    e.preventDefault()
-    setMensaje('')
-    const usuarioEncontrado = usuariosInternos[emailNorm]
-    if (usuarioEncontrado && claveInterna === claveMaestra) {
-      const { data: marca } = await supabase.rpc('portal_marca_portada').catch(() => ({ data: null }))
-      const m = marca && typeof marca === 'object' ? marca : {}
-      const nombreApp = m.nombre_app || NOMBRE_APP_DEFAULT
-      const fav = m.favicon_url || null
-      const datosSesion = sincronizarNivelAccesoEnSesion({
-        email: emailNorm,
-        ...usuarioEncontrado,
-        empresa_id: usuarioEncontrado.empresa_id ?? DEFAULT_EMPRESA_ID,
-        nombre_app: nombreApp,
-        favicon_url: fav,
-      })
-      aplicarMarcaDocumento(datosSesion.nombre_app, datosSesion.favicon_url)
-      localStorage.setItem('sesion_tabora', JSON.stringify(datosSesion))
-      onSesion(datosSesion)
-    } else {
-      setMensaje('Credenciales no válidas para acceso interno.')
-    }
-  }
-
   const volverEmail = () => {
     setPaso('email')
     setPass('')
     setPass2('')
-    setClaveInterna('')
     setMensaje('')
   }
 
@@ -317,33 +286,6 @@ const LoginPortal = ({ usuariosInternos, claveMaestra, onSesion }) => {
           </form>
         )}
 
-        {paso === 'interno' && (
-          <form onSubmit={entrarInterno} className="space-y-4">
-            <p className="text-sm text-slate-600">
-              Acceso interno para <strong>{emailNorm}</strong>. Introduce la clave maestra de organización.
-            </p>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Clave maestra</label>
-              <input
-                type="password"
-                required
-                value={claveInterna}
-                onChange={(ev) => setClaveInterna(ev.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 focus:ring-2 focus:ring-blue-600 outline-none"
-                autoComplete="off"
-              />
-            </div>
-            {mensaje && <p className="text-sm text-rose-600">{mensaje}</p>}
-            <div className="flex gap-2">
-              <button type="button" onClick={volverEmail} className="flex-1 py-2.5 rounded-lg border border-slate-300 font-medium text-slate-700 hover:bg-slate-50">
-                Atrás
-              </button>
-              <button type="submit" className="flex-1 py-2.5 rounded-lg bg-slate-800 text-white font-semibold hover:bg-slate-900">
-                Entrar
-              </button>
-            </div>
-          </form>
-        )}
       </div>
     </div>
   )

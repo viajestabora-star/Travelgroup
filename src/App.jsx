@@ -35,15 +35,6 @@ function CierresEconomicosRoute({ user }) {
   return <CierresEconomicos user={user} />;
 }
 
-// ─── Auth ────────────────────────────────────────────────────────────────────
-const USUARIOS_AUTORIZADOS = {
-  'andres@viajestabora.com': { nombre: 'Andrés',        nivel_acceso: 'ADMIN',    empresa_id: DEFAULT_EMPRESA_ID },
-  'info@viajestabora.com':   { nombre: 'Germán',         nivel_acceso: 'ADMIN',    empresa_id: DEFAULT_EMPRESA_ID },
-  'grupos@viajestabora.com': { nombre: 'Marisa',         nivel_acceso: 'STAFF',    empresa_id: DEFAULT_EMPRESA_ID },
-  'alcor@asesores.com':      { nombre: 'Gestoria Alcor', nivel_acceso: 'GESTORIA', empresa_id: DEFAULT_EMPRESA_ID },
-};
-const CLAVE_MAESTRA = 'tabora';
-
 // ─── Helpers de rol ──────────────────────────────────────────────────────────
 // esUsuarioGestoria / puedeAccederCierresEconomicos: ./utils/userRoles.js
 
@@ -93,8 +84,6 @@ function App() {
     return (
       <ErrorBoundary>
         <LoginPortal
-          usuariosInternos={USUARIOS_AUTORIZADOS}
-          claveMaestra={CLAVE_MAESTRA}
           onSesion={(u) => setUser(u)}
         />
       </ErrorBoundary>
