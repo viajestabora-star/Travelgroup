@@ -821,7 +821,8 @@ const Expedientes = () => {
       setShowClienteModal(false)
       resetClienteForm()
     } catch (err) {
-      alert('⚠️ Error creando cliente en la base de datos. Revisa tu conexión y los campos.')
+      const detalle = err?.message || 'No se pudo completar la operación.'
+      alert(`No ha sido posible crear el cliente. Revisa los datos e inténtalo de nuevo. Detalle: ${detalle}`)
       // Opcional: setShowClienteModal(false)
     }
   }

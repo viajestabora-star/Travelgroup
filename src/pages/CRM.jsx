@@ -29,7 +29,11 @@ const fetchCrmData = async (setProspectos, setVisitas, setClientes) => {
   }
 }
 
-const CRM = ({ user = null }) => {
+const CRM = () => {
+  const getMensajeErrorBd = (error, accion) => {
+    const detalle = error?.message || 'No se pudo completar la operación.'
+    return `No ha sido posible ${accion}. Revisa los datos e inténtalo de nuevo. Detalle: ${detalle}`
+  }
   // Estados principales
   const [activeTab, setActiveTab] = useState('prospectos') // prospectos | calendario | proximas | historial | estadisticas | embudo
   const [prospectos, setProspectos] = useState([])
@@ -59,9 +63,6 @@ const CRM = ({ user = null }) => {
   
   // Visitas del prospecto seleccionado
   const [visitasProspecto, setVisitasProspecto] = useState([])
-  const [empresaIdSesion, setEmpresaIdSesion] = useState(
-    Number(user?.empresa_id) > 0 ? Number(user?.empresa_id) : null
-  )
 
   // Modal Gestionar Visita (editar fecha / eliminar)
   const [showGestionVisitaModal, setShowGestionVisitaModal] = useState(false)
@@ -114,54 +115,6 @@ const CRM = ({ user = null }) => {
   useEffect(() => {
     fetchCrmData(setProspectos, setVisitas, setClientes).finally(() => setLoading(false))
   }, [])
-
-  // Resolver empresa_id para inserts de visitas:
-  // 1) estado local, 2) roles_usuarios por email sesión, 3) profiles por uid.
-  const resolverEmpresaIdSeguridad = async () => {
-    const empresaLocal = Number(user?.empresa_id ?? empresaIdSesion)
-    if (empresaLocal > 0) return empresaLocal
-
-    const { data: authData } = await supabase.auth.getUser()
-    const authUser = authData?.user
-    const emailSesion = String(authUser?.email || user?.email || '').trim().toLowerCase()
-
-    if (emailSesion) {
-      const { data: roleRow } = await supabase
-        .from('roles_usuarios')
-        .select('empresa_id')
-        .eq('email', emailSesion)
-        .maybeSingle()
-      const empresaRoles = Number(roleRow?.empresa_id)
-      if (empresaRoles > 0) {
-        setEmpresaIdSesion(empresaRoles)
-        return empresaRoles
-      }
-    }
-
-    const uid = authUser?.id
-    if (!uid) return null
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('empresa_id')
-      .eq('id', uid)
-      .maybeSingle()
-    const empresaPerfil = Number(profile?.empresa_id)
-    if (empresaPerfil > 0) {
-      setEmpresaIdSesion(empresaPerfil)
-      return empresaPerfil
-    }
-    return null
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    const init = async () => {
-      const empresa = await resolverEmpresaIdSeguridad()
-      if (!cancelled && Number(empresa) > 0) setEmpresaIdSesion(Number(empresa))
-    }
-    init()
-    return () => { cancelled = true }
-  }, [user?.empresa_id, user?.email])
 
   // Comprobar si un prospecto existe ya como cliente (por nombre/grupo)
   const esCliente = useMemo(() => {
@@ -305,7 +258,7 @@ const CRM = ({ user = null }) => {
           estado_comercial: 'POTENCIAL'
         })
       if (error) {
-        alert('Error al registrar prospecto: ' + error.message)
+        alert(getMensajeErrorBd(error, 'registrar el prospecto'))
         return
       }
       setShowVisitaModal(false)
@@ -313,7 +266,7 @@ const CRM = ({ user = null }) => {
       await refrescarDatos()
       alert('Prospecto registrado con éxito')
     } catch (err) {
-      alert('Error al guardar prospecto.')
+      alert(getMensajeErrorBd(err, 'guardar el prospecto'))
     }
   }
 
@@ -488,16 +441,10 @@ const CRM = ({ user = null }) => {
         return
       }
 
-    const empresaId = Number(await resolverEmpresaIdSeguridad())
-    if (!(empresaId > 0)) {
-      alert('No se pudo resolver empresa_id para registrar la visita.')
-      return
-    }
     const payloadVisita = {
       fecha: nuevaVisita.fecha,
       prospecto_id: prospectoSelected.id,
-      comentario: nuevaVisita.comentario,
-      empresa_id: empresaId
+      comentario: nuevaVisita.comentario
     }
     const { data: visitaNueva, error } = await supabase
       .from('visitas')
@@ -506,7 +453,7 @@ const CRM = ({ user = null }) => {
       .single()
 
     if (error) {
-      alert('Error al registrar visita: ' + error.message)
+      alert(getMensajeErrorBd(error, 'registrar la visita'))
     } else {
       if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
       setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '' })
@@ -653,7 +600,7 @@ const CRM = ({ user = null }) => {
           .select()
           .single()
         if (errPros || !nuevoPros) {
-          alert('Error al crear prospecto desde cliente: ' + (errPros?.message || 'Error'))
+          alert(getMensajeErrorBd(errPros, 'crear el prospecto desde cliente'))
           return
         }
         prospectoIdFinal = nuevoPros.id
@@ -666,16 +613,10 @@ const CRM = ({ user = null }) => {
       prospectoIdFinal = agendaProspectoId
     }
 
-    const empresaId = Number(await resolverEmpresaIdSeguridad())
-    if (!(empresaId > 0)) {
-      alert('No se pudo resolver empresa_id para agendar la visita.')
-      return
-    }
     const payloadVisita = {
       fecha: fechaSeleccionada,
       prospecto_id: prospectoIdFinal,
-      comentario: agendaComentario,
-      empresa_id: empresaId
+      comentario: agendaComentario
     }
     const { data: visitaNueva, error } = await supabase
       .from('visitas')
@@ -684,7 +625,7 @@ const CRM = ({ user = null }) => {
       .single()
 
     if (error) {
-      alert('Error al agendar visita: ' + error.message)
+      alert(getMensajeErrorBd(error, 'agendar la visita'))
     } else {
       if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
       await supabase
