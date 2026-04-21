@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
 import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone, Users, Navigation } from 'lucide-react'
+import { useEmpresa } from '../context/EmpresaContext'
 
 const Clientes = ({ user = null }) => {
+  const { empresaId } = useEmpresa()
   const getMensajeErrorBd = (error, accion) => {
     const detalle = error?.message || 'No se pudo completar la operación.'
     return `No ha sido posible ${accion}. Revisa los datos e inténtalo de nuevo. Detalle: ${detalle}`
@@ -64,7 +66,7 @@ const Clientes = ({ user = null }) => {
       ? supabase.from('clientes').update(formData).eq('id', editingId)
       : supabase.from('clientes').insert([{
           ...formData,
-          empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1
+          empresa_id: empresaId
         }])
     
     const { error } = await action

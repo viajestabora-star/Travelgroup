@@ -35,6 +35,7 @@ import {
   BUCKET_FACTURAS_PROVEEDORES,
   esErrorTablaInexistenteHistorial,
 } from '../../utils/historialCierresShared'
+import { useEmpresa } from '../../context/EmpresaContext'
 
 const PROHIBIDOS_GASTOS_ESTRUCTURA = new Set(['concepto', 'fecha_factura', 'activo', 'periodicidad', 'es_extra'])
 
@@ -197,7 +198,7 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         anio: anioEjercicio,
         url_pdf: pathStorage,
       })
-      const { error: insErr } = await supabase.from('gastos_estructura').insert(row)
+      const { error: insErr } = await supabase.from('gastos_estructura').insert(withEmpresaId(row))
       if (insErr) {
         if (pathStorage) await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([pathStorage])
         alert(`${insErr.message}\n\nRevisa el esquema de gastos_estructura en Supabase (mes TEXT, anio, importe_iva).`)
@@ -572,6 +573,7 @@ export function useCierresModals({
   recargarGastosEstructura,
   fuenteGastosEstructura,
 }) {
+  const { withEmpresaId } = useEmpresa()
   const navigate = useNavigate()
   const [modalAuditoria, setModalAuditoria] = useState(null)
   const [cargandoAuditoria, setCargandoAuditoria] = useState(false)
@@ -847,7 +849,7 @@ export function useCierresModals({
         for (const p of plantillas) {
           if (yaInsertada(p)) continue
           const row = filaInsertGastosEstructuraDesdePlantilla(p, mesTxt, anioNum)
-          const { error: insErr } = await supabase.from('gastos_estructura').insert(row)
+          const { error: insErr } = await supabase.from('gastos_estructura').insert(withEmpresaId(row))
           if (insErr) {
             alert(`Error al insertar «${p.proveedor || '—'}»: ${insErr.message}`)
             return

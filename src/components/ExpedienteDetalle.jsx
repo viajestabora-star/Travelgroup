@@ -28,6 +28,7 @@ import {
   payloadDesdeCierreGrupo,
   crearJsPdfInformeCierreFinanciero,
 } from '../utils/informeCierreHaciendaPdf'
+import { useEmpresa } from '../context/EmpresaContext'
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
@@ -546,6 +547,7 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
 };
 
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes = [], initialTab, user = null }) => {
+  const { empresaId } = useEmpresa()
   const cierreGrupo = expediente?.cierre_grupo || {}
 
   // Estados
@@ -2616,7 +2618,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         cuenta_destino: String(formCobro.cuenta_destino || 'Caixabank'),
         concepto: String(formCobro.concepto || '').trim(),
         fecha: new Date().toISOString(),
-        empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1
+        empresa_id: empresaId
       }
 
       let errorOperacion = null

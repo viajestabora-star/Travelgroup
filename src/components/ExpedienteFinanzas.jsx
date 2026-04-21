@@ -12,6 +12,7 @@ import CobrosPagosModal, {
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { DATOS_EMISOR } from '../config/empresa'
+import { useEmpresa } from '../context/EmpresaContext'
 
 /**
  * ============ DEFAULT_SERVICE_VALUES - DEFENSA CONTRA UNDEFINED ============
@@ -98,6 +99,7 @@ const ExpedienteFinanzas = ({
   desgloseGrupos = [],
   user = null,
 }) => {
+  const { empresaId } = useEmpresa()
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
 
@@ -284,7 +286,7 @@ const ExpedienteFinanzas = ({
         cuenta_destino: String(formCobro.cuenta_destino || 'Caixabank'),
         concepto: String(formCobro.concepto || '').trim(),
         fecha: new Date().toISOString(),
-        empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1
+        empresa_id: empresaId
       }
 
       let errorOperacion = null

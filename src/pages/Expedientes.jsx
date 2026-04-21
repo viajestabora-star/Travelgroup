@@ -16,6 +16,7 @@ import { validarProveedoresServicios, consolidarGastosExpediente } from '../util
 import { DURACION_VIAJE_OPTIONS, TIPO_COLECTIVO_OPTIONS } from '../constants/viaje'
 import { sanitizarExpedienteParaDB } from '../utils/constraintValidator'
 import { DestinoExpedienteEditable } from '../components/expedientes/FichaDelGrupo'
+import { useEmpresa } from '../context/EmpresaContext'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -179,6 +180,7 @@ const parsearFecha = parsearFechaADate  // Devuelve Date object para comparacion
 const formatearFecha = formatearFechaVisual  // Devuelve DD/MM/AAAA para mostrar
 
 const Expedientes = ({ user = null }) => {
+  const { empresaId } = useEmpresa()
   const location = useLocation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -519,7 +521,7 @@ const Expedientes = ({ user = null }) => {
           pax_pago: paxPagoNum,
           precio_venta_cliente: expediente.precio_venta_cliente != null ? Number(expediente.precio_venta_cliente) : 0,
           bonificacion_pax: expediente.bonificacion_pax != null ? Number(expediente.bonificacion_pax) : 0,
-          empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1,
+          empresa_id: empresaId,
         };
 
         const idExpediente = expediente.id;
@@ -594,7 +596,7 @@ const Expedientes = ({ user = null }) => {
         .insert([{
           nombre: finalNombre,
           responsable: expedienteForm.responsable || '',
-          empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1
+          empresa_id: empresaId
         }])
         .select().single();
         if (error) {
@@ -669,7 +671,7 @@ const Expedientes = ({ user = null }) => {
         total_pax: totalPaxSanitizado || null,
         pax_pago: paxPagoNum,
         precio_venta_cliente: 0, // Valor por defecto para evitar NOT NULL
-        empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1,
+        empresa_id: empresaId,
       };
 
       // VERIFICACIÓN EXPLÍCITA: Asegurar que id NO esté en el objeto
@@ -794,7 +796,7 @@ const Expedientes = ({ user = null }) => {
       email: clienteForm.email || '',
       bonificaciones: '',
       gratuidades: '',
-      empresa_id: Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : 1
+      empresa_id: empresaId
     }
 
     try {

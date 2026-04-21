@@ -26,6 +26,7 @@ import { sincronizarNivelAccesoEnSesion } from './utils/nivelAcceso';
 import { DEFAULT_EMPRESA_ID } from './config/empresa';
 import LoginPortal from './components/LoginPortal';
 import { aplicarMarcaDocumento, NOMBRE_APP_DEFAULT } from './utils/marcaBlanca';
+import { EmpresaProvider } from './context/EmpresaContext';
 
 /** Ruta `/historial-cierres`: solo ADMIN o GESTORIA; resto → panel principal. */
 function CierresEconomicosRoute({ user }) {
@@ -92,6 +93,7 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <EmpresaProvider user={session}>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={
@@ -175,6 +177,7 @@ function App() {
           />
         </Routes>
       </BrowserRouter>
+      </EmpresaProvider>
     </ErrorBoundary>
   );
 }
