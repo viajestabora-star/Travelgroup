@@ -148,7 +148,12 @@ const LoginPortal = ({ onSesion }) => {
     const { error } = await supabase.auth.signInWithPassword({ email: emailNorm, password: pass })
     if (error) {
       setCargando(false)
-      setMensaje(error.message || 'Credenciales incorrectas.')
+      const msg = String(error.message || '')
+      if (/invalid login credentials|invalid credentials/i.test(msg)) {
+        setMensaje('Email o contraseña incorrectos. Verifica tus datos e inténtalo de nuevo.')
+      } else {
+        setMensaje(msg || 'No se pudo iniciar sesión. Inténtalo de nuevo.')
+      }
       return
     }
     let { data: ui, error: e2 } = await supabase.rpc('sesion_usuario_ui')
@@ -204,7 +209,10 @@ const LoginPortal = ({ onSesion }) => {
                 type="email"
                 required
                 value={email}
-                onChange={(ev) => setEmail(ev.target.value)}
+                onChange={(ev) => {
+                  setEmail(ev.target.value)
+                  if (mensaje) setMensaje('')
+                }}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none"
                 placeholder="tu@empresa.com"
                 autoComplete="username"
@@ -233,7 +241,10 @@ const LoginPortal = ({ onSesion }) => {
                 required
                 minLength={6}
                 value={pass}
-                onChange={(ev) => setPass(ev.target.value)}
+                onChange={(ev) => {
+                  setPass(ev.target.value)
+                  if (mensaje) setMensaje('')
+                }}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 focus:ring-2 focus:ring-blue-600 outline-none"
                 autoComplete="new-password"
               />
@@ -245,7 +256,10 @@ const LoginPortal = ({ onSesion }) => {
                 required
                 minLength={6}
                 value={pass2}
-                onChange={(ev) => setPass2(ev.target.value)}
+                onChange={(ev) => {
+                  setPass2(ev.target.value)
+                  if (mensaje) setMensaje('')
+                }}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 focus:ring-2 focus:ring-blue-600 outline-none"
                 autoComplete="new-password"
               />
@@ -273,7 +287,10 @@ const LoginPortal = ({ onSesion }) => {
                 type="password"
                 required
                 value={pass}
-                onChange={(ev) => setPass(ev.target.value)}
+                onChange={(ev) => {
+                  setPass(ev.target.value)
+                  if (mensaje) setMensaje('')
+                }}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 focus:ring-2 focus:ring-blue-600 outline-none"
                 autoComplete="current-password"
               />

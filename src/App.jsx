@@ -101,9 +101,11 @@ function App() {
           }>
             {/* Redirección inicial según perfil */}
             <Route index element={
-              esUsuarioGestoria(session)
-                ? <Navigate to="/cierres" replace />
-                : <Navigate to="/dashboard" replace />
+              Number(session?.empresa_id) === 1
+                ? <Navigate to="/dashboard" replace />
+                : (esUsuarioGestoria(session)
+                    ? <Navigate to="/cierres" replace />
+                    : <Navigate to="/dashboard" replace />)
             } />
 
             {/* ── Accesibles a todos ── */}
