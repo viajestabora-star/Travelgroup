@@ -32,6 +32,11 @@ const LoginPortal = ({ onSesion }) => {
     cargarMarcaPortada()
   }, [cargarMarcaPortada])
 
+  const limpiarSesionInconsistente = async () => {
+    await supabase.auth.signOut().catch(() => {})
+    localStorage.removeItem('sesion_tabora')
+  }
+
   const emailNorm = email.toLowerCase().trim()
 
   const entrarSupabase = async (e) => {
@@ -59,6 +64,7 @@ const LoginPortal = ({ onSesion }) => {
     }
     setCargando(false)
     if (e2 || !ui) {
+      await limpiarSesionInconsistente()
       setMensaje('No se pudo cargar el perfil. ¿Existe fila en public.profiles para tu usuario?')
       return
     }
@@ -79,6 +85,7 @@ const LoginPortal = ({ onSesion }) => {
     aplicarMarcaDocumento(merged.nombre_app, merged.favicon_url)
     localStorage.setItem('sesion_tabora', JSON.stringify(merged))
     onSesion(merged)
+    window.location.reload()
   }
 
   return (

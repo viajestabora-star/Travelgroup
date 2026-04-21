@@ -295,6 +295,8 @@ const Dashboard = ({ user = null }) => {
     { title: 'Visitas Pendientes',value: stats.visitasPendientes, icon: Briefcase, color: 'bg-orange-500', link: '/crm'                },
   ].filter((c) => c.link !== '/historial-cierres' || puedeAccederCierresEconomicos(user))
 
+  if (!user) return null
+
   return (
     <div>
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">

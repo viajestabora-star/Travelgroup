@@ -5,4 +5,9 @@ import { createClient } from '@supabase/supabase-js'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://gtwyqxfkpdwpakmgrkbu.supabase.co'
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_xa3e-Jr_PtAhBSEU5BPnHg_tEPfQg-e'
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    // Temporal: evita reutilizar sesiones locales antiguas mientras se estabiliza profiles/login.
+    persistSession: false,
+  },
+})
