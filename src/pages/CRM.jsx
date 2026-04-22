@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabase'
 import { X, Phone, Navigation, MoreVertical } from 'lucide-react'
 import { asegurarVinculacionEmpleado, resolverActorCrm } from '../utils/empleadosVinculacion'
+import { useEmpresa } from '../context/EmpresaContext'
 
 /**
  * Función maestra de refresco: obtiene prospectos, visitas y clientes de Supabase
@@ -31,6 +32,7 @@ const fetchCrmData = async (setProspectos, setVisitas, setClientes) => {
 }
 
 const CRM = ({ user = null }) => {
+  const { empresaId } = useEmpresa()
   const getMensajeErrorBd = (error, accion) => {
     const detalle = error?.message || 'No se pudo completar la operación.'
     return `No ha sido posible ${accion}. Revisa los datos e inténtalo de nuevo. Detalle: ${detalle}`
@@ -56,11 +58,13 @@ const CRM = ({ user = null }) => {
   // Estados del modal de agenda
   const [agendaProspectoId, setAgendaProspectoId] = useState('')
   const [agendaComentario, setAgendaComentario] = useState('')
+  const [agendaNombreContacto, setAgendaNombreContacto] = useState('')
   
   // Estados para nueva visita en panel
   const [nuevaVisita, setNuevaVisita] = useState({
     fecha: new Date().toISOString().split('T')[0],
-    comentario: ''
+    comentario: '',
+    nombre_contacto_externo: ''
   })
   
   // Visitas del prospecto seleccionado
@@ -451,10 +455,12 @@ const CRM = ({ user = null }) => {
 
   // Registrar nueva visita desde panel
   const registrarVisita = async () => {
-    if (!prospectoSelected?.id) {
-      alert('Error: No hay ID de prospecto')
-        return
-      }
+    const prospectoId = prospectoSelected?.id || null
+    const nombreContacto = String(nuevaVisita.nombre_contacto_externo || '').trim()
+    if (!prospectoId && !nombreContacto) {
+      alert('Debes indicar un prospecto o escribir el nombre del contacto.')
+      return
+    }
 
     const { data: { session } } = await supabase.auth.getSession()
     if (session?.user) {
@@ -464,8 +470,10 @@ const CRM = ({ user = null }) => {
 
     const payloadVisita = {
       fecha: nuevaVisita.fecha,
-      prospecto_id: prospectoSelected.id,
-      comentario: nuevaVisita.comentario
+      prospecto_id: prospectoId,
+      comentario: nuevaVisita.comentario,
+      nombre_contacto_externo: nombreContacto || null,
+      empresa_id: empresaId,
     }
     const { data: visitaNueva, error } = await supabase
       .from('visitas')
@@ -477,9 +485,9 @@ const CRM = ({ user = null }) => {
       alert(getMensajeErrorBd(error, 'registrar la visita'))
     } else {
       if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
-      setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '' })
+      setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '', nombre_contacto_externo: '' })
       alert('Visita registrada con éxito')
-      await recalcularPuntuacionLead(prospectoSelected.id)
+      if (prospectoId) await recalcularPuntuacionLead(prospectoId)
       await refrescarDatos()
     }
   }
@@ -552,6 +560,7 @@ const CRM = ({ user = null }) => {
     setFechaSeleccionada(fecha)
     setAgendaProspectoId('')
     setAgendaComentario('')
+    setAgendaNombreContacto('')
     setShowAgendaModal(true)
   }
 
@@ -587,8 +596,9 @@ const CRM = ({ user = null }) => {
   }
 
   const guardarVisitaDesdeCalendario = async () => {
-    if (!agendaProspectoId) {
-      alert('Selecciona un prospecto, cliente o crea uno nuevo')
+    const nombreContacto = String(agendaNombreContacto || '').trim()
+    if (!agendaProspectoId && !nombreContacto) {
+      alert('Selecciona un prospecto/cliente o escribe el nombre del contacto.')
       return
     }
 
@@ -642,8 +652,10 @@ const CRM = ({ user = null }) => {
 
     const payloadVisita = {
       fecha: fechaSeleccionada,
-      prospecto_id: prospectoIdFinal,
-      comentario: agendaComentario
+      prospecto_id: prospectoIdFinal || null,
+      comentario: agendaComentario,
+      nombre_contacto_externo: nombreContacto || null,
+      empresa_id: empresaId,
     }
     const { data: visitaNueva, error } = await supabase
       .from('visitas')
@@ -655,15 +667,18 @@ const CRM = ({ user = null }) => {
       alert(getMensajeErrorBd(error, 'agendar la visita'))
     } else {
       if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
-      await supabase
-        .from('prospectos')
-        .update({ proxima_visita: fechaSeleccionada })
-        .eq('id', prospectoIdFinal)
-      await recalcularPuntuacionLead(prospectoIdFinal)
+      if (prospectoIdFinal) {
+        await supabase
+          .from('prospectos')
+          .update({ proxima_visita: fechaSeleccionada })
+          .eq('id', prospectoIdFinal)
+        await recalcularPuntuacionLead(prospectoIdFinal)
+      }
       await refrescarDatos()
       setShowAgendaModal(false)
       setAgendaProspectoId('')
       setAgendaComentario('')
+      setAgendaNombreContacto('')
       alert('Visita agendada con éxito')
     }
   }
@@ -1406,6 +1421,16 @@ const CRM = ({ user = null }) => {
                     onChange={(e) => setNuevaVisita(prev => ({ ...prev, comentario: e.target.value }))}
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Nombre del Contacto</label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                    placeholder="Escribe el contacto externo (opcional si ya hay prospecto)"
+                    value={nuevaVisita.nombre_contacto_externo}
+                    onChange={(e) => setNuevaVisita(prev => ({ ...prev, nombre_contacto_externo: e.target.value }))}
+                  />
+                </div>
                 <div className="border-t border-slate-200 pt-4">
                   <h4 className="text-xs font-bold uppercase text-slate-400 mb-3">Visitas Registradas</h4>
                   {visitasProspecto.length === 0 ? (
@@ -1574,6 +1599,16 @@ const CRM = ({ user = null }) => {
                   value={agendaComentario}
                   onChange={(e) => setAgendaComentario(e.target.value)}
                 />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">Nombre del Contacto</label>
+              <input
+                type="text"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                placeholder="Si no seleccionas prospecto/cliente, indica el contacto"
+                value={agendaNombreContacto}
+                onChange={(e) => setAgendaNombreContacto(e.target.value)}
+              />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
