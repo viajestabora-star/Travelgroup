@@ -11,6 +11,7 @@ import { esUsuarioGestoria, puedeAccederCierresEconomicos, esUsuarioAdmin } from
 import { puedeAccederAdminMaster } from '../utils/adminMasterAccess'
 import CuentaPasswordModal from './CuentaPasswordModal'
 import { NOMBRE_APP_DEFAULT } from '../utils/marcaBlanca'
+import { asegurarVinculacionEmpleado } from '../utils/empleadosVinculacion'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
 const STORAGE_ATTENDANCE_ID = 'attendance_id'
@@ -54,6 +55,13 @@ const Layout = ({ user, onLogout }) => {
 
     asegurarEmpresaIdEnToken()
   }, [authSession?.user?.id, authSession?.user?.app_metadata?.empresa_id])
+
+  // Check de vinculación global: no bloquea acceso; asegura fila en empleados para @viajestabora.com.
+  useEffect(() => {
+    const authUser = authSession?.user
+    if (!authUser?.id) return
+    asegurarVinculacionEmpleado({ authUser, appUser: user }).catch(() => {})
+  }, [authSession?.user?.id, authSession?.user?.email, user])
 
   // CONTROL HORARIO - Orden lógico estricto para evitar duplicados al refrescar
   useEffect(() => {

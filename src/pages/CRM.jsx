@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabase'
 import { X, Phone, Navigation, MoreVertical } from 'lucide-react'
+import { asegurarVinculacionEmpleado, resolverActorCrm } from '../utils/empleadosVinculacion'
 
 /**
  * Función maestra de refresco: obtiene prospectos, visitas y clientes de Supabase
@@ -29,7 +30,7 @@ const fetchCrmData = async (setProspectos, setVisitas, setClientes) => {
   }
 }
 
-const CRM = () => {
+const CRM = ({ user = null }) => {
   const getMensajeErrorBd = (error, accion) => {
     const detalle = error?.message || 'No se pudo completar la operación.'
     return `No ha sido posible ${accion}. Revisa los datos e inténtalo de nuevo. Detalle: ${detalle}`
@@ -40,6 +41,7 @@ const CRM = () => {
   const [clientes, setClientes] = useState([])
   const [visitas, setVisitas] = useState([])
   const [loading, setLoading] = useState(true)
+  const [actorCrm, setActorCrm] = useState({ actorId: null, fuente: null })
 
   // Estados del panel lateral
   const [prospectoSelected, setProspectoSelected] = useState(null)
@@ -115,6 +117,19 @@ const CRM = () => {
   useEffect(() => {
     fetchCrmData(setProspectos, setVisitas, setClientes).finally(() => setLoading(false))
   }, [])
+
+  // Validación de acceso CRM móvil basada en empleados/profiles (sin bloquear sesión autenticada).
+  useEffect(() => {
+    const sincronizarActorCrm = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      const authUser = session?.user
+      if (!authUser?.id) return
+      await asegurarVinculacionEmpleado({ authUser, appUser: user }).catch(() => {})
+      const actor = await resolverActorCrm({ authUser }).catch(() => ({ actorId: null, fuente: null }))
+      setActorCrm(actor || { actorId: null, fuente: null })
+    }
+    sincronizarActorCrm()
+  }, [user?.id, user?.email, user?.empresa_id])
 
   // Comprobar si un prospecto existe ya como cliente (por nombre/grupo)
   const esCliente = useMemo(() => {
@@ -441,6 +456,12 @@ const CRM = () => {
         return
       }
 
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user) {
+      const actor = await resolverActorCrm({ authUser: session.user }).catch(() => actorCrm)
+      if (actor?.actorId) setActorCrm(actor)
+    }
+
     const payloadVisita = {
       fecha: nuevaVisita.fecha,
       prospecto_id: prospectoSelected.id,
@@ -569,6 +590,12 @@ const CRM = () => {
     if (!agendaProspectoId) {
       alert('Selecciona un prospecto, cliente o crea uno nuevo')
       return
+    }
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user) {
+      const actor = await resolverActorCrm({ authUser: session.user }).catch(() => actorCrm)
+      if (actor?.actorId) setActorCrm(actor)
     }
 
     let prospectoIdFinal = null
