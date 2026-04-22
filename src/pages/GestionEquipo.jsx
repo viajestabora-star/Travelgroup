@@ -65,7 +65,7 @@ const GestionEquipo = ({ user }) => {
         .select('id, email, nombre, created_at, empresa_id')
         .eq('empresa_id', empresaId)
         .order('created_at', { ascending: false }),
-      supabase.rpc('licencias_equipo_resumen'),
+      supabase.rpc('licencias_equipo_resumen', { p_empresa_id: empresaId }),
     ])
 
     if (listRes.error) {
@@ -126,6 +126,7 @@ const GestionEquipo = ({ user }) => {
         email: emailNormalizado,
         password: form.password,
         nivel_acceso: nivel,
+        empresa_id: empresaSesion,
       })
 
       if (!resultado.ok) {
