@@ -15,7 +15,6 @@ const emptyForm = () => ({
 })
 
 const GestionEquipo = ({ user }) => {
-  const [authReady, setAuthReady] = useState(false)
   const [miembros, setMiembros] = useState([])
   const [licencias, setLicencias] = useState(null)
   const [cargando, setCargando] = useState(true)
@@ -25,11 +24,11 @@ const GestionEquipo = ({ user }) => {
   const [enviando, setEnviando] = useState(false)
   const [mensajeForm, setMensajeForm] = useState({ tipo: '', texto: '' })
 
-  const emailSesion = String(user?.email || '').toLowerCase()
-  const empresaSesion =
-    Number(user?.empresa_id) > 0
-      ? Number(user.empresa_id)
-      : (emailSesion.endsWith('@viajestabora.com') ? 1 : DEFAULT_EMPRESA_ID)
+  const [empresaSesion, setEmpresaSesion] = useState(() => {
+    const emailSesion = String(user?.email || '').toLowerCase()
+    if (Number(user?.empresa_id) > 0) return Number(user.empresa_id)
+    return emailSesion.endsWith('@viajestabora.com') ? 1 : DEFAULT_EMPRESA_ID
+  })
 
   const cargar = useCallback(async () => {
     setCargando(true)
@@ -39,31 +38,44 @@ const GestionEquipo = ({ user }) => {
     } = await supabase.auth.getSession()
 
     if (!session?.user) {
-      setAuthReady(false)
       setMiembros([])
       setLicencias(null)
       setCargando(false)
       return
     }
 
-    setAuthReady(true)
+    let empresaId = Number(user?.empresa_id)
+    const { data: perfil, error: perfilErr } = await supabase
+      .from('profiles')
+      .select('empresa_id')
+      .eq('id', session.user.id)
+      .maybeSingle()
+    if (!perfilErr && Number(perfil?.empresa_id) > 0) {
+      empresaId = Number(perfil.empresa_id)
+    } else {
+      const emailSesion = String(session.user.email || user?.email || '').toLowerCase()
+      if (emailSesion.endsWith('@viajestabora.com')) empresaId = 1
+    }
+    if (!Number.isFinite(empresaId) || empresaId <= 0) empresaId = DEFAULT_EMPRESA_ID
+    setEmpresaSesion(empresaId)
 
     const [listRes, licRes] = await Promise.all([
       supabase
         .from('empleados')
         .select('id, email, nombre, created_at, empresa_id')
-        .eq('empresa_id', empresaSesion)
+        .eq('empresa_id', empresaId)
         .order('created_at', { ascending: false }),
       supabase.rpc('licencias_equipo_resumen'),
     ])
 
     if (listRes.error) {
       setMiembros([])
-      setErrorLista(
-        listRes.error.code === '42501' || /solo_admin/i.test(listRes.error.message)
-          ? 'Solo los administradores pueden ver el listado de empleados en Supabase.'
-          : listRes.error.message || 'No se pudo cargar el equipo.'
-      )
+      if (listRes.error.code === '42501' || /permission|policy|denied|solo_admin/i.test(listRes.error.message || '')) {
+        console.warn('[GestionEquipo] Sin permisos para leer public.empleados:', listRes.error)
+        setErrorLista('')
+      } else {
+        setErrorLista(listRes.error.message || 'No se pudo cargar el equipo.')
+      }
     } else {
       setMiembros(Array.isArray(listRes.data) ? listRes.data : [])
       setErrorLista('')
@@ -76,7 +88,7 @@ const GestionEquipo = ({ user }) => {
     }
 
     setCargando(false)
-  }, [empresaSesion])
+  }, [user?.empresa_id, user?.email])
 
   useEffect(() => {
     cargar()
@@ -167,17 +179,6 @@ const GestionEquipo = ({ user }) => {
         </button>
       </div>
 
-      {!authReady && !cargando && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-6">
-          <p className="font-medium">Inicia sesión con Supabase para usar esta sección</p>
-          <p className="mt-1 text-amber-800">
-            El listado y el alta de miembros usan tu token de Supabase y el <code className="text-xs bg-amber-100 px-1 rounded">empresa_id</code> de{' '}
-            <code className="text-xs bg-amber-100 px-1 rounded">app_metadata</code>. Si entras solo con la contraseña maestra del ERP, crea también
-            una cuenta en Auth o enlaza la sesión según la política de tu organización.
-          </p>
-        </div>
-      )}
-
       {licencias && !licencias.error && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -207,7 +208,7 @@ const GestionEquipo = ({ user }) => {
         <button
           type="button"
           onClick={abrirModal}
-          disabled={!authReady || !!errorLista}
+          disabled={!!errorLista}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <UserPlus size={20} />
