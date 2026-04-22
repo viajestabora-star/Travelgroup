@@ -38,7 +38,7 @@ const AdminMaster = () => {
   const cargar = useCallback(async () => {
     setCargando(true)
     setError('')
-    const { data, error: err } = await supabase.rpc('public.master_listar_empresas')
+    const { data, error: err } = await supabase.rpc('master_listar_empresas')
     if (err) {
       setAgencias([])
       setError(
@@ -289,6 +289,7 @@ const AdminMaster = () => {
                   <th className="px-4 py-3 font-medium">Nombre Comercial</th>
                   <th className="px-4 py-3 font-medium">CIF</th>
                   <th className="px-4 py-3 font-medium">Límite staff</th>
+                  <th className="px-4 py-3 font-medium">Suscripción</th>
                   <th className="px-4 py-3 font-medium">Fin suscripción</th>
                   <th className="px-4 py-3 font-medium">Estado</th>
                 </tr>
@@ -323,6 +324,13 @@ const AdminMaster = () => {
                           <Plus size={16} />
                         </button>
                       </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${
+                        row.suscripcion_activa ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                      }`}>
+                        {row.suscripcion_activa ? 'Activa' : 'Vencida'}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{fmtFecha(row.fecha_expiracion)}</td>
                     <td className="px-4 py-3">
