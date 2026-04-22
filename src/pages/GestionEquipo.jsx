@@ -25,7 +25,11 @@ const GestionEquipo = ({ user }) => {
   const [enviando, setEnviando] = useState(false)
   const [mensajeForm, setMensajeForm] = useState({ tipo: '', texto: '' })
 
-  const empresaSesion = user?.empresa_id ?? DEFAULT_EMPRESA_ID
+  const emailSesion = String(user?.email || '').toLowerCase()
+  const empresaSesion =
+    Number(user?.empresa_id) > 0
+      ? Number(user.empresa_id)
+      : (emailSesion.endsWith('@viajestabora.com') ? 1 : DEFAULT_EMPRESA_ID)
 
   const cargar = useCallback(async () => {
     setCargando(true)
@@ -45,7 +49,11 @@ const GestionEquipo = ({ user }) => {
     setAuthReady(true)
 
     const [listRes, licRes] = await Promise.all([
-      supabase.rpc('listar_equipo_mi_empresa'),
+      supabase
+        .from('empleados')
+        .select('id, email, nombre, created_at, empresa_id')
+        .eq('empresa_id', empresaSesion)
+        .order('created_at', { ascending: false }),
       supabase.rpc('licencias_equipo_resumen'),
     ])
 
@@ -53,7 +61,7 @@ const GestionEquipo = ({ user }) => {
       setMiembros([])
       setErrorLista(
         listRes.error.code === '42501' || /solo_admin/i.test(listRes.error.message)
-          ? 'Solo los administradores pueden ver el listado de equipo en Supabase.'
+          ? 'Solo los administradores pueden ver el listado de empleados en Supabase.'
           : listRes.error.message || 'No se pudo cargar el equipo.'
       )
     } else {
@@ -68,7 +76,7 @@ const GestionEquipo = ({ user }) => {
     }
 
     setCargando(false)
-  }, [])
+  }, [empresaSesion])
 
   useEffect(() => {
     cargar()
@@ -88,6 +96,11 @@ const GestionEquipo = ({ user }) => {
   const onSubmitMiembro = async (e) => {
     e.preventDefault()
     setMensajeForm({ tipo: '', texto: '' })
+    const emailNormalizado = String(form.email || '').trim().toLowerCase()
+    if (!emailNormalizado) {
+      setMensajeForm({ tipo: 'err', texto: 'El email es obligatorio.' })
+      return
+    }
     setEnviando(true)
     try {
       const nivel = normalizarNivelAccesoParaServidor(form.nivel_acceso)
@@ -98,7 +111,7 @@ const GestionEquipo = ({ user }) => {
       }
 
       const resultado = await verificarLicenciasYRegistrarMiembro(supabase, {
-        email: form.email,
+        email: emailNormalizado,
         password: form.password,
         nivel_acceso: nivel,
       })
@@ -222,7 +235,6 @@ const GestionEquipo = ({ user }) => {
                 <tr className="text-left text-slate-500 border-b border-slate-200">
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Nombre</th>
-                  <th className="px-4 py-3 font-medium">Rol</th>
                   <th className="px-4 py-3 font-medium">Alta</th>
                 </tr>
               </thead>
@@ -231,11 +243,6 @@ const GestionEquipo = ({ user }) => {
                   <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50/80">
                     <td className="px-4 py-3 text-slate-800">{m.email || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{m.nombre || '—'}</td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 font-medium text-xs">
-                        {m.nivel_acceso}
-                      </span>
-                    </td>
                     <td className="px-4 py-3 text-slate-500">
                       {m.created_at
                         ? new Date(m.created_at).toLocaleString('es-ES', {
