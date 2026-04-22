@@ -38,7 +38,7 @@ const AdminMaster = () => {
   const cargar = useCallback(async () => {
     setCargando(true)
     setError('')
-    const { data, error: err } = await supabase.rpc('master_listar_empresas')
+    const { data, error: err } = await supabase.rpc('public.master_listar_empresas')
     if (err) {
       setAgencias([])
       setError(
@@ -168,7 +168,7 @@ const AdminMaster = () => {
     }
     const siguiente = !row.activa
     const accion = siguiente ? 'activar' : 'desactivar'
-    if (!window.confirm(`¿${accion === 'activar' ? 'Activar' : 'Desactivar'} la agencia «${row.nombre}»?`)) return
+    if (!window.confirm(`¿${accion === 'activar' ? 'Activar' : 'Desactivar'} la agencia «${row.nombre_comercial || '—'}»?`)) return
     const { error: err } = await supabase.rpc('master_set_empresa_activa', {
       p_empresa_id: row.id,
       p_activa: siguiente,
@@ -240,7 +240,7 @@ const AdminMaster = () => {
               ) : (
                 agenciasCliente.map((a) => (
                   <option key={a.id} value={String(a.id)}>
-                    #{a.id} — {a.nombre}
+                    #{a.id} — {a.nombre_comercial || '—'}
                   </option>
                 ))
               )}
@@ -286,7 +286,8 @@ const AdminMaster = () => {
               <thead>
                 <tr className="text-left text-slate-500 border-b border-slate-200">
                   <th className="px-4 py-3 font-medium">ID</th>
-                  <th className="px-4 py-3 font-medium">Nombre</th>
+                  <th className="px-4 py-3 font-medium">Nombre Comercial</th>
+                  <th className="px-4 py-3 font-medium">CIF</th>
                   <th className="px-4 py-3 font-medium">Límite staff</th>
                   <th className="px-4 py-3 font-medium">Fin suscripción</th>
                   <th className="px-4 py-3 font-medium">Estado</th>
@@ -296,7 +297,8 @@ const AdminMaster = () => {
                 {agencias.map((row) => (
                   <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/80">
                     <td className="px-4 py-3 text-slate-600 font-mono">{row.id}</td>
-                    <td className="px-4 py-3 text-slate-900 font-medium">{row.nombre || '—'}</td>
+                    <td className="px-4 py-3 text-slate-900 font-medium">{row.nombre_comercial || '—'}</td>
+                    <td className="px-4 py-3 text-slate-700 font-mono">{row.cif || '—'}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <button
@@ -329,7 +331,7 @@ const AdminMaster = () => {
                         disabled={row.id === TABORA_MASTER_EMPRESA_ID && row.activa}
                         onClick={() => toggleActiva(row)}
                         className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 ${
-                          row.activa ? 'bg-emerald-500' : 'bg-slate-300'
+                          row.activa ? 'bg-emerald-500' : 'bg-rose-500'
                         } ${row.id === TABORA_MASTER_EMPRESA_ID && row.activa ? 'opacity-50 cursor-not-allowed' : ''}`}
                         title={row.activa ? 'Activa — pulsar para desactivar' : 'Inactiva — pulsar para activar'}
                         aria-pressed={!!row.activa}
@@ -340,7 +342,7 @@ const AdminMaster = () => {
                           }`}
                         />
                       </button>
-                      <span className="ml-2 text-xs font-medium text-slate-600">
+                      <span className={`ml-2 text-xs font-medium ${row.activa ? 'text-emerald-700' : 'text-rose-700'}`}>
                         {row.activa ? 'Activa' : 'Inactiva'}
                       </span>
                     </td>
