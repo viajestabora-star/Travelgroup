@@ -4,30 +4,20 @@ export const MENSAJE_SIN_LICENCIAS =
   'No tienes licencias disponibles. Contacta con soporte para ampliar tu plan.'
 
 /**
- * @param {{ message?: string }|null|undefined} fnError
- * @param {unknown} fnData cuerpo JSON devuelto por la Edge Function (a veces presente aunque haya error)
- */
-export function esErrorLimiteLicencias(fnError, fnData) {
-  const blob = [
-    fnError?.message,
-    typeof fnData === 'string' ? fnData : JSON.stringify(fnData ?? {}),
-  ]
-    .filter(Boolean)
-    .join(' ')
-  return /LIMITE_USUARIOS_ALCANZADO/i.test(blob)
-}
-
-/**
- * 1) Comprueba licencias vía RPC `licencias_equipo_resumen`.
- * 2) Invoca Edge Function `invite-team-member` (empresa_id solo en servidor, desde JWT del admin).
+ * Crea un nuevo miembro del equipo usando supabase.auth.signUp (sin Edge Function).
+ * Flujo: validar licencias → signUp en Auth → insert en public.empleados con rol y empresa_id.
  *
- * @param {*} supabase cliente `@supabase/supabase-js`
- * @param {{ email: string; password: string; nivel_acceso: string; empresa_id?: number; permitirSinConteo?: boolean }} params
+ * @param {*} supabase cliente @supabase/supabase-js
+ * @param {{ email: string; password: string; nivel_acceso: string; rol_ui: string; empresa_id: number; permitirSinConteo?: boolean }} params
  */
-export async function verificarLicenciasYRegistrarMiembro(supabase, { email, password, nivel_acceso, empresa_id, permitirSinConteo = false }) {
+export async function verificarLicenciasYRegistrarMiembro(
+  supabase,
+  { email, password, nivel_acceso, rol_ui, empresa_id, permitirSinConteo = false }
+) {
+  // ── Validaciones básicas ─────────────────────────────────────────────────────
   const nivel = normalizarNivelAccesoParaServidor(nivel_acceso)
   if (!nivel) {
-    return { ok: false, code: 'ROL_INVALIDO', message: 'Selecciona un rol válido (ADMIN, STAFF o GESTORIA).' }
+    return { ok: false, code: 'ROL_INVALIDO', message: 'Selecciona un rol válido (Admin, Staff o Gestoria).' }
   }
 
   const em = String(email).trim().toLowerCase()
@@ -40,11 +30,14 @@ export async function verificarLicenciasYRegistrarMiembro(supabase, { email, pas
 
   const empresaIdNum = Number(empresa_id)
   if (!Number.isFinite(empresaIdNum) || empresaIdNum <= 0) {
-    return { ok: false, code: 'EMPRESA_ID', message: 'No se pudo identificar la empresa activa para validar licencias.' }
+    return { ok: false, code: 'EMPRESA_ID', message: 'No se pudo identificar la empresa activa.' }
   }
+
+  // ── Check de licencias vía RPC ───────────────────────────────────────────────
   const { data: resumen, error: errResumen } = await supabase.rpc('licencias_equipo_resumen', {
     p_empresa_id: empresaIdNum,
   })
+
   if (errResumen) {
     return { ok: false, code: 'RPC_LICENCIAS', message: errResumen.message || 'No se pudo validar el cupo de licencias.' }
   }
@@ -53,13 +46,13 @@ export async function verificarLicenciasYRegistrarMiembro(supabase, { email, pas
     return {
       ok: false,
       code: 'SIN_PERFIL',
-      message:
-        'Tu usuario no tiene perfil en Supabase para esta empresa. Ejecuta la migración de equipo o contacta con soporte.',
+      message: 'Tu usuario no tiene perfil en Supabase para esta empresa. Contacta con soporte.',
     }
   }
 
   const disponibles = Number(resumen?.disponibles)
   if (!Number.isFinite(disponibles)) {
+    // La RPC respondió pero no devolvió un número: si el usuario es ADMIN, permitimos continuar.
     if (!permitirSinConteo) {
       return {
         ok: false,
@@ -71,27 +64,66 @@ export async function verificarLicenciasYRegistrarMiembro(supabase, { email, pas
     return { ok: false, code: 'SIN_LICENCIAS', message: MENSAJE_SIN_LICENCIAS }
   }
 
-  const { data: fnData, error: fnError } = await supabase.functions.invoke('invite-team-member', {
-    body: { email: em, password, nivel_acceso: nivel },
+  // ── Crear usuario en Supabase Auth (sin Edge Function) ───────────────────────
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email: em,
+    password,
+    options: {
+      data: {
+        empresa_id: empresaIdNum,
+        nivel_acceso: nivel,
+        rol: rol_ui || nivel,
+      },
+    },
   })
 
-  if (fnError) {
-    if (/duplicate|already exists|ya existe|email/i.test(String(fnError.message || ''))) {
-      return { ok: false, code: 'DUPLICADO', message: 'El email ya existe en el sistema. Usa otro correo o restablece acceso.' }
+  if (authError) {
+    if (/already registered|already exists|email.*exist|duplicate/i.test(authError.message || '')) {
+      return {
+        ok: false,
+        code: 'DUPLICADO',
+        message: 'El email ya existe en el sistema. Usa otro correo o restablece el acceso desde la pantalla de login.',
+      }
     }
-    const hint =
-      /Edge Function|FunctionsHttpError|Failed to fetch|non-2xx/i.test(String(fnError.message))
-        ? ' Comprueba que la función invite-team-member esté desplegada en tu proyecto Supabase.'
-        : ''
-    return { ok: false, code: 'INVITE', message: (fnError.message || 'Error al invitar.') + hint }
+    return { ok: false, code: 'AUTH', message: authError.message || 'Error al crear el usuario en Auth.' }
   }
 
-  if (fnData && typeof fnData === 'object' && fnData.ok === false) {
-    if (/duplicate|already exists|ya existe|email/i.test(String(fnData.error || ''))) {
-      return { ok: false, code: 'DUPLICADO', message: 'El email ya existe en el sistema. Usa otro correo o restablece acceso.' }
-    }
-    return { ok: false, code: 'INVITE_BODY', message: String(fnData.error || 'No se pudo crear el usuario.') }
+  if (!authData?.user?.id) {
+    return { ok: false, code: 'AUTH_SIN_ID', message: 'El usuario fue creado pero no se obtuvo su ID. Revisa Supabase Auth.' }
   }
 
-  return { ok: true, code: 'OK', message: 'Usuario creado correctamente.' }
+  // ── Insertar en public.empleados ─────────────────────────────────────────────
+  const payloadEmpleado = {
+    auth_user_id: authData.user.id,
+    email: em,
+    rol: rol_ui || nivel,
+    empresa_id: empresaIdNum,
+  }
+
+  const { error: errIns } = await supabase.from('empleados').insert([payloadEmpleado])
+
+  if (errIns) {
+    if (errIns.code === '23505' || /duplicate|ya existe|email/i.test(errIns.message || '')) {
+      // El usuario de Auth ya existe en empleados: actualizar rol y empresa.
+      const { error: errUpd } = await supabase
+        .from('empleados')
+        .update({ rol: rol_ui || nivel, empresa_id: empresaIdNum, auth_user_id: authData.user.id })
+        .eq('email', em)
+      if (errUpd) {
+        return {
+          ok: false,
+          code: 'EMPLEADO_UPDATE',
+          message: `Usuario creado en Auth, pero no se pudo sincronizar en empleados: ${errUpd.message}`,
+        }
+      }
+    } else {
+      return {
+        ok: false,
+        code: 'EMPLEADO_INSERT',
+        message: `Usuario creado en Auth, pero no se pudo registrar en empleados: ${errIns.message}`,
+      }
+    }
+  }
+
+  return { ok: true, code: 'OK', message: `Usuario ${em} creado correctamente.` }
 }

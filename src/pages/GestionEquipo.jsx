@@ -140,10 +140,12 @@ const GestionEquipo = ({ user }) => {
         return
       }
 
+      // Flujo: Auth.signUp → insert en empleados (todo en el helper, sin Edge Function)
       const resultado = await verificarLicenciasYRegistrarMiembro(supabase, {
         email: emailNormalizado,
         password: form.password,
         nivel_acceso: nivel,
+        rol_ui: form.rol,
         empresa_id: empresaSesion,
         permitirSinConteo: isAdmin,
       })
@@ -156,31 +158,6 @@ const GestionEquipo = ({ user }) => {
         })
         setEnviando(false)
         return
-      }
-
-      // Asegurar sincronización del catálogo de empleados para CRM móvil.
-      const payloadEmpleado = {
-        email: emailNormalizado,
-        rol: form.rol,
-        empresa_id: empresaSesion,
-      }
-      const { error: errIns } = await supabase.from('empleados').insert([payloadEmpleado])
-      if (errIns) {
-        if (errIns.code === '23505' || /duplicate|ya existe|email/i.test(String(errIns.message || ''))) {
-          const { error: errUpd } = await supabase
-            .from('empleados')
-            .update({ rol: form.rol, empresa_id: empresaSesion })
-            .eq('email', emailNormalizado)
-          if (errUpd) {
-            setMensajeForm({ tipo: 'err', texto: `Usuario creado, pero no se pudo actualizar rol en empleados: ${errUpd.message}` })
-            setEnviando(false)
-            return
-          }
-        } else {
-          setMensajeForm({ tipo: 'err', texto: `Usuario creado, pero no se pudo registrar en empleados: ${errIns.message}` })
-          setEnviando(false)
-          return
-        }
       }
 
       setMensajeForm({ tipo: 'ok', texto: resultado.message })
