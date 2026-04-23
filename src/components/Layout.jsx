@@ -34,26 +34,16 @@ const Layout = ({ user, onLogout }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
-  // Garantiza que el JWT incluya app_metadata.empresa_id para usuarios autenticados.
+  // Resuelve empresa_id leyendo directamente public.empleados (sin RPC obsoleta).
   useEffect(() => {
-    const asegurarEmpresaIdEnToken = async () => {
-      const userId = authSession?.user?.id
-      if (!userId) return
-      const empresaIdActual = Number(authSession?.user?.app_metadata?.empresa_id ?? 0)
-      if (empresaIdActual > 0) return
-
-      const { error } = await supabase.rpc('ensure_empresa_id_claim', { p_empresa_id: 1 })
-      if (error) {
-        console.warn('[Auth] No se pudo asegurar empresa_id en app_metadata:', error.message)
-        return
-      }
-
-      // Refresca token para que el claim actualizado esté disponible en el JWT actual.
-      const { data, error: refreshError } = await supabase.auth.refreshSession()
-      if (!refreshError && data?.session) setAuthSession(data.session)
-    }
-
-    asegurarEmpresaIdEnToken()
+    const userId = authSession?.user?.id
+    if (!userId) return
+    const empresaIdActual = Number(authSession?.user?.app_metadata?.empresa_id ?? 0)
+    if (empresaIdActual > 0) return
+    // Si no hay claim, simplemente refrescamos la sesión para que el trigger de DB lo cargue.
+    supabase.auth.refreshSession().then(({ data, error }) => {
+      if (!error && data?.session) setAuthSession(data.session)
+    })
   }, [authSession?.user?.id, authSession?.user?.app_metadata?.empresa_id])
 
   // Check de vinculación global: no bloquea acceso; asegura fila en empleados para @viajestabora.com.
@@ -175,40 +165,63 @@ const Layout = ({ user, onLogout }) => {
     return base
   }, [ejercicioActual, esAdmin, esGestoria, user])
 
-  // Suscripción vencida: pantalla dedicada (no datos del ERP).
+  // Suscripción vencida: pantalla dedicada (consulta directa a empresas).
   useEffect(() => {
     const uid = authSession?.user?.id
     if (!uid) return
     if (location.pathname === '/suscripcion-expirada') return
     let cancelled = false
-    supabase.rpc('mi_empresa_suscripcion_vigente').then(({ data, error }) => {
-      if (cancelled || error) return
-      if (data === false) {
-        navigate('/suscripcion-expirada', { replace: true })
-      }
-    })
-    return () => {
-      cancelled = true
-    }
+
+    const empresaId = Number(
+      authSession?.user?.app_metadata?.empresa_id ||
+      authSession?.user?.user_metadata?.empresa_id ||
+      1
+    )
+
+    supabase
+      .from('empresas')
+      .select('suscripcion_activa, fecha_expiracion')
+      .eq('id', empresaId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return
+        const expirada =
+          data.suscripcion_activa === false ||
+          (data.fecha_expiracion && new Date(data.fecha_expiracion) < new Date())
+        if (expirada) navigate('/suscripcion-expirada', { replace: true })
+      })
+
+    return () => { cancelled = true }
   }, [authSession?.user?.id, location.pathname, navigate])
 
-  // Si la agencia está marcada inactiva en BD, cortar sesión Supabase.
+  // Si la agencia está marcada inactiva en BD, cortar sesión (consulta directa a empresas).
   useEffect(() => {
     const uid = authSession?.user?.id
     if (!uid) return
     if (location.pathname === '/suscripcion-expirada') return
     let cancelled = false
-    supabase.rpc('mi_empresa_activa').then(({ data, error }) => {
-      if (cancelled || error) return
-      if (data === false) {
-        window.alert('Tu agencia está desactivada. Contacta con soporte.')
-        sessionStorage.removeItem(STORAGE_ATTENDANCE_ID)
-        onLogout?.()
-      }
-    })
-    return () => {
-      cancelled = true
-    }
+
+    const empresaId = Number(
+      authSession?.user?.app_metadata?.empresa_id ||
+      authSession?.user?.user_metadata?.empresa_id ||
+      1
+    )
+
+    supabase
+      .from('empresas')
+      .select('activa')
+      .eq('id', empresaId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return
+        if (data.activa === false) {
+          window.alert('Tu agencia está desactivada. Contacta con soporte.')
+          sessionStorage.removeItem(STORAGE_ATTENDANCE_ID)
+          onLogout?.()
+        }
+      })
+
+    return () => { cancelled = true }
   }, [authSession?.user?.id, location.pathname, onLogout])
 
   return (

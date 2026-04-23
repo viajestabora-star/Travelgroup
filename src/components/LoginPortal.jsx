@@ -50,13 +50,6 @@ const LoginPortal = ({ onSesion }) => {
       return
     }
     let { data: ui, error: e2 } = await supabase.rpc('sesion_usuario_ui')
-    const empClaim = Number(ui?.empresa_id)
-    if (!e2 && ui && !Number.isNaN(empClaim) && empClaim > 0) {
-      await supabase.rpc('ensure_empresa_id_claim', { p_empresa_id: empClaim }).catch(() => {})
-      await supabase.auth.refreshSession().catch(() => {})
-      const r2 = await supabase.rpc('sesion_usuario_ui')
-      if (!r2.error && r2.data) ui = r2.data
-    }
     setCargando(false)
     const u = (!e2 && ui && typeof ui === 'object') ? ui : {}
     // Modo emergencia: no bloquear login si profiles/rpc falla.
