@@ -4,6 +4,7 @@ import { UserPlus, Users, RefreshCw, Shield, X } from 'lucide-react'
 import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
 import { verificarLicenciasYRegistrarMiembro, MENSAJE_SIN_LICENCIAS } from '../utils/gestionEquipoRegistration'
 import { DEFAULT_EMPRESA_ID } from '../config/empresa'
+import { esUsuarioAdmin } from '../utils/userRoles'
 
 const emptyForm = () => ({
   email: '',
@@ -19,6 +20,7 @@ const rolUiANivel = {
 }
 
 const GestionEquipo = ({ user }) => {
+  const isAdmin = esUsuarioAdmin(user)
   const [miembros, setMiembros] = useState([])
   const [licencias, setLicencias] = useState(null)
   const [cargando, setCargando] = useState(true)
@@ -57,11 +59,17 @@ const GestionEquipo = ({ user }) => {
     if (!perfilErr && Number(perfil?.empresa_id) > 0) {
       empresaId = Number(perfil.empresa_id)
     } else {
+      try {
+        const raw = localStorage.getItem('sesion_tabora')
+        const parsed = raw ? JSON.parse(raw) : null
+        if (Number(parsed?.empresa_id) > 0) empresaId = Number(parsed.empresa_id)
+      } catch {}
       const emailSesion = String(session.user.email || user?.email || '').toLowerCase()
-      if (emailSesion.endsWith('@viajestabora.com')) empresaId = 1
+      if ((!Number.isFinite(empresaId) || empresaId <= 0) && emailSesion.endsWith('@viajestabora.com')) empresaId = 1
     }
     if (!Number.isFinite(empresaId) || empresaId <= 0) empresaId = DEFAULT_EMPRESA_ID
     setEmpresaSesion(empresaId)
+    console.log('ID de empresa enviado:', empresaId)
 
     const [listRes, licRes] = await Promise.all([
       supabase
@@ -87,12 +95,6 @@ const GestionEquipo = ({ user }) => {
 
     if (!licRes.error && licRes.data) {
       setLicencias(licRes.data)
-      if (licRes.data?.disponibles == null) {
-        console.log('[GestionEquipo][DEBUG] disponibles nulo/undefined al cargar licencias', {
-          p_empresa_id: empresaId,
-          data: licRes.data,
-        })
-      }
     } else {
       setLicencias(null)
     }
@@ -123,8 +125,8 @@ const GestionEquipo = ({ user }) => {
       setMensajeForm({ tipo: 'err', texto: 'El email es obligatorio.' })
       return
     }
-    const disponiblesRpc = Number(licencias?.disponibles ?? 0)
-    if (licencias && (!Number.isFinite(disponiblesRpc) || disponiblesRpc <= 0)) {
+    const disponiblesRpc = Number(licencias?.disponibles)
+    if (licencias && Number.isFinite(disponiblesRpc) && disponiblesRpc <= 0) {
       setMensajeForm({ tipo: 'err', texto: MENSAJE_SIN_LICENCIAS })
       return
     }
@@ -143,6 +145,7 @@ const GestionEquipo = ({ user }) => {
         password: form.password,
         nivel_acceso: nivel,
         empresa_id: empresaSesion,
+        permitirSinConteo: isAdmin,
       })
 
       if (!resultado.ok) {
@@ -243,7 +246,7 @@ const GestionEquipo = ({ user }) => {
         </div>
       )}
 
-      {licencias && Number(licencias?.disponibles ?? 0) <= 0 && (
+      {licencias && Number.isFinite(Number(licencias?.disponibles)) && Number(licencias.disponibles) <= 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-4">
           Cupo de licencias agotado para esta agencia.
         </div>
@@ -382,7 +385,10 @@ const GestionEquipo = ({ user }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={enviando || (licencias && Number(licencias?.disponibles ?? 0) <= 0)}
+                  disabled={
+                    enviando ||
+                    (licencias && Number.isFinite(Number(licencias?.disponibles)) && Number(licencias.disponibles) <= 0)
+                  }
                   className="flex-1 py-2.5 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700 disabled:opacity-50"
                 >
                   {enviando ? 'Guardando…' : 'Crear cuenta'}

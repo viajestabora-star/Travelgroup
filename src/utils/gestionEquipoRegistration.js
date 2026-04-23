@@ -22,9 +22,9 @@ export function esErrorLimiteLicencias(fnError, fnData) {
  * 2) Invoca Edge Function `invite-team-member` (empresa_id solo en servidor, desde JWT del admin).
  *
  * @param {*} supabase cliente `@supabase/supabase-js`
- * @param {{ email: string; password: string; nivel_acceso: string; empresa_id?: number }} params
+ * @param {{ email: string; password: string; nivel_acceso: string; empresa_id?: number; permitirSinConteo?: boolean }} params
  */
-export async function verificarLicenciasYRegistrarMiembro(supabase, { email, password, nivel_acceso, empresa_id }) {
+export async function verificarLicenciasYRegistrarMiembro(supabase, { email, password, nivel_acceso, empresa_id, permitirSinConteo = false }) {
   const nivel = normalizarNivelAccesoParaServidor(nivel_acceso)
   if (!nivel) {
     return { ok: false, code: 'ROL_INVALIDO', message: 'Selecciona un rol válido (ADMIN, STAFF o GESTORIA).' }
@@ -58,14 +58,16 @@ export async function verificarLicenciasYRegistrarMiembro(supabase, { email, pas
     }
   }
 
-  if (resumen?.disponibles == null) {
-    console.log('[GestionEquipo][DEBUG] disponibles nulo/undefined en licencias_equipo_resumen', {
-      p_empresa_id: empresaIdNum,
-      resumen,
-    })
-  }
-  const disponibles = Number(resumen?.disponibles ?? 0)
-  if (!Number.isFinite(disponibles) || disponibles <= 0) {
+  const disponibles = Number(resumen?.disponibles)
+  if (!Number.isFinite(disponibles)) {
+    if (!permitirSinConteo) {
+      return {
+        ok: false,
+        code: 'LICENCIAS_INDETERMINADAS',
+        message: 'No se pudo determinar el cupo de licencias para esta agencia.',
+      }
+    }
+  } else if (disponibles <= 0) {
     return { ok: false, code: 'SIN_LICENCIAS', message: MENSAJE_SIN_LICENCIAS }
   }
 
