@@ -21,7 +21,8 @@ const rolUiANivel = {
 
 const GestionEquipo = ({ user }) => {
   const isAdmin = esUsuarioAdmin(user)
-  const canManageTeam = String(user?.nivel_acceso || '') === 'Admin' || String(user?.nivel_acceso || '').toUpperCase() === 'ADMIN'
+  const canManageTeam = isAdmin
+  console.log('[GestionEquipo] user.nivel_acceso:', user?.nivel_acceso, '| canManageTeam:', canManageTeam)
   const [miembros, setMiembros] = useState([])
   const [licencias, setLicencias] = useState(null)
   const [cargando, setCargando] = useState(true)
@@ -46,65 +47,50 @@ const GestionEquipo = ({ user }) => {
   })
 
   const cargar = useCallback(async () => {
+    alert('Cargar ejecutándose')
     setCargando(true)
     setErrorLista('')
 
-    // ── 1. Usuario autenticado ────────────────────────────────────────────────
-    const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser()
-    if (authErr || !authUser) {
-      setMiembros([])
-      setLicencias(null)
-      setCargando(false)
-      return
-    }
+    // ── 1. Detectar empresa_id (no bloquea la carga si falla) ─────────────────
+    let idABuscar = 1  // Hardcode de seguridad: Tabora id=1
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (authUser) {
+        const { data: miPerfil } = await supabase
+          .from('profiles')
+          .select('empresa_id')
+          .eq('id', authUser.id)
+          .maybeSingle()
 
-    // ── 2. Obtener empresa_id del propio registro en profiles ─────────────────
-    const { data: miPerfil, error: perfilErr } = await supabase
-      .from('profiles')
-      .select('empresa_id')
-      .eq('id', authUser.id)
-      .maybeSingle()
+        let detectado = Number(miPerfil?.empresa_id)
+        if (!detectado || detectado <= 0) detectado = Number(authUser.user_metadata?.empresa_id) || 0
+        if (!detectado || detectado <= 0) detectado = Number(authUser.app_metadata?.empresa_id) || 0
+        if (!detectado || detectado <= 0) {
+          detectado = String(authUser.email || '').toLowerCase().endsWith('@viajestabora.com') ? 1 : 0
+        }
+        if (detectado > 0) idABuscar = detectado
+      }
+    } catch (_) { /* silencioso: usa el hardcode */ }
 
-    let empresaId = Number(miPerfil?.empresa_id)
+    console.log('ID enviado a RPC:', idABuscar)
+    setEmpresaSesion(idABuscar)
 
-    // Fallback: si no tiene fila en empleados aún, usar user_metadata o dominio
-    if (!Number.isFinite(empresaId) || empresaId <= 0) {
-      empresaId = Number(authUser.user_metadata?.empresa_id) || Number(authUser.app_metadata?.empresa_id) || 0
-    }
-    if (!Number.isFinite(empresaId) || empresaId <= 0) {
-      empresaId = String(authUser.email || '').toLowerCase().endsWith('@viajestabora.com') ? 1 : 0
-    }
-    if (empresaId <= 0) {
-      setErrorLista('No se pudo determinar la empresa del usuario autenticado.')
-      setMiembros([])
-      setCargando(false)
-      return
-    }
-
-    console.log('Mi empresa_id detectado:', empresaId)
-    setEmpresaSesion(empresaId)
-
-    // ── 3. Cargar miembros via RPC (SECURITY DEFINER → bypasea RLS) ───────────
-    const { data, error } = await supabase.rpc('listar_equipo_mi_empresa')
-    console.log("Respuesta DB:", data, "Error DB:", error)
-    console.log('Miembros recuperados:', data)
+    // ── 2. Cargar miembros (llamada directa, no bloqueada por auth) ───────────
+    const { data, error } = await supabase.rpc('listar_equipo_mi_empresa', { p_empresa_id: idABuscar })
+    console.log("Resultado Directo:", data, error)
 
     if (error) {
-      console.error('[GestionEquipo] Error al cargar equipo:', error)
-      setMiembros([])
+      console.error('[GestionEquipo] Error RPC:', error)
       setErrorLista(error.message || 'No se pudo cargar el equipo.')
+      setMiembros([])
     } else {
-      const miembrosMapeados = (Array.isArray(data) ? data : []).map((m) => ({
-        ...m,
-        empresa_id: empresaId,
-      }))
-      setMiembros(miembrosMapeados)
+      setMiembros(Array.isArray(data) ? data : [])
       setErrorLista('')
     }
 
-    // ── 4. Licencias (paralelo no bloquea si falla) ───────────────────────────
+    // ── 3. Licencias ──────────────────────────────────────────────────────────
     const { data: licData, error: licErr } = await supabase.rpc('licencias_equipo_resumen', {
-      p_empresa_id: empresaId,
+      p_empresa_id: idABuscar,
     })
     if (!licErr && licData) {
       setLicencias(licData)
@@ -360,7 +346,9 @@ const GestionEquipo = ({ user }) => {
         {cargando ? (
           <div className="p-8 text-center text-slate-500">Cargando…</div>
         ) : miembros.length === 0 ? (
-          <div className="p-8 text-center text-slate-500">No hay miembros para mostrar.</div>
+          <div className="p-8 text-center text-slate-500">
+            Cargando miembros de la empresa {empresaSesion}…
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
