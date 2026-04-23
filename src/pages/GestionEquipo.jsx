@@ -75,22 +75,17 @@ const GestionEquipo = ({ user }) => {
       supabase
         .from('empleados')
         .select('*')
-        .order('created_at', { ascending: false }),
+        .eq('empresa_id', 1),
       supabase.rpc('licencias_equipo_resumen', { p_empresa_id: empresaId }),
     ])
+    console.log('Datos recibidos de empleados:', listRes.data)
+    console.log('Error de Supabase:', listRes.error)
 
     if (listRes.error) {
-      console.error('[GestionEquipo] Error al cargar empleados:', listRes.error)
       setMiembros([])
-      if (listRes.error.code === '42501' || /permission|policy|denied|solo_admin/i.test(listRes.error.message || '')) {
-        console.warn('[GestionEquipo] Sin permisos para leer public.empleados:', listRes.error)
-        setErrorLista('')
-      } else {
-        setErrorLista(listRes.error.message || 'No se pudo cargar el equipo.')
-      }
+      setErrorLista(listRes.error.message || 'No se pudo cargar el equipo.')
     } else {
       const miembrosData = Array.isArray(listRes.data) ? listRes.data : []
-      if (miembrosData.length === 0) console.log(miembrosData)
       setMiembros(miembrosData)
       setErrorLista('')
     }
@@ -255,7 +250,7 @@ const GestionEquipo = ({ user }) => {
         {cargando ? (
           <div className="p-8 text-center text-slate-500">Cargando…</div>
         ) : miembros.length === 0 ? (
-          <div className="p-8 text-center text-slate-500">No hay miembros para mostrar o aún no tienes permisos.</div>
+          <div className="p-8 text-center text-slate-500">No hay miembros para mostrar.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
