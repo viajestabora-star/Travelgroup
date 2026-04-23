@@ -67,20 +67,20 @@ const GestionEquipo = ({ user }) => {
       const emailSesion = String(session.user.email || user?.email || '').toLowerCase()
       if ((!Number.isFinite(empresaId) || empresaId <= 0) && emailSesion.endsWith('@viajestabora.com')) empresaId = 1
     }
-    if (!Number.isFinite(empresaId) || empresaId <= 0) empresaId = DEFAULT_EMPRESA_ID
+    if (!Number.isFinite(empresaId) || empresaId <= 0) empresaId = 1
     setEmpresaSesion(empresaId)
-    console.log('ID de empresa enviado:', empresaId)
+    console.log('Cargando miembros para empresa:', empresaId)
 
     const [listRes, licRes] = await Promise.all([
       supabase
         .from('empleados')
         .select('*')
-        .eq('empresa_id', 1)
         .order('created_at', { ascending: false }),
       supabase.rpc('licencias_equipo_resumen', { p_empresa_id: empresaId }),
     ])
 
     if (listRes.error) {
+      console.error('[GestionEquipo] Error al cargar empleados:', listRes.error)
       setMiembros([])
       if (listRes.error.code === '42501' || /permission|policy|denied|solo_admin/i.test(listRes.error.message || '')) {
         console.warn('[GestionEquipo] Sin permisos para leer public.empleados:', listRes.error)
