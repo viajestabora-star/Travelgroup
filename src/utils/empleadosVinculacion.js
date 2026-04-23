@@ -23,7 +23,7 @@ export async function resolverActorCrm({ authUser = null } = {}) {
     const { data: empByAuth } = await supabase
       .from('empleados')
       .select('id')
-      .eq('auth_user_id', authUser.id)
+      .eq('id', authUser.id)
       .maybeSingle()
     if (empByAuth?.id) return { actorId: empByAuth.id, fuente: 'empleados' }
   }
@@ -71,8 +71,8 @@ export async function asegurarVinculacionEmpleado({ authUser = null, appUser = n
     String(appUser?.nombre || authUser?.user_metadata?.nombre || authUser?.user_metadata?.name || email.split('@')[0] || '').trim()
 
   const intentos = [
-    { auth_user_id: authUser.id, email, nombre, empresa_id: empresaId },
-    { auth_user_id: authUser.id, email, empresa_id: empresaId },
+    { id: authUser.id, email, nombre, empresa_id: empresaId },
+    { id: authUser.id, email, empresa_id: empresaId },
     { email, nombre, empresa_id: empresaId },
     { email, empresa_id: empresaId },
   ]
