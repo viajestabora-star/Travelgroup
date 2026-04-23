@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { UserPlus, Users, RefreshCw, Shield, X } from 'lucide-react'
-import { NIVELES_ACCESO, normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
+import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
 import {
   verificarLicenciasYRegistrarMiembro,
   MENSAJE_SIN_LICENCIAS,
@@ -11,8 +11,15 @@ import { DEFAULT_EMPRESA_ID } from '../config/empresa'
 const emptyForm = () => ({
   email: '',
   password: '',
-  nivel_acceso: 'STAFF',
+  rol: 'Staff',
 })
+
+const ROLES_UI = ['Admin', 'Staff', 'Gestoria']
+const rolUiANivel = {
+  Admin: 'ADMIN',
+  Staff: 'STAFF',
+  Gestoria: 'GESTORIA',
+}
 
 const GestionEquipo = ({ user }) => {
   const [miembros, setMiembros] = useState([])
@@ -62,7 +69,7 @@ const GestionEquipo = ({ user }) => {
     const [listRes, licRes] = await Promise.all([
       supabase
         .from('empleados')
-        .select('id, email, nombre, created_at, empresa_id')
+        .select('id, email, nombre, rol, created_at, empresa_id')
         .eq('empresa_id', empresaId)
         .order('created_at', { ascending: false }),
       supabase.rpc('licencias_equipo_resumen', { p_empresa_id: empresaId }),
@@ -115,9 +122,9 @@ const GestionEquipo = ({ user }) => {
     }
     setEnviando(true)
     try {
-      const nivel = normalizarNivelAccesoParaServidor(form.nivel_acceso)
+      const nivel = normalizarNivelAccesoParaServidor(rolUiANivel[form.rol] || form.rol)
       if (!nivel) {
-        setMensajeForm({ tipo: 'err', texto: 'El rol debe ser ADMIN, STAFF o GESTORIA (mayúsculas).' })
+        setMensajeForm({ tipo: 'err', texto: 'Selecciona un Rol de Acceso válido (Admin, Staff o Gestoria).' })
         setEnviando(false)
         return
       }
@@ -140,6 +147,31 @@ const GestionEquipo = ({ user }) => {
         })
         setEnviando(false)
         return
+      }
+
+      // Asegurar sincronización del catálogo de empleados para CRM móvil.
+      const payloadEmpleado = {
+        email: emailNormalizado,
+        rol: form.rol,
+        empresa_id: empresaSesion,
+      }
+      const { error: errIns } = await supabase.from('empleados').insert([payloadEmpleado])
+      if (errIns) {
+        if (errIns.code === '23505' || /duplicate|ya existe|email/i.test(String(errIns.message || ''))) {
+          const { error: errUpd } = await supabase
+            .from('empleados')
+            .update({ rol: form.rol, empresa_id: empresaSesion })
+            .eq('email', emailNormalizado)
+          if (errUpd) {
+            setMensajeForm({ tipo: 'err', texto: `Usuario creado, pero no se pudo actualizar rol en empleados: ${errUpd.message}` })
+            setEnviando(false)
+            return
+          }
+        } else {
+          setMensajeForm({ tipo: 'err', texto: `Usuario creado, pero no se pudo registrar en empleados: ${errIns.message}` })
+          setEnviando(false)
+          return
+        }
       }
 
       setMensajeForm({ tipo: 'ok', texto: resultado.message })
@@ -197,11 +229,17 @@ const GestionEquipo = ({ user }) => {
         </div>
       )}
 
-      {licencias?.error === 'sin_perfil' && authReady && (
+      {licencias?.error === 'sin_perfil' && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm mb-6">
           No hay fila en <code className="text-xs bg-rose-100 px-1 rounded">public.profiles</code> para tu usuario.
           Tras aplicar la migración <code className="text-xs">gestion-equipo-licencias.sql</code>, inserta tu perfil o
           vuelve a registrarte para generarlo con el trigger.
+        </div>
+      )}
+
+      {licencias && Number(licencias?.disponibles ?? 0) <= 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-4">
+          Cupo de licencias agotado para esta agencia.
         </div>
       )}
 
@@ -237,6 +275,7 @@ const GestionEquipo = ({ user }) => {
                 <tr className="text-left text-slate-500 border-b border-slate-200">
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Nombre</th>
+                  <th className="px-4 py-3 font-medium">Rol</th>
                   <th className="px-4 py-3 font-medium">Alta</th>
                 </tr>
               </thead>
@@ -245,6 +284,7 @@ const GestionEquipo = ({ user }) => {
                   <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50/80">
                     <td className="px-4 py-3 text-slate-800">{m.email || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{m.nombre || '—'}</td>
+                    <td className="px-4 py-3 text-slate-700">{m.rol || '—'}</td>
                     <td className="px-4 py-3 text-slate-500">
                       {m.created_at
                         ? new Date(m.created_at).toLocaleString('es-ES', {
@@ -300,15 +340,16 @@ const GestionEquipo = ({ user }) => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Rol</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Rol de Acceso</label>
                 <select
-                  value={form.nivel_acceso}
-                  onChange={(e) => setForm((f) => ({ ...f, nivel_acceso: e.target.value }))}
+                  required
+                  value={form.rol}
+                  onChange={(e) => setForm((f) => ({ ...f, rol: e.target.value }))}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none"
                 >
-                  {NIVELES_ACCESO.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
+                  {ROLES_UI.map((rol) => (
+                    <option key={rol} value={rol}>
+                      {rol}
                     </option>
                   ))}
                 </select>
@@ -335,7 +376,7 @@ const GestionEquipo = ({ user }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={enviando}
+                  disabled={enviando || (licencias && Number(licencias?.disponibles ?? 0) <= 0)}
                   className="flex-1 py-2.5 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700 disabled:opacity-50"
                 >
                   {enviando ? 'Guardando…' : 'Crear cuenta'}

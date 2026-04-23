@@ -145,9 +145,9 @@ const AdminMaster = () => {
 
   const ajustarLimite = async (empresaId, delta) => {
     setAjusteId(empresaId)
-    const { error: err } = await supabase.rpc('master_ajustar_limite_staff', {
-      p_empresa_id: empresaId,
+    const { data, error: err } = await supabase.rpc('master_ajustar_limite_staff', {
       p_delta: delta,
+      p_empresa_id: empresaId,
     })
     setAjusteId(null)
     if (err) {
@@ -156,6 +156,13 @@ const AdminMaster = () => {
       } else {
         alert(err.message || 'No se pudo actualizar el límite.')
       }
+      return
+    }
+    const nuevoLimite = Number(data?.limite_usuarios_staff)
+    if (Number.isFinite(nuevoLimite) && nuevoLimite > 0) {
+      setAgencias((prev) =>
+        prev.map((row) => (row.id === empresaId ? { ...row, limite_usuarios_staff: nuevoLimite } : row))
+      )
       return
     }
     await cargar()

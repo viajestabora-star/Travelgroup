@@ -41,7 +41,10 @@ export async function verificarLicenciasYRegistrarMiembro(supabase, { email, pas
   let resumen = null
   try {
     const empresaIdNum = Number(empresa_id)
-    const rpcArgs = Number.isFinite(empresaIdNum) && empresaIdNum > 0 ? { p_empresa_id: empresaIdNum } : {}
+    if (!Number.isFinite(empresaIdNum) || empresaIdNum <= 0) {
+      return { ok: false, code: 'EMPRESA_ID', message: 'No se pudo identificar la empresa activa para validar licencias.' }
+    }
+    const rpcArgs = { p_empresa_id: empresaIdNum }
     const { data, error: errResumen } = await supabase.rpc('licencias_equipo_resumen', rpcArgs)
     if (errResumen) {
       const msg = String(errResumen.message || '')
@@ -80,6 +83,9 @@ export async function verificarLicenciasYRegistrarMiembro(supabase, { email, pas
   })
 
   if (fnError) {
+    if (/duplicate|already exists|ya existe|email/i.test(String(fnError.message || ''))) {
+      return { ok: false, code: 'DUPLICADO', message: 'El email ya existe en el sistema. Usa otro correo o restablece acceso.' }
+    }
     if (esErrorLimiteLicencias(fnError, fnData)) {
       return { ok: false, code: 'LIMITE', message: MENSAJE_SIN_LICENCIAS }
     }
