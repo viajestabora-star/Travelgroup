@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { UserPlus, Users, RefreshCw, Shield, X } from 'lucide-react'
+import { UserPlus, Users, RefreshCw, Shield, X, Pencil, Trash2 } from 'lucide-react'
 import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
 import { verificarLicenciasYRegistrarMiembro, MENSAJE_SIN_LICENCIAS } from '../utils/gestionEquipoRegistration'
 import { DEFAULT_EMPRESA_ID } from '../config/empresa'
@@ -29,6 +29,13 @@ const GestionEquipo = ({ user }) => {
   const [form, setForm] = useState(emptyForm)
   const [enviando, setEnviando] = useState(false)
   const [mensajeForm, setMensajeForm] = useState({ tipo: '', texto: '' })
+  const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [miembroObjetivo, setMiembroObjetivo] = useState(null)
+  const [rolEdit, setRolEdit] = useState('Staff')
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false)
+  const [borrandoMiembro, setBorrandoMiembro] = useState(false)
+  const [mensajeAccion, setMensajeAccion] = useState({ tipo: '', texto: '' })
 
   const [empresaSesion, setEmpresaSesion] = useState(() => {
     const emailSesion = String(user?.email || '').toLowerCase()
@@ -49,9 +56,9 @@ const GestionEquipo = ({ user }) => {
       return
     }
 
-    // ── 2. Obtener empresa_id del propio registro en empleados ────────────────
+    // ── 2. Obtener empresa_id del propio registro en profiles ─────────────────
     const { data: miPerfil, error: perfilErr } = await supabase
-      .from('empleados')
+      .from('profiles')
       .select('empresa_id')
       .eq('id', authUser.id)
       .maybeSingle()
@@ -75,10 +82,10 @@ const GestionEquipo = ({ user }) => {
     console.log('Mi empresa_id detectado:', empresaId)
     setEmpresaSesion(empresaId)
 
-    // ── 3. Cargar miembros de esa empresa ─────────────────────────────────────
+    // ── 3. Cargar miembros de esa empresa desde profiles ──────────────────────
     const { data, error: listErr } = await supabase
-      .from('empleados')
-      .select('id, email, rol, empresa_id, created_at')
+      .from('profiles')
+      .select('id, email, nombre, nivel_acceso, empresa_id, created_at')
       .eq('empresa_id', empresaId)
       .order('email', { ascending: true })
 
@@ -89,7 +96,11 @@ const GestionEquipo = ({ user }) => {
       setMiembros([])
       setErrorLista(listErr.message || 'No se pudo cargar el equipo.')
     } else {
-      setMiembros(Array.isArray(data) ? data : [])
+      const miembrosMapeados = (Array.isArray(data) ? data : []).map((m) => ({
+        ...m,
+        rol: m?.nivel_acceso || 'STAFF',
+      }))
+      setMiembros(miembrosMapeados)
       setErrorLista('')
     }
 
@@ -119,6 +130,93 @@ const GestionEquipo = ({ user }) => {
   const cerrarModal = () => {
     if (enviando) return
     setModalOpen(false)
+  }
+
+  const abrirModalEdicion = (miembro) => {
+    if (!miembro) return
+    setMiembroObjetivo(miembro)
+    const rolUiActual = ROLES_UI.find((r) => rolUiANivel[r] === String(miembro?.rol || '').toUpperCase()) || 'Staff'
+    setRolEdit(rolUiActual)
+    setMensajeAccion({ tipo: '', texto: '' })
+    setEditOpen(true)
+  }
+
+  const cerrarModalEdicion = () => {
+    if (guardandoEdicion) return
+    setEditOpen(false)
+    setMiembroObjetivo(null)
+  }
+
+  const abrirModalBorrado = (miembro) => {
+    if (!miembro) return
+    setMiembroObjetivo(miembro)
+    setMensajeAccion({ tipo: '', texto: '' })
+    setDeleteOpen(true)
+  }
+
+  const cerrarModalBorrado = () => {
+    if (borrandoMiembro) return
+    setDeleteOpen(false)
+    setMiembroObjetivo(null)
+  }
+
+  const guardarEdicionMiembro = async (e) => {
+    e.preventDefault()
+    if (!miembroObjetivo?.id) return
+    setMensajeAccion({ tipo: '', texto: '' })
+    setGuardandoEdicion(true)
+    try {
+      const nivel = normalizarNivelAccesoParaServidor(rolUiANivel[rolEdit] || rolEdit)
+      if (!nivel) {
+        setMensajeAccion({ tipo: 'err', texto: 'Selecciona un rol válido.' })
+        return
+      }
+      const { error } = await supabase
+        .from('profiles')
+        .update({ nivel_acceso: nivel })
+        .eq('id', miembroObjetivo.id)
+        .eq('empresa_id', empresaSesion)
+
+      if (error) {
+        setMensajeAccion({ tipo: 'err', texto: error.message || 'No se pudo actualizar el miembro.' })
+        return
+      }
+      setMensajeAccion({ tipo: 'ok', texto: 'Rol actualizado correctamente.' })
+      await cargar()
+      setTimeout(() => {
+        setEditOpen(false)
+        setMiembroObjetivo(null)
+        setMensajeAccion({ tipo: '', texto: '' })
+      }, 900)
+    } finally {
+      setGuardandoEdicion(false)
+    }
+  }
+
+  const confirmarBorradoMiembro = async () => {
+    if (!miembroObjetivo?.id) return
+    setMensajeAccion({ tipo: '', texto: '' })
+    setBorrandoMiembro(true)
+    try {
+      const { error } = await supabase.rpc('eliminar_miembro_equipo', {
+        user_id_to_delete: miembroObjetivo.id,
+        target_empresa_id: empresaSesion,
+      })
+
+      if (error) {
+        setMensajeAccion({ tipo: 'err', texto: error.message || 'No se pudo eliminar el miembro.' })
+        return
+      }
+      setMensajeAccion({ tipo: 'ok', texto: 'Miembro eliminado correctamente.' })
+      await cargar()
+      setTimeout(() => {
+        setDeleteOpen(false)
+        setMiembroObjetivo(null)
+        setMensajeAccion({ tipo: '', texto: '' })
+      }, 900)
+    } finally {
+      setBorrandoMiembro(false)
+    }
   }
 
   const onSubmitMiembro = async (e) => {
@@ -267,6 +365,7 @@ const GestionEquipo = ({ user }) => {
                   <th className="px-4 py-3 font-medium">Nombre</th>
                   <th className="px-4 py-3 font-medium">Rol</th>
                   <th className="px-4 py-3 font-medium">Alta</th>
+                  <th className="px-4 py-3 font-medium text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -282,6 +381,26 @@ const GestionEquipo = ({ user }) => {
                             timeStyle: 'short',
                           })
                         : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => abrirModalEdicion(m)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100"
+                        >
+                          <Pencil size={14} />
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => abrirModalBorrado(m)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50"
+                        >
+                          <Trash2 size={14} />
+                          Borrar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -376,6 +495,125 @@ const GestionEquipo = ({ user }) => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {editOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full border border-slate-200">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Editar miembro</h2>
+              <button
+                type="button"
+                onClick={cerrarModalEdicion}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-500"
+                aria-label="Cerrar"
+              >
+                <X size={22} />
+              </button>
+            </div>
+            <form onSubmit={guardarEdicionMiembro} className="p-5 space-y-4">
+              <div className="text-sm text-slate-700">
+                Miembro: <span className="font-semibold">{miembroObjetivo?.email || '—'}</span>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Rol de Acceso</label>
+                <select
+                  required
+                  value={rolEdit}
+                  onChange={(e) => setRolEdit(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none"
+                >
+                  {ROLES_UI.map((rol) => (
+                    <option key={rol} value={rol}>
+                      {rol}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {mensajeAccion.texto && (
+                <div
+                  className={`rounded-lg px-3 py-2 text-sm ${
+                    mensajeAccion.tipo === 'ok' ? 'bg-emerald-50 text-emerald-900' : 'bg-rose-50 text-rose-900'
+                  }`}
+                >
+                  {mensajeAccion.texto}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={cerrarModalEdicion}
+                  disabled={guardandoEdicion}
+                  className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-800 font-medium hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardandoEdicion}
+                  className="flex-1 py-2.5 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700 disabled:opacity-50"
+                >
+                  {guardandoEdicion ? 'Guardando…' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {deleteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full border border-slate-200">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Confirmar borrado</h2>
+              <button
+                type="button"
+                onClick={cerrarModalBorrado}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-500"
+                aria-label="Cerrar"
+              >
+                <X size={22} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-slate-700">
+                Esta acción eliminará al miembro <span className="font-semibold">{miembroObjetivo?.email || '—'}</span>.
+                ¿Deseas continuar?
+              </p>
+
+              {mensajeAccion.texto && (
+                <div
+                  className={`rounded-lg px-3 py-2 text-sm ${
+                    mensajeAccion.tipo === 'ok' ? 'bg-emerald-50 text-emerald-900' : 'bg-rose-50 text-rose-900'
+                  }`}
+                >
+                  {mensajeAccion.texto}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={cerrarModalBorrado}
+                  disabled={borrandoMiembro}
+                  className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-800 font-medium hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmarBorradoMiembro}
+                  disabled={borrandoMiembro}
+                  className="flex-1 py-2.5 rounded-lg bg-rose-600 text-white font-semibold hover:bg-rose-700 disabled:opacity-50"
+                >
+                  {borrandoMiembro ? 'Eliminando…' : 'Eliminar miembro'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
