@@ -39,65 +39,72 @@ const GestionEquipo = ({ user }) => {
   const cargar = useCallback(async () => {
     setCargando(true)
     setErrorLista('')
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
 
-    if (!session?.user) {
+    // ── 1. Usuario autenticado ────────────────────────────────────────────────
+    const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser()
+    if (authErr || !authUser) {
       setMiembros([])
       setLicencias(null)
       setCargando(false)
       return
     }
 
-    let empresaId = Number(user?.empresa_id)
-    const { data: perfil, error: perfilErr } = await supabase
-      .from('profiles')
+    // ── 2. Obtener empresa_id del propio registro en empleados ────────────────
+    const { data: miPerfil, error: perfilErr } = await supabase
+      .from('empleados')
       .select('empresa_id')
-      .eq('id', session.user.id)
+      .eq('id', authUser.id)
       .maybeSingle()
-    if (!perfilErr && Number(perfil?.empresa_id) > 0) {
-      empresaId = Number(perfil.empresa_id)
-    } else {
-      try {
-        const raw = localStorage.getItem('sesion_tabora')
-        const parsed = raw ? JSON.parse(raw) : null
-        if (Number(parsed?.empresa_id) > 0) empresaId = Number(parsed.empresa_id)
-      } catch {}
-      const emailSesion = String(session.user.email || user?.email || '').toLowerCase()
-      if ((!Number.isFinite(empresaId) || empresaId <= 0) && emailSesion.endsWith('@viajestabora.com')) empresaId = 1
+
+    let empresaId = Number(miPerfil?.empresa_id)
+
+    // Fallback: si no tiene fila en empleados aún, usar user_metadata o dominio
+    if (!Number.isFinite(empresaId) || empresaId <= 0) {
+      empresaId = Number(authUser.user_metadata?.empresa_id) || Number(authUser.app_metadata?.empresa_id) || 0
     }
-    if (!Number.isFinite(empresaId) || empresaId <= 0) empresaId = 1
-    setEmpresaSesion(empresaId)
-    console.log('Cargando miembros para empresa:', empresaId)
-
-    const [listRes, licRes] = await Promise.all([
-      supabase
-        .from('empleados')
-        .select('*')
-        .eq('empresa_id', 1),
-      supabase.rpc('licencias_equipo_resumen', { p_empresa_id: empresaId }),
-    ])
-    console.log('Datos recibidos de empleados:', listRes.data)
-    console.log('Error de Supabase:', listRes.error)
-
-    if (listRes.error) {
+    if (!Number.isFinite(empresaId) || empresaId <= 0) {
+      empresaId = String(authUser.email || '').toLowerCase().endsWith('@viajestabora.com') ? 1 : 0
+    }
+    if (empresaId <= 0) {
+      setErrorLista('No se pudo determinar la empresa del usuario autenticado.')
       setMiembros([])
-      setErrorLista(listRes.error.message || 'No se pudo cargar el equipo.')
+      setCargando(false)
+      return
+    }
+
+    console.log('Mi empresa_id detectado:', empresaId)
+    setEmpresaSesion(empresaId)
+
+    // ── 3. Cargar miembros de esa empresa ─────────────────────────────────────
+    const { data, error: listErr } = await supabase
+      .from('empleados')
+      .select('id, email, rol, empresa_id, created_at')
+      .eq('empresa_id', empresaId)
+      .order('email', { ascending: true })
+
+    console.log('Miembros recuperados:', data)
+
+    if (listErr) {
+      console.error('[GestionEquipo] Error al cargar empleados:', listErr)
+      setMiembros([])
+      setErrorLista(listErr.message || 'No se pudo cargar el equipo.')
     } else {
-      const miembrosData = Array.isArray(listRes.data) ? listRes.data : []
-      setMiembros(miembrosData)
+      setMiembros(Array.isArray(data) ? data : [])
       setErrorLista('')
     }
 
-    if (!licRes.error && licRes.data) {
-      setLicencias(licRes.data)
+    // ── 4. Licencias (paralelo no bloquea si falla) ───────────────────────────
+    const { data: licData, error: licErr } = await supabase.rpc('licencias_equipo_resumen', {
+      p_empresa_id: empresaId,
+    })
+    if (!licErr && licData) {
+      setLicencias(licData)
     } else {
       setLicencias(null)
     }
 
     setCargando(false)
-  }, [user?.empresa_id, user?.email])
+  }, [])
 
   useEffect(() => {
     cargar()
