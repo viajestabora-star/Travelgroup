@@ -38,27 +38,15 @@ export async function verificarLicenciasYRegistrarMiembro(supabase, { email, pas
     return { ok: false, code: 'PASSWORD', message: 'La contraseña debe tener al menos 6 caracteres.' }
   }
 
-  let resumen = null
-  try {
-    const empresaIdNum = Number(empresa_id)
-    if (!Number.isFinite(empresaIdNum) || empresaIdNum <= 0) {
-      return { ok: false, code: 'EMPRESA_ID', message: 'No se pudo identificar la empresa activa para validar licencias.' }
-    }
-    const rpcArgs = { p_empresa_id: empresaIdNum }
-    const { data, error: errResumen } = await supabase.rpc('licencias_equipo_resumen', rpcArgs)
-    if (errResumen) {
-      const msg = String(errResumen.message || '')
-      // Si la RPC no está desplegada, firma no coincide o falla RLS, no bloqueamos el alta.
-      if (/404|not found|function|permission|policy|denied|rls|42501/i.test(msg)) {
-        console.warn('[GestionEquipo] licencias_equipo_resumen no disponible; se continúa con validación local:', errResumen)
-      } else {
-        return { ok: false, code: 'RPC_LICENCIAS', message: errResumen.message }
-      }
-    } else {
-      resumen = data
-    }
-  } catch (err) {
-    console.warn('[GestionEquipo] Error llamando licencias_equipo_resumen; se continúa con validación local:', err)
+  const empresaIdNum = Number(empresa_id)
+  if (!Number.isFinite(empresaIdNum) || empresaIdNum <= 0) {
+    return { ok: false, code: 'EMPRESA_ID', message: 'No se pudo identificar la empresa activa para validar licencias.' }
+  }
+  const { data: resumen, error: errResumen } = await supabase.rpc('licencias_equipo_resumen', {
+    p_empresa_id: empresaIdNum,
+  })
+  if (errResumen) {
+    return { ok: false, code: 'RPC_LICENCIAS', message: errResumen.message || 'No se pudo validar el cupo de licencias.' }
   }
 
   if (resumen?.error === 'sin_perfil') {
@@ -70,12 +58,15 @@ export async function verificarLicenciasYRegistrarMiembro(supabase, { email, pas
     }
   }
 
-  // Solo aplicamos bloqueo por licencias cuando la RPC responde correctamente.
-  if (resumen) {
-    const disponibles = Number(resumen?.disponibles ?? 0)
-    if (!Number.isFinite(disponibles) || disponibles <= 0) {
-      return { ok: false, code: 'SIN_LICENCIAS', message: MENSAJE_SIN_LICENCIAS }
-    }
+  if (resumen?.disponibles == null) {
+    console.log('[GestionEquipo][DEBUG] disponibles nulo/undefined en licencias_equipo_resumen', {
+      p_empresa_id: empresaIdNum,
+      resumen,
+    })
+  }
+  const disponibles = Number(resumen?.disponibles ?? 0)
+  if (!Number.isFinite(disponibles) || disponibles <= 0) {
+    return { ok: false, code: 'SIN_LICENCIAS', message: MENSAJE_SIN_LICENCIAS }
   }
 
   const { data: fnData, error: fnError } = await supabase.functions.invoke('invite-team-member', {
@@ -86,9 +77,6 @@ export async function verificarLicenciasYRegistrarMiembro(supabase, { email, pas
     if (/duplicate|already exists|ya existe|email/i.test(String(fnError.message || ''))) {
       return { ok: false, code: 'DUPLICADO', message: 'El email ya existe en el sistema. Usa otro correo o restablece acceso.' }
     }
-    if (esErrorLimiteLicencias(fnError, fnData)) {
-      return { ok: false, code: 'LIMITE', message: MENSAJE_SIN_LICENCIAS }
-    }
     const hint =
       /Edge Function|FunctionsHttpError|Failed to fetch|non-2xx/i.test(String(fnError.message))
         ? ' Comprueba que la función invite-team-member esté desplegada en tu proyecto Supabase.'
@@ -96,12 +84,9 @@ export async function verificarLicenciasYRegistrarMiembro(supabase, { email, pas
     return { ok: false, code: 'INVITE', message: (fnError.message || 'Error al invitar.') + hint }
   }
 
-  if (fnData && typeof fnData === 'object' && fnData.error === 'LIMITE_USUARIOS_ALCANZADO') {
-    return { ok: false, code: 'LIMITE', message: MENSAJE_SIN_LICENCIAS }
-  }
   if (fnData && typeof fnData === 'object' && fnData.ok === false) {
-    if (fnData.error === 'LIMITE_USUARIOS_ALCANZADO') {
-      return { ok: false, code: 'LIMITE', message: MENSAJE_SIN_LICENCIAS }
+    if (/duplicate|already exists|ya existe|email/i.test(String(fnData.error || ''))) {
+      return { ok: false, code: 'DUPLICADO', message: 'El email ya existe en el sistema. Usa otro correo o restablece acceso.' }
     }
     return { ok: false, code: 'INVITE_BODY', message: String(fnData.error || 'No se pudo crear el usuario.') }
   }

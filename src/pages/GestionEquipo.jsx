@@ -2,10 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { UserPlus, Users, RefreshCw, Shield, X } from 'lucide-react'
 import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
-import {
-  verificarLicenciasYRegistrarMiembro,
-  MENSAJE_SIN_LICENCIAS,
-} from '../utils/gestionEquipoRegistration'
+import { verificarLicenciasYRegistrarMiembro, MENSAJE_SIN_LICENCIAS } from '../utils/gestionEquipoRegistration'
 import { DEFAULT_EMPRESA_ID } from '../config/empresa'
 
 const emptyForm = () => ({
@@ -90,6 +87,12 @@ const GestionEquipo = ({ user }) => {
 
     if (!licRes.error && licRes.data) {
       setLicencias(licRes.data)
+      if (licRes.data?.disponibles == null) {
+        console.log('[GestionEquipo][DEBUG] disponibles nulo/undefined al cargar licencias', {
+          p_empresa_id: empresaId,
+          data: licRes.data,
+        })
+      }
     } else {
       setLicencias(null)
     }
@@ -120,6 +123,12 @@ const GestionEquipo = ({ user }) => {
       setMensajeForm({ tipo: 'err', texto: 'El email es obligatorio.' })
       return
     }
+    const disponiblesRpc = Number(licencias?.disponibles ?? 0)
+    if (licencias && (!Number.isFinite(disponiblesRpc) || disponiblesRpc <= 0)) {
+      setMensajeForm({ tipo: 'err', texto: MENSAJE_SIN_LICENCIAS })
+      return
+    }
+
     setEnviando(true)
     try {
       const nivel = normalizarNivelAccesoParaServidor(rolUiANivel[form.rol] || form.rol)
@@ -137,10 +146,7 @@ const GestionEquipo = ({ user }) => {
       })
 
       if (!resultado.ok) {
-        const esLimite =
-          resultado.code === 'LIMITE' ||
-          resultado.code === 'SIN_LICENCIAS' ||
-          resultado.message === MENSAJE_SIN_LICENCIAS
+        const esLimite = resultado.code === 'SIN_LICENCIAS' || resultado.message === MENSAJE_SIN_LICENCIAS
         setMensajeForm({
           tipo: 'err',
           texto: esLimite ? MENSAJE_SIN_LICENCIAS : resultado.message,
