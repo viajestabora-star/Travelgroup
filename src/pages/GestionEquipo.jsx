@@ -33,6 +33,7 @@ const GestionEquipo = ({ user }) => {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [miembroObjetivo, setMiembroObjetivo] = useState(null)
   const [rolEdit, setRolEdit] = useState('Staff')
+  const [nombreEdit, setNombreEdit] = useState('')
   const [guardandoEdicion, setGuardandoEdicion] = useState(false)
   const [borrandoMiembro, setBorrandoMiembro] = useState(false)
   const [mensajeAccion, setMensajeAccion] = useState({ tipo: '', texto: '' })
@@ -82,22 +83,19 @@ const GestionEquipo = ({ user }) => {
     console.log('Mi empresa_id detectado:', empresaId)
     setEmpresaSesion(empresaId)
 
-    // ── 3. Cargar miembros de esa empresa desde profiles ──────────────────────
-    const { data, error: listErr } = await supabase
-      .from('profiles')
-      .select('id, email, nombre, nivel_acceso, empresa_id, created_at')
-      .eq('empresa_id', empresaId)
-      .order('email', { ascending: true })
+    // ── 3. Cargar miembros via RPC (SECURITY DEFINER → bypasea RLS) ───────────
+    const { data, error: listErr } = await supabase.rpc('listar_equipo_mi_empresa')
 
     console.log('Miembros recuperados:', data)
 
     if (listErr) {
-      console.error('[GestionEquipo] Error al cargar empleados:', listErr)
+      console.error('[GestionEquipo] Error al cargar equipo:', listErr)
       setMiembros([])
       setErrorLista(listErr.message || 'No se pudo cargar el equipo.')
     } else {
       const miembrosMapeados = (Array.isArray(data) ? data : []).map((m) => ({
         ...m,
+        empresa_id: empresaId,
         rol: m?.nivel_acceso || 'STAFF',
       }))
       setMiembros(miembrosMapeados)
@@ -137,6 +135,7 @@ const GestionEquipo = ({ user }) => {
     setMiembroObjetivo(miembro)
     const rolUiActual = ROLES_UI.find((r) => rolUiANivel[r] === String(miembro?.rol || '').toUpperCase()) || 'Staff'
     setRolEdit(rolUiActual)
+    setNombreEdit(miembro?.nombre || '')
     setMensajeAccion({ tipo: '', texto: '' })
     setEditOpen(true)
   }
@@ -171,9 +170,10 @@ const GestionEquipo = ({ user }) => {
         setMensajeAccion({ tipo: 'err', texto: 'Selecciona un rol válido.' })
         return
       }
+      const nombreFinal = String(nombreEdit || '').trim()
       const { error } = await supabase
         .from('profiles')
-        .update({ nivel_acceso: nivel })
+        .update({ nivel_acceso: nivel, nombre: nombreFinal || null })
         .eq('id', miembroObjetivo.id)
         .eq('empresa_id', empresaSesion)
 
@@ -181,7 +181,7 @@ const GestionEquipo = ({ user }) => {
         setMensajeAccion({ tipo: 'err', texto: error.message || 'No se pudo actualizar el miembro.' })
         return
       }
-      setMensajeAccion({ tipo: 'ok', texto: 'Rol actualizado correctamente.' })
+      setMensajeAccion({ tipo: 'ok', texto: 'Miembro actualizado correctamente.' })
       await cargar()
       setTimeout(() => {
         setEditOpen(false)
@@ -515,10 +515,20 @@ const GestionEquipo = ({ user }) => {
             </div>
             <form onSubmit={guardarEdicionMiembro} className="p-5 space-y-4">
               <div className="text-sm text-slate-700">
-                Miembro: <span className="font-semibold">{miembroObjetivo?.email || '—'}</span>
+                Email: <span className="font-semibold">{miembroObjetivo?.email || '—'}</span>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Rol de Acceso</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre</label>
+                <input
+                  type="text"
+                  value={nombreEdit}
+                  onChange={(e) => setNombreEdit(e.target.value)}
+                  placeholder="Nombre del miembro"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nivel de Acceso</label>
                 <select
                   required
                   value={rolEdit}
@@ -581,8 +591,11 @@ const GestionEquipo = ({ user }) => {
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-slate-700">
-                Esta acción eliminará al miembro <span className="font-semibold">{miembroObjetivo?.email || '—'}</span>.
-                ¿Deseas continuar?
+                ¿Estás seguro de que deseas eliminar a{' '}
+                <span className="font-semibold">
+                  {miembroObjetivo?.nombre || miembroObjetivo?.email || '—'}
+                </span>
+                ? Esta acción es definitiva.
               </p>
 
               {mensajeAccion.texto && (
