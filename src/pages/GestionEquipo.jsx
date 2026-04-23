@@ -21,6 +21,7 @@ const rolUiANivel = {
 
 const GestionEquipo = ({ user }) => {
   const isAdmin = esUsuarioAdmin(user)
+  const canManageTeam = String(user?.nivel_acceso || '') === 'Admin' || String(user?.nivel_acceso || '').toUpperCase() === 'ADMIN'
   const [miembros, setMiembros] = useState([])
   const [licencias, setLicencias] = useState(null)
   const [cargando, setCargando] = useState(true)
@@ -84,19 +85,18 @@ const GestionEquipo = ({ user }) => {
     setEmpresaSesion(empresaId)
 
     // ── 3. Cargar miembros via RPC (SECURITY DEFINER → bypasea RLS) ───────────
-    const { data, error: listErr } = await supabase.rpc('listar_equipo_mi_empresa')
-
+    const { data, error } = await supabase.rpc('listar_equipo_mi_empresa')
+    console.log("Respuesta DB:", data, "Error DB:", error)
     console.log('Miembros recuperados:', data)
 
-    if (listErr) {
-      console.error('[GestionEquipo] Error al cargar equipo:', listErr)
+    if (error) {
+      console.error('[GestionEquipo] Error al cargar equipo:', error)
       setMiembros([])
-      setErrorLista(listErr.message || 'No se pudo cargar el equipo.')
+      setErrorLista(error.message || 'No se pudo cargar el equipo.')
     } else {
       const miembrosMapeados = (Array.isArray(data) ? data : []).map((m) => ({
         ...m,
         empresa_id: empresaId,
-        rol: m?.nivel_acceso || 'STAFF',
       }))
       setMiembros(miembrosMapeados)
       setErrorLista('')
@@ -120,6 +120,7 @@ const GestionEquipo = ({ user }) => {
   }, [cargar])
 
   const abrirModal = () => {
+    if (!canManageTeam) return
     setForm(emptyForm())
     setMensajeForm({ tipo: '', texto: '' })
     setModalOpen(true)
@@ -131,9 +132,10 @@ const GestionEquipo = ({ user }) => {
   }
 
   const abrirModalEdicion = (miembro) => {
+    if (!canManageTeam) return
     if (!miembro) return
     setMiembroObjetivo(miembro)
-    const rolUiActual = ROLES_UI.find((r) => rolUiANivel[r] === String(miembro?.rol || '').toUpperCase()) || 'Staff'
+    const rolUiActual = ROLES_UI.find((r) => rolUiANivel[r] === String(miembro?.nivel_acceso || '').toUpperCase()) || 'Staff'
     setRolEdit(rolUiActual)
     setNombreEdit(miembro?.nombre || '')
     setMensajeAccion({ tipo: '', texto: '' })
@@ -147,6 +149,7 @@ const GestionEquipo = ({ user }) => {
   }
 
   const abrirModalBorrado = (miembro) => {
+    if (!canManageTeam) return
     if (!miembro) return
     setMiembroObjetivo(miembro)
     setMensajeAccion({ tipo: '', texto: '' })
@@ -332,15 +335,17 @@ const GestionEquipo = ({ user }) => {
       )}
 
       <div className="flex justify-end mb-4">
-        <button
-          type="button"
-          onClick={abrirModal}
-          disabled={!!errorLista}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <UserPlus size={20} />
-          Añadir miembro
-        </button>
+        {canManageTeam && (
+          <button
+            type="button"
+            onClick={abrirModal}
+            disabled={!!errorLista}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <UserPlus size={20} />
+            Añadir miembro
+          </button>
+        )}
       </div>
 
       {errorLista && (
@@ -373,7 +378,7 @@ const GestionEquipo = ({ user }) => {
                   <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50/80">
                     <td className="px-4 py-3 text-slate-800">{m.email || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{m.nombre || '—'}</td>
-                    <td className="px-4 py-3 text-slate-700">{m.rol || '—'}</td>
+                    <td className="px-4 py-3 text-slate-700">{m.nivel_acceso || '—'}</td>
                     <td className="px-4 py-3 text-slate-500">
                       {m.created_at
                         ? new Date(m.created_at).toLocaleString('es-ES', {
@@ -383,24 +388,26 @@ const GestionEquipo = ({ user }) => {
                         : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => abrirModalEdicion(m)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100"
-                        >
-                          <Pencil size={14} />
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => abrirModalBorrado(m)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50"
-                        >
-                          <Trash2 size={14} />
-                          Borrar
-                        </button>
-                      </div>
+                      {canManageTeam && (
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => abrirModalEdicion(m)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100"
+                          >
+                            <Pencil size={14} />
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => abrirModalBorrado(m)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50"
+                          >
+                            <Trash2 size={14} />
+                            Borrar
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
