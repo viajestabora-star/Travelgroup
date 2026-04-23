@@ -74,8 +74,8 @@ const GestionEquipo = ({ user }) => {
     const [listRes, licRes] = await Promise.all([
       supabase
         .from('empleados')
-        .select('id, email, nombre, rol, created_at, empresa_id')
-        .eq('empresa_id', empresaId)
+        .select('*')
+        .eq('empresa_id', 1)
         .order('created_at', { ascending: false }),
       supabase.rpc('licencias_equipo_resumen', { p_empresa_id: empresaId }),
     ])
@@ -89,7 +89,9 @@ const GestionEquipo = ({ user }) => {
         setErrorLista(listRes.error.message || 'No se pudo cargar el equipo.')
       }
     } else {
-      setMiembros(Array.isArray(listRes.data) ? listRes.data : [])
+      const miembrosData = Array.isArray(listRes.data) ? listRes.data : []
+      if (miembrosData.length === 0) console.log(miembrosData)
+      setMiembros(miembrosData)
       setErrorLista('')
     }
 
@@ -160,7 +162,7 @@ const GestionEquipo = ({ user }) => {
         return
       }
 
-      setMensajeForm({ tipo: 'ok', texto: resultado.message })
+      setMensajeForm({ tipo: 'ok', texto: 'Usuario creado correctamente' })
       setForm(emptyForm())
       await cargar()
       setTimeout(() => {
