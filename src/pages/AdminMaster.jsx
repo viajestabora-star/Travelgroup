@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Building2, RefreshCw, Pencil, X, Save, ShieldAlert,
   Calculator, Euro, Users, Mail, Phone, MapPin, FileText,
-  UserCog, Check, AlertCircle,
+  UserCog, Check, AlertCircle, UserPlus, KeyRound,
 } from 'lucide-react'
 import { supabase } from '../supabase'
 import { useSaasManagement } from '../hooks/useSaasManagement'
@@ -288,15 +288,24 @@ const EmpresaTab = ({ row, esMatriz, onSave, onClose }) => {
 // ─── Pestaña: Usuarios de la agencia ─────────────────────────────────────────
 
 const UsuariosTab = ({ empresaId }) => {
-  const [usuarios, setUsuarios]           = useState([])
-  const [loadingU, setLoadingU]           = useState(true)
-  const [errorU, setErrorU]               = useState('')
-  const [editingId, setEditingId]         = useState(null)
-  const [editNombre, setEditNombre]       = useState('')
-  const [editRol, setEditRol]             = useState('Staff')
-  const [savingId, setSavingId]           = useState(null)
-  const [userMsg, setUserMsg]             = useState({ id: null, tipo: '', texto: '' })
+  // ── Estado lista de usuarios ─────────────────────────────────────────────
+  const [usuarios, setUsuarios]     = useState([])
+  const [loadingU, setLoadingU]     = useState(true)
+  const [errorU, setErrorU]         = useState('')
+  const [editingId, setEditingId]   = useState(null)
+  const [editNombre, setEditNombre] = useState('')
+  const [editRol, setEditRol]       = useState('Staff')
+  const [savingId, setSavingId]     = useState(null)
+  const [userMsg, setUserMsg]       = useState({ id: null, tipo: '', texto: '' })
 
+  // ── Estado formulario creación admin ────────────────────────────────────
+  const [crearOpen, setCrearOpen]       = useState(false)
+  const [crearEmail, setCrearEmail]     = useState('')
+  const [crearPass, setCrearPass]       = useState('')
+  const [creando, setCreando]           = useState(false)
+  const [crearMsg, setCrearMsg]         = useState({ tipo: '', texto: '' })
+
+  // ── Carga de usuarios ────────────────────────────────────────────────────
   const cargar = useCallback(async () => {
     if (!empresaId) return
     setLoadingU(true)
@@ -317,6 +326,7 @@ const UsuariosTab = ({ empresaId }) => {
 
   useEffect(() => { cargar() }, [cargar])
 
+  // ── Edición de usuario existente ─────────────────────────────────────────
   const abrirEdicion = (u) => {
     setEditingId(u.id)
     setEditNombre(u.nombre || '')
@@ -356,22 +366,170 @@ const UsuariosTab = ({ empresaId }) => {
     }, 800)
   }
 
+  // ── Creación de administrador inicial ────────────────────────────────────
+  const crearAdmin = async (e) => {
+    e.preventDefault()
+    const emailNorm = crearEmail.trim().toLowerCase()
+    if (!emailNorm) {
+      setCrearMsg({ tipo: 'err', texto: 'El email es obligatorio.' })
+      return
+    }
+    if (crearPass.length < 6) {
+      setCrearMsg({ tipo: 'err', texto: 'La contraseña debe tener al menos 6 caracteres.' })
+      return
+    }
+
+    setCreando(true)
+    setCrearMsg({ tipo: '', texto: '' })
+
+    // 1. Crear usuario en Supabase Auth
+    const { data: authData, error: authErr } = await supabase.auth.signUp({
+      email: emailNorm,
+      password: crearPass,
+      options: {
+        data: { empresa_id: empresaId, nivel_acceso: 'ADMIN' },
+      },
+    })
+
+    if (authErr) {
+      setCrearMsg({ tipo: 'err', texto: authErr.message || 'No se pudo crear el usuario en Auth.' })
+      setCreando(false)
+      return
+    }
+
+    const userId = authData?.user?.id
+    if (!userId) {
+      // signUp puede devolver user null si ya existe (Supabase lo silencia)
+      setCrearMsg({ tipo: 'err', texto: 'El email ya tiene una cuenta registrada, o bien necesita confirmación de email. Comprueba en Supabase.' })
+      setCreando(false)
+      return
+    }
+
+    // 2. Asegurar/crear perfil en profiles con empresa_id y nivel ADMIN
+    const { error: profErr } = await supabase
+      .from('profiles')
+      .upsert(
+        { id: userId, email: emailNorm, empresa_id: empresaId, nivel_acceso: 'ADMIN' },
+        { onConflict: 'id' },
+      )
+
+    setCreando(false)
+
+    if (profErr) {
+      setCrearMsg({
+        tipo: 'err',
+        texto: `Auth creado (${userId}) pero el perfil falló: ${profErr.message}. Actualiza el perfil manualmente.`,
+      })
+      return
+    }
+
+    setCrearMsg({ tipo: 'ok', texto: `Admin creado: ${emailNorm}. Entrega el email y contraseña al cliente.` })
+    setCrearEmail('')
+    setCrearPass('')
+    await cargar()
+    setTimeout(() => {
+      setCrearOpen(false)
+      setCrearMsg({ tipo: '', texto: '' })
+    }, 2500)
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
   if (loadingU) return <div className="flex-1 p-8 text-center text-slate-500">Cargando usuarios…</div>
 
   return (
     <div className="overflow-y-auto flex-1 p-5 space-y-3">
+
+      {/* ── Panel: Crear administrador inicial ── */}
+      <div className="rounded-lg border border-emerald-200 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => { setCrearOpen((o) => !o); setCrearMsg({ tipo: '', texto: '' }) }}
+          className="w-full flex items-center justify-between px-4 py-3 bg-emerald-50 hover:bg-emerald-100 text-sm font-semibold text-emerald-800 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <UserPlus size={16} />
+            Crear administrador inicial
+          </span>
+          <span className="text-emerald-500 text-xs">{crearOpen ? '▲ Ocultar' : '▼ Mostrar'}</span>
+        </button>
+
+        {crearOpen && (
+          <form onSubmit={crearAdmin} className="px-4 pb-4 pt-3 space-y-3 bg-white border-t border-emerald-100">
+            <p className="text-xs text-slate-500">
+              Crea el primer acceso Admin para esta agencia. El cliente podrá iniciar sesión directamente
+              en el ERP con estas credenciales.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  <span className="flex items-center gap-1"><Mail size={11} />Email</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  autoComplete="off"
+                  value={crearEmail}
+                  onChange={(e) => setCrearEmail(e.target.value)}
+                  placeholder="admin@agencia.com"
+                  className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-slate-900 text-sm focus:ring-2 focus:ring-emerald-400 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  <span className="flex items-center gap-1"><KeyRound size={11} />Contraseña temporal</span>
+                </label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={crearPass}
+                  onChange={(e) => setCrearPass(e.target.value)}
+                  placeholder="Mín. 6 caracteres"
+                  className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-slate-900 text-sm focus:ring-2 focus:ring-emerald-400 outline-none"
+                />
+              </div>
+            </div>
+
+            {crearMsg.texto && (
+              <div className={`rounded-lg px-3 py-2 text-xs flex items-start gap-1.5 ${
+                crearMsg.tipo === 'ok'
+                  ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                  : 'bg-rose-50 text-rose-800 border border-rose-200'
+              }`}>
+                {crearMsg.tipo === 'ok' ? <Check size={13} className="shrink-0 mt-0.5" /> : <AlertCircle size={13} className="shrink-0 mt-0.5" />}
+                {crearMsg.texto}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={creando}
+              className="w-full inline-flex items-center justify-center gap-2 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"
+            >
+              <UserPlus size={15} />
+              {creando ? 'Creando cuenta…' : 'Crear Administrador'}
+            </button>
+          </form>
+        )}
+      </div>
+
+      {/* ── Error carga lista ── */}
       {errorU && (
         <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
           <AlertCircle size={15} className="shrink-0" />{errorU}
         </div>
       )}
 
+      {/* ── Lista vacía ── */}
       {usuarios.length === 0 && !errorU && (
-        <div className="py-10 text-center text-slate-500 text-sm">
-          No hay usuarios registrados en esta agencia.
+        <div className="py-8 text-center text-slate-400 text-sm">
+          Esta agencia aún no tiene usuarios. Usa el panel de arriba para crear el primer administrador.
         </div>
       )}
 
+      {/* ── Tarjetas de usuarios ── */}
       {usuarios.map((u) => {
         const isEditing = editingId === u.id
         const isSaving  = savingId  === u.id
