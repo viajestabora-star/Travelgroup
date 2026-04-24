@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { toSlug } from './utils/slugify';
+import SlugGuard from './components/SlugGuard';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -75,6 +77,9 @@ function App() {
 
   const session = user;
 
+  // Slug URL-safe de la empresa del usuario (calculado igual que en EmpresaContext).
+  const empresaSlug = toSlug(session?.nombre_app || NOMBRE_APP_DEFAULT);
+
   useEffect(() => {
     if (session?.email) {
       aplicarMarcaDocumento(session.nombre_app || NOMBRE_APP_DEFAULT, session.favicon_url);
@@ -96,18 +101,31 @@ function App() {
       <EmpresaProvider user={session}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={
+          {/* ── Raíz → slug de la empresa ── */}
+          <Route path="/" element={<Navigate to={`/${empresaSlug}`} replace />} />
+
+          {/* ── Redirects de compatibilidad: rutas sin slug → con slug ──
+              Los guards internos (AdminRouteGuard, etc.) redirigen a rutas absolutas
+              como /dashboard o /cierres; estas rutas las capturan y añaden el slug. */}
+          {['dashboard','clientes','expedientes','proveedores','planning','crm',
+            'notas','composer','cierres','historial-cierres','inteligencia-economica',
+            'gestion-equipo','admin-master'].map((p) => (
+            <Route key={p} path={`/${p}`} element={<Navigate to={`/${empresaSlug}/${p}`} replace />} />
+          ))}
+
+          {/* ── Rutas principales bajo /:slug ── */}
+          <Route path="/:slug" element={
             <ProtectedRoute user={session}>
-              <Layout user={session} onLogout={handleLogout} />
+              <SlugGuard>
+                <Layout user={session} onLogout={handleLogout} />
+              </SlugGuard>
             </ProtectedRoute>
           }>
-            {/* Redirección inicial según perfil */}
+            {/* Redirección inicial según perfil (paths relativos dentro de /:slug) */}
             <Route index element={
-              Number(session?.empresa_id) === 1
-                ? <Navigate to="/dashboard" replace />
-                : (esUsuarioGestoria(session)
-                    ? <Navigate to="/cierres" replace />
-                    : <Navigate to="/dashboard" replace />)
+              esUsuarioGestoria(session)
+                ? <Navigate to="cierres" replace />
+                : <Navigate to="dashboard" replace />
             } />
 
             {/* ── Accesibles a todos ── */}

@@ -325,6 +325,7 @@ const Expedientes = ({ user = null }) => {
         supabase
           .from('expedientes')
           .select('*')
+          .eq('empresa_id', empresaId)         // AISLAMIENTO: solo expedientes de esta empresa
           .order('fecha_inicio', { ascending: true, nullsFirst: false })
       ).finally(() => setIsLoading(false))
 

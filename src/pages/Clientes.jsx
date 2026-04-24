@@ -35,12 +35,14 @@ const Clientes = ({ user = null }) => {
 
   useEffect(() => { fetchClientesData() }, [])
 
-  // Función maestra de refresco: obtiene clientes desde Supabase y actualiza el estado
+  // Función maestra de refresco: obtiene clientes de la empresa en sesión
   const fetchClientesData = async () => {
+    if (!empresaId) return
     const { data, error } = await supabase
       .from('clientes')
       .select('*')
-      .order('nombre', { ascending: true }) // Regla 1.14: Clientes A-Z por nombre
+      .eq('empresa_id', empresaId)           // AISLAMIENTO: solo clientes de esta empresa
+      .order('nombre', { ascending: true })  // Regla 1.14: Clientes A-Z por nombre
     if (!error) setClientes(data || [])
   }
 
@@ -103,6 +105,7 @@ const Clientes = ({ user = null }) => {
       const { data, error } = await supabase
         .from('expedientes')
         .select('*')
+        .eq('empresa_id', empresaId)           // AISLAMIENTO: solo expedientes de esta empresa
         .ilike('cliente_nombre', nombreNormalizado)
         .order('fecha_inicio', { ascending: true, nullsFirst: false })
 

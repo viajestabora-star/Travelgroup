@@ -134,32 +134,33 @@ const Layout = ({ user, onLogout }) => {
   const nombreMarca = user?.nombre_app && String(user.nombre_app).trim() ? String(user.nombre_app).trim() : NOMBRE_APP_DEFAULT
 
   const menuItems = useMemo(() => {
+    // Paths RELATIVOS (sin "/" inicial) ? React Router los resolver? bajo /:slug autom?ticamente.
     const base = [
-      { path: '/dashboard',         icon: LayoutDashboard, label: 'Panel de Control' },
-      { path: '/clientes',          icon: Users,           label: 'Clientes' },
-      { path: '/notas',             icon: Briefcase,       label: 'NOTAS DE TRABAJO' },
-      { path: '/expedientes',       icon: FileText,        label: `Expedientes ${ejercicioActual}` },
-      { path: '/proveedores',       icon: Truck,           label: 'Proveedores' },
-      { path: '/planning',          icon: Calendar,        label: `Planning ${ejercicioActual}` },
-      { path: '/crm',               icon: Plane,           label: 'CRM / Captación' },
-      { path: '/composer',             icon: Edit3,      label: 'Composer' },
-      { path: '/cierres',              icon: Calculator, label: 'Cierres' },
+      { path: 'dashboard',              icon: LayoutDashboard, label: 'Panel de Control' },
+      { path: 'clientes',               icon: Users,           label: 'Clientes' },
+      { path: 'notas',                  icon: Briefcase,       label: 'NOTAS DE TRABAJO' },
+      { path: 'expedientes',            icon: FileText,        label: `Expedientes ${ejercicioActual}` },
+      { path: 'proveedores',            icon: Truck,           label: 'Proveedores' },
+      { path: 'planning',               icon: Calendar,        label: `Planning ${ejercicioActual}` },
+      { path: 'crm',                    icon: Plane,           label: 'CRM / Captación' },
+      { path: 'composer',               icon: Edit3,           label: 'Composer' },
+      { path: 'cierres',                icon: Calculator,      label: 'Cierres' },
     ]
     if (puedeAccederCierresEconomicos(user)) {
-      base.push({ path: '/historial-cierres', icon: History, label: 'Cierres Económicos' })
+      base.push({ path: 'historial-cierres',      icon: History,    label: 'Cierres Económicos' })
     }
     if (esAdmin || esGestoria) {
-      base.push({ path: '/inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })
+      base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })
     }
     if (esAdmin) {
-      base.push({ path: '/gestion-equipo', icon: UserCog, label: 'Gestión de Equipo' })
+      base.push({ path: 'gestion-equipo',         icon: UserCog,    label: 'Gestión de Equipo' })
     }
     if (puedeAccederAdminMaster(user)) {
-      base.push({ path: '/admin-master', icon: Shield, label: 'Panel Master' })
+      base.push({ path: 'admin-master',            icon: Shield,     label: 'Panel Master' })
     }
-    // Gestoría: filtrar solo secciones autorizadas
+    // Gestoría: filtrar solo secciones autorizadas (comparaci?n con paths relativos)
     if (esGestoria) {
-      const permitidas = new Set(['/cierres', '/historial-cierres', '/proveedores', '/inteligencia-economica', '/crm'])
+      const permitidas = new Set(['cierres', 'historial-cierres', 'proveedores', 'inteligencia-economica', 'crm'])
       return base.filter(item => permitidas.has(item.path))
     }
     return base

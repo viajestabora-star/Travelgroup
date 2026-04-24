@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useMemo } from 'react'
+import { toSlug } from '../utils/slugify'
 
 const EmpresaContext = createContext({
   empresaId: 1,
+  empresaSlug: 'mi-agencia',
   withEmpresaId: (payload) => payload,
 })
 
@@ -23,12 +25,20 @@ export const EmpresaProvider = ({ user = null, children }) => {
     return 1
   }, [user?.empresa_id, user?.email])
 
+  // Slug URL-safe derivado del nombre de la app (marca blanca) o del empresa_id como fallback.
+  // Ejemplo: "Viajes Tabora" → "viajes-tabora"
+  const empresaSlug = useMemo(
+    () => toSlug(user?.nombre_app || `empresa-${empresaId}`),
+    [user?.nombre_app, empresaId],
+  )
+
   const value = useMemo(
     () => ({
       empresaId,
+      empresaSlug,
       withEmpresaId: (payload) => inyectarEmpresaId(payload, empresaId),
     }),
-    [empresaId]
+    [empresaId, empresaSlug],
   )
 
   return <EmpresaContext.Provider value={value}>{children}</EmpresaContext.Provider>
