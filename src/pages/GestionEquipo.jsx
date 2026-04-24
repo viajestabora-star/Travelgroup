@@ -47,7 +47,6 @@ const GestionEquipo = ({ user }) => {
   })
 
   const cargar = useCallback(async () => {
-    alert('Cargar ejecutándose')
     setCargando(true)
     setErrorLista('')
 
@@ -314,25 +313,41 @@ const GestionEquipo = ({ user }) => {
         </div>
       )}
 
-      {licencias && Number.isFinite(Number(licencias?.disponibles)) && Number(licencias.disponibles) <= 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-4">
-          Cupo de licencias agotado para esta agencia.
-        </div>
-      )}
-
-      <div className="flex justify-end mb-4">
-        {canManageTeam && (
-          <button
-            type="button"
-            onClick={abrirModal}
-            disabled={!!errorLista}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <UserPlus size={20} />
-            Añadir miembro
-          </button>
-        )}
-      </div>
+      {(() => {
+        // Límite de licencias: se bloquea cuando los miembros actuales alcanzan max_usuarios
+        const maxLic    = Number(licencias?.max)
+        const limiteAlcanzado = licencias != null && Number.isFinite(maxLic) && miembros.length >= maxLic
+        return (
+          <>
+            {limiteAlcanzado && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-4 flex items-center gap-2">
+                <Shield size={16} className="shrink-0 text-amber-600" />
+                Has alcanzado el límite de <strong className="mx-1">{maxLic}</strong> licencias contratadas.
+                Contacta con Tabora para ampliar tu plan.
+              </div>
+            )}
+            {!limiteAlcanzado && licencias && Number.isFinite(Number(licencias?.disponibles)) && Number(licencias.disponibles) <= 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-4">
+                Cupo de licencias agotado para esta agencia.
+              </div>
+            )}
+            <div className="flex justify-end mb-4">
+              {canManageTeam && (
+                <button
+                  type="button"
+                  onClick={abrirModal}
+                  disabled={!!errorLista || limiteAlcanzado}
+                  title={limiteAlcanzado ? `Límite de ${maxLic} licencias alcanzado` : undefined}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <UserPlus size={20} />
+                  Añadir miembro
+                </button>
+              )}
+            </div>
+          </>
+        )
+      })()}
 
       {errorLista && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm mb-4">{errorLista}</div>
@@ -347,7 +362,7 @@ const GestionEquipo = ({ user }) => {
           <div className="p-8 text-center text-slate-500">Cargando…</div>
         ) : miembros.length === 0 ? (
           <div className="p-8 text-center text-slate-500">
-            Cargando miembros de la empresa {empresaSesion}…
+            No hay miembros registrados en la empresa #{empresaSesion}.
           </div>
         ) : (
           <div className="overflow-x-auto">
