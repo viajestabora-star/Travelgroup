@@ -1,58 +1,136 @@
-import React, { useState } from 'react'
-import { Building2, RefreshCw, Pencil, X, Save, ShieldAlert } from 'lucide-react'
+import React, { useMemo, useState } from 'react'
+import {
+  Building2, RefreshCw, Pencil, X, Save, ShieldAlert,
+  Calculator, Euro, Users, Mail, Phone, MapPin, FileText,
+} from 'lucide-react'
 import { useSaasManagement } from '../hooks/useSaasManagement'
 
-// CIF de la empresa raíz — sus campos críticos quedan protegidos contra edición accidental
+// ─── Constantes ──────────────────────────────────────────────────────────────
+
 const CIF_MATRIZ = 'B98998107'
 
-const PLANES_DISPONIBLES = ['basic', 'professional', 'enterprise']
+const PLANES = ['basic', 'professional', 'enterprise']
 
-const resolveId      = (row) => row?.id ?? row?.empresa_id ?? null
-const resolveNombre  = (row) => row?.nombre_comercial || row?.empresa || row?.nombre || row?.razon_social || '—'
-const resolveCif     = (row) => row?.cif || row?.nif || row?.vat || '—'
-const resolvePlan    = (row) => row?.tipo_plan || row?.plan || row?.nombre_plan || '—'
-const resolveMaxU    = (row) => row?.max_usuarios ?? row?.limite_usuarios_staff ?? '—'
-const resolveFecha   = (row) => {
-  const v = row?.fecha_expiracion
+// ─── Helpers de resolución (lectura desde la vista) ──────────────────────────
+
+const resolveId    = (row) => row?.id ?? row?.empresa_id ?? null
+const resolveNombre = (row) =>
+  row?.nombre_comercial || row?.saas_razon_social || row?.nombre || '—'
+const resolveCif   = (row) =>
+  row?.cif || row?.saas_nif || row?.nif || '—'
+// columna correcta en BD: plan_tipo (no tipo_plan)
+const resolvePlan  = (row) =>
+  row?.plan_tipo || row?.tipo_plan || row?.saas_nombre_plan || '—'
+const resolveMaxU  = (row) =>
+  row?.max_usuarios ?? row?.saas_max_usuarios ?? row?.limite_usuarios_staff ?? '—'
+const resolveFecha = (row) => {
+  const v = row?.fecha_expiracion ?? row?.saas_fecha_expiracion
   if (!v) return '—'
   try { return String(v).slice(0, 10) } catch { return '—' }
 }
 const resolveSuscripcion = (row) => {
-  if (typeof row?.suscripcion_activa === 'boolean') return row.suscripcion_activa ? 'Activa' : 'Inactiva'
-  return row?.estado_suscripcion || row?.suscripcion || '—'
+  const v = row?.suscripcion_activa ?? row?.saas_suscripcion_activa
+  if (typeof v === 'boolean') return v ? 'Activa' : 'Inactiva'
+  return row?.estado_suscripcion || '—'
+}
+const resolvePrecioBase  = (row) => row?.saas_precio_pack_base      ?? 60
+const resolvePrecioExtra = (row) => row?.saas_precio_usuario_extra  ?? 12
+
+// ─── Cálculo de coste mensual ─────────────────────────────────────────────────
+
+const calcCoste = (precioBase, precioExtra, maxUsuarios) => {
+  const base  = Number(precioBase)  || 0
+  const extra = Number(precioExtra) || 0
+  const users = Number(maxUsuarios) || 0
+  return base + users * extra
 }
 
+// ─── Estado inicial del formulario ───────────────────────────────────────────
+
 const buildForm = (row) => ({
-  nombre_comercial:  row?.nombre_comercial  || row?.nombre  || '',
-  tipo_plan:         row?.tipo_plan         || row?.plan    || '',
-  max_usuarios:      row?.max_usuarios      ?? row?.limite_usuarios_staff ?? 1,
-  suscripcion_activa: typeof row?.suscripcion_activa === 'boolean' ? row.suscripcion_activa : true,
-  fecha_expiracion:  row?.fecha_expiracion  ? String(row.fecha_expiracion).slice(0, 10) : '',
+  // ── Operativos ──
+  nombre_comercial:    row?.nombre_comercial   || '',
+  plan_tipo:           row?.plan_tipo          || row?.tipo_plan || '',
+  max_usuarios:        Number(row?.max_usuarios ?? row?.saas_max_usuarios ?? row?.limite_usuarios_staff ?? 1),
+  suscripcion_activa:  typeof (row?.suscripcion_activa ?? row?.saas_suscripcion_activa) === 'boolean'
+                         ? (row?.suscripcion_activa ?? row?.saas_suscripcion_activa)
+                         : true,
+  fecha_expiracion:    (row?.fecha_expiracion ?? row?.saas_fecha_expiracion)
+                         ? String(row?.fecha_expiracion ?? row?.saas_fecha_expiracion).slice(0, 10)
+                         : '',
+  // ── Datos fiscales y de contacto (saas_) ──
+  saas_razon_social:       row?.saas_razon_social       || '',
+  saas_nif:                row?.saas_nif                || '',
+  saas_email_facturacion:  row?.saas_email_facturacion  || '',
+  saas_telefono:           row?.saas_telefono           || '',
+  saas_direccion:          row?.saas_direccion          || '',
+  // ── Precios ──
+  saas_precio_pack_base:     Number(row?.saas_precio_pack_base     ?? 60),
+  saas_precio_usuario_extra: Number(row?.saas_precio_usuario_extra ?? 12),
 })
 
-// ─── Modal de edición ────────────────────────────────────────────────────────
+// ─── Sección del formulario ───────────────────────────────────────────────────
+
+const Seccion = ({ titulo, children }) => (
+  <fieldset className="rounded-lg border border-slate-200 p-4 space-y-3">
+    <legend className="px-1 text-xs font-bold text-slate-500 uppercase tracking-wider">
+      {titulo}
+    </legend>
+    {children}
+  </fieldset>
+)
+
+const Campo = ({ label, children, hint }) => (
+  <div>
+    <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+    {children}
+    {hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
+  </div>
+)
+
+const inputCls =
+  'w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-violet-500 outline-none text-sm'
+const inputDisabledCls =
+  'w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-slate-400 cursor-not-allowed text-sm'
+
+// ─── Modal de edición ─────────────────────────────────────────────────────────
+
 const EditModal = ({ row, onClose, onSave }) => {
-  const esMatriz = resolveCif(row) === CIF_MATRIZ
+  const esMatriz              = resolveCif(row) === CIF_MATRIZ
   const [form, setForm]       = useState(buildForm(row))
   const [saving, setSaving]   = useState(false)
   const [saveMsg, setSaveMsg] = useState({ tipo: '', texto: '' })
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
+  const costeEstimado = useMemo(
+    () => calcCoste(form.saas_precio_pack_base, form.saas_precio_usuario_extra, form.max_usuarios),
+    [form.saas_precio_pack_base, form.saas_precio_usuario_extra, form.max_usuarios],
+  )
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setSaveMsg({ tipo: '', texto: '' })
     setSaving(true)
 
+    // Mapa exacto de columna BD → valor del formulario
     const changes = {
-      nombre_comercial:   form.nombre_comercial.trim() || null,
-      suscripcion_activa: form.suscripcion_activa,
-      fecha_expiracion:   form.fecha_expiracion || null,
-      max_usuarios:       Number(form.max_usuarios) || 1,
-    }
-    // plan_tipo solo se modifica si no es la empresa matriz
-    if (!esMatriz) {
-      changes.tipo_plan = form.tipo_plan.trim() || null
+      // operativos
+      nombre_comercial:          form.nombre_comercial.trim()    || null,
+      suscripcion_activa:        form.suscripcion_activa,
+      fecha_expiracion:          form.fecha_expiracion            || null,
+      max_usuarios:              Number(form.max_usuarios)        || 1,
+      // plan_tipo: columna real en BD (no tipo_plan)
+      ...(esMatriz ? {} : { plan_tipo: form.plan_tipo.trim() || null }),
+      // datos fiscales y de contacto (saas_)
+      saas_razon_social:         form.saas_razon_social.trim()        || null,
+      saas_nif:                  form.saas_nif.trim()                  || null,
+      saas_email_facturacion:    form.saas_email_facturacion.trim()    || null,
+      saas_telefono:             form.saas_telefono.trim()             || null,
+      saas_direccion:            form.saas_direccion.trim()            || null,
+      // precios
+      saas_precio_pack_base:     Number(form.saas_precio_pack_base)    || 60,
+      saas_precio_usuario_extra: Number(form.saas_precio_usuario_extra) || 12,
     }
 
     try {
@@ -68,15 +146,18 @@ const EditModal = ({ row, onClose, onSave }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full border border-slate-200">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl border border-slate-200 flex flex-col max-h-[90vh]">
 
-        {/* Cabecera */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+        {/* ── Cabecera ── */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-2">
             <Pencil size={18} className="text-violet-600" />
-            <h2 className="text-lg font-bold text-slate-900">
-              Editar empresa
-            </h2>
+            <h2 className="text-lg font-bold text-slate-900">Editar empresa</h2>
+            {esMatriz && (
+              <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                <ShieldAlert size={12} /> Matriz
+              </span>
+            )}
           </div>
           <button
             type="button"
@@ -89,135 +170,246 @@ const EditModal = ({ row, onClose, onSave }) => {
           </button>
         </div>
 
-        {/* Aviso si es la empresa matriz */}
+        {/* ── Aviso matriz ── */}
         {esMatriz && (
-          <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
-            <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
+          <div className="mx-5 mt-4 shrink-0 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+            <ShieldAlert size={15} className="mt-0.5 shrink-0 text-amber-600" />
             <span>
-              Esta es la <strong>empresa matriz</strong> (CIF {CIF_MATRIZ}). Los campos
-              <strong> CIF</strong> y <strong>Plan</strong> están protegidos para evitar
-              bloqueos accidentales del sistema.
+              Empresa matriz (CIF <strong>{CIF_MATRIZ}</strong>).
+              Los campos <strong>CIF</strong> y <strong>Plan</strong> están
+              protegidos para evitar bloqueos accidentales del sistema.
             </span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+        {/* ── Formulario (scrollable) ── */}
+        <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 p-5 space-y-4">
 
-          {/* Nombre comercial */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">
-              Nombre comercial
-            </label>
-            <input
-              type="text"
-              value={form.nombre_comercial}
-              onChange={(e) => set('nombre_comercial', e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-violet-500 outline-none"
-              placeholder="Nombre de la empresa"
-            />
-          </div>
-
-          {/* Plan */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">
-              Plan
-              {esMatriz && (
-                <span className="ml-2 text-amber-600 font-normal">(protegido)</span>
-              )}
-            </label>
-            {esMatriz ? (
+          {/* ── 1. DATOS OPERATIVOS ── */}
+          <Seccion titulo="Datos operativos">
+            <Campo label="Nombre comercial">
               <input
                 type="text"
-                value={resolvePlan(row)}
-                disabled
-                className="w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-slate-400 cursor-not-allowed"
+                value={form.nombre_comercial}
+                onChange={(e) => set('nombre_comercial', e.target.value)}
+                className={inputCls}
+                placeholder="Nombre de la empresa"
               />
-            ) : (
-              <select
-                value={form.tipo_plan}
-                onChange={(e) => set('tipo_plan', e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 bg-white focus:ring-2 focus:ring-violet-500 outline-none"
-              >
-                <option value="">— Sin plan asignado —</option>
-                {PLANES_DISPONIBLES.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-                {/* Incluye el valor actual aunque no esté en la lista predefinida */}
-                {form.tipo_plan && !PLANES_DISPONIBLES.includes(form.tipo_plan) && (
-                  <option value={form.tipo_plan}>{form.tipo_plan}</option>
-                )}
-              </select>
-            )}
-          </div>
+            </Campo>
 
-          {/* Máximo de usuarios */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">
-              Máx. usuarios
-            </label>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={form.max_usuarios}
-              onChange={(e) => set('max_usuarios', Math.max(1, parseInt(e.target.value, 10) || 1))}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-violet-500 outline-none"
-            />
-          </div>
-
-          {/* Suscripción activa */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">
-              Estado de suscripción
-            </label>
-            <select
-              value={form.suscripcion_activa ? 'true' : 'false'}
-              onChange={(e) => set('suscripcion_activa', e.target.value === 'true')}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 bg-white focus:ring-2 focus:ring-violet-500 outline-none"
+            <Campo
+              label={
+                <>
+                  Plan
+                  {esMatriz && (
+                    <span className="ml-2 text-amber-600 font-normal">(protegido)</span>
+                  )}
+                </>
+              }
             >
-              <option value="true">Activa</option>
-              <option value="false">Inactiva</option>
-            </select>
-          </div>
+              {esMatriz ? (
+                <input
+                  type="text"
+                  value={resolvePlan(row)}
+                  disabled
+                  className={inputDisabledCls}
+                />
+              ) : (
+                <select
+                  value={form.plan_tipo}
+                  onChange={(e) => set('plan_tipo', e.target.value)}
+                  className={`${inputCls} bg-white`}
+                >
+                  <option value="">— Sin plan asignado —</option>
+                  {PLANES.map((p) => <option key={p} value={p}>{p}</option>)}
+                  {form.plan_tipo && !PLANES.includes(form.plan_tipo) && (
+                    <option value={form.plan_tipo}>{form.plan_tipo}</option>
+                  )}
+                </select>
+              )}
+            </Campo>
 
-          {/* Fecha de expiración */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">
-              Fecha de expiración
-            </label>
-            <input
-              type="date"
-              value={form.fecha_expiracion}
-              onChange={(e) => set('fecha_expiracion', e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-violet-500 outline-none"
-            />
-          </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label="Estado suscripción">
+                <select
+                  value={form.suscripcion_activa ? 'true' : 'false'}
+                  onChange={(e) => set('suscripcion_activa', e.target.value === 'true')}
+                  className={`${inputCls} bg-white`}
+                >
+                  <option value="true">Activa</option>
+                  <option value="false">Inactiva</option>
+                </select>
+              </Campo>
 
-          {/* Mensaje de resultado */}
+              <Campo label="Fecha de expiración">
+                <input
+                  type="date"
+                  value={form.fecha_expiracion}
+                  onChange={(e) => set('fecha_expiracion', e.target.value)}
+                  className={inputCls}
+                />
+              </Campo>
+            </div>
+          </Seccion>
+
+          {/* ── 2. DATOS FISCALES Y DE CONTACTO (saas_) ── */}
+          <Seccion titulo="Datos fiscales y de contacto">
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label={<span className="flex items-center gap-1"><FileText size={12} />Razón social</span>}>
+                <input
+                  type="text"
+                  value={form.saas_razon_social}
+                  onChange={(e) => set('saas_razon_social', e.target.value)}
+                  className={inputCls}
+                  placeholder="saas_razon_social"
+                />
+              </Campo>
+
+              <Campo
+                label={
+                  <>
+                    <span className="flex items-center gap-1"><FileText size={12} />NIF / CIF</span>
+                    {esMatriz && (
+                      <span className="ml-2 text-amber-600 font-normal">(protegido)</span>
+                    )}
+                  </>
+                }
+              >
+                <input
+                  type="text"
+                  value={form.saas_nif}
+                  onChange={(e) => set('saas_nif', e.target.value)}
+                  disabled={esMatriz}
+                  className={esMatriz ? inputDisabledCls : inputCls}
+                  placeholder="saas_nif"
+                />
+              </Campo>
+            </div>
+
+            <Campo label={<span className="flex items-center gap-1"><Mail size={12} />Email de facturación</span>}>
+              <input
+                type="email"
+                value={form.saas_email_facturacion}
+                onChange={(e) => set('saas_email_facturacion', e.target.value)}
+                className={inputCls}
+                placeholder="saas_email_facturacion"
+              />
+            </Campo>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label={<span className="flex items-center gap-1"><Phone size={12} />Teléfono</span>}>
+                <input
+                  type="tel"
+                  value={form.saas_telefono}
+                  onChange={(e) => set('saas_telefono', e.target.value)}
+                  className={inputCls}
+                  placeholder="saas_telefono"
+                />
+              </Campo>
+
+              <Campo label={<span className="flex items-center gap-1"><MapPin size={12} />Dirección</span>}>
+                <input
+                  type="text"
+                  value={form.saas_direccion}
+                  onChange={(e) => set('saas_direccion', e.target.value)}
+                  className={inputCls}
+                  placeholder="saas_direccion"
+                />
+              </Campo>
+            </div>
+          </Seccion>
+
+          {/* ── 3. PRECIOS Y LICENCIAS ── */}
+          <Seccion titulo="Precios y licencias">
+            <div className="grid grid-cols-3 gap-3 items-end">
+              <Campo
+                label={<span className="flex items-center gap-1"><Euro size={12} />Precio pack base</span>}
+                hint="saas_precio_pack_base"
+              >
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">€</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={form.saas_precio_pack_base}
+                    onChange={(e) => set('saas_precio_pack_base', parseFloat(e.target.value) || 0)}
+                    className={`${inputCls} pl-7`}
+                  />
+                </div>
+              </Campo>
+
+              <Campo
+                label={<span className="flex items-center gap-1"><Users size={12} />Precio usuario extra</span>}
+                hint="saas_precio_usuario_extra"
+              >
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">€</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={form.saas_precio_usuario_extra}
+                    onChange={(e) => set('saas_precio_usuario_extra', parseFloat(e.target.value) || 0)}
+                    className={`${inputCls} pl-7`}
+                  />
+                </div>
+              </Campo>
+
+              <Campo label={<span className="flex items-center gap-1"><Users size={12} />Máx. usuarios</span>}>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={form.max_usuarios}
+                  onChange={(e) => set('max_usuarios', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className={inputCls}
+                />
+              </Campo>
+            </div>
+
+            {/* ── Cálculo informativo ── */}
+            <div className="flex items-center gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 mt-1">
+              <Calculator size={18} className="text-violet-500 shrink-0" />
+              <div className="flex-1 text-sm text-violet-900">
+                <span className="font-semibold">Coste mensual estimado: </span>
+                <span className="font-bold text-violet-700 text-base">
+                  {costeEstimado.toFixed(2)} €
+                </span>
+                <span className="text-xs text-violet-600 ml-2">
+                  ({form.saas_precio_pack_base} € base
+                  {' + '}
+                  {form.max_usuarios} × {form.saas_precio_usuario_extra} € / usuario)
+                </span>
+              </div>
+            </div>
+          </Seccion>
+
+          {/* ── Mensaje resultado ── */}
           {saveMsg.texto && (
-            <div className={`rounded-lg px-3 py-2 text-sm ${
+            <div className={`rounded-lg px-3 py-2 text-sm border ${
               saveMsg.tipo === 'ok'
-                ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
-                : 'bg-rose-50 text-rose-900 border border-rose-200'
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                : 'bg-rose-50 text-rose-900 border-rose-200'
             }`}>
               {saveMsg.texto}
             </div>
           )}
 
-          {/* Acciones */}
-          <div className="flex gap-2 pt-2">
+          {/* ── Acciones ── */}
+          <div className="flex gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
               disabled={saving}
-              className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-800 font-medium hover:bg-slate-50 disabled:opacity-50"
+              className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-800 font-medium hover:bg-slate-50 disabled:opacity-50 text-sm"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 disabled:opacity-50"
+              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 disabled:opacity-50 text-sm"
             >
               <Save size={16} />
               {saving ? 'Guardando…' : 'Guardar cambios'}
@@ -229,7 +421,8 @@ const EditModal = ({ row, onClose, onSave }) => {
   )
 }
 
-// ─── Componente principal ────────────────────────────────────────────────────
+// ─── Componente principal ─────────────────────────────────────────────────────
+
 const AdminMaster = () => {
   const { rows, loading, error, reload, updateEmpresa } = useSaasManagement()
   const [editingRow, setEditingRow] = useState(null)
@@ -247,7 +440,7 @@ const AdminMaster = () => {
           <p className="text-slate-600 mt-1 text-sm">
             Gestión SaaS — fuente:{' '}
             <code className="text-xs bg-slate-100 px-1 rounded">vista_gestion_saas</code>.
-            Edición directa sobre tabla{' '}
+            Escritura directa sobre tabla{' '}
             <code className="text-xs bg-slate-100 px-1 rounded">empresas</code>.
           </p>
         </div>
@@ -287,17 +480,23 @@ const AdminMaster = () => {
               <thead>
                 <tr className="text-left text-slate-500 border-b border-slate-200">
                   <th className="px-4 py-3 font-medium">Empresa</th>
-                  <th className="px-4 py-3 font-medium">CIF</th>
+                  <th className="px-4 py-3 font-medium">CIF / NIF</th>
                   <th className="px-4 py-3 font-medium">Plan</th>
-                  <th className="px-4 py-3 font-medium">Máx. usuarios</th>
+                  <th className="px-4 py-3 font-medium text-center">Usuarios</th>
                   <th className="px-4 py-3 font-medium">Suscripción</th>
                   <th className="px-4 py-3 font-medium">Expira</th>
+                  <th className="px-4 py-3 font-medium text-right">Coste/mes</th>
                   <th className="px-4 py-3 font-medium text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row, idx) => {
-                  const esMatriz = resolveCif(row) === CIF_MATRIZ
+                  const esMatriz    = resolveCif(row) === CIF_MATRIZ
+                  const costeRow    = calcCoste(
+                    resolvePrecioBase(row),
+                    resolvePrecioExtra(row),
+                    resolveMaxU(row),
+                  )
                   return (
                     <tr
                       key={resolveId(row) ?? idx}
@@ -309,18 +508,18 @@ const AdminMaster = () => {
                             <ShieldAlert
                               size={14}
                               className="text-amber-500 shrink-0"
-                              title="Empresa matriz — campos críticos protegidos"
+                              title="Empresa matriz"
                             />
                           )}
                           {resolveNombre(row)}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-700 font-mono">{resolveCif(row)}</td>
+                      <td className="px-4 py-3 text-slate-700 font-mono text-xs">{resolveCif(row)}</td>
                       <td className="px-4 py-3 text-slate-700">{resolvePlan(row)}</td>
                       <td className="px-4 py-3 text-slate-700 text-center">{resolveMaxU(row)}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${
-                          row?.suscripcion_activa
+                          (row?.suscripcion_activa ?? row?.saas_suscripcion_activa)
                             ? 'bg-emerald-100 text-emerald-700'
                             : 'bg-rose-100 text-rose-700'
                         }`}>
@@ -328,6 +527,9 @@ const AdminMaster = () => {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-600 font-mono text-xs">{resolveFecha(row)}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-violet-700 text-xs">
+                        {Number.isFinite(costeRow) ? `${costeRow.toFixed(2)} €` : '—'}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
