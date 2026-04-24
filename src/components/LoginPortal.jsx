@@ -55,12 +55,23 @@ const LoginPortal = ({ onSesion }) => {
     // Modo emergencia: no bloquear login si profiles/rpc falla.
     // Se crea perfil temporal en memoria y se fuerza empresa_id=1 para andres@viajestabora.com.
     const empresaTemporal = emailNorm === 'andres@viajestabora.com' ? 1 : DEFAULT_EMPRESA_ID
+    const empresaIdSesion = u.empresa_id ?? empresaTemporal
+    let cifEmpresa = null
+    if (empresaIdSesion != null) {
+      const { data: empresaData } = await supabase
+        .from('empresas')
+        .select('cif')
+        .eq('id', Number(empresaIdSesion))
+        .maybeSingle()
+      cifEmpresa = empresaData?.cif ?? null
+    }
     const sesion = {
       email: u.email || emailNorm,
       nombre: u.nombre || emailNorm.split('@')[0],
       nivel_acceso: u.nivel_acceso || (emailNorm === 'andres@viajestabora.com' ? 'ADMIN' : 'STAFF'),
-      empresa_id: u.empresa_id ?? empresaTemporal,
+      empresa_id: empresaIdSesion,
       id: u.id,
+      cif: cifEmpresa,
       nombre_app: u.nombre_app || NOMBRE_APP_DEFAULT,
       favicon_url: u.favicon_url || null,
     }
