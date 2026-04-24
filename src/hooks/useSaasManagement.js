@@ -24,9 +24,29 @@ export const useSaasManagement = () => {
     setLoading(false)
   }, [])
 
+  /**
+   * Actualiza un registro en la tabla `empresas` y refleja el cambio localmente
+   * sin necesidad de recargar toda la vista.
+   * @param {number} id  — id de la empresa a actualizar
+   * @param {object} changes — campos a modificar (snake_case, coinciden con columnas de empresas)
+   * @throws {Error} si Supabase devuelve un error
+   */
+  const updateEmpresa = useCallback(async (id, changes) => {
+    const { error: err } = await supabase
+      .from('empresas')
+      .update(changes)
+      .eq('id', id)
+
+    if (err) throw err
+
+    setRows((prev) =>
+      prev.map((r) => ((r.id ?? r.empresa_id) === id ? { ...r, ...changes } : r))
+    )
+  }, [])
+
   useEffect(() => {
     reload()
   }, [reload])
 
-  return { rows, loading, error, reload }
+  return { rows, loading, error, reload, updateEmpresa }
 }
