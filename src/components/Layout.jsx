@@ -152,7 +152,7 @@ const Layout = ({ user, onLogout }) => {
     if (esAdmin || esGestoria) {
       base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })
     }
-    if (esAdmin) {
+    if (!esGestoria) {
       base.push({ path: 'gestion-equipo',         icon: UserCog,    label: 'Gestión de Equipo' })
     }
     if (puedeAccederAdminMaster(user)) {

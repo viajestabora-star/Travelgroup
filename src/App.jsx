@@ -21,14 +21,14 @@ import GestionEquipo from './pages/GestionEquipo';
 import AdminMaster from './pages/AdminMaster';
 import SuscripcionExpirada from './pages/SuscripcionExpirada';
 import AdminRouteGuard from './components/AdminRouteGuard';
-import AdminOnlyRouteGuard from './components/AdminOnlyRouteGuard';
 import AdminMasterRouteGuard from './components/AdminMasterRouteGuard';
 import { esUsuarioGestoria, puedeAccederCierresEconomicos } from './utils/userRoles';
 import { sincronizarNivelAccesoEnSesion } from './utils/nivelAcceso';
-import { DEFAULT_EMPRESA_ID } from './config/empresa';
 import LoginPortal from './components/LoginPortal';
 import { aplicarMarcaDocumento, NOMBRE_APP_DEFAULT } from './utils/marcaBlanca';
 import { EmpresaProvider } from './context/EmpresaContext';
+import { supabase } from './supabase';
+import { setTenantEmpresaId, clearTenantEmpresaId } from './utils/tenantDb';
 
 /** Ruta `/historial-cierres`: solo ADMIN o GESTORIA; resto → panel principal. */
 function CierresEconomicosRoute({ user }) {
@@ -55,18 +55,102 @@ function App() {
       if (!stored) return null;
       const parsed = JSON.parse(stored);
       if (!parsed || !parsed.email) return null;
-      return sincronizarNivelAccesoEnSesion({
+      // Sin empresa_id válido → sesión inválida (no usar DEFAULT_EMPRESA_ID como fallback)
+      if (!(Number(parsed.empresa_id) > 0)) return null;
+      const u = sincronizarNivelAccesoEnSesion({
         ...parsed,
-        empresa_id: parsed.empresa_id ?? DEFAULT_EMPRESA_ID,
-        nombre_app: parsed.nombre_app ?? NOMBRE_APP_DEFAULT,
+        nombre_app:  parsed.nombre_app  ?? NOMBRE_APP_DEFAULT,
         favicon_url: parsed.favicon_url ?? null,
       });
-    } catch (e) {
+      // Activar el filtro de tenant desde el arranque (antes del primer render)
+      setTenantEmpresaId(u.empresa_id);
+      return u;
+    } catch (_) {
       return null;
     }
   });
+
+  // ── Verificación JWT al montar ────────────────────────────────────────────
+  // Compara el empresa_id del localStorage con el del JWT real de Supabase Auth.
+  // Si hay discrepancia o el JWT no tiene empresa_id, corrige o cierra sesión.
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncSession = async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authUser = sessionData?.session?.user;
+      if (!authUser) return; // Sin sesión activa → flujo de login ya lo gestiona
+
+      // Intentar empresa_id desde JWT claims
+      let empresa_idReal =
+        Number(authUser.app_metadata?.empresa_id) ||
+        Number(authUser.user_metadata?.empresa_id) ||
+        0;
+
+      // Si no viene en JWT, leer desde profiles (sin tenant filter: profiles no está en ERP_TABLES)
+      if (!empresa_idReal) {
+        const { data: perfil } = await supabase
+          .from('profiles')
+          .select('empresa_id')
+          .eq('id', authUser.id)
+          .maybeSingle();
+        empresa_idReal = Number(perfil?.empresa_id) || 0;
+      }
+
+      if (cancelled) return;
+
+      if (!empresa_idReal) {
+        // Sin empresa_id real → sesión corrupta, forzar logout
+        console.warn('[App] Sin empresa_id en sesión JWT/profiles → cerrando sesión');
+        await supabase.auth.signOut();
+        localStorage.removeItem('sesion_tabora');
+        setUser(null);
+        return;
+      }
+
+      // Corregir si el localStorage tiene un empresa_id diferente al del JWT
+      setUser((prev) => {
+        if (!prev) return prev;
+        if (Number(prev.empresa_id) === empresa_idReal) {
+          setTenantEmpresaId(empresa_idReal);
+          return prev;
+        }
+        console.warn('[App] Discrepancia empresa_id: localStorage=%s JWT=%s → corrigiendo', prev.empresa_id, empresa_idReal);
+        const corrected = { ...prev, empresa_id: empresa_idReal };
+        localStorage.setItem('sesion_tabora', JSON.stringify(corrected));
+        setTenantEmpresaId(empresa_idReal);
+        return corrected;
+      });
+
+      // Completar empresa_slug si no está en la sesión guardada
+      const rawStored = localStorage.getItem('sesion_tabora');
+      if (rawStored) {
+        try {
+          const stored = JSON.parse(rawStored);
+          if (!stored.empresa_slug) {
+            const { data: emp } = await supabase
+              .from('empresas')
+              .select('cif, nombre_comercial')
+              .eq('id', empresa_idReal)
+              .maybeSingle();
+            if (emp && !cancelled) {
+              const empresa_slug = toSlug(emp.nombre_comercial || `empresa-${empresa_idReal}`);
+              const updated = { ...stored, cif: emp.cif ?? stored.cif, empresa_slug };
+              localStorage.setItem('sesion_tabora', JSON.stringify(updated));
+              setUser((prev) => prev ? { ...prev, cif: updated.cif, empresa_slug } : prev);
+            }
+          }
+        } catch (_) {}
+      }
+    };
+
+    syncSession();
+    return () => { cancelled = true; };
+  }, []);
+
   const handleLogout = async () => {
     await registrarSalida();
+    clearTenantEmpresaId();
     localStorage.removeItem('sesion_tabora');
     setUser(null);
     window.location.href = '/';
@@ -77,8 +161,8 @@ function App() {
 
   const session = user;
 
-  // Slug URL-safe de la empresa del usuario (calculado igual que en EmpresaContext).
-  const empresaSlug = toSlug(session?.nombre_app || NOMBRE_APP_DEFAULT);
+  // Slug URL-safe de la empresa (prioriza empresa_slug guardado en sesión)
+  const empresaSlug = session?.empresa_slug || toSlug(session?.nombre_app || NOMBRE_APP_DEFAULT);
 
   useEffect(() => {
     if (session?.email) {
@@ -147,7 +231,7 @@ function App() {
             <Route path="planning"    element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Planning user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
             <Route path="crm"         element={<ProtectedRoute user={session}><CRM user={session} /></ProtectedRoute>} />
             <Route path="notas"       element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><NotasTrabajo user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
-            <Route path="composer"             element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Composer user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
+            <Route path="composer"    element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Composer user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
 
             {/* ── Inteligencia Económica: ADMIN + GESTORIA ── */}
             <Route
@@ -160,18 +244,20 @@ function App() {
                 </ProtectedRoute>
               }
             />
+
+            {/* ── Gestión de Equipo: todos los no-gestores (Admin + Staff de cualquier empresa) ── */}
             <Route
               path="gestion-equipo"
               element={
                 <ProtectedRoute user={session}>
                   <GestoriaBlockGuard user={session}>
-                    <AdminOnlyRouteGuard user={session}>
-                      <GestionEquipo user={session} />
-                    </AdminOnlyRouteGuard>
+                    <GestionEquipo user={session} />
                   </GestoriaBlockGuard>
                 </ProtectedRoute>
               }
             />
+
+            {/* ── Panel Master: solo Tabora ── */}
             <Route
               path="admin-master"
               element={

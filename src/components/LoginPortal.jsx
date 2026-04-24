@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { sincronizarNivelAccesoEnSesion } from '../utils/nivelAcceso'
 import { aplicarMarcaDocumento, NOMBRE_APP_DEFAULT } from '../utils/marcaBlanca'
-import { DEFAULT_EMPRESA_ID } from '../config/empresa'
+import { setTenantEmpresaId } from '../utils/tenantDb'
+import { toSlug } from '../utils/slugify'
 
 /**
  * Login unificado: solo Supabase Auth + perfil en public.profiles.
@@ -38,10 +39,12 @@ const LoginPortal = ({ onSesion }) => {
     e.preventDefault()
     setMensaje('')
     setCargando(true)
-    const { error } = await supabase.auth.signInWithPassword({ email: emailNorm, password: pass })
-    if (error) {
+
+    // 1. Autenticar con Supabase Auth
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: emailNorm, password: pass })
+    if (authError) {
       setCargando(false)
-      const msg = String(error.message || '')
+      const msg = String(authError.message || '')
       if (/invalid login credentials|invalid credentials/i.test(msg)) {
         setMensaje('Email o contraseña incorrectos. Si aún no activaste acceso, crea tu contraseña desde el enlace de invitación.')
       } else {
@@ -49,39 +52,67 @@ const LoginPortal = ({ onSesion }) => {
       }
       return
     }
-    let { data: ui, error: e2 } = await supabase.rpc('sesion_usuario_ui')
+
+    // 2. Obtener el userId del JWT (fuente de verdad: Supabase Auth)
+    const { data: sessionData } = await supabase.auth.getSession()
+    const authUser = sessionData?.session?.user
+    const userId = authUser?.id
+
+    if (!userId) {
+      setCargando(false)
+      await supabase.auth.signOut()
+      setMensaje('No se pudo verificar la sesión. Inténtalo de nuevo.')
+      return
+    }
+
+    // 3. Leer empresa_id directamente desde la tabla profiles — sin RPC, sin fallbacks
+    const { data: perfil, error: perfilError } = await supabase
+      .from('profiles')
+      .select('empresa_id, nivel_acceso, nombre, email')
+      .eq('id', userId)
+      .maybeSingle()
+
+    const empresaIdSesion = Number(perfil?.empresa_id) > 0 ? Number(perfil.empresa_id) : null
+
+    if (perfilError || !empresaIdSesion) {
+      setCargando(false)
+      await supabase.auth.signOut()
+      setMensaje('Tu cuenta no tiene empresa asignada. Contacta con el administrador del sistema.')
+      return
+    }
+
+    // 4. Activar el filtro multi-tenant ANTES de cualquier query posterior
+    setTenantEmpresaId(empresaIdSesion)
+
+    // 5. Datos de empresa: cif + slug (no crítico, no bloquea el acceso)
+    const { data: empresaData } = await supabase
+      .from('empresas')
+      .select('cif, nombre_comercial')
+      .eq('id', empresaIdSesion)
+      .maybeSingle()
+
+    const cifEmpresa  = empresaData?.cif ?? null
+    const empresaSlug = toSlug(empresaData?.nombre_comercial || `empresa-${empresaIdSesion}`)
+
+    // 6. Datos de marca blanca (no crítico)
+    const { data: ui } = await supabase.rpc('sesion_usuario_ui')
+    const u = (ui && typeof ui === 'object') ? ui : {}
+
     setCargando(false)
-    const u = (!e2 && ui && typeof ui === 'object') ? ui : {}
-    // Modo emergencia: no bloquear login si profiles/rpc falla.
-    // Se crea perfil temporal en memoria y se fuerza empresa_id=1 para andres@viajestabora.com.
-    const empresaTemporal = emailNorm === 'andres@viajestabora.com' ? 1 : DEFAULT_EMPRESA_ID
-    const empresaIdSesion = u.empresa_id ?? empresaTemporal
-    let cifEmpresa = null
-    if (empresaIdSesion != null) {
-      const { data: empresaData } = await supabase
-        .from('empresas')
-        .select('cif')
-        .eq('id', Number(empresaIdSesion))
-        .maybeSingle()
-      cifEmpresa = empresaData?.cif ?? null
-    }
+
     const sesion = {
-      email: u.email || emailNorm,
-      nombre: u.nombre || emailNorm.split('@')[0],
-      nivel_acceso: u.nivel_acceso || (emailNorm === 'andres@viajestabora.com' ? 'ADMIN' : 'STAFF'),
-      empresa_id: empresaIdSesion,
-      id: u.id,
-      cif: cifEmpresa,
-      nombre_app: u.nombre_app || NOMBRE_APP_DEFAULT,
-      favicon_url: u.favicon_url || null,
+      email:        perfil.email        || emailNorm,
+      nombre:       perfil.nombre       || u.nombre || emailNorm.split('@')[0],
+      nivel_acceso: perfil.nivel_acceso || 'STAFF',
+      empresa_id:   empresaIdSesion,
+      id:           userId,
+      cif:          cifEmpresa,
+      empresa_slug: empresaSlug,
+      nombre_app:   u.nombre_app  || NOMBRE_APP_DEFAULT,
+      favicon_url:  u.favicon_url || null,
     }
-    if (e2 || !ui) {
-      setMensaje('Perfil no disponible temporalmente. Accediendo con perfil de emergencia.')
-    }
-    const merged = sincronizarNivelAccesoEnSesion({
-      ...sesion,
-      empresa_id: sesion.empresa_id ?? DEFAULT_EMPRESA_ID,
-    })
+
+    const merged = sincronizarNivelAccesoEnSesion(sesion)
     aplicarMarcaDocumento(merged.nombre_app, merged.favicon_url)
     localStorage.setItem('sesion_tabora', JSON.stringify(merged))
     onSesion(merged)

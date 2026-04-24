@@ -3,7 +3,6 @@ import { supabase } from '../supabase'
 import { UserPlus, Users, RefreshCw, Shield, X, Pencil, Trash2 } from 'lucide-react'
 import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
 import { verificarLicenciasYRegistrarMiembro, MENSAJE_SIN_LICENCIAS } from '../utils/gestionEquipoRegistration'
-import { DEFAULT_EMPRESA_ID } from '../config/empresa'
 import { esUsuarioAdmin } from '../utils/userRoles'
 
 const emptyForm = () => ({
@@ -41,17 +40,16 @@ const GestionEquipo = ({ user }) => {
   const [mensajeAccion, setMensajeAccion] = useState({ tipo: '', texto: '' })
 
   const [empresaSesion, setEmpresaSesion] = useState(() => {
-    const emailSesion = String(user?.email || '').toLowerCase()
-    if (Number(user?.empresa_id) > 0) return Number(user.empresa_id)
-    return emailSesion.endsWith('@viajestabora.com') ? 1 : DEFAULT_EMPRESA_ID
+    const id = Number(user?.empresa_id)
+    return id > 0 ? id : null
   })
 
   const cargar = useCallback(async () => {
     setCargando(true)
     setErrorLista('')
 
-    // ── 1. Detectar empresa_id (no bloquea la carga si falla) ─────────────────
-    let idABuscar = 1  // Hardcode de seguridad: Tabora id=1
+    // ── 1. Detectar empresa_id: prop user → JWT → profiles (sin fallback a id=1) ──
+    let idABuscar = Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : null
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser()
       if (authUser) {
@@ -61,17 +59,22 @@ const GestionEquipo = ({ user }) => {
           .eq('id', authUser.id)
           .maybeSingle()
 
-        let detectado = Number(miPerfil?.empresa_id)
-        if (!detectado || detectado <= 0) detectado = Number(authUser.user_metadata?.empresa_id) || 0
-        if (!detectado || detectado <= 0) detectado = Number(authUser.app_metadata?.empresa_id) || 0
-        if (!detectado || detectado <= 0) {
-          detectado = String(authUser.email || '').toLowerCase().endsWith('@viajestabora.com') ? 1 : 0
-        }
+        const detectado =
+          Number(miPerfil?.empresa_id) ||
+          Number(authUser.app_metadata?.empresa_id) ||
+          Number(authUser.user_metadata?.empresa_id) ||
+          0
         if (detectado > 0) idABuscar = detectado
       }
-    } catch (_) { /* silencioso: usa el hardcode */ }
+    } catch (_) { /* silencioso */ }
 
-    console.log('ID enviado a RPC:', idABuscar)
+    if (!idABuscar || idABuscar <= 0) {
+      setCargando(false)
+      setErrorLista('No se pudo determinar tu empresa. Cierra sesión y vuelve a entrar.')
+      return
+    }
+
+    console.log('[GestionEquipo] Filtrando por empresa:', idABuscar)
     setEmpresaSesion(idABuscar)
 
     // ── 2. Cargar miembros (llamada directa, no bloqueada por auth) ───────────

@@ -25,11 +25,10 @@ export const EmpresaProvider = ({ user = null, children }) => {
     return 1
   }, [user?.empresa_id, user?.email])
 
-  // Slug URL-safe derivado del nombre de la app (marca blanca) o del empresa_id como fallback.
-  // Ejemplo: "Viajes Tabora" → "viajes-tabora"
+  // Slug URL-safe: prioriza empresa_slug guardado en sesión (LoginPortal) → nombre_app → fallback id
   const empresaSlug = useMemo(
-    () => toSlug(user?.nombre_app || `empresa-${empresaId}`),
-    [user?.nombre_app, empresaId],
+    () => user?.empresa_slug || toSlug(user?.nombre_app || `empresa-${empresaId}`),
+    [user?.empresa_slug, user?.nombre_app, empresaId],
   )
 
   const value = useMemo(
