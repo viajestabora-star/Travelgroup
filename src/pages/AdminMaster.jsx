@@ -37,12 +37,18 @@ const resolvePrecioBase  = (row) => row?.saas_precio_pack_base      ?? 60
 const resolvePrecioExtra = (row) => row?.saas_precio_usuario_extra  ?? 12
 
 // ─── Cálculo de coste mensual ─────────────────────────────────────────────────
+// Reglas de negocio:
+//   · Empresa matriz (CIF_MATRIZ) → siempre 0 €
+//   · max_usuarios ≤ 3            → saas_precio_pack_base (pack incluye 3 licencias)
+//   · max_usuarios > 3            → saas_precio_pack_base + (max_usuarios - 3) * saas_precio_usuario_extra
 
-const calcCoste = (precioBase, precioExtra, maxUsuarios) => {
+const calcCoste = (precioBase, precioExtra, maxUsuarios, esMatriz = false) => {
+  if (esMatriz) return 0
   const base  = Number(precioBase)  || 0
   const extra = Number(precioExtra) || 0
-  const users = Number(maxUsuarios) || 0
-  return base + users * extra
+  const users = Math.max(0, Number(maxUsuarios) || 0)
+  if (users <= 3) return base
+  return base + (users - 3) * extra
 }
 
 // ─── Estado inicial del formulario ───────────────────────────────────────────
@@ -104,9 +110,10 @@ const EditModal = ({ row, onClose, onSave }) => {
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
   const costeEstimado = useMemo(
-    () => calcCoste(form.saas_precio_pack_base, form.saas_precio_usuario_extra, form.max_usuarios),
-    [form.saas_precio_pack_base, form.saas_precio_usuario_extra, form.max_usuarios],
+    () => calcCoste(form.saas_precio_pack_base, form.saas_precio_usuario_extra, form.max_usuarios, esMatriz),
+    [form.saas_precio_pack_base, form.saas_precio_usuario_extra, form.max_usuarios, esMatriz],
   )
+  const usuariosExtra = Math.max(0, form.max_usuarios - 3)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -321,6 +328,17 @@ const EditModal = ({ row, onClose, onSave }) => {
 
           {/* ── 3. PRECIOS Y LICENCIAS ── */}
           <Seccion titulo="Precios y licencias">
+            {/* Nota aclaratoria del pack base */}
+            <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+              <Users size={14} className="mt-0.5 shrink-0 text-sky-500" />
+              <span>
+                El plan base incluye <strong>3 licencias</strong>:{' '}
+                <strong>1 Gestoría</strong> (obligatoria),{' '}
+                <strong>1 Admin</strong> (obligatorio) y{' '}
+                <strong>1 a elección</strong> (Admin o Staff).
+                Los usuarios adicionales a partir del 4.º se facturan a precio extra.
+              </span>
+            </div>
             <div className="grid grid-cols-3 gap-3 items-end">
               <Campo
                 label={<span className="flex items-center gap-1"><Euro size={12} />Precio pack base</span>}
@@ -369,18 +387,30 @@ const EditModal = ({ row, onClose, onSave }) => {
             </div>
 
             {/* ── Cálculo informativo ── */}
-            <div className="flex items-center gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 mt-1">
-              <Calculator size={18} className="text-violet-500 shrink-0" />
-              <div className="flex-1 text-sm text-violet-900">
-                <span className="font-semibold">Coste mensual estimado: </span>
-                <span className="font-bold text-violet-700 text-base">
-                  {costeEstimado.toFixed(2)} €
-                </span>
-                <span className="text-xs text-violet-600 ml-2">
-                  ({form.saas_precio_pack_base} € base
-                  {' + '}
-                  {form.max_usuarios} × {form.saas_precio_usuario_extra} € / usuario)
-                </span>
+            <div className="flex items-start gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 mt-1">
+              <Calculator size={18} className="text-violet-500 shrink-0 mt-0.5" />
+              <div className="flex-1 text-sm text-violet-900 space-y-0.5">
+                <div>
+                  <span className="font-semibold">Coste mensual estimado: </span>
+                  <span className="font-bold text-violet-700 text-base">
+                    {costeEstimado.toFixed(2)} €
+                  </span>
+                </div>
+                <div className="text-xs text-violet-600">
+                  {esMatriz ? (
+                    'Empresa matriz — facturación interna: 0 €'
+                  ) : form.max_usuarios <= 3 ? (
+                    `${form.saas_precio_pack_base} € pack base (3 licencias incluidas, ${form.max_usuarios} utilizadas)`
+                  ) : (
+                    <>
+                      {form.saas_precio_pack_base} € pack base
+                      {' + '}
+                      {usuariosExtra} usuario{usuariosExtra !== 1 ? 's' : ''} extra
+                      {' × '}
+                      {form.saas_precio_usuario_extra} € = {(usuariosExtra * form.saas_precio_usuario_extra).toFixed(2)} €
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </Seccion>
@@ -491,11 +521,12 @@ const AdminMaster = () => {
               </thead>
               <tbody>
                 {rows.map((row, idx) => {
-                  const esMatriz    = resolveCif(row) === CIF_MATRIZ
-                  const costeRow    = calcCoste(
+                  const esMatriz = resolveCif(row) === CIF_MATRIZ
+                  const costeRow = calcCoste(
                     resolvePrecioBase(row),
                     resolvePrecioExtra(row),
                     resolveMaxU(row),
+                    esMatriz,
                   )
                   return (
                     <tr
