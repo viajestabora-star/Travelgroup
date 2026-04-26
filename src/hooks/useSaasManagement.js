@@ -72,13 +72,18 @@ export const useSaasManagement = () => {
       if (data[key] && String(data[key]).trim()) payload[key] = String(data[key]).trim()
     })
 
-    const { data: newRow, error: err } = await supabase
+    // Payload como array: forma canónica de PostgREST.
+    // .select() al final es mandatorio: confirma que el RLS permitió el INSERT
+    // y devuelve la fila con el id auto-incremental asignado por Postgres.
+    const { data, error: err } = await supabase
       .from('empresas')
-      .insert(payload)
+      .insert([payload])
       .select()
-      .single()
 
     if (err) throw err
+
+    const newRow = Array.isArray(data) ? data[0] : data
+    if (!newRow) throw new Error('Supabase no devolvió la fila creada. Verifica la política RLS de INSERT en "empresas".')
 
     // Reflejar la nueva empresa en la lista local sin recargar la vista
     setRows((prev) => [...prev, newRow])

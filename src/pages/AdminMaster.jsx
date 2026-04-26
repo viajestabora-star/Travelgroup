@@ -744,39 +744,52 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
     setMsg({ tipo: '', texto: '' })
 
     try {
-      // ── Identificación del Superadmin (solo para log — NO bloquea) ─────────
-      // La autorización real la gestiona el RLS de Supabase en el servidor.
-      // El frontend NO debe bloquear la operación: si el JWT del usuario
-      // (empresa_id=1 / Tabora) es válido, la inserción pasará el RLS.
-      // Si no lo es, Supabase devolverá un error 42501 que se captura abajo.
-      const { data: { user: authUser }, error: authUserErr } = await supabase.auth.getUser()
+      // ── Paso 0: Garantizar JWT válido antes de cualquier operación DB ──────
+      //
+      // ORDEN DE PRIORIDAD:
+      //   1. getSession()      → lee localStorage (sin red). Rápido y fiable.
+      //   2. refreshSession()  → si la sesión local es null, renueva el JWT
+      //                          usando el refresh_token almacenado.
+      //   3. Abort             → solo si ambos fallan (sin sesión en absoluto).
+      //
+      // Tras refreshSession(), el cliente Supabase actualiza su Bearer
+      // automáticamente → los INSERT siguientes llevan el token renovado.
 
-      if (authUserErr || !authUser) {
-        // Error no bloqueante: se registra en consola y se continúa.
-        // El INSERT fallará en servidor si realmente no hay sesión válida.
-        console.error('[Panel Master] getUser() devolvió error (no bloqueante):', authUserErr?.message)
-      } else {
-        const eIdJWT = Number(
-          authUser.app_metadata?.empresa_id
-          ?? authUser.user_metadata?.empresa_id
-          ?? 0,
-        )
-        console.log(
-          '[Panel Master] Superadmin identificado:', authUser.email,
-          '| empresa_id JWT:', eIdJWT || '(en perfil BD)',
-          '| uid:', authUser.id,
-        )
-        if (eIdJWT !== 1) {
-          console.warn('[Panel Master] empresa_id JWT !== 1 — el RLS del servidor decidirá si permite la operación.')
+      setPasoActual('Comprobando sesión…')
+      let { data: { session } } = await supabase.auth.getSession()
+
+      if (!session) {
+        setPasoActual('Renovando token de sesión…')
+        const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession()
+        if (refreshErr || !refreshData?.session) {
+          throw new Error(
+            `Sin sesión válida: ${refreshErr?.message ?? 'token no recuperable'}. ` +
+            'Cierra sesión y vuelve a entrar como administrador de Tabora.',
+          )
         }
+        session = refreshData.session
       }
 
-      const sesionEmail = authUser?.email ?? 'Superadmin'
+      // Diagnóstico de JWT metadata — visible en consola del navegador
+      console.log('JWT Metadata:', session.user?.user_metadata)
+      const empresaIdJWT = Number(
+        session.user?.app_metadata?.empresa_id
+        ?? session.user?.user_metadata?.empresa_id
+        ?? 0,
+      )
+      if (empresaIdJWT !== 1) {
+        console.error(
+          'ERROR: Usuario no identificado como Master (empresa_id JWT:', empresaIdJWT, ').',
+          'El RLS del servidor decidirá si permite la operación.',
+        )
+      }
 
-      // ── Paso 1: Crear fila en tabla empresas ──────────────────────────────
+      const sesionEmail = session.user?.email ?? 'Superadmin'
+
+      // ── Paso 1: INSERT en empresas — atomic con .select() ─────────────────
       // `empresas` no está en ERP_TABLES → el proxy de tenant no interfiere.
-      // Campos saas_* (razón social, NIF, email, tel, dirección, precios) se
-      // incluyen en el payload si tienen valor — véase useSaasManagement.createEmpresa.
+      // El .select() al final de createEmpresa confirma que el RLS permitió el INSERT.
+      // Campos saas_* (razón social, NIF, email, tel, dirección, precios) incluidos.
       setPasoActual(`Creando empresa como ${sesionEmail}…`)
       const newRow       = await onCreate(form)
       const newEmpresaId = newRow.id
