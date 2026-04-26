@@ -795,10 +795,24 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
 
       const sesionEmail = session.user?.email ?? 'Superadmin'
 
+      // ── Diagnóstico getUser() — inmediatamente antes del INSERT ───────────
+      // getUser() valida el token contra el servidor Auth de Supabase.
+      // Si devuelve null aquí (después de que getSession sí tenía token),
+      // significa que el JWT del localStorage ya no es reconocido por el servidor.
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      if (!currentUser) {
+        // alert bloqueante: pausa la ejecución hasta que el admin haga clic en OK.
+        // Tras OK, el INSERT se intenta de todas formas para capturar el error real de Supabase.
+        window.alert('SESIÓN INVALIDADA POR EL NAVEGADOR — el token ya no es reconocido por Supabase Auth. Haz clic en OK para ver el error completo de la base de datos.')
+      }
+      console.log('[Panel Master] getUser() →', currentUser ? currentUser.email : 'null')
+
       // ── Paso 1: INSERT en empresas — atomic con .select() ─────────────────
       // `empresas` no está en ERP_TABLES → el proxy de tenant no interfiere.
-      // El .select() al final de createEmpresa confirma que el RLS permitió el INSERT.
+      // El .select().single() devuelve la fila creada con su id auto-incremental
+      // y confirma que el RLS permitió la operación.
       // Campos saas_* (razón social, NIF, email, tel, dirección, precios) incluidos.
+      // El objeto payload NO contiene el campo `id` — lo genera Postgres.
       setPasoActual(`Creando empresa como ${sesionEmail}…`)
       const newRow       = await onCreate(form)
       const newEmpresaId = newRow.id

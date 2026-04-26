@@ -72,18 +72,21 @@ export const useSaasManagement = () => {
       if (data[key] && String(data[key]).trim()) payload[key] = String(data[key]).trim()
     })
 
-    // Payload como array: forma canónica de PostgREST.
-    // .select() al final es mandatorio: confirma que el RLS permitió el INSERT
-    // y devuelve la fila con el id auto-incremental asignado por Postgres.
-    const { data, error: err } = await supabase
+    // insert(payload) sin `id` manual → Postgres genera el id auto-incremental.
+    // .select().single() devuelve la fila creada y confirma que el RLS permitió el INSERT.
+    // Si hay error, JSON.stringify(err) expone el código Postgres real (p.ej. 42501, 401).
+    const { data: newRow, error: err } = await supabase
       .from('empresas')
-      .insert([payload])
+      .insert(payload)
       .select()
+      .single()
 
-    if (err) throw err
+    if (err) {
+      console.error('[createEmpresa] Error completo Supabase:', JSON.stringify(err))
+      throw err
+    }
 
-    const newRow = Array.isArray(data) ? data[0] : data
-    if (!newRow) throw new Error('Supabase no devolvió la fila creada. Verifica la política RLS de INSERT en "empresas".')
+    if (!newRow) throw new Error('Supabase no devolvió la fila creada tras el INSERT. Verifica la política RLS de INSERT en la tabla "empresas".')
 
     // Reflejar la nueva empresa en la lista local sin recargar la vista
     setRows((prev) => [...prev, newRow])
