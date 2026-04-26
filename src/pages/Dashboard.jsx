@@ -302,7 +302,7 @@ const Dashboard = ({ user = null }) => {
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-navy-900 mb-2">Panel de Control</h1>
-          <p className="text-gray-600">Bienvenido a Viajes Tabora ERP</p>
+          <p className="text-gray-600">Bienvenido a {user?.nombre_app || 'tu ERP'}</p>
         </div>
         <div className="flex items-center gap-3">
           {esAdmin && (

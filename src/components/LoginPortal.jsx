@@ -84,14 +84,15 @@ const LoginPortal = ({ onSesion }) => {
     // 4. Activar el filtro multi-tenant ANTES de cualquier query posterior
     setTenantEmpresaId(empresaIdSesion)
 
-    // 5. Datos de empresa: cif + slug (no crítico, no bloquea el acceso)
+    // 5. Datos de empresa: cif + slug + logo (no crítico, no bloquea el acceso)
     const { data: empresaData } = await supabase
       .from('empresas')
-      .select('cif, nombre_comercial')
+      .select('cif, nombre_comercial, logo_url')
       .eq('id', empresaIdSesion)
       .maybeSingle()
 
     const cifEmpresa  = empresaData?.cif ?? null
+    const logoUrl     = empresaData?.logo_url ?? null
     const empresaSlug = toSlug(empresaData?.nombre_comercial || `empresa-${empresaIdSesion}`)
 
     // 6. Datos de marca blanca (no crítico)
@@ -107,6 +108,7 @@ const LoginPortal = ({ onSesion }) => {
       empresa_id:   empresaIdSesion,
       id:           userId,
       cif:          cifEmpresa,
+      logo_url:     logoUrl,
       empresa_slug: empresaSlug,
       nombre_app:   u.nombre_app  || NOMBRE_APP_DEFAULT,
       favicon_url:  u.favicon_url || null,

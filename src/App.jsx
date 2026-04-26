@@ -122,22 +122,23 @@ function App() {
         return corrected;
       });
 
-      // Completar empresa_slug si no está en la sesión guardada
+      // Completar empresa_slug y logo_url si no están en la sesión guardada
       const rawStored = localStorage.getItem('sesion_tabora');
       if (rawStored) {
         try {
           const stored = JSON.parse(rawStored);
-          if (!stored.empresa_slug) {
+          if (!stored.empresa_slug || !stored.logo_url) {
             const { data: emp } = await supabase
               .from('empresas')
-              .select('cif, nombre_comercial')
+              .select('cif, nombre_comercial, logo_url')
               .eq('id', empresa_idReal)
               .maybeSingle();
             if (emp && !cancelled) {
-              const empresa_slug = toSlug(emp.nombre_comercial || `empresa-${empresa_idReal}`);
-              const updated = { ...stored, cif: emp.cif ?? stored.cif, empresa_slug };
+              const empresa_slug = stored.empresa_slug || toSlug(emp.nombre_comercial || `empresa-${empresa_idReal}`);
+              const logo_url     = stored.logo_url     || emp.logo_url || null;
+              const updated = { ...stored, cif: emp.cif ?? stored.cif, empresa_slug, logo_url };
               localStorage.setItem('sesion_tabora', JSON.stringify(updated));
-              setUser((prev) => prev ? { ...prev, cif: updated.cif, empresa_slug } : prev);
+              setUser((prev) => prev ? { ...prev, cif: updated.cif, empresa_slug, logo_url } : prev);
             }
           }
         } catch (_) {}

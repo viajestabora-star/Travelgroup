@@ -15,7 +15,6 @@ import { asegurarVinculacionEmpleado } from '../utils/empleadosVinculacion'
 
 const HEARTBEAT_INTERVAL_MS = 1800000
 const STORAGE_ATTENDANCE_ID = 'attendance_id'
-const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
 
 const Layout = ({ user, onLogout }) => {
   const location = useLocation()
@@ -40,20 +39,20 @@ const Layout = ({ user, onLogout }) => {
     if (!userId) return
     const empresaIdActual = Number(authSession?.user?.app_metadata?.empresa_id ?? 0)
     if (empresaIdActual > 0) return
-    // Si no hay claim, simplemente refrescamos la sesión para que el trigger de DB lo cargue.
+    // Si no hay claim, simplemente refrescamos la sesi?n para que el trigger de DB lo cargue.
     supabase.auth.refreshSession().then(({ data, error }) => {
       if (!error && data?.session) setAuthSession(data.session)
     })
   }, [authSession?.user?.id, authSession?.user?.app_metadata?.empresa_id])
 
-  // Check de vinculación global: no bloquea acceso; asegura fila en empleados para @viajestabora.com.
+  // Check de vinculaci?n global: no bloquea acceso; asegura fila en empleados para @viajestabora.com.
   useEffect(() => {
     const authUser = authSession?.user
     if (!authUser?.id) return
     asegurarVinculacionEmpleado({ authUser, appUser: user }).catch(() => {})
   }, [authSession?.user?.id, authSession?.user?.email, user])
 
-  // CONTROL HORARIO - Orden lógico estricto para evitar duplicados al refrescar
+  // CONTROL HORARIO - Orden l?gico estricto para evitar duplicados al refrescar
   useEffect(() => {
     const sessionEmail = authSession?.user?.email || user?.email
     if (!sessionEmail) return
@@ -132,6 +131,8 @@ const Layout = ({ user, onLogout }) => {
   const esAdmin    = esUsuarioAdmin(user)
   const esGestoria = esUsuarioGestoria(user)
   const nombreMarca = user?.nombre_app && String(user.nombre_app).trim() ? String(user.nombre_app).trim() : NOMBRE_APP_DEFAULT
+  // Logo din?mico: logo_url de la empresa (BD) ? favicon_url de sesi?n ? sin imagen (solo nombre)
+  const logoSrc = user?.logo_url || user?.favicon_url || null
 
   const menuItems = useMemo(() => {
     // Paths RELATIVOS (sin "/" inicial) ? React Router los resolver? bajo /:slug autom?ticamente.
@@ -142,23 +143,23 @@ const Layout = ({ user, onLogout }) => {
       { path: 'expedientes',            icon: FileText,        label: `Expedientes ${ejercicioActual}` },
       { path: 'proveedores',            icon: Truck,           label: 'Proveedores' },
       { path: 'planning',               icon: Calendar,        label: `Planning ${ejercicioActual}` },
-      { path: 'crm',                    icon: Plane,           label: 'CRM / Captación' },
+      { path: 'crm',                    icon: Plane,           label: 'CRM / Captaci?n' },
       { path: 'composer',               icon: Edit3,           label: 'Composer' },
       { path: 'cierres',                icon: Calculator,      label: 'Cierres' },
     ]
     if (puedeAccederCierresEconomicos(user)) {
-      base.push({ path: 'historial-cierres',      icon: History,    label: 'Cierres Económicos' })
+      base.push({ path: 'historial-cierres',      icon: History,    label: 'Cierres Econ?micos' })
     }
     if (esAdmin || esGestoria) {
-      base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Económica' })
+      base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Econ?mica' })
     }
     if (!esGestoria) {
-      base.push({ path: 'gestion-equipo',         icon: UserCog,    label: 'Gestión de Equipo' })
+      base.push({ path: 'gestion-equipo',         icon: UserCog,    label: 'Gesti?n de Equipo' })
     }
     if (puedeAccederAdminMaster(user)) {
       base.push({ path: 'admin-master',            icon: Shield,     label: 'Panel Master' })
     }
-    // Gestoría: filtrar solo secciones autorizadas (comparaci?n con paths relativos)
+    // Gestor?a: filtrar solo secciones autorizadas (comparaci?n con paths relativos)
     if (esGestoria) {
       const permitidas = new Set(['cierres', 'historial-cierres', 'proveedores', 'inteligencia-economica', 'crm'])
       return base.filter(item => permitidas.has(item.path))
@@ -166,7 +167,7 @@ const Layout = ({ user, onLogout }) => {
     return base
   }, [ejercicioActual, esAdmin, esGestoria, user])
 
-  // Suscripción vencida: pantalla dedicada (consulta directa a empresas).
+  // Suscripci?n vencida: pantalla dedicada (consulta directa a empresas).
   useEffect(() => {
     const uid = authSession?.user?.id
     if (!uid) return
@@ -195,7 +196,7 @@ const Layout = ({ user, onLogout }) => {
     return () => { cancelled = true }
   }, [authSession?.user?.id, location.pathname, navigate])
 
-  // Si la agencia está marcada inactiva en BD, cortar sesión (consulta directa a empresas).
+  // Si la agencia est? marcada inactiva en BD, cortar sesi?n (consulta directa a empresas).
   useEffect(() => {
     const uid = authSession?.user?.id
     if (!uid) return
@@ -216,7 +217,7 @@ const Layout = ({ user, onLogout }) => {
       .then(({ data, error }) => {
         if (cancelled || error || !data) return
         if (data.activa === false) {
-          window.alert('Tu agencia está desactivada. Contacta con soporte.')
+          window.alert('Tu agencia est? desactivada. Contacta con soporte.')
           sessionStorage.removeItem(STORAGE_ATTENDANCE_ID)
           onLogout?.()
         }
@@ -232,7 +233,9 @@ const Layout = ({ user, onLogout }) => {
           <div className="flex items-center justify-between p-4">
             {sidebarOpen && (
               <div className="flex flex-col items-center justify-center flex-1 py-6 px-4 gap-2">
-                <img src={LOGO_TABORA} alt={nombreMarca} className="h-12 w-auto object-contain" />
+                {logoSrc && (
+                  <img src={logoSrc} alt={nombreMarca} className="h-12 w-auto object-contain" />
+                )}
                 <p className="text-center text-xs font-semibold text-slate-300 tracking-wide">{nombreMarca}</p>
               </div>
             )}
@@ -265,7 +268,7 @@ const Layout = ({ user, onLogout }) => {
               className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-1 border-t border-slate-700"
             >
               <LogOut size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
-              {sidebarOpen && <span className="text-sm font-medium">Cerrar sesión</span>}
+              {sidebarOpen && <span className="text-sm font-medium">Cerrar sesi?n</span>}
             </button>
           )}
         </nav>
