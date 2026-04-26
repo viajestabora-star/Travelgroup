@@ -671,43 +671,162 @@ const EditModal = ({ row, onClose, onSave }) => {
   )
 }
 
-// ─── Panel de creación de nueva empresa ──────────────────────────────────────
+// ─── Panel de creación de nueva empresa (Ficha Completa) ─────────────────────
 // `empresas` no está en ERP_TABLES → el proxy de tenant NO añade filtros aquí.
 // Supabase auto-incrementa `id` → empresa_id exclusivo para el nuevo Tenant.
+//
+// Flujo RLS-safe:
+//  1. Guardar sesión Master Admin antes del signUp.
+//  2. signUp del nuevo usuario (puede cambiar la sesión activa si no hay confirmación email).
+//  3. Restaurar sesión Master Admin con supabase.auth.setSession().
+//  4. Upsert del perfil con la sesión restaurada (Tabora tiene RLS completo).
 
 const NUEVO_FORM_VACIO = () => ({
-  nombre_comercial:       '',
-  plan_tipo:              'basic',
-  max_usuarios:           3,
-  saas_email_facturacion: '',
+  // Datos operativos
+  nombre_comercial:          '',
+  plan_tipo:                 'basic',
+  max_usuarios:              3,
+  // Datos fiscales
+  saas_razon_social:         '',
+  saas_nif:                  '',
+  saas_email_facturacion:    '',
+  saas_telefono:             '',
+  saas_direccion:            '',
+  // Precios
+  saas_precio_pack_base:     60,
+  saas_precio_usuario_extra: 12,
+  // Acceso inicial (opcional)
+  admin_email:    '',
+  admin_password: '',
 })
 
 const NuevaEmpresaPanel = ({ onCreate }) => {
-  const [open, setOpen]       = useState(false)
-  const [form, setForm]       = useState(NUEVO_FORM_VACIO)
-  const [saving, setSaving]   = useState(false)
-  const [msg, setMsg]         = useState({ tipo: '', texto: '' })
+  const [open, setOpen]           = useState(false)
+  const [form, setForm]           = useState(NUEVO_FORM_VACIO)
+  const [saving, setSaving]       = useState(false)
+  const [pasoActual, setPasoActual] = useState('')
+  const [msg, setMsg]             = useState({ tipo: '', texto: '' })
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
+  const costeEstimado = useMemo(
+    () => calcCoste(form.saas_precio_pack_base, form.saas_precio_usuario_extra, form.max_usuarios, false),
+    [form.saas_precio_pack_base, form.saas_precio_usuario_extra, form.max_usuarios],
+  )
+  const usuariosExtra = Math.max(0, form.max_usuarios - 3)
+
+  const resetPanel = () => {
+    setOpen(false)
+    setForm(NUEVO_FORM_VACIO)
+    setMsg({ tipo: '', texto: '' })
+    setPasoActual('')
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
+
     if (!form.nombre_comercial.trim()) {
       setMsg({ tipo: 'err', texto: 'El nombre comercial es obligatorio.' })
       return
     }
+    const tieneEmail    = Boolean(form.admin_email.trim())
+    const tienePassword = Boolean(form.admin_password.trim())
+    if (tieneEmail !== tienePassword) {
+      setMsg({ tipo: 'err', texto: 'Introduce email Y contraseña para el administrador inicial, o deja ambos en blanco.' })
+      return
+    }
+    if (tienePassword && form.admin_password.length < 6) {
+      setMsg({ tipo: 'err', texto: 'La contraseña debe tener al menos 6 caracteres.' })
+      return
+    }
+
     setSaving(true)
     setMsg({ tipo: '', texto: '' })
+
     try {
-      const newRow = await onCreate(form)
-      setMsg({ tipo: 'ok', texto: `Empresa "${newRow.nombre_comercial || form.nombre_comercial}" creada con empresa_id: ${newRow.id}.` })
+      // ── Paso 1: Crear fila en tabla empresas ─────────────────────────────
+      setPasoActual('Creando empresa…')
+      const newRow       = await onCreate(form)
+      const newEmpresaId = newRow.id
+
+      // ── Paso 2 (opcional): Crear usuario Admin inicial ────────────────────
+      if (tieneEmail) {
+        const emailNorm = form.admin_email.trim().toLowerCase()
+
+        // Guardar sesión Master Admin ANTES del signUp.
+        // Si el proyecto Supabase tiene confirmación de email desactivada,
+        // signUp reemplaza la sesión activa con la del nuevo usuario.
+        // Restauramos la sesión Tabora para que el upsert de profiles
+        // se ejecute con sus permisos RLS completos.
+        setPasoActual('Guardando sesión Master…')
+        const { data: { session: adminSession } } = await supabase.auth.getSession()
+
+        // Registrar el nuevo usuario en Supabase Auth
+        setPasoActual('Registrando usuario en Auth…')
+        const { data: authData, error: authErr } = await supabase.auth.signUp({
+          email:    emailNorm,
+          password: form.admin_password,
+          options:  { data: { empresa_id: newEmpresaId, nivel_acceso: 'ADMIN' } },
+        })
+
+        // Restaurar sesión Master Admin (protege contra cambio de sesión por signUp)
+        if (adminSession?.access_token) {
+          setPasoActual('Restaurando sesión Master…')
+          await supabase.auth.setSession({
+            access_token:  adminSession.access_token,
+            refresh_token: adminSession.refresh_token,
+          })
+        }
+
+        if (authErr) throw new Error(`Auth: ${authErr.message}`)
+
+        const newUserId = authData?.user?.id
+        if (!newUserId) {
+          throw new Error(
+            'El email ya tiene una cuenta registrada en Supabase Auth. ' +
+            'Usa el modal de edición → pestaña "Usuarios de la agencia" para asignarlo manualmente.',
+          )
+        }
+
+        // Upsert del perfil con la sesión restaurada del Master Admin
+        setPasoActual('Creando perfil de administrador…')
+        const { error: profErr } = await supabase
+          .from('profiles')
+          .upsert(
+            {
+              id:           newUserId,
+              email:        emailNorm,
+              empresa_id:   newEmpresaId,
+              nivel_acceso: 'ADMIN',
+              nombre:       emailNorm.split('@')[0],
+            },
+            { onConflict: 'id' },
+          )
+
+        if (profErr) {
+          throw new Error(
+            `Auth OK (ID: ${newUserId}), pero el perfil falló: ${profErr.message}. ` +
+            'Actualiza el perfil manualmente desde "Usuarios de la agencia".',
+          )
+        }
+
+        setMsg({
+          tipo:  'ok',
+          texto: `✓ Empresa creada (empresa_id: ${newEmpresaId}). Admin "${emailNorm}" registrado. Entrega estas credenciales al cliente.`,
+        })
+      } else {
+        setMsg({
+          tipo:  'ok',
+          texto: `✓ Empresa "${newRow.nombre_comercial}" creada (empresa_id: ${newEmpresaId}). Usa el modal de edición para crear el primer administrador.`,
+        })
+      }
+
       setForm(NUEVO_FORM_VACIO)
-      setTimeout(() => {
-        setOpen(false)
-        setMsg({ tipo: '', texto: '' })
-      }, 2000)
+      setPasoActual('')
+      setTimeout(resetPanel, 3000)
     } catch (err) {
-      setMsg({ tipo: 'err', texto: err?.message || 'No se pudo crear la empresa.' })
+      setMsg({ tipo: 'err', texto: err?.message || 'Error desconocido.' })
+      setPasoActual('')
     } finally {
       setSaving(false)
     }
@@ -715,9 +834,11 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+
+      {/* ── Cabecera collapsible ── */}
       <button
         type="button"
-        onClick={() => { setOpen((v) => !v); setMsg({ tipo: '', texto: '' }) }}
+        onClick={() => { setOpen((v) => !v); setMsg({ tipo: '', texto: '' }); setPasoActual('') }}
         className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 text-sm font-semibold text-slate-800 border-b border-slate-200 transition-colors"
       >
         <span className="flex items-center gap-2">
@@ -729,86 +850,170 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
 
       {open && (
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+
+          {/* Aviso aislamiento */}
           <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
             <ShieldAlert size={14} className="mt-0.5 shrink-0 text-sky-500" />
             <span>
-              Supabase asignará un <strong>empresa_id único y auto-incremental</strong> al nuevo Tenant.
-              El aislamiento de datos queda garantizado: ningún usuario del nuevo Tenant podrá
-              ver datos de otras empresas.
+              Supabase asignará un <strong>empresa_id único auto-incremental</strong>.
+              Los datos del nuevo Tenant quedan <strong>completamente aislados</strong>:
+              nunca verá información de otras empresas.
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Campo label="Nombre comercial *">
-              <input
-                type="text"
-                value={form.nombre_comercial}
-                onChange={(e) => set('nombre_comercial', e.target.value)}
-                className={inputCls}
-                placeholder="Nombre de la agencia"
-                required
-              />
-            </Campo>
-            <Campo label="Plan">
-              <select
-                value={form.plan_tipo}
-                onChange={(e) => set('plan_tipo', e.target.value)}
-                className={`${inputCls} bg-white`}
-              >
-                {PLANES.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </Campo>
-          </div>
+          {/* ─ Datos operativos ─ */}
+          <Seccion titulo="Datos operativos">
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label="Nombre comercial *">
+                <input type="text" value={form.nombre_comercial}
+                  onChange={(e) => set('nombre_comercial', e.target.value)}
+                  className={inputCls} placeholder="Nombre de la agencia" required />
+              </Campo>
+              <Campo label="Plan">
+                <select value={form.plan_tipo}
+                  onChange={(e) => set('plan_tipo', e.target.value)}
+                  className={`${inputCls} bg-white`}>
+                  {PLANES.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </Campo>
+            </div>
+          </Seccion>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Campo label={<span className="flex items-center gap-1"><Users size={12} />Máx. usuarios</span>}>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={form.max_usuarios}
-                onChange={(e) => set('max_usuarios', Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className={inputCls}
-              />
-            </Campo>
+          {/* ─ Datos fiscales y de contacto ─ */}
+          <Seccion titulo="Datos fiscales y de contacto">
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label={<span className="flex items-center gap-1"><FileText size={12} />Razón social</span>}>
+                <input type="text" value={form.saas_razon_social}
+                  onChange={(e) => set('saas_razon_social', e.target.value)}
+                  className={inputCls} placeholder="saas_razon_social" />
+              </Campo>
+              <Campo label={<span className="flex items-center gap-1"><FileText size={12} />NIF / CIF</span>}>
+                <input type="text" value={form.saas_nif}
+                  onChange={(e) => set('saas_nif', e.target.value)}
+                  className={inputCls} placeholder="Ej. B12345678" />
+              </Campo>
+            </div>
             <Campo label={<span className="flex items-center gap-1"><Mail size={12} />Email de facturación</span>}>
-              <input
-                type="email"
-                value={form.saas_email_facturacion}
+              <input type="email" value={form.saas_email_facturacion}
                 onChange={(e) => set('saas_email_facturacion', e.target.value)}
-                className={inputCls}
-                placeholder="cliente@empresa.com"
-              />
+                className={inputCls} placeholder="facturacion@empresa.com" />
             </Campo>
-          </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label={<span className="flex items-center gap-1"><Phone size={12} />Teléfono</span>}>
+                <input type="tel" value={form.saas_telefono}
+                  onChange={(e) => set('saas_telefono', e.target.value)}
+                  className={inputCls} placeholder="+34 600 000 000" />
+              </Campo>
+              <Campo label={<span className="flex items-center gap-1"><MapPin size={12} />Dirección</span>}>
+                <input type="text" value={form.saas_direccion}
+                  onChange={(e) => set('saas_direccion', e.target.value)}
+                  className={inputCls} placeholder="Calle, número, ciudad" />
+              </Campo>
+            </div>
+          </Seccion>
 
+          {/* ─ Precios y licencias ─ */}
+          <Seccion titulo="Precios y licencias">
+            <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+              <Users size={14} className="mt-0.5 shrink-0 text-sky-500" />
+              <span>El plan base incluye <strong>3 licencias</strong>: <strong>1 Gestoría</strong> (obligatoria),{' '}
+                <strong>1 Admin</strong> (obligatorio) y <strong>1 a elección</strong> (Admin o Staff).
+                Los usuarios adicionales a partir del 4.º se facturan a precio extra.</span>
+            </div>
+            <div className="grid grid-cols-3 gap-3 items-end">
+              <Campo label={<span className="flex items-center gap-1"><Euro size={12} />Precio pack base</span>} hint="saas_precio_pack_base">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">€</span>
+                  <input type="number" min={0} step={0.01} value={form.saas_precio_pack_base}
+                    onChange={(e) => set('saas_precio_pack_base', parseFloat(e.target.value) || 0)}
+                    className={`${inputCls} pl-7`} />
+                </div>
+              </Campo>
+              <Campo label={<span className="flex items-center gap-1"><Users size={12} />Precio usuario extra</span>} hint="saas_precio_usuario_extra">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">€</span>
+                  <input type="number" min={0} step={0.01} value={form.saas_precio_usuario_extra}
+                    onChange={(e) => set('saas_precio_usuario_extra', parseFloat(e.target.value) || 0)}
+                    className={`${inputCls} pl-7`} />
+                </div>
+              </Campo>
+              <Campo label={<span className="flex items-center gap-1"><Users size={12} />Máx. usuarios</span>}>
+                <input type="number" min={1} step={1} value={form.max_usuarios}
+                  onChange={(e) => set('max_usuarios', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className={inputCls} />
+              </Campo>
+            </div>
+            <div className="flex items-start gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 mt-1">
+              <Calculator size={18} className="text-violet-500 shrink-0 mt-0.5" />
+              <div className="flex-1 text-sm text-violet-900 space-y-0.5">
+                <div>
+                  <span className="font-semibold">Coste mensual estimado: </span>
+                  <span className="font-bold text-violet-700 text-base">{costeEstimado.toFixed(2)} €</span>
+                </div>
+                <div className="text-xs text-violet-600">
+                  {form.max_usuarios <= 3
+                    ? `${form.saas_precio_pack_base} € pack base (3 licencias incluidas, ${form.max_usuarios} utilizadas)`
+                    : <>{form.saas_precio_pack_base} € pack base{' + '}{usuariosExtra} usuario{usuariosExtra !== 1 ? 's' : ''} extra{' × '}{form.saas_precio_usuario_extra} € = {(usuariosExtra * form.saas_precio_usuario_extra).toFixed(2)} €</>
+                  }
+                </div>
+              </div>
+            </div>
+          </Seccion>
+
+          {/* ─ Acceso inicial: Administrador (opcional) ─ */}
+          <Seccion titulo="Acceso inicial — Administrador (opcional)">
+            <p className="text-xs text-slate-500">
+              Crea el primer usuario administrador para esta agencia. Si lo dejas en blanco, podrás
+              crearlo después desde el modal de edición → pestaña <strong>"Usuarios de la agencia"</strong>.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label={<span className="flex items-center gap-1"><Mail size={12} />Email de acceso</span>}>
+                <input type="email" value={form.admin_email}
+                  onChange={(e) => set('admin_email', e.target.value)}
+                  className={inputCls} placeholder="admin@agencia.com"
+                  autoComplete="new-email" />
+              </Campo>
+              <Campo label={<span className="flex items-center gap-1"><KeyRound size={12} />Contraseña temporal</span>}>
+                <input type="password" value={form.admin_password}
+                  onChange={(e) => set('admin_password', e.target.value)}
+                  className={inputCls} placeholder="Mínimo 6 caracteres"
+                  autoComplete="new-password" />
+              </Campo>
+            </div>
+          </Seccion>
+
+          {/* Indicador de progreso por pasos */}
+          {pasoActual && (
+            <div className="flex items-center gap-2 text-sm text-violet-700 font-medium">
+              <RefreshCw size={14} className="animate-spin shrink-0" />
+              {pasoActual}
+            </div>
+          )}
+
+          {/* Mensaje resultado */}
           {msg.texto && (
-            <div className={`rounded-lg px-3 py-2 text-sm border flex items-center gap-2 ${
+            <div className={`rounded-lg px-3 py-2.5 text-sm border flex items-start gap-2 ${
               msg.tipo === 'ok'
                 ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
                 : 'bg-rose-50 text-rose-900 border-rose-200'
             }`}>
-              {msg.tipo === 'ok' ? <Check size={14} className="shrink-0" /> : <AlertCircle size={14} className="shrink-0" />}
-              {msg.texto}
+              {msg.tipo === 'ok'
+                ? <Check size={15} className="shrink-0 mt-0.5" />
+                : <AlertCircle size={15} className="shrink-0 mt-0.5" />}
+              <span>{msg.texto}</span>
             </div>
           )}
 
+          {/* Acciones */}
           <div className="flex gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => { setOpen(false); setForm(NUEVO_FORM_VACIO); setMsg({ tipo: '', texto: '' }) }}
-              disabled={saving}
-              className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-800 font-medium hover:bg-slate-50 disabled:opacity-50 text-sm"
-            >
+            <button type="button" onClick={resetPanel} disabled={saving}
+              className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-800 font-medium hover:bg-slate-50 disabled:opacity-50 text-sm">
               Cancelar
             </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 disabled:opacity-50 text-sm"
-            >
+            <button type="submit" disabled={saving}
+              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 disabled:opacity-50 text-sm">
               <PlusCircle size={15} />
-              {saving ? 'Creando…' : 'Crear empresa'}
+              {saving ? 'Procesando…' : 'Crear empresa'}
             </button>
           </div>
         </form>

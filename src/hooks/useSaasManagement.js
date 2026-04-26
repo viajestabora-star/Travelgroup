@@ -48,22 +48,29 @@ export const useSaasManagement = () => {
    * Crea un nuevo Tenant en la tabla `empresas`.
    * `empresas` no está en ERP_TABLES → el proxy de tenant NO añade filtros aquí.
    * Supabase asigna un id auto-incremental único → empresa_id exclusivo del nuevo Tenant.
-   * @param {object} data — { nombre_comercial, plan_tipo, max_usuarios, saas_email_facturacion? }
-   * @returns {object} la fila recién creada (con su id)
+   * @param {object} data — campos del formulario de nueva empresa
+   * @returns {object} la fila recién creada (con su id asignado por Postgres)
    * @throws {Error} si Supabase devuelve un error
    */
   const createEmpresa = useCallback(async (data) => {
+    // Campos obligatorios
     const payload = {
       nombre_comercial:          (data.nombre_comercial || '').trim(),
       plan_tipo:                 (data.plan_tipo        || 'basic').trim(),
       max_usuarios:              Math.max(1, Number(data.max_usuarios) || 3),
       suscripcion_activa:        true,
-      saas_precio_pack_base:     60,
-      saas_precio_usuario_extra: 12,
+      saas_precio_pack_base:     Number(data.saas_precio_pack_base)     || 60,
+      saas_precio_usuario_extra: Number(data.saas_precio_usuario_extra) || 12,
     }
-    if (data.saas_email_facturacion && data.saas_email_facturacion.trim()) {
-      payload.saas_email_facturacion = data.saas_email_facturacion.trim()
-    }
+
+    // Campos opcionales: solo incluir si tienen valor
+    const opcionales = [
+      'saas_razon_social', 'saas_nif', 'saas_email_facturacion',
+      'saas_telefono', 'saas_direccion',
+    ]
+    opcionales.forEach((key) => {
+      if (data[key] && String(data[key]).trim()) payload[key] = String(data[key]).trim()
+    })
 
     const { data: newRow, error: err } = await supabase
       .from('empresas')
@@ -73,7 +80,7 @@ export const useSaasManagement = () => {
 
     if (err) throw err
 
-    // Añadir la nueva empresa a la lista local para reflejar el cambio sin recargar
+    // Reflejar la nueva empresa en la lista local sin recargar la vista
     setRows((prev) => [...prev, newRow])
     return newRow
   }, [])
