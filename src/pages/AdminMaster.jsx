@@ -7,10 +7,9 @@ import {
 import { supabase } from '../supabase'
 import { useSaasManagement } from '../hooks/useSaasManagement'
 import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
+import { MASTER_EMPRESA_ID } from '../utils/adminMasterAccess'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
-
-const CIF_MATRIZ = 'B98998107'
 const PLANES     = ['basic', 'professional', 'enterprise']
 const ROLES_UI   = ['Admin', 'Staff', 'Gestoria']
 const rolUiANivel = { Admin: 'ADMIN', Staff: 'STAFF', Gestoria: 'GESTORIA' }
@@ -37,7 +36,7 @@ const resolvePrecioBase  = (row) => row?.saas_precio_pack_base     ?? 60
 const resolvePrecioExtra = (row) => row?.saas_precio_usuario_extra ?? 12
 
 // ─── Cálculo de coste mensual ─────────────────────────────────────────────────
-// · CIF_MATRIZ → 0 €
+// · empresa_id === MASTER_EMPRESA_ID (Integer, empresa raíz) → 0 €
 // · max_usuarios ≤ 3 → saas_precio_pack_base
 // · max_usuarios > 3 → saas_precio_pack_base + (max_usuarios - 3) * saas_precio_usuario_extra
 
@@ -608,7 +607,8 @@ const UsuariosTab = ({ empresaId }) => {
 // ─── Modal de edición (con pestañas) ─────────────────────────────────────────
 
 const EditModal = ({ row, onClose, onSave }) => {
-  const esMatriz    = resolveCif(row) === CIF_MATRIZ
+  // Se identifica la empresa raíz por su ID numérico (Integer), no por el CIF (String).
+  const esMatriz    = Number(resolveId(row)) === MASTER_EMPRESA_ID
   const empresaId   = resolveId(row)
   const [activeTab, setActiveTab] = useState('empresa')
 
@@ -655,7 +655,7 @@ const EditModal = ({ row, onClose, onSave }) => {
         {esMatriz && activeTab === 'empresa' && (
           <div className="mx-5 mt-4 shrink-0 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
             <ShieldAlert size={15} className="mt-0.5 shrink-0 text-amber-600" />
-            <span>Empresa matriz (CIF <strong>{CIF_MATRIZ}</strong>).
+            <span>Empresa matriz (CIF <strong>{resolveCif(row)}</strong>).
               Los campos <strong>CIF</strong> y <strong>Plan</strong> están protegidos.</span>
           </div>
         )}
@@ -722,7 +722,7 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
         ?? user.user_metadata?.empresa_id
         ?? 0,
       )
-      const esMaster = eId === 1
+      const esMaster = eId === MASTER_EMPRESA_ID
       setMasterVerificado(esMaster)
       if (!esMaster) {
         console.error('[Panel Master] Usuario en mount NO es Master (empresa_id JWT:', eId, ')')
@@ -823,7 +823,7 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
       // Si user es null o empresa_id !== 1 → abort con alert y return.
       // La operación NO continúa: evita un 401 garantizado en el INSERT.
       const { data: { user }, error: authError } = await supabase.auth.getUser()
-      if (authError || !user || Number(user.app_metadata?.empresa_id ?? user.user_metadata?.empresa_id ?? 0) !== 1) {
+      if (authError || !user || Number(user.app_metadata?.empresa_id ?? user.user_metadata?.empresa_id ?? 0) !== MASTER_EMPRESA_ID) {
         console.error('ERROR CRÍTICO: Sesión inválida o no es Master', authError)
         alert('Tu sesión ha expirado o no tienes permisos de Master. Por favor, cierra sesión y vuelve a entrar.')
         setSaving(false)
@@ -1196,7 +1196,8 @@ const AdminMaster = () => {
               </thead>
               <tbody>
                 {rows.map((row, idx) => {
-                  const esMatriz = resolveCif(row) === CIF_MATRIZ
+                  // Empresa raíz identificada por Integer empresa_id, no por CIF.
+                  const esMatriz = Number(resolveId(row)) === MASTER_EMPRESA_ID
                   const costeRow = calcCoste(resolvePrecioBase(row), resolvePrecioExtra(row), resolveMaxU(row), esMatriz)
                   return (
                     <tr key={resolveId(row) ?? idx} className="border-b border-slate-100 hover:bg-slate-50/80">

@@ -57,8 +57,11 @@ function App() {
       if (!parsed || !parsed.email) return null;
       // Sin empresa_id válido → sesión inválida (no usar DEFAULT_EMPRESA_ID como fallback)
       if (!(Number(parsed.empresa_id) > 0)) return null;
+      // empresa_id se normaliza siempre como Number (Integer) para que las comparaciones
+      // === 1 (empresa raíz) y === empresaIdReal funcionen sin coerciones inesperadas.
       const u = sincronizarNivelAccesoEnSesion({
         ...parsed,
+        empresa_id:  Number(parsed.empresa_id),
         nombre_app:  parsed.nombre_app  ?? NOMBRE_APP_DEFAULT,
         favicon_url: parsed.favicon_url ?? null,
       });
