@@ -381,12 +381,28 @@ const UsuariosTab = ({ empresaId }) => {
     setCreando(true)
     setCrearMsg({ tipo: '', texto: '' })
 
+    const empresaIdNum = Number(empresaId) || 0
+    if (!empresaIdNum) {
+      setCrearMsg({ tipo: 'err', texto: 'No se pudo resolver empresa_id de la agencia.' })
+      setCreando(false)
+      return
+    }
+    const empresaConfirmada = await waitForEmpresaConfirmada(empresaIdNum)
+    if (!empresaConfirmada) {
+      setCrearMsg({
+        tipo: 'err',
+        texto: `La empresa (${empresaIdNum}) aún no está confirmada en BD. Reintenta en unos segundos.`,
+      })
+      setCreando(false)
+      return
+    }
+
     // 1. Crear usuario en Supabase Auth
     const { data: authData, error: authErr } = await supabase.auth.signUp({
       email: emailNorm,
       password: crearPass,
       options: {
-        data: { empresa_id: empresaId, nivel_acceso: 'ADMIN' },
+        data: { empresa_id: empresaIdNum, nivel_acceso: 'ADMIN' },
       },
     })
 
@@ -408,7 +424,7 @@ const UsuariosTab = ({ empresaId }) => {
     const { error: profErr } = await supabase
       .from('profiles')
       .upsert(
-        { id: userId, email: emailNorm, empresa_id: empresaId, nivel_acceso: 'ADMIN' },
+        { id: userId, email: emailNorm, empresa_id: empresaIdNum, nivel_acceso: 'ADMIN' },
         { onConflict: 'id' },
       )
 
@@ -700,6 +716,22 @@ const NUEVO_FORM_VACIO = () => ({
   admin_password: '',
 })
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// Espera activa corta para asegurar que la empresa recién creada ya es consultable.
+const waitForEmpresaConfirmada = async (empresaId, maxIntentos = 4, esperaMs = 250) => {
+  for (let intento = 1; intento <= maxIntentos; intento += 1) {
+    const { data, error } = await supabase
+      .from('empresas')
+      .select('id')
+      .eq('id', empresaId)
+      .maybeSingle()
+    if (!error && data?.id === empresaId) return true
+    if (intento < maxIntentos) await sleep(esperaMs)
+  }
+  return false
+}
+
 const NuevaEmpresaPanel = ({ onCreate }) => {
   const [open, setOpen]               = useState(false)
   const [form, setForm]               = useState(NUEVO_FORM_VACIO)
@@ -850,7 +882,19 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
       // El objeto payload NO contiene el campo `id` — lo genera Postgres.
       setPasoActual(`Creando empresa como ${sesionEmail}…`)
       const newRow       = await onCreate(form)
-      const newEmpresaId = newRow.id
+      const newEmpresaId = Number(newRow?.id) || 0
+      if (!newEmpresaId) {
+        throw new Error('La empresa se creó, pero no se pudo resolver su empresa_id para crear el administrador.')
+      }
+
+      setPasoActual('Confirmando empresa en base de datos…')
+      const empresaConfirmada = await waitForEmpresaConfirmada(newEmpresaId)
+      if (!empresaConfirmada) {
+        throw new Error(
+          `La empresa (empresa_id: ${newEmpresaId}) aún no está confirmada en BD. ` +
+          'Reintenta en unos segundos para crear el administrador inicial.',
+        )
+      }
 
       // ── Paso 2 (opcional): Crear usuario Admin inicial ────────────────────
       let perfilFallo = false   // flag para el timeout diferenciado
