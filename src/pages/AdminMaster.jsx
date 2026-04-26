@@ -744,62 +744,40 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
     setMsg({ tipo: '', texto: '' })
 
     try {
-      // ── Verificación de sesión activa — tres niveles de resiliencia ────────
-      // Nivel 1: getUser() valida el JWT contra el servidor de Supabase Auth.
-      // Nivel 2: si el token está caducado, refreshSession() lo renueva.
-      // Nivel 3: fallback a getSession() que lee localStorage (no requiere red).
-      // Solo se bloquea si los tres fallan (sin sesión en absoluto).
-      setPasoActual('Verificando sesión activa…')
+      // ── Identificación del Superadmin (solo para log — NO bloquea) ─────────
+      // La autorización real la gestiona el RLS de Supabase en el servidor.
+      // El frontend NO debe bloquear la operación: si el JWT del usuario
+      // (empresa_id=1 / Tabora) es válido, la inserción pasará el RLS.
+      // Si no lo es, Supabase devolverá un error 42501 que se captura abajo.
+      const { data: { user: authUser }, error: authUserErr } = await supabase.auth.getUser()
 
-      let sesionActual = null
-
-      // Nivel 1 — verificación remota del JWT
-      const { data: { user: userDirecto }, error: getUserErr } = await supabase.auth.getUser()
-      if (!getUserErr && userDirecto) {
-        sesionActual = userDirecto
-      }
-
-      // Nivel 2 — refrescar token si el nivel 1 falló
-      if (!sesionActual) {
-        setPasoActual('Renovando sesión…')
-        const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession()
-        if (!refreshErr && refreshData?.user) {
-          sesionActual = refreshData.user
-          console.log('[Panel Master] Sesión renovada vía refreshSession()')
-        }
-      }
-
-      // Nivel 3 — leer sesión local (localStorage) como último recurso
-      if (!sesionActual) {
-        const { data: { session: localSesion } } = await supabase.auth.getSession()
-        if (localSesion?.user) {
-          sesionActual = localSesion.user
-          console.warn('[Panel Master] Usando sesión local (token posiblemente caducado). El RLS validará en servidor.')
-        }
-      }
-
-      if (!sesionActual) {
-        throw new Error(
-          'No hay sesión activa. Cierra sesión y vuelve a entrar como administrador de Tabora antes de crear empresas.',
+      if (authUserErr || !authUser) {
+        // Error no bloqueante: se registra en consola y se continúa.
+        // El INSERT fallará en servidor si realmente no hay sesión válida.
+        console.error('[Panel Master] getUser() devolvió error (no bloqueante):', authUserErr?.message)
+      } else {
+        const eIdJWT = Number(
+          authUser.app_metadata?.empresa_id
+          ?? authUser.user_metadata?.empresa_id
+          ?? 0,
         )
+        console.log(
+          '[Panel Master] Superadmin identificado:', authUser.email,
+          '| empresa_id JWT:', eIdJWT || '(en perfil BD)',
+          '| uid:', authUser.id,
+        )
+        if (eIdJWT !== 1) {
+          console.warn('[Panel Master] empresa_id JWT !== 1 — el RLS del servidor decidirá si permite la operación.')
+        }
       }
 
-      const empresaIdSesion = Number(
-        sesionActual.app_metadata?.empresa_id
-        ?? sesionActual.user_metadata?.empresa_id
-        ?? 0,
-      ) || '(en perfil BD)'
-      console.log(
-        '[Panel Master] Sesión confirmada:', sesionActual.email,
-        '| empresa_id JWT:', empresaIdSesion,
-        '| uid:', sesionActual.id,
-      )
+      const sesionEmail = authUser?.email ?? 'Superadmin'
 
       // ── Paso 1: Crear fila en tabla empresas ──────────────────────────────
       // `empresas` no está en ERP_TABLES → el proxy de tenant no interfiere.
       // Campos saas_* (razón social, NIF, email, tel, dirección, precios) se
       // incluyen en el payload si tienen valor — véase useSaasManagement.createEmpresa.
-      setPasoActual(`Creando empresa como ${sesionActual.email}…`)
+      setPasoActual(`Creando empresa como ${sesionEmail}…`)
       const newRow       = await onCreate(form)
       const newEmpresaId = newRow.id
 
