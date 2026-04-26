@@ -5,9 +5,6 @@ import { supabase } from '../supabase'
 import { convertirISOAEspañol, convertirEspañolAISO } from '../utils/dateNormalizer'
 import jsPDF from 'jspdf'
 
-// Logo Tabora - URL oficial
-const LOGO_TABORA = "https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png"
-
 // ============================================================================
 // FUNCIONES HELPER: Blindaje contra NULLs
 // ============================================================================
@@ -33,6 +30,10 @@ const VoucherPreview = React.memo(function VoucherPreview({
   direccion,
   poblacion,
   telefono,
+  agenciaNombre,
+  agenciaLogo,
+  agenciaDireccion,
+  agenciaTelefono,
 }) {
   const destinoTexto = safe(expedienteDestino)
   const clienteTexto = safe(nombreClienteGrupo) || safe(expedienteClienteNombre) || '—'
@@ -41,14 +42,15 @@ const VoucherPreview = React.memo(function VoucherPreview({
   return (
     <div className="bono-print border rounded-xl p-6 bg-white shadow-inner">
       <div className="flex justify-between items-center mb-4">
-        <div className="flex-shrink-0">
-          <img src={LOGO_TABORA} alt="Tabora" className="h-20 w-auto object-contain print:h-24 logo-tabora" />
-        </div>
+        {agenciaLogo && (
+          <div className="flex-shrink-0">
+            <img src={agenciaLogo} alt={agenciaNombre} className="h-20 w-auto object-contain print:h-24 logo-agencia" />
+          </div>
+        )}
         <div className="text-right text-xs text-gray-600">
-          <div className="font-semibold">VIAJES TABORA</div>
-          <div>C/ Santa Amalia, nº 2 Entresuelo 2º Of. L1</div>
-          <div>46009 Valencia (ESP)</div>
-          <div>Tel: +34 96 339 04 64</div>
+          {agenciaNombre && <div className="font-semibold">{agenciaNombre}</div>}
+          {agenciaDireccion && <div>{agenciaDireccion}</div>}
+          {agenciaTelefono && <div>Tel: {agenciaTelefono}</div>}
         </div>
       </div>
 
@@ -112,7 +114,7 @@ const VoucherPreview = React.memo(function VoucherPreview({
 // ============================================================================
 // COMPONENTE PRINCIPAL
 // ============================================================================
-const Composer = () => {
+const Composer = ({ user }) => {
   const [proveedorId, setProveedorId] = useState('')
   const [expedienteId, setExpedienteId] = useState('')
   const [referenciaProveedor, setReferenciaProveedor] = useState('')
@@ -134,6 +136,12 @@ const Composer = () => {
   const [expedientes, setExpedientes] = useState([])
   const [guardando, setGuardando] = useState(false)
 
+  // Datos de agencia para cabecera del voucher (dinámicos por tenant)
+  const [agenciaNombre,    setAgenciaNombre]    = useState(user?.nombre_app || '')
+  const [agenciaLogo,      setAgenciaLogo]      = useState(user?.logo_url || user?.favicon_url || null)
+  const [agenciaDireccion, setAgenciaDireccion] = useState('')
+  const [agenciaTelefono,  setAgenciaTelefono]  = useState('')
+
   const [searchParams] = useSearchParams()
   const bonoId = searchParams.get('bonoId') || ''
   const lastLoadedBonoIdRef = useRef(null)
@@ -144,12 +152,26 @@ const Composer = () => {
   useEffect(() => {
     const cargarDatos = async () => {
       try {
-        const [provRes, expRes] = await Promise.all([
+        const empresaId = Number(user?.empresa_id) || null
+        const queries = [
           supabase.from('proveedores').select('id, nombre_comercial, direccion, poblacion, movil, telefono_fijo, telefono').order('nombre_comercial', { ascending: true }),
           supabase.from('expedientes').select('*').order('fecha_inicio', { ascending: true, nullsFirst: false }),
-        ])
+        ]
+        if (empresaId) {
+          queries.push(
+            supabase.from('empresas').select('nombre_comercial, saas_razon_social, saas_direccion, saas_telefono, logo_url').eq('id', empresaId).maybeSingle()
+          )
+        }
+        const [provRes, expRes, empRes] = await Promise.all(queries)
         if (!provRes.error && Array.isArray(provRes.data)) setProveedores(provRes.data)
         if (!expRes.error && Array.isArray(expRes.data)) setExpedientes(expRes.data)
+        if (empRes && !empRes.error && empRes.data) {
+          const emp = empRes.data
+          setAgenciaNombre(emp.saas_razon_social || emp.nombre_comercial || user?.nombre_app || '')
+          setAgenciaLogo(emp.logo_url || user?.logo_url || user?.favicon_url || null)
+          setAgenciaDireccion(emp.saas_direccion || '')
+          setAgenciaTelefono(emp.saas_telefono   || '')
+        }
       } catch (err) {}
     }
     cargarDatos()
@@ -443,7 +465,7 @@ const Composer = () => {
           aside, .sidebar, nav, button, .no-print, header, .navbar, .menu, .sidebar-menu, [class*="sidebar"], [class*="menu"], [class*="nav"], [role="navigation"], [class*="header"], [class*="Header"] { display: none !important; visibility: hidden !important; }
           .bono-container { width: 100% !important; max-width: 100% !important; position: absolute !important; top: 0 !important; left: 0 !important; margin: 0 !important; padding: 0 !important; background: white !important; }
           .bono-print { width: 100% !important; max-width: 100% !important; box-shadow: none !important; border: 1px solid #e5e7eb !important; padding: 20mm !important; background: white !important; margin: 0 auto !important; }
-          .logo-tabora { display: block !important; max-width: 200px !important; height: auto !important; object-fit: contain !important; image-rendering: -webkit-optimize-contrast !important; image-rendering: crisp-edges !important; page-break-inside: avoid !important; }
+          .logo-agencia { display: block !important; max-width: 200px !important; height: auto !important; object-fit: contain !important; image-rendering: -webkit-optimize-contrast !important; image-rendering: crisp-edges !important; page-break-inside: avoid !important; }
         }
         `}
       </style>
@@ -566,6 +588,10 @@ const Composer = () => {
                 direccion={direccion}
                 poblacion={poblacion}
                 telefono={telefono}
+                agenciaNombre={agenciaNombre}
+                agenciaLogo={agenciaLogo}
+                agenciaDireccion={agenciaDireccion}
+                agenciaTelefono={agenciaTelefono}
               />
             </div>
           </div>

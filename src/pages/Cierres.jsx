@@ -13,6 +13,7 @@ import {
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { DATOS_EMISOR } from '../config/empresa'
+import { cargarDatosEmisorEmpresa } from '../utils/datosEmisorEmpresa'
 import {
   calcularTotalesInforme as computeTotalesInforme,
   crearJsPdfInformeCierre,
@@ -23,7 +24,7 @@ import { finanzasExpedienteParaInformes } from '../utils/cierreGrupoFuenteVerdad
 
 // ===================== FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF =====================
 // Función compartida para generar PDFs de facturas con diseño profesional unificado
-const generarFacturaPDFUnificado = async (factura) => {
+const generarFacturaPDFUnificado = async (factura, emisorOpts = {}) => {
   // Extraer datos de forma robusta desde cualquier fuente (facturas_emitidas_global o facturas)
   const datos = factura?.datos_factura || factura?.datos_json || {}
   const receptor = datos.receptor || datos.formFactura?.receptor || datos.formFactura || {}
@@ -64,7 +65,7 @@ const generarFacturaPDFUnificado = async (factura) => {
     year: 'numeric'
   })
   
-  const datosEmisor = DATOS_EMISOR
+  const datosEmisor = emisorOpts.emisor || DATOS_EMISOR
   
   const crearDocumento = (logoImg) => {
     const doc = new jsPDF()
@@ -269,29 +270,30 @@ const generarFacturaPDFUnificado = async (factura) => {
     doc.save(nombreArchivo)
   }
   
-  // Cargar logo
-  const logo = new Image()
-  logo.src = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png'
-  logo.onload = () => {
-    crearDocumento(logo)
-  }
-  logo.onerror = () => {
-    // Intentar logo local
-    const fallbackLogo = new Image()
-    fallbackLogo.src = '/Logo tabora 2023.png'
-    fallbackLogo.onload = () => {
-      crearDocumento(fallbackLogo)
-    }
-    fallbackLogo.onerror = () => {
-      // Generar sin logo
-      crearDocumento(null)
-    }
+  // Cargar logo dinámico desde emisorOpts, con fallback sin imagen
+  const logoSrc = emisorOpts.logoSrc || null
+  if (logoSrc) {
+    const logo = new Image()
+    logo.crossOrigin = 'anonymous'
+    logo.src = logoSrc
+    logo.onload  = () => crearDocumento(logo)
+    logo.onerror = () => crearDocumento(null)
+  } else {
+    crearDocumento(null)
   }
 }
 
 const Cierres = ({ user, onClose }) => {
   const esGestoria = esUsuarioGestoria(user)
   const [tabActiva, setTabActiva] = useState('facturas')
+
+  // Emisor dinámico: datos fiscales de la empresa actual (para PDFs de facturas)
+  const [emisorData, setEmisorData] = useState({ ...DATOS_EMISOR, logo_url: null })
+  useEffect(() => {
+    const empresaId = Number(user?.empresa_id) || null
+    if (!empresaId) return
+    cargarDatosEmisorEmpresa(empresaId).then(setEmisorData).catch(() => {})
+  }, [user?.empresa_id])
 
   // Facturas ya emitidas (lectura unificada desde facturas_emitidas_global)
   const [facturas, setFacturas] = useState([])
@@ -848,7 +850,7 @@ const Cierres = ({ user, onClose }) => {
       datos_factura: factura.datos_factura || factura.datos_json || factura.datosFactura
     }
 
-    generarFacturaPDFUnificado(facturaNormalizada)
+    generarFacturaPDFUnificado(facturaNormalizada, { emisor: emisorData, logoSrc: emisorData.logo_url })
   }
 
   const totalFacturado = useMemo(() => {

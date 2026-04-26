@@ -326,7 +326,7 @@ const GestionEquipo = ({ user }) => {
               <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-4 flex items-center gap-2">
                 <Shield size={16} className="shrink-0 text-amber-600" />
                 Has alcanzado el límite de <strong className="mx-1">{maxLic}</strong> licencias contratadas.
-                Contacta con Tabora para ampliar tu plan.
+                Contacta con el administrador para ampliar tu plan.
               </div>
             )}
             {!limiteAlcanzado && licencias && Number.isFinite(Number(licencias?.disponibles)) && Number(licencias.disponibles) <= 0 && (

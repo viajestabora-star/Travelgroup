@@ -10,6 +10,7 @@ import { existeNumeroExpedienteEnSupabase, esNumeroExpedienteValido } from '../u
 import { normalizarMetodoPago } from '../utils/finanzasHelpers'
 import { desgloseIvaBeneficioBruto } from '../utils/finance'
 import { DATOS_EMISOR } from '../config/empresa'
+import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmisorEmpresa'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
 import TablaServiciosVariante from './TablaServiciosVariante'
@@ -549,6 +550,14 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes = [], initialTab, user = null }) => {
   const { empresaId } = useEmpresa()
   const cierreGrupo = expediente?.cierre_grupo || {}
+
+  // Datos fiscales del emisor (dinámicos por tenant, para PDFs)
+  const [emisorData, setEmisorData] = useState({ ...DATOS_EMISOR, logo_url: null })
+  useEffect(() => {
+    const eId = Number(user?.empresa_id || empresaId) || null
+    if (!eId) return
+    cargarDatosEmisorEmpresa(eId).then(setEmisorData).catch(() => {})
+  }, [user?.empresa_id, empresaId])
 
   // Estados
   const [tab, setTab] = useState('grupo')
@@ -1827,22 +1836,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.save(nombreArchivo)
     }
 
-    const logo = new Image()
-    // Intentar primero con el nombre de archivo original arrastrado
-    logo.src = '/Logo tabora 2023.png'
-    logo.onload = () => {
-      crearDocumento(logo)
-    }
-    logo.onerror = () => {
-      const fallbackLogo = new Image()
-      fallbackLogo.src = '/tabora-logo.png'
-      fallbackLogo.onload = () => {
-        crearDocumento(fallbackLogo)
-      }
-      fallbackLogo.onerror = (e) => {
-        crearDocumento(null)
-      }
-    }
+    cargarLogoParaPDF(emisorData.logo_url || user?.logo_url || user?.favicon_url || null, crearDocumento)
   }
 
   // ============ OBTENER SIGUIENTE NÚMERO DE RECIBO (REC-YYYY-000X) ============
@@ -2278,7 +2272,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       year: 'numeric'
     })
     
-    const datosEmisorHistorial = DATOS_EMISOR
+    const datosEmisorHistorial = emisorData
     
     const crearDocumento = (logoImg) => {
       const doc = new jsPDF()
@@ -2486,22 +2480,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.save(nombreArchivo)
     }
     
-    // Cargar logo
-    const logo = new Image()
-    logo.src = 'https://gtwyqxfkpdwpakmgrkbu.supabase.co/storage/v1/object/public/branding/Logo%20tabora%202023.png'
-    logo.onload = () => {
-      crearDocumento(logo)
-    }
-    logo.onerror = () => {
-      const fallbackLogo = new Image()
-      fallbackLogo.src = '/Logo tabora 2023.png'
-      fallbackLogo.onload = () => {
-        crearDocumento(fallbackLogo)
-      }
-      fallbackLogo.onerror = () => {
-        crearDocumento(null)
-      }
-    }
+    cargarLogoParaPDF(emisorData.logo_url || user?.logo_url || user?.favicon_url || null, crearDocumento)
   }
 
   // ============ FACTURAR A PASAJERO INDIVIDUAL ============
@@ -3317,7 +3296,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }, [clienteIdPrincipal, expediente?.id, expediente?.nombre_grupo, expediente?.clienteNombre, clientes])
 
   // ============ DATOS DEL EMISOR (FIJOS) ============
-  const datosEmisor = DATOS_EMISOR
+  const datosEmisor = emisorData
 
   // ============ CÁLCULO DE BASE IMPONIBLE PARA FACTURA ============
   // NOTA: El Precio Venta al Cliente YA INCLUYE IVA (Régimen Especial de Agencias de Viajes)
@@ -3643,21 +3622,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.save(nombreArchivo)
     }
 
-    const logo = new Image()
-    logo.src = '/Logo tabora 2023.png'
-    logo.onload = () => {
-      crearDocumento(logo)
-    }
-    logo.onerror = () => {
-      const fallbackLogo = new Image()
-      fallbackLogo.src = '/tabora-logo.png'
-      fallbackLogo.onload = () => {
-        crearDocumento(fallbackLogo)
-      }
-      fallbackLogo.onerror = () => {
-        crearDocumento(null)
-      }
-    }
+    cargarLogoParaPDF(emisorData.logo_url || user?.logo_url || user?.favicon_url || null, crearDocumento)
   }
 
   // ============ EMITIR FACTURA ============

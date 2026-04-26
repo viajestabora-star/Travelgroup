@@ -7,12 +7,10 @@ const EmpresaContext = createContext({
   withEmpresaId: (payload) => payload,
 })
 
-const esDominioTabora = (email) => String(email || '').toLowerCase().endsWith('@viajestabora.com')
-
 const inyectarEmpresaId = (payload, empresaId) => {
   if (Array.isArray(payload)) return payload.map((item) => inyectarEmpresaId(item, empresaId))
   if (payload && typeof payload === 'object') {
-    return { ...payload, empresa_id: Number(empresaId) > 0 ? Number(empresaId) : 1 }
+    return { ...payload, empresa_id: Number(empresaId) > 0 ? Number(empresaId) : null }
   }
   return payload
 }
@@ -20,10 +18,8 @@ const inyectarEmpresaId = (payload, empresaId) => {
 export const EmpresaProvider = ({ user = null, children }) => {
   const empresaId = useMemo(() => {
     const byUser = Number(user?.empresa_id)
-    if (byUser > 0) return byUser
-    if (esDominioTabora(user?.email)) return 1
-    return 1
-  }, [user?.empresa_id, user?.email])
+    return byUser > 0 ? byUser : null
+  }, [user?.empresa_id])
 
   // Slug URL-safe: prioriza empresa_slug guardado en sesión (LoginPortal) → nombre_app → fallback id
   const empresaSlug = useMemo(

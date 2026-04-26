@@ -12,6 +12,7 @@ import CobrosPagosModal, {
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { DATOS_EMISOR } from '../config/empresa'
+import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmisorEmpresa'
 import { useEmpresa } from '../context/EmpresaContext'
 
 /**
@@ -102,6 +103,14 @@ const ExpedienteFinanzas = ({
   const { empresaId } = useEmpresa()
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
+
+  // Datos fiscales del emisor dinámicos por tenant (para PDFs)
+  const [emisorData, setEmisorData] = useState({ ...DATOS_EMISOR, logo_url: null })
+  useEffect(() => {
+    const eId = Number(user?.empresa_id || empresaId) || null
+    if (!eId) return
+    cargarDatosEmisorEmpresa(eId).then(setEmisorData).catch(() => {})
+  }, [user?.empresa_id, empresaId])
 
   // paxPago and totalPax computed from expediente/formData
   const paxPago = Math.max(0, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
@@ -559,12 +568,12 @@ const ExpedienteFinanzas = ({
       doc.setDrawColor(200, 200, 200)
       doc.setLineWidth(0.3)
       doc.line(10, footerY - 5, pageWidth - 10, footerY - 5)
-      doc.text(DATOS_EMISOR.nombre, 20, footerY)
-      doc.text(`CIF: ${DATOS_EMISOR.cif}`, 20, footerY + 8)
-      doc.text(`Licencia: ${DATOS_EMISOR.licencia}`, 20, footerY + 16)
-      doc.text(DATOS_EMISOR.direccion, 20, footerY + 24)
-      doc.text(DATOS_EMISOR.banco1, 20, footerY + 32)
-      doc.text(DATOS_EMISOR.banco2, 20, footerY + 38)
+      doc.text(emisorData.nombre, 20, footerY)
+      doc.text(`CIF: ${emisorData.cif}`, 20, footerY + 8)
+      if (emisorData.licencia) doc.text(`Licencia: ${emisorData.licencia}`, 20, footerY + 16)
+      if (emisorData.direccion) doc.text(emisorData.direccion, 20, footerY + 24)
+      if (emisorData.banco1) doc.text(emisorData.banco1, 20, footerY + 32)
+      if (emisorData.banco2) doc.text(emisorData.banco2, 20, footerY + 38)
 
       const nombreArchivo = numeroRecibo !== '—'
         ? `Recibo_${numeroRecibo}_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
@@ -572,15 +581,7 @@ const ExpedienteFinanzas = ({
       doc.save(nombreArchivo)
     }
 
-    const logo = new Image()
-    logo.src = '/Logo tabora 2023.png'
-    logo.onload = () => crearDocumento(logo)
-    logo.onerror = () => {
-      const fallbackLogo = new Image()
-      fallbackLogo.src = '/tabora-logo.png'
-      fallbackLogo.onload = () => crearDocumento(fallbackLogo)
-      fallbackLogo.onerror = () => crearDocumento(null)
-    }
+    cargarLogoParaPDF(emisorData.logo_url || user?.logo_url || user?.favicon_url || null, crearDocumento)
   }
 
   const cargarLogsFinancieros = async () => {
