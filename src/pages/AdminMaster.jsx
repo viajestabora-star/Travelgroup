@@ -755,23 +755,32 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
       // Tras refreshSession(), el cliente Supabase actualiza su Bearer
       // automáticamente → los INSERT siguientes llevan el token renovado.
 
+      // — Intento 1: leer sesión de localStorage (getSession hace auto-refresh si hay refresh_token)
       setPasoActual('Comprobando sesión…')
       let { data: { session } } = await supabase.auth.getSession()
 
-      if (!session) {
+      // — Intento 2: si no hay sesión local, forzar refreshSession()
+      if (!session?.access_token) {
         setPasoActual('Renovando token de sesión…')
         const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession()
-        if (refreshErr || !refreshData?.session) {
-          throw new Error(
-            `Sin sesión válida: ${refreshErr?.message ?? 'token no recuperable'}. ` +
-            'Cierra sesión y vuelve a entrar como administrador de Tabora.',
-          )
+        if (!refreshErr && refreshData?.session?.access_token) {
+          session = refreshData.session
         }
-        session = refreshData.session
       }
 
-      // Diagnóstico de JWT metadata — visible en consola del navegador
-      console.log('JWT Metadata:', session.user?.user_metadata)
+      // — Diagnóstico obligatorio: token presente o no
+      console.log('Token presente:', session?.access_token ? 'SÍ' : 'NO')
+      console.log('JWT Metadata:', session?.user?.user_metadata)
+
+      // — Si no hay access_token, la sesión está rota: redirigir al login
+      if (!session?.access_token) {
+        console.error('[Panel Master] Sin access_token tras refresh. Redirigiendo al login.')
+        setSaving(false)
+        window.location.href = '/login'
+        return
+      }
+
+      // — Diagnóstico de empresa_id en JWT
       const empresaIdJWT = Number(
         session.user?.app_metadata?.empresa_id
         ?? session.user?.user_metadata?.empresa_id
