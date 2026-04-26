@@ -148,7 +148,7 @@ const Layout = ({ user, onLogout }) => {
   const logoSrc = user?.logo_url || user?.favicon_url || null
 
   const menuItems = useMemo(() => {
-    // Paths RELATIVOS (sin "/" inicial) ? React Router los resolver? bajo /:slug autom?ticamente.
+    // Paths relativos (sin "/" inicial) para resolver bajo /:slug.
     const base = [
       { path: 'dashboard',              icon: LayoutDashboard, label: 'PANEL DE CONTROL' },
       { path: 'clientes',               icon: Users,           label: 'CLIENTES' },
@@ -160,19 +160,21 @@ const Layout = ({ user, onLogout }) => {
       { path: 'composer',               icon: Edit3,           label: 'COMPOSER' },
       { path: 'cierres',                icon: Calculator,      label: 'CIERRES' },
     ]
+
     if (puedeAccederCierresEconomicos(user)) {
-      base.push({ path: 'historial-cierres',      icon: History,    label: 'CIERRES ECON\u00d3MICOS' })
+      base.push({ path: 'historial-cierres', icon: History, label: 'CIERRES ECON\u00d3MICOS' })
     }
     if (esAdmin || esGestoria) {
       base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'INTELIGENCIA ECON\u00d3MICA' })
     }
     if (!esGestoria) {
-      base.push({ path: 'gestion-equipo',         icon: UserCog,    label: 'GESTI\u00d3N DE EQUIPO' })
+      base.push({ path: 'gestion-equipo', icon: UserCog, label: 'GESTI\u00d3N DE EQUIPO' })
     }
     if (puedeAccederAdminMaster(user)) {
-      base.push({ path: 'admin-master',            icon: Shield,     label: 'PANEL MASTER' })
+      base.push({ path: 'admin-master', icon: Shield, label: 'PANEL MASTER' })
     }
-    // Gestor?a: filtrar solo secciones autorizadas (comparaci?n con paths relativos)
+
+    // Gestor?a: filtrar solo secciones autorizadas.
     if (esGestoria) {
       const permitidas = new Set(['cierres', 'historial-cierres', 'proveedores', 'inteligencia-economica', 'crm'])
       return base.filter(item => permitidas.has(item.path))
