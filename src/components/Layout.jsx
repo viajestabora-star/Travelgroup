@@ -141,7 +141,9 @@ const Layout = ({ user, onLogout }) => {
 
   const esAdmin    = esUsuarioAdmin(user)
   const esGestoria = esUsuarioGestoria(user)
-  const nombreMarca = user?.nombre_app && String(user.nombre_app).trim() ? String(user.nombre_app).trim() : NOMBRE_APP_DEFAULT
+  const nombreMarca = user?.nombre_comercial && String(user.nombre_comercial).trim()
+    ? String(user.nombre_comercial).trim()
+    : (user?.nombre_app && String(user.nombre_app).trim() ? String(user.nombre_app).trim() : NOMBRE_APP_DEFAULT)
   // Logo din?mico: logo_url de la empresa (BD) ? favicon_url de sesi?n ? sin imagen (solo nombre)
   const logoSrc = user?.logo_url || user?.favicon_url || null
 
@@ -154,18 +156,18 @@ const Layout = ({ user, onLogout }) => {
       { path: 'expedientes',            icon: FileText,        label: `Expedientes ${ejercicioActual}` },
       { path: 'proveedores',            icon: Truck,           label: 'Proveedores' },
       { path: 'planning',               icon: Calendar,        label: `Planning ${ejercicioActual}` },
-      { path: 'crm',                    icon: Plane,           label: 'CRM / Captaci?n' },
+      { path: 'crm',                    icon: Plane,           label: 'CRM / Captaci\u00f3n' },
       { path: 'composer',               icon: Edit3,           label: 'Composer' },
       { path: 'cierres',                icon: Calculator,      label: 'Cierres' },
     ]
     if (puedeAccederCierresEconomicos(user)) {
-      base.push({ path: 'historial-cierres',      icon: History,    label: 'Cierres Econ?micos' })
+      base.push({ path: 'historial-cierres',      icon: History,    label: 'Cierres Econ\u00f3micos' })
     }
     if (esAdmin || esGestoria) {
-      base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Econ?mica' })
+      base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Econ\u00f3mica' })
     }
     if (!esGestoria) {
-      base.push({ path: 'gestion-equipo',         icon: UserCog,    label: 'Gesti?n de Equipo' })
+      base.push({ path: 'gestion-equipo',         icon: UserCog,    label: 'Gesti\u00f3n de Equipo' })
     }
     if (puedeAccederAdminMaster(user)) {
       base.push({ path: 'admin-master',            icon: Shield,     label: 'Panel Master' })
@@ -288,7 +290,7 @@ const Layout = ({ user, onLogout }) => {
               className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-1 border-t border-slate-700"
             >
               <LogOut size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
-              {sidebarOpen && <span className="text-sm font-medium">Cerrar sesi?n</span>}
+              {sidebarOpen && <span className="text-sm font-medium">Cerrar Sesi\u00f3n</span>}
             </button>
           )}
         </nav>

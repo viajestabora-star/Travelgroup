@@ -89,15 +89,18 @@ function App() {
         Number(authUser.app_metadata?.empresa_id) ||
         Number(authUser.user_metadata?.empresa_id) ||
         0;
+      let nivelAccesoReal = null;
 
       // Si no viene en JWT, leer desde profiles (sin tenant filter: profiles no está en ERP_TABLES)
+      // para evitar falsos 0/null cacheados en claims.
       if (!empresa_idReal) {
         const { data: perfil } = await supabase
           .from('profiles')
-          .select('empresa_id')
+          .select('empresa_id, nivel_acceso')
           .eq('id', authUser.id)
           .maybeSingle();
         empresa_idReal = Number(perfil?.empresa_id) || 0;
+        nivelAccesoReal = perfil?.nivel_acceso || null;
       }
 
       if (cancelled) return;
@@ -111,15 +114,26 @@ function App() {
         return;
       }
 
-      // Corregir si el localStorage tiene un empresa_id diferente al del JWT
+      // Corregir sesión local con datos reales: empresa_id numérico y nivel_acceso reciente
       setUser((prev) => {
         if (!prev) return prev;
-        if (Number(prev.empresa_id) === empresa_idReal) {
+        const empresaIgual = Number(prev.empresa_id) === empresa_idReal;
+        const nivelIgual = !nivelAccesoReal || prev.nivel_acceso === nivelAccesoReal;
+        if (empresaIgual && nivelIgual) {
           setTenantEmpresaId(empresa_idReal);
           return prev;
         }
-        console.warn('[App] Discrepancia empresa_id: localStorage=%s JWT=%s → corrigiendo', prev.empresa_id, empresa_idReal);
-        const corrected = { ...prev, empresa_id: empresa_idReal };
+        console.warn('[App] Sesión local desactualizada → corrigiendo empresa_id/nivel_acceso', {
+          empresaLocal: prev.empresa_id,
+          empresaReal: empresa_idReal,
+          nivelLocal: prev.nivel_acceso,
+          nivelReal: nivelAccesoReal,
+        });
+        const corrected = {
+          ...prev,
+          empresa_id: empresa_idReal,
+          ...(nivelAccesoReal ? { nivel_acceso: nivelAccesoReal } : {}),
+        };
         localStorage.setItem('sesion_tabora', JSON.stringify(corrected));
         setTenantEmpresaId(empresa_idReal);
         return corrected;
@@ -130,7 +144,7 @@ function App() {
       if (rawStored) {
         try {
           const stored = JSON.parse(rawStored);
-          if (!stored.empresa_slug || !stored.logo_url) {
+          if (!stored.empresa_slug || !stored.logo_url || !stored.nombre_comercial) {
             const { data: emp } = await supabase
               .from('empresas')
               .select('cif, nombre_comercial, logo_url')
@@ -139,9 +153,10 @@ function App() {
             if (emp && !cancelled) {
               const empresa_slug = stored.empresa_slug || toSlug(emp.nombre_comercial || `empresa-${empresa_idReal}`);
               const logo_url     = stored.logo_url     || emp.logo_url || null;
-              const updated = { ...stored, cif: emp.cif ?? stored.cif, empresa_slug, logo_url };
+              const nombre_comercial = stored.nombre_comercial || emp.nombre_comercial || null;
+              const updated = { ...stored, cif: emp.cif ?? stored.cif, empresa_slug, logo_url, nombre_comercial };
               localStorage.setItem('sesion_tabora', JSON.stringify(updated));
-              setUser((prev) => prev ? { ...prev, cif: updated.cif, empresa_slug, logo_url } : prev);
+              setUser((prev) => prev ? { ...prev, cif: updated.cif, empresa_slug, logo_url, nombre_comercial } : prev);
             }
           }
         } catch (_) {}

@@ -711,23 +711,38 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
 
   // Verificación de identidad Master en mount — no bloquea la UI, solo inhabilita el botón
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user }, error: authError }) => {
+    const verificarMasterEnMount = async () => {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
       if (authError || !user) {
         console.error('[Panel Master] getUser() en mount falló:', authError?.message)
         setMasterVerificado(false)
         return
       }
-      const eId = Number(
+
+      let eId = Number(
         user.app_metadata?.empresa_id
         ?? user.user_metadata?.empresa_id
         ?? 0,
       )
+
+      // Si JWT viene cacheado con 0/null, resolver desde profiles (fuente más reciente).
+      if (!(eId > 0)) {
+        const { data: perfil } = await supabase
+          .from('profiles')
+          .select('empresa_id, nivel_acceso')
+          .eq('id', user.id)
+          .maybeSingle()
+        eId = Number(perfil?.empresa_id) || 0
+      }
+
       const esMaster = eId === MASTER_EMPRESA_ID
       setMasterVerificado(esMaster)
       if (!esMaster) {
-        console.error('[Panel Master] Usuario en mount NO es Master (empresa_id JWT:', eId, ')')
+        console.error('[Panel Master] Usuario en mount NO es Master (empresa_id resuelto:', eId, ')')
       }
-    })
+    }
+
+    verificarMasterEnMount()
   }, [])
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
@@ -823,7 +838,16 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
       // Si user es null o empresa_id !== 1 → abort con alert y return.
       // La operación NO continúa: evita un 401 garantizado en el INSERT.
       const { data: { user }, error: authError } = await supabase.auth.getUser()
-      if (authError || !user || Number(user.app_metadata?.empresa_id ?? user.user_metadata?.empresa_id ?? 0) !== MASTER_EMPRESA_ID) {
+      let empresaIdAuth = Number(user?.app_metadata?.empresa_id ?? user?.user_metadata?.empresa_id ?? 0)
+      if (user && !(empresaIdAuth > 0)) {
+        const { data: perfil } = await supabase
+          .from('profiles')
+          .select('empresa_id, nivel_acceso')
+          .eq('id', user.id)
+          .maybeSingle()
+        empresaIdAuth = Number(perfil?.empresa_id) || 0
+      }
+      if (authError || !user || empresaIdAuth !== MASTER_EMPRESA_ID) {
         console.error('ERROR CRÍTICO: Sesión inválida o no es Master', authError)
         alert('Tu sesión ha expirado o no tienes permisos de Master. Por favor, cierra sesión y vuelve a entrar.')
         setSaving(false)

@@ -110,6 +110,7 @@ const LoginPortal = ({ onSesion }) => {
 
     const cifEmpresa  = empresaData?.cif ?? null
     const logoUrl     = empresaData?.logo_url ?? null
+    const nombreComercial = empresaData?.nombre_comercial ?? null
     const empresaSlug = toSlug(empresaData?.nombre_comercial || `empresa-${empresaIdSesion}`)
 
     // 6. Datos de marca blanca (no crítico)
@@ -129,6 +130,7 @@ const LoginPortal = ({ onSesion }) => {
       empresa_id:   empresaIdSesion,
       id:           userId,
       cif:          cifEmpresa,
+      nombre_comercial: nombreComercial,
       logo_url:     logoUrl,
       empresa_slug: empresaSlug,
       nombre_app:   u.nombre_app  || NOMBRE_APP_DEFAULT,
