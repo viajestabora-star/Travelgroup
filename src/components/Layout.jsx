@@ -37,7 +37,12 @@ const Layout = ({ user, onLogout }) => {
   useEffect(() => {
     const userId = authSession?.user?.id
     if (!userId) return
-    const empresaIdActual = Number(authSession?.user?.app_metadata?.empresa_id ?? 0)
+    // Prioridad: app_metadata (servidor) > user_metadata (cliente)
+    const empresaIdActual = Number(
+      authSession?.user?.app_metadata?.empresa_id
+      ?? authSession?.user?.user_metadata?.empresa_id
+      ?? 0,
+    )
     if (empresaIdActual > 0) return
     // Si no hay claim, simplemente refrescamos la sesi?n para que el trigger de DB lo cargue.
     supabase.auth.refreshSession().then(({ data, error }) => {

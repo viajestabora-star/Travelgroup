@@ -65,20 +65,37 @@ const LoginPortal = ({ onSesion }) => {
       return
     }
 
-    // 3. Leer empresa_id directamente desde la tabla profiles — sin RPC, sin fallbacks
+    // 3. Leer empresa_id y nivel_acceso desde la tabla profiles
+    // La columna real es nivel_acceso (no rol). Se selecciona explícitamente.
     const { data: perfil, error: perfilError } = await supabase
       .from('profiles')
       .select('empresa_id, nivel_acceso, nombre, email')
       .eq('id', userId)
       .maybeSingle()
 
-    const empresaIdSesion = Number(perfil?.empresa_id) > 0 ? Number(perfil.empresa_id) : null
+    const empresaIdPerfil = Number(perfil?.empresa_id) > 0 ? Number(perfil.empresa_id) : null
+
+    // Fallback: si profiles no tiene empresa_id, leer del JWT (app_metadata > user_metadata).
+    // Imprescindible para el Superadmin (empresa_id=1 / Tabora) cuya fila de profiles
+    // puede no tener empresa_id si el trigger de DB no lo escribió aún.
+    const empresaIdJWT = Number(
+      authUser?.app_metadata?.empresa_id
+      ?? authUser?.user_metadata?.empresa_id
+      ?? 0,
+    )
+    const empresaIdSesion = empresaIdPerfil ?? (empresaIdJWT > 0 ? empresaIdJWT : null)
 
     if (perfilError || !empresaIdSesion) {
-      setCargando(false)
-      await supabase.auth.signOut()
-      setMensaje('Tu cuenta no tiene empresa asignada. Contacta con el administrador del sistema.')
-      return
+      // No bloquear si el JWT confirma empresa_id=1 (Superadmin de Tabora).
+      // En ese caso el perfil se creará / completará en el próximo acceso al ERP.
+      if (empresaIdJWT === 1) {
+        console.warn('[Login] profiles sin empresa_id, pero JWT confirma Superadmin (empresa_id=1). Acceso permitido.')
+      } else {
+        setCargando(false)
+        await supabase.auth.signOut()
+        setMensaje('Tu cuenta no tiene empresa asignada. Contacta con el administrador del sistema.')
+        return
+      }
     }
 
     // 4. Activar el filtro multi-tenant ANTES de cualquier query posterior
@@ -101,10 +118,14 @@ const LoginPortal = ({ onSesion }) => {
 
     setCargando(false)
 
+    // perfil puede ser null en el bypass de Superadmin (empresa_id=1 desde JWT).
+    // Se usa optional chaining para evitar TypeError. Si empresa_id=1, el nivel
+    // por defecto es 'ADMIN' (Superadmin de Tabora), no 'STAFF'.
+    const nivelAccesoDefault = empresaIdSesion === 1 ? 'ADMIN' : 'STAFF'
     const sesion = {
-      email:        perfil.email        || emailNorm,
-      nombre:       perfil.nombre       || u.nombre || emailNorm.split('@')[0],
-      nivel_acceso: perfil.nivel_acceso || 'STAFF',
+      email:        perfil?.email        || emailNorm,
+      nombre:       perfil?.nombre       || u.nombre || emailNorm.split('@')[0],
+      nivel_acceso: perfil?.nivel_acceso || nivelAccesoDefault,
       empresa_id:   empresaIdSesion,
       id:           userId,
       cif:          cifEmpresa,

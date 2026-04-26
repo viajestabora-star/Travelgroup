@@ -78,8 +78,9 @@ export async function verificarLicenciasYRegistrarMiembro(
     options: {
       data: {
         empresa_id: empresaIdNum,
+        // La columna real de profiles es nivel_acceso, no rol.
+        // Se omite 'rol' de user_metadata para evitar inconsistencias con el esquema.
         nivel_acceso: nivel,
-        rol: rol_ui,
       },
     },
   })
