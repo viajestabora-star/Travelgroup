@@ -26,6 +26,8 @@ const Layout = ({ user, onLogout }) => {
   const [currentSessionId, setCurrentSessionId] = useState(null)
   const currentSessionIdRef = useRef(null)
   const isProcessing = useRef(false)
+  // Nombre de empresa siempre fresco desde empresas.nombre_comercial (no desde caché de sesión)
+  const [nombreEmpresaBD, setNombreEmpresaBD] = useState(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthSession(session))
@@ -139,12 +141,36 @@ const Layout = ({ user, onLogout }) => {
     return unsubscribe
   }, [])
 
+  // Fetch de nombre_comercial siempre desde empresas (no depende de la caché de sesión).
+  // Se dispara cuando tenemos empresa_id confirmado (de la sesión o del JWT).
+  useEffect(() => {
+    const empresaId = Number(
+      authSession?.user?.app_metadata?.empresa_id
+      ?? user?.empresa_id
+      ?? 0,
+    ) || null
+    if (!empresaId) return
+    let cancelled = false
+    supabase
+      .from('empresas')
+      .select('nombre_comercial')
+      .eq('id', empresaId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled && data?.nombre_comercial) {
+          setNombreEmpresaBD(String(data.nombre_comercial).trim())
+        }
+      })
+    return () => { cancelled = true }
+  }, [authSession?.user?.id, user?.empresa_id])
+
   const esAdmin    = esUsuarioAdmin(user)
   const esGestoria = esUsuarioGestoria(user)
-  const nombreMarca = user?.nombre_comercial && String(user.nombre_comercial).trim()
-    ? String(user.nombre_comercial).trim()
-    : (user?.nombre_app && String(user.nombre_app).trim() ? String(user.nombre_app).trim() : NOMBRE_APP_DEFAULT)
-  // Logo din?mico: logo_url de la empresa (BD) ? favicon_url de sesi?n ? sin imagen (solo nombre)
+  // Prioridad: BD (siempre fresca) → sesión (nombre_comercial o nombre_app) → default
+  const nombreMarca = nombreEmpresaBD
+    || (user?.nombre_comercial && String(user.nombre_comercial).trim() ? String(user.nombre_comercial).trim() : null)
+    || (user?.nombre_app && String(user.nombre_app).trim() ? String(user.nombre_app).trim() : NOMBRE_APP_DEFAULT)
+  // Logo dinámico: logo_url de la empresa (BD) → favicon_url de sesión → sin imagen (solo nombre)
   const logoSrc = user?.logo_url || user?.favicon_url || null
 
   const menuItems = useMemo(() => {

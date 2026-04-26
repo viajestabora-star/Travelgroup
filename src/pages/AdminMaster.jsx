@@ -853,6 +853,7 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
       const newEmpresaId = newRow.id
 
       // ── Paso 2 (opcional): Crear usuario Admin inicial ────────────────────
+      let perfilFallo = false   // flag para el timeout diferenciado
       if (tieneEmail) {
         const emailNorm = form.admin_email.trim().toLowerCase()
 
@@ -891,7 +892,8 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
           )
         }
 
-        // Upsert del perfil con la sesión restaurada del Master Admin
+        // Upsert del perfil con la sesión restaurada del Master Admin.
+        // empresa_id aquí es el de la empresa recién creada (newEmpresaId), NO el del Master.
         setPasoActual('Creando perfil de administrador…')
         const { error: profErr } = await supabase
           .from('profiles')
@@ -899,7 +901,7 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
             {
               id:           newUserId,
               email:        emailNorm,
-              empresa_id:   newEmpresaId,
+              empresa_id:   newEmpresaId,   // empresa del nuevo tenant, no del Master
               nivel_acceso: 'ADMIN',
               nombre:       emailNorm.split('@')[0],
             },
@@ -907,16 +909,22 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
           )
 
         if (profErr) {
-          throw new Error(
-            `Auth OK (ID: ${newUserId}), pero el perfil falló: ${profErr.message}. ` +
-            'Actualiza el perfil manualmente desde "Usuarios de la agencia".',
-          )
+          // El perfil falló pero la empresa ya existe — no bloqueamos.
+          // Mostramos advertencia específica para que el Master actúe desde "Usuarios de la agencia".
+          console.error('[Panel Master] profiles upsert falló:', profErr)
+          perfilFallo = true
+          setMsg({
+            tipo:  'warn',
+            texto: `⚠ Empresa creada (empresa_id: ${newEmpresaId}). Auth OK (ID: ${newUserId}), `
+              + `pero el perfil no se pudo insertar: ${profErr.message}. `
+              + 'Abre el modal de edición → pestaña "Usuarios de la agencia" para crearlo manualmente.',
+          })
+        } else {
+          setMsg({
+            tipo:  'ok',
+            texto: `✓ Empresa creada (empresa_id: ${newEmpresaId}). Admin "${emailNorm}" registrado. Entrega estas credenciales al cliente.`,
+          })
         }
-
-        setMsg({
-          tipo:  'ok',
-          texto: `✓ Empresa creada (empresa_id: ${newEmpresaId}). Admin "${emailNorm}" registrado. Entrega estas credenciales al cliente.`,
-        })
       } else {
         setMsg({
           tipo:  'ok',
@@ -926,7 +934,8 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
 
       setForm(NUEVO_FORM_VACIO)
       setPasoActual('')
-      setTimeout(resetPanel, 3000)
+      // ok → cierra a los 3 s | warn (perfil falló) → da 8 s para que el Master lea el aviso
+      setTimeout(resetPanel, perfilFallo ? 8000 : 3000)
     } catch (err) {
       // Muestra el mensaje técnico real de Supabase sin filtros preventivos.
       // Si el RLS bloquea la operación, el error de Postgres (42501) llega aquí
@@ -1097,16 +1106,18 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
             </div>
           )}
 
-          {/* Mensaje resultado */}
+          {/* Mensaje resultado — ok: verde | warn: ámbar | err: rojo */}
           {msg.texto && (
             <div className={`rounded-lg px-3 py-2.5 text-sm border flex items-start gap-2 ${
               msg.tipo === 'ok'
                 ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
-                : 'bg-rose-50 text-rose-900 border-rose-200'
+                : msg.tipo === 'warn'
+                  ? 'bg-amber-50 text-amber-900 border-amber-200'
+                  : 'bg-rose-50 text-rose-900 border-rose-200'
             }`}>
               {msg.tipo === 'ok'
                 ? <Check size={15} className="shrink-0 mt-0.5" />
-                : <AlertCircle size={15} className="shrink-0 mt-0.5" />}
+                : <AlertCircle size={15} className={`shrink-0 mt-0.5 ${msg.tipo === 'warn' ? 'text-amber-500' : ''}`} />}
               <span>{msg.texto}</span>
             </div>
           )}
