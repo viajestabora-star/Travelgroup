@@ -156,19 +156,19 @@ const Layout = ({ user, onLogout }) => {
       { path: 'expedientes',            icon: FileText,        label: `EXPEDIENTES ${ejercicioActual}` },
       { path: 'proveedores',            icon: Truck,           label: 'PROVEEDORES' },
       { path: 'planning',               icon: Calendar,        label: `PLANNING ${ejercicioActual}` },
-      { path: 'crm',                    icon: Plane,           label: 'CRM / CAPTACI\u00d3N' },
+      { path: 'crm',                    icon: Plane,           label: 'CRM / CAPTACIÓN' },
       { path: 'composer',               icon: Edit3,           label: 'COMPOSER' },
       { path: 'cierres',                icon: Calculator,      label: 'CIERRES' },
     ]
 
     if (puedeAccederCierresEconomicos(user)) {
-      base.push({ path: 'historial-cierres', icon: History, label: 'CIERRES ECON\u00d3MICOS' })
+      base.push({ path: 'historial-cierres', icon: History, label: 'CIERRES ECONÓMICOS' })
     }
     if (esAdmin || esGestoria) {
-      base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'INTELIGENCIA ECON\u00d3MICA' })
+      base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'INTELIGENCIA ECONÓMICA' })
     }
     if (!esGestoria) {
-      base.push({ path: 'gestion-equipo', icon: UserCog, label: 'GESTI\u00d3N DE EQUIPO' })
+      base.push({ path: 'gestion-equipo', icon: UserCog, label: 'GESTIÓN DE EQUIPO' })
     }
     if (puedeAccederAdminMaster(user)) {
       base.push({ path: 'admin-master', icon: Shield, label: 'PANEL MASTER' })
@@ -292,7 +292,7 @@ const Layout = ({ user, onLogout }) => {
               className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-1 border-t border-slate-700"
             >
               <LogOut size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
-              {sidebarOpen && <span className="text-sm font-medium uppercase tracking-wide">CERRAR SESI\u00d3N</span>}
+              {sidebarOpen && <span className="text-sm font-medium uppercase tracking-wide">CERRAR SESIÓN</span>}
             </button>
           )}
         </nav>
