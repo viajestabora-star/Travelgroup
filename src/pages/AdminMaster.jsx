@@ -744,8 +744,31 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
     setMsg({ tipo: '', texto: '' })
 
     try {
-      // ── Paso 1: Crear fila en tabla empresas ─────────────────────────────
-      setPasoActual('Creando empresa…')
+      // ── Verificación de sesión activa (identidad Tabora) ──────────────────
+      // El RLS de Supabase evalúa el JWT del usuario autenticado.
+      // Tabora (empresa_id=1) tiene política INSERT/UPDATE/DELETE completa.
+      // Si no hay sesión válida, el INSERT en `empresas` sería rechazado con 42501.
+      setPasoActual('Verificando sesión activa…')
+      const { data: { user: sesionActual }, error: sesionErr } = await supabase.auth.getUser()
+      if (sesionErr || !sesionActual) {
+        throw new Error(
+          'No hay sesión activa. Cierra sesión y vuelve a entrar como administrador de Tabora antes de crear empresas.',
+        )
+      }
+      const empresaIdSesion = sesionActual.app_metadata?.empresa_id
+        ?? sesionActual.user_metadata?.empresa_id
+        ?? '(en perfil)'
+      console.log(
+        '[Panel Master] Sesión activa:', sesionActual.email,
+        '| empresa_id JWT:', empresaIdSesion,
+        '| uid:', sesionActual.id,
+      )
+
+      // ── Paso 1: Crear fila en tabla empresas ──────────────────────────────
+      // `empresas` no está en ERP_TABLES → el proxy de tenant no interfiere.
+      // Campos saas_* (razón social, NIF, email, tel, dirección, precios) se
+      // incluyen en el payload si tienen valor — véase useSaasManagement.createEmpresa.
+      setPasoActual(`Creando empresa como ${sesionActual.email}…`)
       const newRow       = await onCreate(form)
       const newEmpresaId = newRow.id
 
@@ -757,12 +780,12 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
         // Si el proyecto Supabase tiene confirmación de email desactivada,
         // signUp reemplaza la sesión activa con la del nuevo usuario.
         // Restauramos la sesión Tabora para que el upsert de profiles
-        // se ejecute con sus permisos RLS completos.
+        // se ejecute con sus permisos RLS completos (empresa_id=1 tiene acceso total).
         setPasoActual('Guardando sesión Master…')
         const { data: { session: adminSession } } = await supabase.auth.getSession()
 
         // Registrar el nuevo usuario en Supabase Auth
-        setPasoActual('Registrando usuario en Auth…')
+        setPasoActual(`Registrando ${emailNorm} en Auth…`)
         const { data: authData, error: authErr } = await supabase.auth.signUp({
           email:    emailNorm,
           password: form.admin_password,
@@ -825,7 +848,18 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
       setPasoActual('')
       setTimeout(resetPanel, 3000)
     } catch (err) {
-      setMsg({ tipo: 'err', texto: err?.message || 'Error desconocido.' })
+      // Clasificación de errores para mensajes descriptivos
+      const raw   = err?.message || 'Error desconocido.'
+      const esRLS = raw.includes('row-level security')
+        || raw.includes('42501')
+        || raw.includes('permission denied')
+        || raw.includes('policy')
+      setMsg({
+        tipo: 'err',
+        texto: esRLS
+          ? `Bloqueado por política RLS: ${raw}. Verifica que en Supabase exista una política INSERT para "empresas" que permita al usuario con empresa_id=1 (Tabora) crear nuevas filas.`
+          : raw,
+      })
       setPasoActual('')
     } finally {
       setSaving(false)
