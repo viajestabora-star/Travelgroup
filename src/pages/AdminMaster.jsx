@@ -744,22 +744,53 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
     setMsg({ tipo: '', texto: '' })
 
     try {
-      // ── Verificación de sesión activa (identidad Tabora) ──────────────────
-      // El RLS de Supabase evalúa el JWT del usuario autenticado.
-      // Tabora (empresa_id=1) tiene política INSERT/UPDATE/DELETE completa.
-      // Si no hay sesión válida, el INSERT en `empresas` sería rechazado con 42501.
+      // ── Verificación de sesión activa — tres niveles de resiliencia ────────
+      // Nivel 1: getUser() valida el JWT contra el servidor de Supabase Auth.
+      // Nivel 2: si el token está caducado, refreshSession() lo renueva.
+      // Nivel 3: fallback a getSession() que lee localStorage (no requiere red).
+      // Solo se bloquea si los tres fallan (sin sesión en absoluto).
       setPasoActual('Verificando sesión activa…')
-      const { data: { user: sesionActual }, error: sesionErr } = await supabase.auth.getUser()
-      if (sesionErr || !sesionActual) {
+
+      let sesionActual = null
+
+      // Nivel 1 — verificación remota del JWT
+      const { data: { user: userDirecto }, error: getUserErr } = await supabase.auth.getUser()
+      if (!getUserErr && userDirecto) {
+        sesionActual = userDirecto
+      }
+
+      // Nivel 2 — refrescar token si el nivel 1 falló
+      if (!sesionActual) {
+        setPasoActual('Renovando sesión…')
+        const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession()
+        if (!refreshErr && refreshData?.user) {
+          sesionActual = refreshData.user
+          console.log('[Panel Master] Sesión renovada vía refreshSession()')
+        }
+      }
+
+      // Nivel 3 — leer sesión local (localStorage) como último recurso
+      if (!sesionActual) {
+        const { data: { session: localSesion } } = await supabase.auth.getSession()
+        if (localSesion?.user) {
+          sesionActual = localSesion.user
+          console.warn('[Panel Master] Usando sesión local (token posiblemente caducado). El RLS validará en servidor.')
+        }
+      }
+
+      if (!sesionActual) {
         throw new Error(
           'No hay sesión activa. Cierra sesión y vuelve a entrar como administrador de Tabora antes de crear empresas.',
         )
       }
-      const empresaIdSesion = sesionActual.app_metadata?.empresa_id
+
+      const empresaIdSesion = Number(
+        sesionActual.app_metadata?.empresa_id
         ?? sesionActual.user_metadata?.empresa_id
-        ?? '(en perfil)'
+        ?? 0,
+      ) || '(en perfil BD)'
       console.log(
-        '[Panel Master] Sesión activa:', sesionActual.email,
+        '[Panel Master] Sesión confirmada:', sesionActual.email,
         '| empresa_id JWT:', empresaIdSesion,
         '| uid:', sesionActual.id,
       )
