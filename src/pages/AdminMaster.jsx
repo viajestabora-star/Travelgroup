@@ -701,11 +701,34 @@ const NUEVO_FORM_VACIO = () => ({
 })
 
 const NuevaEmpresaPanel = ({ onCreate }) => {
-  const [open, setOpen]           = useState(false)
-  const [form, setForm]           = useState(NUEVO_FORM_VACIO)
-  const [saving, setSaving]       = useState(false)
-  const [pasoActual, setPasoActual] = useState('')
-  const [msg, setMsg]             = useState({ tipo: '', texto: '' })
+  const [open, setOpen]               = useState(false)
+  const [form, setForm]               = useState(NUEVO_FORM_VACIO)
+  const [saving, setSaving]           = useState(false)
+  const [pasoActual, setPasoActual]   = useState('')
+  const [msg, setMsg]                 = useState({ tipo: '', texto: '' })
+  // null = verificando | true = Master confirmado | false = no autorizado o sin sesión
+  const [masterVerificado, setMasterVerificado] = useState(null)
+
+  // Verificación de identidad Master en mount — no bloquea la UI, solo inhabilita el botón
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user }, error: authError }) => {
+      if (authError || !user) {
+        console.error('[Panel Master] getUser() en mount falló:', authError?.message)
+        setMasterVerificado(false)
+        return
+      }
+      const eId = Number(
+        user.app_metadata?.empresa_id
+        ?? user.user_metadata?.empresa_id
+        ?? 0,
+      )
+      const esMaster = eId === 1
+      setMasterVerificado(esMaster)
+      if (!esMaster) {
+        console.error('[Panel Master] Usuario en mount NO es Master (empresa_id JWT:', eId, ')')
+      }
+    })
+  }, [])
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -795,17 +818,20 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
 
       const sesionEmail = session.user?.email ?? 'Superadmin'
 
-      // ── Diagnóstico getUser() — inmediatamente antes del INSERT ───────────
-      // getUser() valida el token contra el servidor Auth de Supabase.
-      // Si devuelve null aquí (después de que getSession sí tenía token),
-      // significa que el JWT del localStorage ya no es reconocido por el servidor.
-      const { data: { user: currentUser } } = await supabase.auth.getUser()
-      if (!currentUser) {
-        // alert bloqueante: pausa la ejecución hasta que el admin haga clic en OK.
-        // Tras OK, el INSERT se intenta de todas formas para capturar el error real de Supabase.
-        window.alert('SESIÓN INVALIDADA POR EL NAVEGADOR — el token ya no es reconocido por Supabase Auth. Haz clic en OK para ver el error completo de la base de datos.')
+      // ── Validación de identidad Master — BLOQUEANTE ───────────────────────
+      // getUser() valida el JWT contra el servidor Auth (petición de red).
+      // Si user es null o empresa_id !== 1 → abort con alert y return.
+      // La operación NO continúa: evita un 401 garantizado en el INSERT.
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (authError || !user || Number(user.app_metadata?.empresa_id ?? user.user_metadata?.empresa_id ?? 0) !== 1) {
+        console.error('ERROR CRÍTICO: Sesión inválida o no es Master', authError)
+        alert('Tu sesión ha expirado o no tienes permisos de Master. Por favor, cierra sesión y vuelve a entrar.')
+        setSaving(false)
+        return
       }
-      console.log('[Panel Master] getUser() →', currentUser ? currentUser.email : 'null')
+      // Actualizar el estado de verificación en UI por si cambió desde el mount
+      setMasterVerificado(true)
+      console.log('[Panel Master] getUser() → Master confirmado:', user.email)
 
       // ── Paso 1: INSERT en empresas — atomic con .select() ─────────────────
       // `empresas` no está en ERP_TABLES → el proxy de tenant no interfiere.
@@ -1076,16 +1102,30 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
             </div>
           )}
 
+          {/* Aviso de sesión no verificada */}
+          {masterVerificado === false && (
+            <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-800">
+              <AlertCircle size={14} className="shrink-0 mt-0.5 text-rose-500" />
+              <span>
+                Sesión no verificada como Master (empresa_id=1). Cierra sesión y vuelve a entrar
+                como administrador de Tabora para habilitar la creación de empresas.
+              </span>
+            </div>
+          )}
+
           {/* Acciones */}
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={resetPanel} disabled={saving}
               className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-800 font-medium hover:bg-slate-50 disabled:opacity-50 text-sm">
               Cancelar
             </button>
-            <button type="submit" disabled={saving}
-              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 disabled:opacity-50 text-sm">
+            <button
+              type="submit"
+              disabled={saving || masterVerificado === false}
+              title={masterVerificado === false ? 'Sesión no verificada como Master — cierra sesión y vuelve a entrar' : undefined}
+              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm">
               <PlusCircle size={15} />
-              {saving ? 'Procesando…' : 'Crear empresa'}
+              {saving ? 'Procesando…' : masterVerificado === null ? 'Verificando sesión…' : 'Crear empresa'}
             </button>
           </div>
         </form>
