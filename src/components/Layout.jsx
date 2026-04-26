@@ -150,27 +150,27 @@ const Layout = ({ user, onLogout }) => {
   const menuItems = useMemo(() => {
     // Paths RELATIVOS (sin "/" inicial) ? React Router los resolver? bajo /:slug autom?ticamente.
     const base = [
-      { path: 'dashboard',              icon: LayoutDashboard, label: 'Panel de Control' },
-      { path: 'clientes',               icon: Users,           label: 'Clientes' },
+      { path: 'dashboard',              icon: LayoutDashboard, label: 'PANEL DE CONTROL' },
+      { path: 'clientes',               icon: Users,           label: 'CLIENTES' },
       { path: 'notas',                  icon: Briefcase,       label: 'NOTAS DE TRABAJO' },
-      { path: 'expedientes',            icon: FileText,        label: `Expedientes ${ejercicioActual}` },
-      { path: 'proveedores',            icon: Truck,           label: 'Proveedores' },
-      { path: 'planning',               icon: Calendar,        label: `Planning ${ejercicioActual}` },
-      { path: 'crm',                    icon: Plane,           label: 'CRM / Captaci\u00f3n' },
-      { path: 'composer',               icon: Edit3,           label: 'Composer' },
-      { path: 'cierres',                icon: Calculator,      label: 'Cierres' },
+      { path: 'expedientes',            icon: FileText,        label: `EXPEDIENTES ${ejercicioActual}` },
+      { path: 'proveedores',            icon: Truck,           label: 'PROVEEDORES' },
+      { path: 'planning',               icon: Calendar,        label: `PLANNING ${ejercicioActual}` },
+      { path: 'crm',                    icon: Plane,           label: 'CRM / CAPTACI\u00d3N' },
+      { path: 'composer',               icon: Edit3,           label: 'COMPOSER' },
+      { path: 'cierres',                icon: Calculator,      label: 'CIERRES' },
     ]
     if (puedeAccederCierresEconomicos(user)) {
-      base.push({ path: 'historial-cierres',      icon: History,    label: 'Cierres Econ\u00f3micos' })
+      base.push({ path: 'historial-cierres',      icon: History,    label: 'CIERRES ECON\u00d3MICOS' })
     }
     if (esAdmin || esGestoria) {
-      base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'Inteligencia Econ\u00f3mica' })
+      base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'INTELIGENCIA ECON\u00d3MICA' })
     }
     if (!esGestoria) {
-      base.push({ path: 'gestion-equipo',         icon: UserCog,    label: 'Gesti\u00f3n de Equipo' })
+      base.push({ path: 'gestion-equipo',         icon: UserCog,    label: 'GESTI\u00d3N DE EQUIPO' })
     }
     if (puedeAccederAdminMaster(user)) {
-      base.push({ path: 'admin-master',            icon: Shield,     label: 'Panel Master' })
+      base.push({ path: 'admin-master',            icon: Shield,     label: 'PANEL MASTER' })
     }
     // Gestor?a: filtrar solo secciones autorizadas (comparaci?n con paths relativos)
     if (esGestoria) {
@@ -270,7 +270,7 @@ const Layout = ({ user, onLogout }) => {
           {menuItems.map((item) => (
             <NavLink key={item.path} to={item.path} className={({ isActive }) => `flex items-center px-4 py-3 transition-colors ${isActive ? 'bg-sky-600 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
               <item.icon size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
-              {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+              {sidebarOpen && <span className="text-sm font-medium uppercase tracking-wide">{item.label}</span>}
             </NavLink>
           ))}
           <button
@@ -279,7 +279,7 @@ const Layout = ({ user, onLogout }) => {
             className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-2"
           >
             <KeyRound size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
-            {sidebarOpen && <span className="text-sm font-medium">Cuenta</span>}
+            {sidebarOpen && <span className="text-sm font-medium uppercase tracking-wide">CUENTA</span>}
           </button>
           {onLogout && (
             <button
@@ -290,7 +290,7 @@ const Layout = ({ user, onLogout }) => {
               className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-1 border-t border-slate-700"
             >
               <LogOut size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
-              {sidebarOpen && <span className="text-sm font-medium">Cerrar Sesi\u00f3n</span>}
+              {sidebarOpen && <span className="text-sm font-medium uppercase tracking-wide">CERRAR SESI\u00d3N</span>}
             </button>
           )}
         </nav>
