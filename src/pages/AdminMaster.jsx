@@ -857,18 +857,11 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
       setPasoActual('')
       setTimeout(resetPanel, 3000)
     } catch (err) {
-      // Clasificación de errores para mensajes descriptivos
-      const raw   = err?.message || 'Error desconocido.'
-      const esRLS = raw.includes('row-level security')
-        || raw.includes('42501')
-        || raw.includes('permission denied')
-        || raw.includes('policy')
-      setMsg({
-        tipo: 'err',
-        texto: esRLS
-          ? `Bloqueado por política RLS: ${raw}. Verifica que en Supabase exista una política INSERT para "empresas" que permita al usuario con empresa_id=1 (Tabora) crear nuevas filas.`
-          : raw,
-      })
+      // Muestra el mensaje técnico real de Supabase sin filtros preventivos.
+      // Si el RLS bloquea la operación, el error de Postgres (42501) llega aquí
+      // directamente y queda visible para diagnóstico técnico sin texto de advertencia añadido.
+      console.error('[Panel Master] Error en creación de empresa:', err)
+      setMsg({ tipo: 'err', texto: err?.message || 'Error desconocido.' })
       setPasoActual('')
     } finally {
       setSaving(false)

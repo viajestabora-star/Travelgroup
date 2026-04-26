@@ -72,32 +72,38 @@ const Layout = ({ user, onLogout }) => {
     isProcessing.current = true
 
     const ejecutarRegistro = async () => {
-      const hoy = new Date()
-      const fechaDDMMYYYY = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`
-      const horaEntrada = hoy.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+      // Envuelto en try-catch silencioso: un fallo de RLS en control_horario
+      // (p.ej. pol?tica no aplicada a?n) NO debe bloquear ning?n flujo del ERP.
+      try {
+        const hoy = new Date()
+        const fechaDDMMYYYY = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`
+        const horaEntrada = hoy.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 
-      const { data, error } = await supabase
-        .from('control_horario')
-        .insert([{
-          usuario_id: user?.id ?? null,
-          user_email: sessionEmail,
-          fecha: fechaDDMMYYYY,
-          hora_entrada: horaEntrada
-        }])
-        .select('id')
-        .single()
+        const { data, error } = await supabase
+          .from('control_horario')
+          .insert([{
+            usuario_id: user?.id ?? null,
+            user_email: sessionEmail,
+            fecha: fechaDDMMYYYY,
+            hora_entrada: horaEntrada
+          }])
+          .select('id')
+          .single()
 
-      if (error) {
-        console.error('[Control Horario]', error.message)
+        if (error) {
+          // Error no cr?tico ? el finally libera isProcessing; no se propaga
+          return
+        }
+        if (data?.id) {
+          sessionStorage.setItem(STORAGE_ATTENDANCE_ID, data.id)
+          setCurrentSessionId(data.id)
+          currentSessionIdRef.current = data.id
+        }
+      } catch (_) {
+        // Silencioso: cualquier excepci?n en control_horario es no cr?tica
+      } finally {
         isProcessing.current = false
-        return
       }
-      if (data?.id) {
-        sessionStorage.setItem(STORAGE_ATTENDANCE_ID, data.id)
-        setCurrentSessionId(data.id)
-        currentSessionIdRef.current = data.id
-      }
-      isProcessing.current = false
     }
 
     ejecutarRegistro()
