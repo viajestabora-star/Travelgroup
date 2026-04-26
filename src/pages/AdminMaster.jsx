@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Building2, RefreshCw, Pencil, X, Save, ShieldAlert,
   Calculator, Euro, Users, Mail, Phone, MapPin, FileText,
-  UserCog, Check, AlertCircle, UserPlus, KeyRound, PlusCircle,
+  UserCog, Check, AlertCircle, UserPlus, KeyRound, PlusCircle, Trash2,
 } from 'lucide-react'
 import { supabase } from '../supabase'
 import { useSaasManagement } from '../hooks/useSaasManagement'
@@ -1154,11 +1154,86 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
   )
 }
 
+// ─── Modal de confirmación de borrado ────────────────────────────────────────
+
+const ConfirmarEliminar = ({ row, onCancel, onConfirm, deleting }) => {
+  const nombre = resolveNombre(row)
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-rose-100">
+
+        {/* Cabecera */}
+        <div className="flex items-center gap-3 px-6 pt-5 pb-4 border-b border-slate-100">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-100">
+            <Trash2 size={20} className="text-rose-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Eliminar empresa</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Esta acción no se puede deshacer</p>
+          </div>
+          <button type="button" onClick={onCancel} disabled={deleting}
+            className="ml-auto p-1 rounded-lg hover:bg-slate-100 text-slate-400 disabled:opacity-40">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Cuerpo */}
+        <div className="px-6 py-5 space-y-3">
+          <p className="text-sm text-slate-700 leading-relaxed">
+            ¿Estás seguro de que quieres eliminar la empresa{' '}
+            <span className="font-semibold text-slate-900">"{nombre}"</span>?
+          </p>
+          <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-800">
+            <AlertCircle size={14} className="shrink-0 mt-0.5 text-rose-500" />
+            <span>
+              Esta acción borrará <strong>todos los perfiles de usuario</strong> asociados y la empresa de la base de datos.{' '}
+              <strong>No se puede deshacer.</strong>
+            </span>
+          </div>
+        </div>
+
+        {/* Acciones */}
+        <div className="flex gap-3 px-6 pb-5">
+          <button type="button" onClick={onCancel} disabled={deleting}
+            className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-800 font-medium hover:bg-slate-50 disabled:opacity-40 text-sm transition-colors">
+            Cancelar
+          </button>
+          <button type="button" onClick={onConfirm} disabled={deleting}
+            className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-rose-600 text-white font-semibold hover:bg-rose-700 disabled:opacity-50 text-sm transition-colors">
+            {deleting
+              ? <><RefreshCw size={14} className="animate-spin" />Eliminando…</>
+              : <><Trash2 size={14} />Sí, eliminar</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 const AdminMaster = () => {
-  const { rows, loading, error, reload, updateEmpresa, createEmpresa } = useSaasManagement()
-  const [editingRow, setEditingRow] = useState(null)
+  const { rows, loading, error, reload, updateEmpresa, createEmpresa, deleteEmpresa } = useSaasManagement()
+  const [editingRow, setEditingRow]   = useState(null)
+  const [deletingRow, setDeletingRow] = useState(null)   // fila seleccionada para borrar
+  const [deleting, setDeleting]       = useState(false)  // petición en curso
+  const [deleteMsg, setDeleteMsg]     = useState('')     // mensaje de éxito tras borrar
+
+  const handleDelete = async () => {
+    if (!deletingRow) return
+    setDeleting(true)
+    try {
+      await deleteEmpresa(resolveId(deletingRow))
+      setDeleteMsg(`Empresa "${resolveNombre(deletingRow)}" eliminada correctamente.`)
+      setDeletingRow(null)
+      setTimeout(() => setDeleteMsg(''), 5000)
+    } catch (err) {
+      // El error se muestra dentro del modal — lo relanzamos para que el modal lo capture
+      alert(`Error al eliminar: ${err.message}`)
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -1185,6 +1260,13 @@ const AdminMaster = () => {
 
       {error && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">{error}</div>
+      )}
+
+      {deleteMsg && (
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm">
+          <Check size={16} className="shrink-0 text-emerald-600" />
+          {deleteMsg}
+        </div>
       )}
 
       {/* ── Formulario de creación de nuevo Tenant ── */}
@@ -1243,11 +1325,22 @@ const AdminMaster = () => {
                         {Number.isFinite(costeRow) ? `${costeRow.toFixed(2)} €` : '—'}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button type="button" onClick={() => setEditingRow(row)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-medium">
-                          <Pencil size={13} />
-                          Editar
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button type="button" onClick={() => setEditingRow(row)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-medium transition-colors">
+                            <Pencil size={13} />
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setDeleteMsg(''); setDeletingRow(row) }}
+                            disabled={esMatriz}
+                            title={esMatriz ? 'La empresa matriz no puede eliminarse' : `Eliminar ${resolveNombre(row)}`}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors">
+                            <Trash2 size={13} />
+                            Eliminar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -1263,6 +1356,15 @@ const AdminMaster = () => {
           row={editingRow}
           onClose={() => setEditingRow(null)}
           onSave={updateEmpresa}
+        />
+      )}
+
+      {deletingRow && (
+        <ConfirmarEliminar
+          row={deletingRow}
+          onCancel={() => { if (!deleting) setDeletingRow(null) }}
+          onConfirm={handleDelete}
+          deleting={deleting}
         />
       )}
     </div>

@@ -98,9 +98,51 @@ export const useSaasManagement = () => {
     return newRow
   }, [])
 
+  /**
+   * Elimina un Tenant de forma ordenada:
+   *   1. Borra todos los perfiles (profiles) con empresa_id = id.
+   *   2. Borra la fila de empresas con id = id.
+   *   3. Elimina la empresa de la lista local (sin recargar la vista).
+   *
+   * Si el DELETE de profiles falla se lanza el error y NO se borra la empresa
+   * para evitar dejar perfiles huérfanos. Si el DELETE de empresas falla tras
+   * borrar los perfiles, se recarga la lista para reflejar el estado real.
+   *
+   * @param {number} id — id de la empresa a eliminar
+   * @throws {Error} si Supabase devuelve un error en cualquiera de los dos pasos
+   */
+  const deleteEmpresa = useCallback(async (id) => {
+    // Paso 1: eliminar perfiles asociados a la empresa
+    const { error: profErr } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('empresa_id', id)
+
+    if (profErr) {
+      console.error('[deleteEmpresa] Error al borrar profiles:', JSON.stringify(profErr))
+      throw new Error(`No se pudieron eliminar los perfiles: ${profErr.message}`)
+    }
+
+    // Paso 2: eliminar la empresa
+    const { error: empErr } = await supabase
+      .from('empresas')
+      .delete()
+      .eq('id', id)
+
+    if (empErr) {
+      console.error('[deleteEmpresa] Error al borrar empresa:', JSON.stringify(empErr))
+      // Recargar para mostrar el estado real (profiles ya borrados)
+      await reload()
+      throw new Error(`Perfiles eliminados, pero la empresa no pudo borrarse: ${empErr.message}`)
+    }
+
+    // Actualizar lista local sin recargar la vista
+    setRows((prev) => prev.filter((r) => (r.id ?? r.empresa_id) !== id))
+  }, [reload])
+
   useEffect(() => {
     reload()
   }, [reload])
 
-  return { rows, loading, error, reload, updateEmpresa, createEmpresa }
+  return { rows, loading, error, reload, updateEmpresa, createEmpresa, deleteEmpresa }
 }
