@@ -709,9 +709,14 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
   // null = verificando | true = Master confirmado | false = no autorizado o sin sesión
   const [masterVerificado, setMasterVerificado] = useState(null)
 
-  // Verificación de identidad Master en mount — no bloquea la UI, solo inhabilita el botón
+  // Verificación de identidad Master en mount — no bloquea la UI, solo inhabilita el botón.
+  // Forzamos refreshSession() para obtener claims frescos del servidor (evita JWT cacheado).
+  // Solo confiamos en app_metadata (servidor). user_metadata es editable por el cliente.
   useEffect(() => {
     const verificarMasterEnMount = async () => {
+      // Renovar JWT antes de leer claims para evitar app_metadata desactualizado
+      await supabase.auth.refreshSession().catch(() => {})
+
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       if (authError || !user) {
         console.error('[Panel Master] getUser() en mount falló:', authError?.message)
@@ -719,13 +724,10 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
         return
       }
 
-      let eId = Number(
-        user.app_metadata?.empresa_id
-        ?? user.user_metadata?.empresa_id
-        ?? 0,
-      )
+      // Solo app_metadata (controlado por Postgres/trigger) — nunca user_metadata
+      let eId = Number(user.app_metadata?.empresa_id ?? 0)
 
-      // Si JWT viene cacheado con 0/null, resolver desde profiles (fuente más reciente).
+      // Si JWT no trae empresa_id en app_metadata, resolver desde profiles
       if (!(eId > 0)) {
         const { data: perfil } = await supabase
           .from('profiles')
@@ -782,35 +784,27 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
     setMsg({ tipo: '', texto: '' })
 
     try {
-      // ── Paso 0: Garantizar JWT válido antes de cualquier operación DB ──────
+      // ── Paso 0: JWT fresco garantizado antes de cualquier operación DB ──────
       //
-      // ORDEN DE PRIORIDAD:
-      //   1. getSession()      → lee localStorage (sin red). Rápido y fiable.
-      //   2. refreshSession()  → si la sesión local es null, renueva el JWT
-      //                          usando el refresh_token almacenado.
-      //   3. Abort             → solo si ambos fallan (sin sesión en absoluto).
-      //
-      // Tras refreshSession(), el cliente Supabase actualiza su Bearer
-      // automáticamente → los INSERT siguientes llevan el token renovado.
+      // Siempre llamamos refreshSession() en lugar de getSession() para evitar
+      // que el cliente envíe un token cacheado con app_metadata desactualizado.
+      // getSession() puede devolver un JWT antiguo cuyas claims (empresa_id) ya
+      // no coincidan con las de Postgres → RLS rechaza el INSERT con 42501.
+      // refreshSession() contacta con el servidor Auth y renueva el Bearer en el
+      // cliente antes de cualquier llamada a la BD.
 
-      // — Intento 1: leer sesión de localStorage (getSession hace auto-refresh si hay refresh_token)
-      setPasoActual('Comprobando sesión…')
-      let { data: { session } } = await supabase.auth.getSession()
+      setPasoActual('Renovando sesión…')
+      const { data: refreshData0, error: refreshErr0 } = await supabase.auth.refreshSession()
+      let session = refreshData0?.session ?? null
 
-      // — Intento 2: si no hay sesión local, forzar refreshSession()
-      if (!session?.access_token) {
-        setPasoActual('Renovando token de sesión…')
-        const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession()
-        if (!refreshErr && refreshData?.session?.access_token) {
-          session = refreshData.session
-        }
+      // Fallback: si el refresh falla por red pero hay token local válido, usarlo.
+      if (!session?.access_token && refreshErr0) {
+        const { data: sessionData } = await supabase.auth.getSession()
+        session = sessionData?.session ?? null
       }
 
-      // — Diagnóstico obligatorio: token presente o no
-      console.log('Token presente:', session?.access_token ? 'SÍ' : 'NO')
-      console.log('JWT Metadata:', session?.user?.user_metadata)
+      console.log('[Panel Master] Token presente:', session?.access_token ? 'SÍ' : 'NO')
 
-      // — Si no hay access_token, la sesión está rota: redirigir al login
       if (!session?.access_token) {
         console.error('[Panel Master] Sin access_token tras refresh. Redirigiendo al login.')
         setSaving(false)
@@ -818,27 +812,19 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
         return
       }
 
-      // — Diagnóstico de empresa_id en JWT
-      const empresaIdJWT = Number(
-        session.user?.app_metadata?.empresa_id
-        ?? session.user?.user_metadata?.empresa_id
-        ?? 0,
-      )
-      if (empresaIdJWT !== 1) {
-        console.error(
-          'ERROR: Usuario no identificado como Master (empresa_id JWT:', empresaIdJWT, ').',
-          'El RLS del servidor decidirá si permite la operación.',
-        )
-      }
+      // — Diagnóstico de empresa_id: solo app_metadata (servidor), nunca user_metadata
+      const empresaIdJWT = Number(session.user?.app_metadata?.empresa_id ?? 0)
+      console.log('[Panel Master] empresa_id en JWT (app_metadata):', empresaIdJWT)
 
       const sesionEmail = session.user?.email ?? 'Superadmin'
 
       // ── Validación de identidad Master — BLOQUEANTE ───────────────────────
       // getUser() valida el JWT contra el servidor Auth (petición de red).
-      // Si user es null o empresa_id !== 1 → abort con alert y return.
-      // La operación NO continúa: evita un 401 garantizado en el INSERT.
+      // Solo usamos app_metadata (controlado por el servidor / trigger de Postgres).
+      // user_metadata es editable por el cliente y NO es fuente de verdad para RLS.
+      // Si no viene empresa_id en app_metadata, consultamos profiles (BD real).
       const { data: { user }, error: authError } = await supabase.auth.getUser()
-      let empresaIdAuth = Number(user?.app_metadata?.empresa_id ?? user?.user_metadata?.empresa_id ?? 0)
+      let empresaIdAuth = Number(user?.app_metadata?.empresa_id ?? 0)
       if (user && !(empresaIdAuth > 0)) {
         const { data: perfil } = await supabase
           .from('profiles')
@@ -848,14 +834,13 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
         empresaIdAuth = Number(perfil?.empresa_id) || 0
       }
       if (authError || !user || empresaIdAuth !== MASTER_EMPRESA_ID) {
-        console.error('ERROR CRÍTICO: Sesión inválida o no es Master', authError)
+        console.error('[Panel Master] Sesión inválida o no es Master. empresa_id resuelto:', empresaIdAuth, authError)
         alert('Tu sesión ha expirado o no tienes permisos de Master. Por favor, cierra sesión y vuelve a entrar.')
         setSaving(false)
         return
       }
-      // Actualizar el estado de verificación en UI por si cambió desde el mount
       setMasterVerificado(true)
-      console.log('[Panel Master] getUser() → Master confirmado:', user.email)
+      console.log('[Panel Master] getUser() → Master confirmado:', user.email, '— empresa_id:', empresaIdAuth)
 
       // ── Paso 1: INSERT en empresas — atomic con .select() ─────────────────
       // `empresas` no está en ERP_TABLES → el proxy de tenant no interfiere.
