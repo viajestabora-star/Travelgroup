@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Building2, RefreshCw, Pencil, X, Save, ShieldAlert,
   Calculator, Euro, Users, Mail, Phone, MapPin, FileText,
-  UserCog, Check, AlertCircle, UserPlus, KeyRound,
+  UserCog, Check, AlertCircle, UserPlus, KeyRound, PlusCircle,
 } from 'lucide-react'
 import { supabase } from '../supabase'
 import { useSaasManagement } from '../hooks/useSaasManagement'
@@ -671,10 +671,156 @@ const EditModal = ({ row, onClose, onSave }) => {
   )
 }
 
+// ─── Panel de creación de nueva empresa ──────────────────────────────────────
+// `empresas` no está en ERP_TABLES → el proxy de tenant NO añade filtros aquí.
+// Supabase auto-incrementa `id` → empresa_id exclusivo para el nuevo Tenant.
+
+const NUEVO_FORM_VACIO = () => ({
+  nombre_comercial:       '',
+  plan_tipo:              'basic',
+  max_usuarios:           3,
+  saas_email_facturacion: '',
+})
+
+const NuevaEmpresaPanel = ({ onCreate }) => {
+  const [open, setOpen]       = useState(false)
+  const [form, setForm]       = useState(NUEVO_FORM_VACIO)
+  const [saving, setSaving]   = useState(false)
+  const [msg, setMsg]         = useState({ tipo: '', texto: '' })
+
+  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.nombre_comercial.trim()) {
+      setMsg({ tipo: 'err', texto: 'El nombre comercial es obligatorio.' })
+      return
+    }
+    setSaving(true)
+    setMsg({ tipo: '', texto: '' })
+    try {
+      const newRow = await onCreate(form)
+      setMsg({ tipo: 'ok', texto: `Empresa "${newRow.nombre_comercial || form.nombre_comercial}" creada con empresa_id: ${newRow.id}.` })
+      setForm(NUEVO_FORM_VACIO)
+      setTimeout(() => {
+        setOpen(false)
+        setMsg({ tipo: '', texto: '' })
+      }, 2000)
+    } catch (err) {
+      setMsg({ tipo: 'err', texto: err?.message || 'No se pudo crear la empresa.' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => { setOpen((v) => !v); setMsg({ tipo: '', texto: '' }) }}
+        className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 text-sm font-semibold text-slate-800 border-b border-slate-200 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <PlusCircle size={16} className="text-violet-600" />
+          Nueva empresa (Tenant)
+        </span>
+        <span className="text-slate-400 text-xs">{open ? 'Colapsar ▲' : 'Expandir ▼'}</span>
+      </button>
+
+      {open && (
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+            <ShieldAlert size={14} className="mt-0.5 shrink-0 text-sky-500" />
+            <span>
+              Supabase asignará un <strong>empresa_id único y auto-incremental</strong> al nuevo Tenant.
+              El aislamiento de datos queda garantizado: ningún usuario del nuevo Tenant podrá
+              ver datos de otras empresas.
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Campo label="Nombre comercial *">
+              <input
+                type="text"
+                value={form.nombre_comercial}
+                onChange={(e) => set('nombre_comercial', e.target.value)}
+                className={inputCls}
+                placeholder="Nombre de la agencia"
+                required
+              />
+            </Campo>
+            <Campo label="Plan">
+              <select
+                value={form.plan_tipo}
+                onChange={(e) => set('plan_tipo', e.target.value)}
+                className={`${inputCls} bg-white`}
+              >
+                {PLANES.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </Campo>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Campo label={<span className="flex items-center gap-1"><Users size={12} />Máx. usuarios</span>}>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={form.max_usuarios}
+                onChange={(e) => set('max_usuarios', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className={inputCls}
+              />
+            </Campo>
+            <Campo label={<span className="flex items-center gap-1"><Mail size={12} />Email de facturación</span>}>
+              <input
+                type="email"
+                value={form.saas_email_facturacion}
+                onChange={(e) => set('saas_email_facturacion', e.target.value)}
+                className={inputCls}
+                placeholder="cliente@empresa.com"
+              />
+            </Campo>
+          </div>
+
+          {msg.texto && (
+            <div className={`rounded-lg px-3 py-2 text-sm border flex items-center gap-2 ${
+              msg.tipo === 'ok'
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                : 'bg-rose-50 text-rose-900 border-rose-200'
+            }`}>
+              {msg.tipo === 'ok' ? <Check size={14} className="shrink-0" /> : <AlertCircle size={14} className="shrink-0" />}
+              {msg.texto}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setForm(NUEVO_FORM_VACIO); setMsg({ tipo: '', texto: '' }) }}
+              disabled={saving}
+              className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-800 font-medium hover:bg-slate-50 disabled:opacity-50 text-sm"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 disabled:opacity-50 text-sm"
+            >
+              <PlusCircle size={15} />
+              {saving ? 'Creando…' : 'Crear empresa'}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  )
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 const AdminMaster = () => {
-  const { rows, loading, error, reload, updateEmpresa } = useSaasManagement()
+  const { rows, loading, error, reload, updateEmpresa, createEmpresa } = useSaasManagement()
   const [editingRow, setEditingRow] = useState(null)
 
   return (
@@ -703,6 +849,9 @@ const AdminMaster = () => {
       {error && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">{error}</div>
       )}
+
+      {/* ── Formulario de creación de nuevo Tenant ── */}
+      <NuevaEmpresaPanel onCreate={createEmpresa} />
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">

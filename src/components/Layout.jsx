@@ -174,11 +174,16 @@ const Layout = ({ user, onLogout }) => {
     if (location.pathname === '/suscripcion-expirada') return
     let cancelled = false
 
+    // Prioridad: JWT metadata ? prop user ? null. Sin fallback a 1 para evitar
+    // que un Tenant con JWT sin empresa_id chequee la suscripci?n de Tabora.
     const empresaId = Number(
       authSession?.user?.app_metadata?.empresa_id ||
       authSession?.user?.user_metadata?.empresa_id ||
-      1
-    )
+      user?.empresa_id ||
+      0
+    ) || null
+
+    if (!empresaId) return
 
     supabase
       .from('empresas')
@@ -194,7 +199,7 @@ const Layout = ({ user, onLogout }) => {
       })
 
     return () => { cancelled = true }
-  }, [authSession?.user?.id, location.pathname, navigate])
+  }, [authSession?.user?.id, location.pathname, navigate, user?.empresa_id])
 
   // Si la agencia est? marcada inactiva en BD, cortar sesi?n (consulta directa a empresas).
   useEffect(() => {
@@ -203,11 +208,15 @@ const Layout = ({ user, onLogout }) => {
     if (location.pathname === '/suscripcion-expirada') return
     let cancelled = false
 
+    // Sin fallback a 1: si el JWT no trae empresa_id no comprobamos la empresa de Tabora.
     const empresaId = Number(
       authSession?.user?.app_metadata?.empresa_id ||
       authSession?.user?.user_metadata?.empresa_id ||
-      1
-    )
+      user?.empresa_id ||
+      0
+    ) || null
+
+    if (!empresaId) return
 
     supabase
       .from('empresas')
@@ -224,7 +233,7 @@ const Layout = ({ user, onLogout }) => {
       })
 
     return () => { cancelled = true }
-  }, [authSession?.user?.id, location.pathname, onLogout])
+  }, [authSession?.user?.id, location.pathname, onLogout, user?.empresa_id])
 
   return (
     <div className="flex h-screen bg-gray-50">

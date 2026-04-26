@@ -44,9 +44,43 @@ export const useSaasManagement = () => {
     )
   }, [])
 
+  /**
+   * Crea un nuevo Tenant en la tabla `empresas`.
+   * `empresas` no está en ERP_TABLES → el proxy de tenant NO añade filtros aquí.
+   * Supabase asigna un id auto-incremental único → empresa_id exclusivo del nuevo Tenant.
+   * @param {object} data — { nombre_comercial, plan_tipo, max_usuarios, saas_email_facturacion? }
+   * @returns {object} la fila recién creada (con su id)
+   * @throws {Error} si Supabase devuelve un error
+   */
+  const createEmpresa = useCallback(async (data) => {
+    const payload = {
+      nombre_comercial:          (data.nombre_comercial || '').trim(),
+      plan_tipo:                 (data.plan_tipo        || 'basic').trim(),
+      max_usuarios:              Math.max(1, Number(data.max_usuarios) || 3),
+      suscripcion_activa:        true,
+      saas_precio_pack_base:     60,
+      saas_precio_usuario_extra: 12,
+    }
+    if (data.saas_email_facturacion && data.saas_email_facturacion.trim()) {
+      payload.saas_email_facturacion = data.saas_email_facturacion.trim()
+    }
+
+    const { data: newRow, error: err } = await supabase
+      .from('empresas')
+      .insert(payload)
+      .select()
+      .single()
+
+    if (err) throw err
+
+    // Añadir la nueva empresa a la lista local para reflejar el cambio sin recargar
+    setRows((prev) => [...prev, newRow])
+    return newRow
+  }, [])
+
   useEffect(() => {
     reload()
   }, [reload])
 
-  return { rows, loading, error, reload, updateEmpresa }
+  return { rows, loading, error, reload, updateEmpresa, createEmpresa }
 }
