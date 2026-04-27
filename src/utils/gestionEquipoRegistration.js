@@ -1,4 +1,5 @@
 import { normalizarNivelAccesoParaServidor } from './nivelAcceso'
+import { portalConsultarTieneAuth } from './portalAuthEmail'
 
 export const MENSAJE_SIN_LICENCIAS =
   'No tienes licencias disponibles. Contacta con soporte para ampliar tu plan.'
@@ -71,7 +72,27 @@ export async function verificarLicenciasYRegistrarMiembro(
     return { ok: false, code: 'SIN_LICENCIAS', message: MENSAJE_SIN_LICENCIAS }
   }
 
-  // ── 3. Crear usuario en Supabase Auth ────────────────────────────────────────
+  // ── 2b. Antes de signUp: evitar "User already registered" cuando el correo ya está en Auth
+  const probeAuth = await portalConsultarTieneAuth(supabase, em)
+  if (!probeAuth.ok) {
+    return {
+      ok: false,
+      code: 'PORTAL_AUTH',
+      message:
+        probeAuth.error
+        || 'No se pudo comprobar si el correo ya existe. Reintenta o contacta con soporte.',
+    }
+  }
+  if (probeAuth.tieneAuth) {
+    return {
+      ok: false,
+      code: 'EMAIL_YA_EN_AUTH',
+      message:
+        'Este correo ya tiene cuenta en el sistema. Usa otro email o pide al administrador que gestione el acceso desde el panel.',
+    }
+  }
+
+  // ── 3. Crear usuario en Supabase Auth (empresa_id siempre en options.data) ───
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email: em,
     password,

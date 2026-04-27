@@ -8,6 +8,7 @@ import { supabase } from '../supabase'
 import { useSaasManagement } from '../hooks/useSaasManagement'
 import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
 import { MASTER_EMPRESA_ID } from '../utils/adminMasterAccess'
+import { portalConsultarTieneAuth } from '../utils/portalAuthEmail'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 const PLANES     = ['basic', 'professional', 'enterprise']
@@ -770,7 +771,7 @@ const waitForEmpresaConfirmada = async (empresaId, maxIntentos = 4, esperaMs = 2
   for (let intento = 1; intento <= maxIntentos; intento += 1) {
     const { data, error } = await supabase
       .from('empresas')
-      .select('id')
+      .select('id, nombre_comercial')
       .eq('id', empresaId)
       .maybeSingle()
     if (!error && data?.id === empresaId) return true
@@ -787,6 +788,8 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
   const [msg, setMsg]                 = useState({ tipo: '', texto: '' })
   // null = verificando | true = Master confirmado | false = no autorizado o sin sesión
   const [masterVerificado, setMasterVerificado] = useState(null)
+  /** Tras crear la empresa, si falla Auth/vinculación: reintento solo usuario (sin insert otra vez). */
+  const [faseVinculacionPendiente, setFaseVinculacionPendiente] = useState(null)
 
   // Verificación de identidad Master en mount — no bloquea la UI, solo inhabilita el botón.
   // Forzamos refreshSession() para obtener claims frescos del servidor (evita JWT cacheado).
@@ -839,12 +842,14 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
     setForm(NUEVO_FORM_VACIO)
     setMsg({ tipo: '', texto: '' })
     setPasoActual('')
+    setFaseVinculacionPendiente(null)
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
 
-    if (!form.nombre_comercial.trim()) {
+    const esSoloReintentoUsuario = Boolean(faseVinculacionPendiente)
+    if (!form.nombre_comercial.trim() && !esSoloReintentoUsuario) {
       setMsg({ tipo: 'err', texto: 'El nombre comercial es obligatorio.' })
       return
     }
@@ -862,46 +867,151 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
     setSaving(true)
     setMsg({ tipo: '', texto: '' })
 
-    try {
-      // ── Paso 0: JWT fresco garantizado antes de cualquier operación DB ──────
-      //
-      // Siempre llamamos refreshSession() en lugar de getSession() para evitar
-      // que el cliente envíe un token cacheado con app_metadata desactualizado.
-      // getSession() puede devolver un JWT antiguo cuyas claims (empresa_id) ya
-      // no coincidan con las de Postgres → RLS rechaza el INSERT con 42501.
-      // refreshSession() contacta con el servidor Auth y renueva el Bearer en el
-      // cliente antes de cualquier llamada a la BD.
+    const precheckEmailAdmin = async (emailNorm) => {
+      const probe = await portalConsultarTieneAuth(supabase, emailNorm)
+      if (!probe.ok) {
+        console.warn('[Panel Master] portalConsultarTieneAuth:', probe.error)
+        return { adminYaEnAuth: null, probeError: probe.error }
+      }
+      return { adminYaEnAuth: probe.tieneAuth === true ? true : false, probeError: null }
+    }
 
+    /**
+     * Admin del tenant: signUp con options.data.empresa_id si el correo no está en Auth;
+     * si ya está (precheck o carrera), solo RPC Master (sesión actual = Master).
+     */
+    const faseUsuarioAdministrador = async ({
+      newEmpresaId,
+      nombreComercialDisplay,
+      emailNorm,
+      password,
+      adminYaEnAuthPrecheck,
+    }) => {
+      setPasoActual('Guardando sesión Master…')
+      const { data: { session: adminSession } } = await supabase.auth.getSession()
+
+      let adminYaEnAuth = adminYaEnAuthPrecheck
+      if (adminYaEnAuth == null && emailNorm) {
+        const pre = await precheckEmailAdmin(emailNorm)
+        adminYaEnAuth = pre.adminYaEnAuth === true ? true : pre.adminYaEnAuth === false ? false : null
+      }
+
+      if (adminYaEnAuth === true) {
+        setPasoActual(`Vinculando cuenta existente ${emailNorm} (sin signUp)…`)
+        if (adminSession?.access_token) {
+          await supabase.auth.setSession({
+            access_token:  adminSession.access_token,
+            refresh_token: adminSession.refresh_token,
+          })
+        }
+        const link = await masterVincularPerfilAdminEmpresa(emailNorm, newEmpresaId)
+        if (link.ok) {
+          setFaseVinculacionPendiente(null)
+          setMsg({
+            tipo:  'ok',
+            texto:
+              `✓ Empresa «${nombreComercialDisplay}» (empresa_id: ${newEmpresaId}). El correo "${emailNorm}" ya estaba en Auth; `
+              + `vinculado como ADMIN. Usuario: ${link.userId || '—'}.`,
+          })
+          setForm(NUEVO_FORM_VACIO)
+          setPasoActual('')
+          setTimeout(resetPanel, 3000)
+          return
+        }
+        setFaseVinculacionPendiente({ empresaId: newEmpresaId, nombreComercial: nombreComercialDisplay })
+        setMsg({
+          tipo:  'warn',
+          texto:
+            `Empresa «${nombreComercialDisplay}» (id ${newEmpresaId}) ya está creada. No se pudo vincular la cuenta existente: ${link.error || 'error desconocido'}. `
+            + 'Pulsa de nuevo el botón principal para reintentar solo la vinculación (no se crea otra empresa).',
+        })
+        setPasoActual('')
+        return
+      }
+
+      setPasoActual(`Registrando ${emailNorm} en Auth…`)
+      const { data: authData, error: authErr } = await supabase.auth.signUp({
+        email:    emailNorm,
+        password,
+        options: { data: { empresa_id: newEmpresaId, nivel_acceso: 'ADMIN' } },
+      })
+
+      if (adminSession?.access_token) {
+        setPasoActual('Restaurando sesión Master…')
+        await supabase.auth.setSession({
+          access_token:  adminSession.access_token,
+          refresh_token: adminSession.refresh_token,
+        })
+      }
+
+      const newUserId = authData?.user?.id
+      const duplicadoAuth = isAuthUserAlreadyRegistered(authErr, authData)
+      const intentarVincular = duplicadoAuth || (!newUserId && !authErr)
+
+      if (!authErr && newUserId) {
+        setFaseVinculacionPendiente(null)
+        setMsg({
+          tipo:  'ok',
+          texto:
+            `✓ Empresa «${nombreComercialDisplay}» (empresa_id: ${newEmpresaId}). Admin "${emailNorm}" dado de alta en Auth; `
+            + `perfil vía trigger. Usuario: ${newUserId}.`,
+        })
+        setForm(NUEVO_FORM_VACIO)
+        setPasoActual('')
+        setTimeout(resetPanel, 3000)
+        return
+      }
+
+      if (intentarVincular) {
+        setPasoActual('Correo ya en Auth; vinculando con sesión Master…')
+        const link = await masterVincularPerfilAdminEmpresa(emailNorm, newEmpresaId)
+        if (link.ok) {
+          setFaseVinculacionPendiente(null)
+          setMsg({
+            tipo:  'ok',
+            texto:
+              `✓ Empresa «${nombreComercialDisplay}» (empresa_id: ${newEmpresaId}). Correo ya en Auth; vinculado como ADMIN. Usuario: ${link.userId || '—'}.`,
+          })
+          setForm(NUEVO_FORM_VACIO)
+          setPasoActual('')
+          setTimeout(resetPanel, 3000)
+          return
+        }
+        setFaseVinculacionPendiente({ empresaId: newEmpresaId, nombreComercial: nombreComercialDisplay })
+        setMsg({
+          tipo:  'warn',
+          texto:
+            `Empresa «${nombreComercialDisplay}» (id ${newEmpresaId}) creada. Vinculación fallida: ${link.error || 'error'}. `
+            + 'Reintenta con el mismo botón (solo vinculación).',
+        })
+        setPasoActual('')
+        return
+      }
+
+      setFaseVinculacionPendiente({ empresaId: newEmpresaId, nombreComercial: nombreComercialDisplay })
+      setMsg({
+        tipo:  'warn',
+        texto:
+          `Empresa «${nombreComercialDisplay}» (id ${newEmpresaId}) creada. Auth: ${authErr?.message || 'error desconocido'}. `
+          + 'Reintenta la vinculación con el mismo botón o usa Usuarios de la agencia.',
+      })
+      setPasoActual('')
+    }
+
+    try {
       setPasoActual('Renovando sesión…')
       const { data: refreshData0, error: refreshErr0 } = await supabase.auth.refreshSession()
       let session = refreshData0?.session ?? null
-
-      // Fallback: si el refresh falla por red pero hay token local válido, usarlo.
       if (!session?.access_token && refreshErr0) {
         const { data: sessionData } = await supabase.auth.getSession()
         session = sessionData?.session ?? null
       }
 
-      console.log('[Panel Master] Token presente:', session?.access_token ? 'SÍ' : 'NO')
-
       if (!session?.access_token) {
-        console.error('[Panel Master] Sin access_token tras refresh. Redirigiendo al login.')
-        setSaving(false)
         window.location.href = '/login'
         return
       }
 
-      // — Diagnóstico de empresa_id: solo app_metadata (servidor), nunca user_metadata
-      const empresaIdJWT = Number(session.user?.app_metadata?.empresa_id ?? 0)
-      console.log('[Panel Master] empresa_id en JWT (app_metadata):', empresaIdJWT)
-
-      const sesionEmail = session.user?.email ?? 'Superadmin'
-
-      // ── Validación de identidad Master — BLOQUEANTE ───────────────────────
-      // getUser() valida el JWT contra el servidor Auth (petición de red).
-      // Solo usamos app_metadata (controlado por el servidor / trigger de Postgres).
-      // user_metadata es editable por el cliente y NO es fuente de verdad para RLS.
-      // Si no viene empresa_id en app_metadata, consultamos profiles (BD real).
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       let empresaIdAuth = Number(user?.app_metadata?.empresa_id ?? 0)
       if (user && !(empresaIdAuth > 0)) {
@@ -913,16 +1023,43 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
         empresaIdAuth = Number(perfil?.empresa_id) || 0
       }
       if (authError || !user || empresaIdAuth !== MASTER_EMPRESA_ID) {
-        console.error('[Panel Master] Sesión inválida o no es Master. empresa_id resuelto:', empresaIdAuth, authError)
         alert('Tu sesión ha expirado o no tienes permisos de Master. Por favor, cierra sesión y vuelve a entrar.')
-        setSaving(false)
         return
       }
       setMasterVerificado(true)
-      console.log('[Panel Master] getUser() → Master confirmado:', user.email, '— empresa_id:', empresaIdAuth)
+
+      if (esSoloReintentoUsuario) {
+        const { empresaId, nombreComercial: nombreGuardado } = faseVinculacionPendiente
+        if (!tieneEmail) {
+          setMsg({ tipo: 'err', texto: 'Introduce email y contraseña del administrador para reintentar la vinculación.' })
+          return
+        }
+        setPasoActual('Comprobando empresa (nombre_comercial)…')
+        const { data: empRow, error: empErr } = await supabase
+          .from('empresas')
+          .select('id, nombre_comercial')
+          .eq('id', empresaId)
+          .maybeSingle()
+        if (empErr || !empRow?.id) {
+          setMsg({ tipo: 'err', texto: 'No se encontró la empresa pendiente. Descarta y crea de nuevo si hace falta.' })
+          setFaseVinculacionPendiente(null)
+          return
+        }
+        const emailNorm = form.admin_email.trim().toLowerCase()
+        const probe = await precheckEmailAdmin(emailNorm)
+        const yaAuth = probe.adminYaEnAuth === true ? true : probe.adminYaEnAuth === false ? false : null
+        await faseUsuarioAdministrador({
+          newEmpresaId:          empresaId,
+          nombreComercialDisplay: empRow.nombre_comercial || nombreGuardado || String(empresaId),
+          emailNorm,
+          password:              form.admin_password,
+          adminYaEnAuthPrecheck: yaAuth,
+        })
+        return
+      }
 
       const nombreComercialTrim = form.nombre_comercial.trim()
-      setPasoActual('Comprobando nombre comercial único…')
+      setPasoActual('Comprobando nombre comercial único (empresas.nombre_comercial)…')
       const { data: dupNombreRows, error: dupNombreErr } = await supabase
         .from('empresas')
         .select('id, nombre_comercial')
@@ -930,126 +1067,71 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
         .limit(5)
 
       if (dupNombreErr) {
-        console.error('[Panel Master] validación nombre_comercial:', dupNombreErr)
         throw new Error(dupNombreErr.message || 'No se pudo validar el nombre comercial.')
       }
       if (dupNombreRows?.length) {
         const otro = dupNombreRows[0]
         setMsg({
           tipo:  'err',
-          texto: `Ya existe una empresa con el nombre comercial «${otro.nombre_comercial || nombreComercialTrim}». `
-            + 'Usa otro nombre antes de crear el tenant.',
+          texto: `Ya existe una empresa con el nombre comercial «${otro.nombre_comercial || nombreComercialTrim}». Usa otro nombre.`,
         })
         setPasoActual('')
-        setSaving(false)
         return
       }
 
-      // ── Paso 1: INSERT en empresas — atomic con .select() ─────────────────
-      // `empresas` no está en ERP_TABLES → el proxy de tenant no interfiere.
-      // El .select().single() devuelve la fila creada con su id auto-incremental
-      // y confirma que el RLS permitió la operación.
-      // Campos saas_* (razón social, NIF, email, tel, dirección, precios) incluidos.
-      // El objeto payload NO contiene el campo `id` — lo genera Postgres.
+      const emailNormPrecheck = form.admin_email.trim().toLowerCase()
+      let adminPrecheck = { adminYaEnAuth: null, probeError: null }
+      if (emailNormPrecheck && form.admin_password.trim()) {
+        setPasoActual('Comprobando correo del administrador en Auth (antes de crear empresa)…')
+        adminPrecheck = await precheckEmailAdmin(emailNormPrecheck)
+        if (adminPrecheck.probeError) {
+          setMsg({
+            tipo:  'warn',
+            texto: `No se pudo comprobar si el correo existe (${adminPrecheck.probeError}). Se continúa; si falla Auth podrás reintentar la vinculación.`,
+          })
+        }
+      }
+
+      const sesionEmail = session.user?.email ?? 'Superadmin'
       setPasoActual(`Creando empresa como ${sesionEmail}…`)
       const newRow       = await onCreate(form)
       const newEmpresaId = Number(newRow?.id) || 0
       if (!newEmpresaId) {
-        throw new Error('La empresa se creó, pero no se pudo resolver su empresa_id para crear el administrador.')
+        throw new Error('No se pudo resolver empresa_id tras crear la empresa.')
       }
 
       setPasoActual('Confirmando empresa en base de datos…')
-      const empresaConfirmada = await waitForEmpresaConfirmada(newEmpresaId)
-      if (!empresaConfirmada) {
+      if (!(await waitForEmpresaConfirmada(newEmpresaId))) {
         throw new Error(
-          `La empresa (empresa_id: ${newEmpresaId}) aún no está confirmada en BD. ` +
-          'Reintenta en unos segundos para crear el administrador inicial.',
+          `La empresa (empresa_id: ${newEmpresaId}) aún no está confirmada en BD. Reintenta en unos segundos.`,
         )
       }
 
-      // ── Paso 2 (opcional): Admin inicial = signUp; perfil vía trigger en BD ─
+      const nombreDisplay = newRow?.nombre_comercial || nombreComercialTrim
+
       if (tieneEmail) {
-        const emailNorm = form.admin_email.trim().toLowerCase()
-
-        // Guardar sesión Master Admin ANTES del signUp.
-        // Si el proyecto Supabase tiene confirmación de email desactivada,
-        // signUp reemplaza la sesión activa con la del nuevo usuario.
-        setPasoActual('Guardando sesión Master…')
-        const { data: { session: adminSession } } = await supabase.auth.getSession()
-
-        // Paso 3: signUp con metadata; si el correo ya existe, vincular sin fallar el flujo completo.
-        setPasoActual(`Registrando ${emailNorm} en Auth…`)
-        const { data: authData, error: authErr } = await supabase.auth.signUp({
-          email:    emailNorm,
-          password: form.admin_password,
-          options:  { data: { empresa_id: newEmpresaId, nivel_acceso: 'ADMIN' } },
+        const yaAuthPrecheck =
+          adminPrecheck.adminYaEnAuth === true ? true
+            : adminPrecheck.adminYaEnAuth === false ? false
+              : null
+        await faseUsuarioAdministrador({
+          newEmpresaId:          newEmpresaId,
+          nombreComercialDisplay: nombreDisplay,
+          emailNorm:             emailNormPrecheck,
+          password:              form.admin_password,
+          adminYaEnAuthPrecheck: yaAuthPrecheck,
         })
-
-        // Restaurar sesión Master Admin (protege contra cambio de sesión por signUp)
-        if (adminSession?.access_token) {
-          setPasoActual('Restaurando sesión Master…')
-          await supabase.auth.setSession({
-            access_token:  adminSession.access_token,
-            refresh_token: adminSession.refresh_token,
-          })
-        }
-
-        const newUserId = authData?.user?.id
-        const duplicadoAuth = isAuthUserAlreadyRegistered(authErr, authData)
-        const intentarVincular = duplicadoAuth || (!newUserId && !authErr)
-
-        if (!authErr && newUserId) {
-          setMsg({
-            tipo:  'ok',
-            texto:
-              `✓ Empresa creada (empresa_id: ${newEmpresaId}). Admin "${emailNorm}" dado de alta en Auth; `
-              + `el perfil se crea al registrar (trigger). Usuario: ${newUserId}. Entrega las credenciales al cliente.`,
-          })
-        } else if (intentarVincular) {
-          setPasoActual('El correo ya existe en Auth; vinculando administrador a la nueva empresa…')
-          const link = await masterVincularPerfilAdminEmpresa(emailNorm, newEmpresaId)
-          if (link.ok) {
-            setMsg({
-              tipo:  'ok',
-              texto:
-                `✓ Empresa creada (empresa_id: ${newEmpresaId}). El correo "${emailNorm}" ya estaba en Auth; `
-                + `se ha vinculado como ADMIN a esta empresa (perfil y acceso actualizados). `
-                + `Usuario: ${link.userId || '—'}.`,
-            })
-          } else {
-            setMsg({
-              tipo:  'warn',
-              texto:
-                `✓ Empresa creada (empresa_id: ${newEmpresaId}). El alta en Auth no creó un usuario nuevo `
-                + `(${authErr?.message || 'sin detalle'}). `
-                + `La vinculación automática no se completó: ${link.error || 'error desconocido'}. `
-                + 'Si falta la RPC en la base de datos, aplica la migración `master-vincular-perfil-admin-empresa.sql`. '
-                + 'Puedes corregirlo desde el modal de edición → pestaña "Usuarios de la agencia".',
-            })
-          }
-        } else {
-          setMsg({
-            tipo:  'warn',
-            texto:
-              `✓ Empresa creada (empresa_id: ${newEmpresaId}). No se pudo completar el acceso del administrador en Auth: `
-              + `${authErr?.message || 'error desconocido'}. `
-              + 'La empresa ya existe: reintenta el enlace desde "Usuarios de la agencia" o contacta soporte.',
-          })
-        }
-      } else {
-        setMsg({
-          tipo:  'ok',
-          texto: `✓ Empresa "${newRow.nombre_comercial}" creada (empresa_id: ${newEmpresaId}). Usa el modal de edición para crear el primer administrador.`,
-        })
+        return
       }
 
+      setMsg({
+        tipo:  'ok',
+        texto: `✓ Empresa «${nombreDisplay}» creada (empresa_id: ${newEmpresaId}). Usa el modal de edición para crear el primer administrador.`,
+      })
       setForm(NUEVO_FORM_VACIO)
       setPasoActual('')
       setTimeout(resetPanel, 3000)
     } catch (err) {
-      // Muestra el mensaje técnico real de Supabase sin filtros preventivos.
-      // Si el RLS bloquea la operación, el error de Postgres (42501) llega aquí
-      // directamente y queda visible para diagnóstico técnico sin texto de advertencia añadido.
       console.error('[Panel Master] Error en creación de empresa:', err)
       setMsg({ tipo: 'err', texto: err?.message || 'Error desconocido.' })
       setPasoActual('')
@@ -1191,8 +1273,10 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
             <p className="text-xs text-slate-500">
               Crea el primer usuario administrador para esta agencia. Si lo dejas en blanco, podrás
               crearlo después desde el modal de edición → pestaña <strong>"Usuarios de la agencia"</strong>.
-              Si el correo <strong>ya está registrado</strong> en Supabase Auth, se vinculará automáticamente
-              a esta nueva empresa como ADMIN (sin volver a crear la cuenta).
+              Antes de crear la empresa se comprueba si el correo ya existe en Auth: si existe, no se hace{' '}
+              <code className="text-[10px] bg-slate-100 px-0.5 rounded">signUp</code>
+              ; se vincula como ADMIN con la sesión Master. Tras crear la empresa, si falla el paso de usuario,
+              el botón principal pasa a <strong>reintentar solo la vinculación</strong> (no se inserta otra empresa).
             </p>
             <div className="grid grid-cols-2 gap-3">
               <Campo label={<span className="flex items-center gap-1"><Mail size={12} />Email de acceso</span>}>
@@ -1209,6 +1293,17 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
               </Campo>
             </div>
           </Seccion>
+
+          {faseVinculacionPendiente && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-950">
+              <AlertCircle size={14} className="shrink-0 mt-0.5 text-amber-600" />
+              <span>
+                <strong>Vinculación pendiente:</strong> empresa id <code className="text-[10px] bg-amber-100 px-1 rounded">{faseVinculacionPendiente.empresaId}</code>
+                {' '}({faseVinculacionPendiente.nombreComercial}). Corrige email/contraseña si hace falta y pulsa{' '}
+                <strong>Reintentar vinculación</strong> (no se vuelve a ejecutar el alta de empresa).
+              </span>
+            </div>
+          )}
 
           {/* Indicador de progreso por pasos */}
           {pasoActual && (
@@ -1257,7 +1352,13 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
               title={masterVerificado === false ? 'Sesión no verificada como Master — cierra sesión y vuelve a entrar' : undefined}
               className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm">
               <PlusCircle size={15} />
-              {saving ? 'Procesando…' : masterVerificado === null ? 'Verificando sesión…' : 'Crear empresa'}
+              {saving
+                ? 'Procesando…'
+                : masterVerificado === null
+                  ? 'Verificando sesión…'
+                  : faseVinculacionPendiente
+                    ? 'Reintentar vinculación'
+                    : 'Crear empresa'}
             </button>
           </div>
         </form>
