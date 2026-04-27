@@ -17,7 +17,7 @@ let _tenantId = null
  * desde el contexto de sesión / JWT, no el payload del cliente.
  * En INSERT/UPSERT no se inyecta `empresa_id` desde el motor tenant.
  */
-const EMPRESA_ID_FROM_DB_TRIGGER = new Set(['clientes'])
+const EMPRESA_ID_FROM_DB_TRIGGER = new Set(['clientes', 'proveedores'])
 
 /** Tablas de negocio que deben filtrarse por empresa_id. */
 export const ERP_TABLES = new Set([

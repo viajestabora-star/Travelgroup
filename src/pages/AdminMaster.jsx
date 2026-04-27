@@ -909,7 +909,10 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
         setPasoActual('Guardando sesión Master…')
         const { data: { session: adminSession } } = await supabase.auth.getSession()
 
-        // Registrar el nuevo usuario en Supabase Auth
+        // Registrar el nuevo usuario en Supabase Auth.
+        // options.data → user_metadata: empresa_id del tenant recién creado (obligatorio para
+        // triggers/JWT hasta el siguiente refreshSession). No confundir con app_metadata
+        // (eso lo suele fijar el servidor o un hook en auth.users).
         setPasoActual(`Registrando ${emailNorm} en Auth…`)
         const { data: authData, error: authErr } = await supabase.auth.signUp({
           email:    emailNorm,
