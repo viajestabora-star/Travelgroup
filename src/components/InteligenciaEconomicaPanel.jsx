@@ -1,19 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3, Clock, User } from 'lucide-react'
+import { TrendingUp, Receipt, Wallet, PiggyBank, BarChart3 } from 'lucide-react'
 import ModalDesgloseInteligencia from './ModalDesgloseInteligencia'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
-import { esUsuarioGestoria, esUsuarioAdmin, nivelAccesoEfectivo } from '../utils/userRoles'
+import { esUsuarioGestoria, esUsuarioAdmin } from '../utils/userRoles'
 import { finanzasExpedienteParaInformes } from '../utils/cierreGrupoFuenteVerdad'
-
-/** Usuarios a controlar en Control de Personal */
-const USUARIOS_CONTROL = [
-  { email: 'andres@viajestabora.com', nombre: 'Andrés' },
-  { email: 'info@viajestabora.com', nombre: 'Germán' },
-  { email: 'grupos@viajestabora.com', nombre: 'Marisa' },
-]
-const EMAILS_CONTROL = USUARIOS_CONTROL.map((u) => u.email)
 
 const toNum = (v) => (v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : 0)
 
@@ -24,49 +16,6 @@ const formatEuro = (val) => {
   const formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
   const sign = num < 0 ? '−' : ''
   return `${sign}${formatted},${decPart} €`
-}
-
-const formatearHora = (iso) => {
-  if (!iso) return '—'
-  try {
-    const d = new Date(iso)
-    return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  } catch {
-    return '—'
-  }
-}
-
-const formatearFecha = (iso) => {
-  if (!iso) return '—'
-  try {
-    const d = new Date(iso)
-    return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
-  } catch {
-    return '—'
-  }
-}
-
-const formatearDuracion = (min) => {
-  if (min == null || min === '') return '—'
-  const m = parseInt(min, 10)
-  if (isNaN(m)) return '—'
-  const h = Math.floor(m / 60)
-  const mins = m % 60
-  return `${h}h ${mins}m`
-}
-
-const calcularMinutosTrabajados = (r) => {
-  if (r.duracion_minutos != null && r.duracion_minutos !== '' && !Number.isNaN(Number(r.duracion_minutos))) {
-    return Number(r.duracion_minutos)
-  }
-  if (!r.hora_entrada || !r.hora_salida) return null
-  try {
-    const entrada = new Date(r.hora_entrada).getTime()
-    const salida = new Date(r.hora_salida).getTime()
-    return Math.round((salida - entrada) / 60000)
-  } catch {
-    return null
-  }
 }
 
 const getIngresos = (e) => finanzasExpedienteParaInformes(e).ingresos_totales
@@ -85,15 +34,8 @@ const InteligenciaEconomicaPanel = ({ user }) => {
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [showDesgloseModal, setShowDesgloseModal] = useState(false)
   const [tabInicialModal, setTabInicialModal] = useState('general')
-  const [tabPrincipal, setTabPrincipal] = useState('finanzas')
-  const [controlHorario, setControlHorario] = useState([])
-  const [loadingControl, setLoadingControl] = useState(false)
-  const [filtroEmpleado, setFiltroEmpleado] = useState('todos')
   // esAdmin: ADMIN puro + Gestoría (alcor@asesores.com) tienen acceso a los datos financieros
   const esAdmin = esUsuarioAdmin(user) || esUsuarioGestoria(user)
-  const esAdminPuro = esUsuarioAdmin(user)   // solo para tabs exclusivos como Control de Personal
-  const rol = nivelAccesoEfectivo(user)
-  const controlHorarioCargadoRef = useRef(false)
 
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
@@ -101,42 +43,6 @@ const InteligenciaEconomicaPanel = ({ user }) => {
     })
     return unsubscribe
   }, [])
-
-  useEffect(() => {
-    if (tabPrincipal !== 'controlPersonal' || !esAdminPuro) {
-      if (tabPrincipal !== 'controlPersonal') controlHorarioCargadoRef.current = false
-      return
-    }
-    if (controlHorarioCargadoRef.current) return
-    controlHorarioCargadoRef.current = true
-
-    let cancelled = false
-    const cargar = async () => {
-      setLoadingControl(true)
-      try {
-        const { data, error: err } = await supabase
-          .from('control_horario')
-          .select('*')
-          .order('fecha', { ascending: false })
-          .limit(200)
-        console.log('Datos recuperados:', data)
-        if (err) console.warn('Error control_horario:', err)
-        if (Array.isArray(data) && data.length === 0) {
-          console.log('Conexión exitosa pero tabla vacía en este cliente')
-        }
-        if (cancelled) return
-        if (!err && Array.isArray(data)) {
-          setControlHorario(data)
-        } else {
-          setControlHorario([])
-        }
-      } finally {
-        if (!cancelled) setLoadingControl(false)
-      }
-    }
-    cargar()
-    return () => { cancelled = true }
-  }, [tabPrincipal, rol])
 
   useEffect(() => {
     if (!esAdmin) {
@@ -167,12 +73,6 @@ const InteligenciaEconomicaPanel = ({ user }) => {
 
     fetchData()
   }, [esAdmin]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  /** Registros filtrados por empleado - useMemo al inicio para Rules of Hooks */
-  const controlHorarioFiltrado = useMemo(() => {
-    if (filtroEmpleado === 'todos') return controlHorario
-    return controlHorario.filter((r) => r.user_email === filtroEmpleado)
-  }, [controlHorario, filtroEmpleado])
 
   const ingresosTotales = expedientes.reduce((acc, e) => acc + getIngresos(e), 0)
   const gastosTotales = expedientes.reduce((acc, e) => acc + getGastos(e), 0)
@@ -224,90 +124,6 @@ const InteligenciaEconomicaPanel = ({ user }) => {
 
       {esAdmin && !loading && !error && (
     <div className="animate-in fade-in duration-500 space-y-8">
-      {/* Tabs: Finanzas | Control de Personal (solo visible aquí, no en menú) */}
-      <div className="flex gap-2 border-b border-slate-200 pb-2">
-        <button
-          type="button"
-          onClick={() => setTabPrincipal('finanzas')}
-          className={`px-4 py-2 rounded-lg font-medium transition-colors ${tabPrincipal === 'finanzas' ? 'bg-navy-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-        >
-          <TrendingUp size={18} className="inline mr-2 align-middle" />
-          Resumen Financiero
-        </button>
-        {esAdminPuro && (
-          <button
-            type="button"
-            onClick={() => setTabPrincipal('controlPersonal')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${tabPrincipal === 'controlPersonal' ? 'bg-navy-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-          >
-            <Clock size={18} className="inline mr-2 align-middle" />
-            Control de Personal
-          </button>
-        )}
-      </div>
-
-      {tabPrincipal === 'controlPersonal' && (
-        <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <Clock size={22} className="text-navy-600" />
-              <h3 className="text-base font-bold text-slate-800">Control Horario</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              <User size={18} className="text-slate-500" />
-              <select
-                value={filtroEmpleado}
-                onChange={(e) => setFiltroEmpleado(e.target.value)}
-                className="rounded-lg border-2 border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-navy-500 focus:border-navy-500 transition-colors"
-              >
-                <option value="todos">Todos los empleados</option>
-                {USUARIOS_CONTROL.map((u) => (
-                  <option key={u.email} value={u.email}>
-                    {u.nombre}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="p-6 overflow-x-auto">
-            {loadingControl ? (
-              <div className="py-12 text-center text-slate-500">Cargando...</div>
-            ) : controlHorarioFiltrado.length === 0 ? (
-              <div className="py-12 text-center text-slate-500">
-                {controlHorario.length === 0
-                  ? 'No hay registros de control horario para estos empleados'
-                  : 'No hay registros para el empleado seleccionado'}
-              </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Fecha</th>
-                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Usuario</th>
-                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Hora Entrada</th>
-                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Hora Salida</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {controlHorarioFiltrado.map((r, idx) => (
-                    <tr key={`${r.user_email}-${r.fecha}-${r.hora_entrada}-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-3 px-2">{r.fecha ?? '—'}</td>
-                      <td className="py-3 px-2">
-                        {USUARIOS_CONTROL.find((u) => u.email === r.user_email)?.nombre || r.user_email || '—'}
-                      </td>
-                      <td className="py-3 px-2">{r.hora_entrada ?? '—'}</td>
-                      <td className="py-3 px-2">{r.hora_salida ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      )}
-
-      {tabPrincipal === 'finanzas' && (
-        <>
       {datosSinPersistir && (
         <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-amber-800">
           <p className="font-bold">⚠️ Validación: Los totales suman 0 €</p>
@@ -394,8 +210,6 @@ const InteligenciaEconomicaPanel = ({ user }) => {
           )}
         </div>
       </div>
-        </>
-      )}
     </div>
       )}
     </>

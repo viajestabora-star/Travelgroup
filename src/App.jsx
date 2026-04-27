@@ -5,7 +5,6 @@ import SlugGuard from './components/SlugGuard';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 import ProtectedRoute from './components/ProtectedRoute';
-import { registrarSalida } from './utils/controlHorario';
 import Dashboard from './pages/Dashboard';
 import Clientes from './pages/Clientes';
 import Expedientes from './pages/Expedientes';
@@ -168,7 +167,6 @@ function App() {
   }, []);
 
   const handleLogout = async () => {
-    await registrarSalida();
     clearTenantEmpresaId();
     localStorage.removeItem('sesion_tabora');
     setUser(null);

@@ -38,7 +38,6 @@ export const ERP_TABLES = new Set([
   'gastos_estructura',
   'pagos_proveedores',
   'servicios_cotizacion',
-  'control_horario',
   'empleados',
 ])
 

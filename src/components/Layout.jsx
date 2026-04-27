@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
-import { registrarSalidaOnUnload, heartbeatSalidaById } from '../utils/controlHorario'
-import { 
-  LayoutDashboard, Users, Calculator, Calendar, Briefcase, 
-  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut, UserCog, Shield, KeyRound
+import {
+  LayoutDashboard, Users, Calculator, Calendar, Briefcase,
+  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut, UserCog, Shield, KeyRound,
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { esUsuarioGestoria, puedeAccederCierresEconomicos, esUsuarioAdmin } from '../utils/userRoles'
@@ -13,9 +12,6 @@ import CuentaPasswordModal from './CuentaPasswordModal'
 import { NOMBRE_APP_DEFAULT } from '../utils/marcaBlanca'
 import { asegurarVinculacionEmpleado } from '../utils/empleadosVinculacion'
 
-const HEARTBEAT_INTERVAL_MS = 1800000
-const STORAGE_ATTENDANCE_ID = 'attendance_id'
-
 const Layout = ({ user, onLogout }) => {
   const location = useLocation()
   const navigate = useNavigate()
@@ -23,11 +19,9 @@ const Layout = ({ user, onLogout }) => {
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [authSession, setAuthSession] = useState(null)
   const [cuentaModalOpen, setCuentaModalOpen] = useState(false)
-  const [currentSessionId, setCurrentSessionId] = useState(null)
-  const currentSessionIdRef = useRef(null)
-  const isProcessing = useRef(false)
-  // Nombre de empresa siempre fresco desde empresas.nombre_comercial (no desde caché de sesión)
+  /** nombre_comercial desde empresas, resolviendo empresa_id vía JWT o public.profiles */
   const [nombreEmpresaBD, setNombreEmpresaBD] = useState(null)
+  const [nombreEmpresaError, setNombreEmpresaError] = useState(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setAuthSession(session))
@@ -59,81 +53,6 @@ const Layout = ({ user, onLogout }) => {
     asegurarVinculacionEmpleado({ authUser, appUser: user }).catch(() => {})
   }, [authSession?.user?.id, authSession?.user?.email, user])
 
-  // CONTROL HORARIO - Orden l?gico estricto para evitar duplicados al refrescar
-  useEffect(() => {
-    const sessionEmail = authSession?.user?.email || user?.email
-    if (!sessionEmail) return
-
-    const activeId = sessionStorage.getItem(STORAGE_ATTENDANCE_ID)
-    if (activeId) {
-      setCurrentSessionId(activeId)
-      currentSessionIdRef.current = activeId
-      const handleUnload = () => {
-        if (currentSessionIdRef.current) registrarSalidaOnUnload(currentSessionIdRef.current)
-      }
-      window.addEventListener('beforeunload', handleUnload)
-      return () => window.removeEventListener('beforeunload', handleUnload)
-    }
-    if (isProcessing.current) return
-
-    isProcessing.current = true
-
-    const ejecutarRegistro = async () => {
-      // Envuelto en try-catch silencioso: un fallo de RLS en control_horario
-      // (p.ej. pol?tica no aplicada a?n) NO debe bloquear ning?n flujo del ERP.
-      try {
-        const hoy = new Date()
-        const fechaDDMMYYYY = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`
-        const horaEntrada = hoy.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-
-        const { data, error } = await supabase
-          .from('control_horario')
-          .insert([{
-            usuario_id: user?.id ?? null,
-            user_email: sessionEmail,
-            fecha: fechaDDMMYYYY,
-            hora_entrada: horaEntrada
-          }])
-          .select('id')
-          .single()
-
-        if (error) {
-          // Error no cr?tico ? el finally libera isProcessing; no se propaga
-          return
-        }
-        if (data?.id) {
-          sessionStorage.setItem(STORAGE_ATTENDANCE_ID, data.id)
-          setCurrentSessionId(data.id)
-          currentSessionIdRef.current = data.id
-        }
-      } catch (_) {
-        // Silencioso: cualquier excepci?n en control_horario es no cr?tica
-      } finally {
-        isProcessing.current = false
-      }
-    }
-
-    ejecutarRegistro()
-
-    const handleUnload = () => {
-      if (currentSessionIdRef.current) registrarSalidaOnUnload(currentSessionIdRef.current)
-    }
-    window.addEventListener('beforeunload', handleUnload)
-
-    return () => window.removeEventListener('beforeunload', handleUnload)
-  }, [authSession?.user?.email, user?.email])
-
-  // Latido 30 min (1.800.000 ms): no actualiza hora_salida antes de ese tiempo
-  useEffect(() => {
-    if (!currentSessionId) return
-
-    const intervalId = setInterval(() => {
-      heartbeatSalidaById(currentSessionId)
-    }, HEARTBEAT_INTERVAL_MS)
-
-    return () => clearInterval(intervalId)
-  }, [currentSessionId])
-
   useEffect(() => {
     const unsubscribe = subscribeToEjercicioChanges((nuevoEjercicio) => {
       setEjercicioActual(nuevoEjercicio)
@@ -141,35 +60,81 @@ const Layout = ({ user, onLogout }) => {
     return unsubscribe
   }, [])
 
-  // Fetch de nombre_comercial siempre desde empresas (no depende de la caché de sesión).
-  // Se dispara cuando tenemos empresa_id confirmado (de la sesión o del JWT).
+  // Identidad tenant: empresa_id desde JWT o public.profiles → nombre_comercial en empresas.
   useEffect(() => {
-    const empresaId = Number(
-      authSession?.user?.app_metadata?.empresa_id
-      ?? user?.empresa_id
-      ?? 0,
-    ) || null
-    if (!empresaId) return
+    const uid = authSession?.user?.id
+    if (!uid) {
+      setNombreEmpresaBD(null)
+      setNombreEmpresaError(null)
+      return
+    }
+
     let cancelled = false
-    supabase
-      .from('empresas')
-      .select('nombre_comercial')
-      .eq('id', empresaId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!cancelled && data?.nombre_comercial) {
-          setNombreEmpresaBD(String(data.nombre_comercial).trim())
+
+    const cargarNombreComercial = async () => {
+      let empresaId = Number(
+        authSession?.user?.app_metadata?.empresa_id
+        ?? authSession?.user?.user_metadata?.empresa_id
+        ?? user?.empresa_id
+        ?? 0,
+      )
+
+      if (!(empresaId > 0)) {
+        const { data: perfil, error: errP } = await supabase
+          .from('profiles')
+          .select('empresa_id')
+          .eq('id', uid)
+          .maybeSingle()
+        if (cancelled) return
+        if (errP || perfil?.empresa_id == null || Number(perfil.empresa_id) <= 0) {
+          setNombreEmpresaBD(null)
+          setNombreEmpresaError('Tu usuario no tiene empresa asignada. Contacta con el administrador.')
+          return
         }
-      })
+        empresaId = Number(perfil.empresa_id)
+      }
+
+      if (!(empresaId > 0)) {
+        if (!cancelled) {
+          setNombreEmpresaBD(null)
+          setNombreEmpresaError('No se pudo determinar la empresa de tu perfil.')
+        }
+        return
+      }
+
+      const { data: emp, error: errE } = await supabase
+        .from('empresas')
+        .select('nombre_comercial')
+        .eq('id', empresaId)
+        .maybeSingle()
+
+      if (cancelled) return
+      if (errE || !emp?.nombre_comercial) {
+        setNombreEmpresaBD(null)
+        setNombreEmpresaError('No se pudo cargar el nombre comercial de la empresa.')
+        return
+      }
+
+      setNombreEmpresaError(null)
+      setNombreEmpresaBD(String(emp.nombre_comercial).trim())
+    }
+
+    cargarNombreComercial()
     return () => { cancelled = true }
-  }, [authSession?.user?.id, user?.empresa_id])
+  }, [
+    authSession?.user?.id,
+    authSession?.user?.app_metadata?.empresa_id,
+    authSession?.user?.user_metadata?.empresa_id,
+    user?.empresa_id,
+  ])
 
   const esAdmin    = esUsuarioAdmin(user)
   const esGestoria = esUsuarioGestoria(user)
-  // Prioridad: BD (siempre fresca) → sesión (nombre_comercial o nombre_app) → default
-  const nombreMarca = nombreEmpresaBD
-    || (user?.nombre_comercial && String(user.nombre_comercial).trim() ? String(user.nombre_comercial).trim() : null)
-    || (user?.nombre_app && String(user.nombre_app).trim() ? String(user.nombre_app).trim() : NOMBRE_APP_DEFAULT)
+  // Prioridad: BD (empresas) → caché sesión → marca por defecto (nunca cadena vacía salvo error explícito arriba)
+  const nombreMarcaFallback = (user?.nombre_comercial && String(user.nombre_comercial).trim())
+    || (user?.nombre_app && String(user.nombre_app).trim())
+    || NOMBRE_APP_DEFAULT
+  const nombreMarca = nombreEmpresaBD || nombreMarcaFallback
   // Logo dinámico: logo_url de la empresa (BD) → favicon_url de sesión → sin imagen (solo nombre)
   const logoSrc = user?.logo_url || user?.favicon_url || null
 
@@ -268,7 +233,6 @@ const Layout = ({ user, onLogout }) => {
         if (cancelled || error || !data) return
         if (data.activa === false) {
           window.alert('Tu agencia est? desactivada. Contacta con soporte.')
-          sessionStorage.removeItem(STORAGE_ATTENDANCE_ID)
           onLogout?.()
         }
       })
@@ -286,7 +250,13 @@ const Layout = ({ user, onLogout }) => {
                 {logoSrc && (
                   <img src={logoSrc} alt={nombreMarca} className="h-12 w-auto object-contain" />
                 )}
-                <p className="text-center text-xs font-semibold text-slate-300 tracking-wide">{nombreMarca}</p>
+                {nombreEmpresaError ? (
+                  <p className="text-center text-[11px] font-medium text-amber-300 leading-snug px-1">
+                    {nombreEmpresaError}
+                  </p>
+                ) : (
+                  <p className="text-center text-xs font-semibold text-slate-300 tracking-wide">{nombreMarca}</p>
+                )}
               </div>
             )}
             <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-700 rounded">
@@ -312,7 +282,6 @@ const Layout = ({ user, onLogout }) => {
           {onLogout && (
             <button
               onClick={() => {
-                sessionStorage.removeItem(STORAGE_ATTENDANCE_ID)
                 onLogout()
               }}
               className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-1 border-t border-slate-700"
