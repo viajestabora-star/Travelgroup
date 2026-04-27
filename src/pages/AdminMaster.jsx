@@ -691,11 +691,16 @@ const EditModal = ({ row, onClose, onSave }) => {
 // `empresas` no está en ERP_TABLES → el proxy de tenant NO añade filtros aquí.
 // Supabase auto-incrementa `id` → empresa_id exclusivo para el nuevo Tenant.
 //
-// Flujo RLS-safe:
-//  1. Guardar sesión Master Admin antes del signUp.
-//  2. signUp del nuevo usuario (puede cambiar la sesión activa si no hay confirmación email).
-//  3. Restaurar sesión Master Admin con supabase.auth.setSession().
-//  4. Upsert del perfil con la sesión restaurada (Tabora tiene RLS completo).
+// Flujo creación tenant (orden estricto):
+//  1. INSERT en empresas → .select() devuelve el id (empresa_id del tenant).
+//  2. waitForEmpresaConfirmada(id) — la fila debe ser visible antes del signUp.
+//  3. signUp del administrador con options.data: { empresa_id, nivel_acceso }.
+//     El perfil en public.profiles lo inserta el trigger AFTER INSERT en auth.users
+//     (handle_new_user_profile), leyendo raw_user_meta_data / raw_app_meta_data;
+//     no se hace upsert desde el cliente (evita duplicar lógica y depender de RLS
+//     del Master sobre filas de otros usuarios).
+//  4. Guardar sesión Master antes del signUp y restaurarla después: signUp puede
+//     cambiar la sesión activa si no hay confirmación por email.
 
 const NUEVO_FORM_VACIO = () => ({
   // Datos operativos
@@ -896,24 +901,19 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
         )
       }
 
-      // ── Paso 2 (opcional): Crear usuario Admin inicial ────────────────────
-      let perfilFallo = false   // flag para el timeout diferenciado
+      // ── Paso 2 (opcional): Admin inicial = signUp; perfil vía trigger en BD ─
       if (tieneEmail) {
         const emailNorm = form.admin_email.trim().toLowerCase()
 
         // Guardar sesión Master Admin ANTES del signUp.
         // Si el proyecto Supabase tiene confirmación de email desactivada,
         // signUp reemplaza la sesión activa con la del nuevo usuario.
-        // Restauramos la sesión Tabora para que el upsert de profiles
-        // se ejecute con sus permisos RLS completos (empresa_id=1 tiene acceso total).
         setPasoActual('Guardando sesión Master…')
         const { data: { session: adminSession } } = await supabase.auth.getSession()
 
-        // Registrar el nuevo usuario en Supabase Auth.
-        // options.data → user_metadata: empresa_id del tenant recién creado (obligatorio para
-        // triggers/JWT hasta el siguiente refreshSession). No confundir con app_metadata
-        // (eso lo suele fijar el servidor o un hook en auth.users).
-        setPasoActual(`Registrando ${emailNorm} en Auth…`)
+        // Paso 3 del flujo tenant: Auth + metadata → handle_new_user_profile() inserta profiles.
+        // options.data → raw_user_meta_data (empresa_id = newEmpresaId del paso 1).
+        setPasoActual(`Registrando ${emailNorm} en Auth (perfil vía trigger BD)…`)
         const { data: authData, error: authErr } = await supabase.auth.signUp({
           email:    emailNorm,
           password: form.admin_password,
@@ -939,39 +939,13 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
           )
         }
 
-        // Upsert del perfil con la sesión restaurada del Master Admin.
-        // empresa_id aquí es el de la empresa recién creada (newEmpresaId), NO el del Master.
-        setPasoActual('Creando perfil de administrador…')
-        const { error: profErr } = await supabase
-          .from('profiles')
-          .upsert(
-            {
-              id:           newUserId,
-              email:        emailNorm,
-              empresa_id:   newEmpresaId,   // empresa del nuevo tenant, no del Master
-              nivel_acceso: 'ADMIN',
-              nombre:       emailNorm.split('@')[0],
-            },
-            { onConflict: 'id' },
-          )
-
-        if (profErr) {
-          // El perfil falló pero la empresa ya existe — no bloqueamos.
-          // Mostramos advertencia específica para que el Master actúe desde "Usuarios de la agencia".
-          console.error('[Panel Master] profiles upsert falló:', profErr)
-          perfilFallo = true
-          setMsg({
-            tipo:  'warn',
-            texto: `⚠ Empresa creada (empresa_id: ${newEmpresaId}). Auth OK (ID: ${newUserId}), `
-              + `pero el perfil no se pudo insertar: ${profErr.message}. `
-              + 'Abre el modal de edición → pestaña "Usuarios de la agencia" para crearlo manualmente.',
-          })
-        } else {
-          setMsg({
-            tipo:  'ok',
-            texto: `✓ Empresa creada (empresa_id: ${newEmpresaId}). Admin "${emailNorm}" registrado. Entrega estas credenciales al cliente.`,
-          })
-        }
+        setMsg({
+          tipo:  'ok',
+          texto:
+            `✓ Empresa creada (empresa_id: ${newEmpresaId}). Admin "${emailNorm}" dado de alta en Auth; `
+            + `el perfil en la base de datos se crea automáticamente al registrar (trigger). `
+            + `Usuario: ${newUserId}. Entrega las credenciales al cliente.`,
+        })
       } else {
         setMsg({
           tipo:  'ok',
@@ -981,8 +955,7 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
 
       setForm(NUEVO_FORM_VACIO)
       setPasoActual('')
-      // ok → cierra a los 3 s | warn (perfil falló) → da 8 s para que el Master lea el aviso
-      setTimeout(resetPanel, perfilFallo ? 8000 : 3000)
+      setTimeout(resetPanel, 3000)
     } catch (err) {
       // Muestra el mensaje técnico real de Supabase sin filtros preventivos.
       // Si el RLS bloquea la operación, el error de Postgres (42501) llega aquí
