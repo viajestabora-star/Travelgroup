@@ -88,10 +88,12 @@ export const useSaasManagement = () => {
 
     if (!newRow) throw new Error('Supabase no devolvió la fila creada tras el INSERT. Verifica la política RLS de INSERT en la tabla "empresas".')
 
-    // Refrescar sesión para mantener el cliente sincronizado tras la inserción.
-    // El INSERT puede haber generado cambios de estado en el servidor (triggers, claims);
-    // refreshSession() garantiza que el Bearer y los metadatos del cliente estén al día.
-    supabase.auth.refreshSession().catch(() => {})
+    // Refrescar sesión de forma forzada para sincronizar claims locales tras crear empresa.
+    // Si el backend ya actualizó app_metadata, este refresh hace que el token local lo refleje.
+    const { error: refreshErr } = await supabase.auth.refreshSession()
+    if (refreshErr) {
+      console.warn('[createEmpresa] refreshSession falló tras crear empresa:', refreshErr.message)
+    }
 
     // Reflejar la nueva empresa en la lista local sin recargar la vista
     setRows((prev) => [...prev, newRow])

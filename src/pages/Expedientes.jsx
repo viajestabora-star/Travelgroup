@@ -522,7 +522,6 @@ const Expedientes = ({ user = null }) => {
           pax_pago: paxPagoNum,
           precio_venta_cliente: expediente.precio_venta_cliente != null ? Number(expediente.precio_venta_cliente) : 0,
           bonificacion_pax: expediente.bonificacion_pax != null ? Number(expediente.bonificacion_pax) : 0,
-          empresa_id: empresaId,
         };
 
         const idExpediente = expediente.id;
@@ -671,7 +670,6 @@ const Expedientes = ({ user = null }) => {
         total_pax: totalPaxSanitizado || null,
         pax_pago: paxPagoNum,
         precio_venta_cliente: 0, // Valor por defecto para evitar NOT NULL
-        empresa_id: empresaId,
       };
 
       // VERIFICACIÓN EXPLÍCITA: Asegurar que id NO esté en el objeto
