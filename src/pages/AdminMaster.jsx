@@ -723,6 +723,48 @@ const NUEVO_FORM_VACIO = () => ({
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** Para `.ilike('nombre_comercial', …)` como igualdad sin que `%` o `_` del nombre actúen como comodines. */
+const escapeForIlikeExact = (s) =>
+  String(s).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+
+/**
+ * Auth: correo ya dado de alta (signUp rechazado) o respuesta típica de usuario duplicado.
+ */
+const isAuthUserAlreadyRegistered = (authError, authData) => {
+  const msg = String(authError?.message || '').toLowerCase()
+  const status = authError?.status
+  if (status === 422) return true
+  if (/already registered|already exists|already been registered|user already|duplicate/i.test(msg)) return true
+  const user = authData?.user
+  if (user && Array.isArray(user.identities) && user.identities.length === 0) return true
+  return false
+}
+
+/**
+ * Master: vincula un email existente en Auth a una empresa (profiles + app_metadata + roles).
+ * Requiere la RPC `master_vincular_perfil_admin_empresa` en la base de datos.
+ */
+const masterVincularPerfilAdminEmpresa = async (emailNorm, empresaIdNum) => {
+  const { data, error } = await supabase.rpc('master_vincular_perfil_admin_empresa', {
+    p_email:      emailNorm,
+    p_empresa_id: empresaIdNum,
+  })
+  if (error) {
+    return { ok: false, error: error.message, code: error.code }
+  }
+  if (data && typeof data === 'object' && data.ok === false) {
+    const code = data.code
+    return {
+      ok:    false,
+      code,
+      error: code === 'usuario_no_en_auth'
+        ? 'No hay usuario en Auth con ese correo.'
+        : 'La RPC devolvió error al vincular el perfil.',
+    }
+  }
+  return { ok: true, userId: data?.user_id }
+}
+
 // Espera activa corta para asegurar que la empresa recién creada ya es consultable.
 const waitForEmpresaConfirmada = async (empresaId, maxIntentos = 4, esperaMs = 250) => {
   for (let intento = 1; intento <= maxIntentos; intento += 1) {
@@ -879,6 +921,30 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
       setMasterVerificado(true)
       console.log('[Panel Master] getUser() → Master confirmado:', user.email, '— empresa_id:', empresaIdAuth)
 
+      const nombreComercialTrim = form.nombre_comercial.trim()
+      setPasoActual('Comprobando nombre comercial único…')
+      const { data: dupNombreRows, error: dupNombreErr } = await supabase
+        .from('empresas')
+        .select('id, nombre_comercial')
+        .ilike('nombre_comercial', escapeForIlikeExact(nombreComercialTrim))
+        .limit(5)
+
+      if (dupNombreErr) {
+        console.error('[Panel Master] validación nombre_comercial:', dupNombreErr)
+        throw new Error(dupNombreErr.message || 'No se pudo validar el nombre comercial.')
+      }
+      if (dupNombreRows?.length) {
+        const otro = dupNombreRows[0]
+        setMsg({
+          tipo:  'err',
+          texto: `Ya existe una empresa con el nombre comercial «${otro.nombre_comercial || nombreComercialTrim}». `
+            + 'Usa otro nombre antes de crear el tenant.',
+        })
+        setPasoActual('')
+        setSaving(false)
+        return
+      }
+
       // ── Paso 1: INSERT en empresas — atomic con .select() ─────────────────
       // `empresas` no está en ERP_TABLES → el proxy de tenant no interfiere.
       // El .select().single() devuelve la fila creada con su id auto-incremental
@@ -911,9 +977,8 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
         setPasoActual('Guardando sesión Master…')
         const { data: { session: adminSession } } = await supabase.auth.getSession()
 
-        // Paso 3 del flujo tenant: Auth + metadata → handle_new_user_profile() inserta profiles.
-        // options.data → raw_user_meta_data (empresa_id = newEmpresaId del paso 1).
-        setPasoActual(`Registrando ${emailNorm} en Auth (perfil vía trigger BD)…`)
+        // Paso 3: signUp con metadata; si el correo ya existe, vincular sin fallar el flujo completo.
+        setPasoActual(`Registrando ${emailNorm} en Auth…`)
         const { data: authData, error: authErr } = await supabase.auth.signUp({
           email:    emailNorm,
           password: form.admin_password,
@@ -929,23 +994,48 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
           })
         }
 
-        if (authErr) throw new Error(`Auth: ${authErr.message}`)
-
         const newUserId = authData?.user?.id
-        if (!newUserId) {
-          throw new Error(
-            'El email ya tiene una cuenta registrada en Supabase Auth. ' +
-            'Usa el modal de edición → pestaña "Usuarios de la agencia" para asignarlo manualmente.',
-          )
-        }
+        const duplicadoAuth = isAuthUserAlreadyRegistered(authErr, authData)
+        const intentarVincular = duplicadoAuth || (!newUserId && !authErr)
 
-        setMsg({
-          tipo:  'ok',
-          texto:
-            `✓ Empresa creada (empresa_id: ${newEmpresaId}). Admin "${emailNorm}" dado de alta en Auth; `
-            + `el perfil en la base de datos se crea automáticamente al registrar (trigger). `
-            + `Usuario: ${newUserId}. Entrega las credenciales al cliente.`,
-        })
+        if (!authErr && newUserId) {
+          setMsg({
+            tipo:  'ok',
+            texto:
+              `✓ Empresa creada (empresa_id: ${newEmpresaId}). Admin "${emailNorm}" dado de alta en Auth; `
+              + `el perfil se crea al registrar (trigger). Usuario: ${newUserId}. Entrega las credenciales al cliente.`,
+          })
+        } else if (intentarVincular) {
+          setPasoActual('El correo ya existe en Auth; vinculando administrador a la nueva empresa…')
+          const link = await masterVincularPerfilAdminEmpresa(emailNorm, newEmpresaId)
+          if (link.ok) {
+            setMsg({
+              tipo:  'ok',
+              texto:
+                `✓ Empresa creada (empresa_id: ${newEmpresaId}). El correo "${emailNorm}" ya estaba en Auth; `
+                + `se ha vinculado como ADMIN a esta empresa (perfil y acceso actualizados). `
+                + `Usuario: ${link.userId || '—'}.`,
+            })
+          } else {
+            setMsg({
+              tipo:  'warn',
+              texto:
+                `✓ Empresa creada (empresa_id: ${newEmpresaId}). El alta en Auth no creó un usuario nuevo `
+                + `(${authErr?.message || 'sin detalle'}). `
+                + `La vinculación automática no se completó: ${link.error || 'error desconocido'}. `
+                + 'Si falta la RPC en la base de datos, aplica la migración `master-vincular-perfil-admin-empresa.sql`. '
+                + 'Puedes corregirlo desde el modal de edición → pestaña "Usuarios de la agencia".',
+            })
+          }
+        } else {
+          setMsg({
+            tipo:  'warn',
+            texto:
+              `✓ Empresa creada (empresa_id: ${newEmpresaId}). No se pudo completar el acceso del administrador en Auth: `
+              + `${authErr?.message || 'error desconocido'}. `
+              + 'La empresa ya existe: reintenta el enlace desde "Usuarios de la agencia" o contacta soporte.',
+          })
+        }
       } else {
         setMsg({
           tipo:  'ok',
@@ -1101,6 +1191,8 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
             <p className="text-xs text-slate-500">
               Crea el primer usuario administrador para esta agencia. Si lo dejas en blanco, podrás
               crearlo después desde el modal de edición → pestaña <strong>"Usuarios de la agencia"</strong>.
+              Si el correo <strong>ya está registrado</strong> en Supabase Auth, se vinculará automáticamente
+              a esta nueva empresa como ADMIN (sin volver a crear la cuenta).
             </p>
             <div className="grid grid-cols-2 gap-3">
               <Campo label={<span className="flex items-center gap-1"><Mail size={12} />Email de acceso</span>}>
