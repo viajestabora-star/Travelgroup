@@ -64,12 +64,11 @@ const Clientes = ({ user = null }) => {
       }
     }
 
-    const action = editingId 
+    // INSERT: empresa_id la fija el trigger en BD (fn_set_empresa_id_global); no enviar manualmente.
+    // UPDATE: el proxy tenant añade .eq('empresa_id', sesión) — no incluir empresa_id en formData.
+    const action = editingId
       ? supabase.from('clientes').update(formData).eq('id', editingId)
-      : supabase.from('clientes').insert([{
-          ...formData,
-          empresa_id: empresaId
-        }])
+      : supabase.from('clientes').insert([{ ...formData }])
     
     const { error } = await action
     if (!error) {

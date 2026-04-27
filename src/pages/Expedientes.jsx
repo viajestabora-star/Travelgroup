@@ -597,7 +597,6 @@ const Expedientes = ({ user = null }) => {
         .insert([{
           nombre: finalNombre,
           responsable: expedienteForm.responsable || '',
-          empresa_id: empresaId
         }])
         .select().single();
         if (error) {
@@ -797,7 +796,6 @@ const Expedientes = ({ user = null }) => {
       email: clienteForm.email || '',
       bonificaciones: '',
       gratuidades: '',
-      empresa_id: empresaId
     }
 
     try {

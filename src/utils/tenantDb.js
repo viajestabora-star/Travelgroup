@@ -3,13 +3,21 @@
  *
  * Inyecta automáticamente .eq('empresa_id', tenantId) en todas las consultas
  * SELECT / UPDATE / DELETE de las tablas ERP declaradas en ERP_TABLES.
- * En INSERT / UPSERT añade empresa_id al payload si no viene ya incluido.
+ * En INSERT / UPSERT añade empresa_id al payload si no viene ya incluido,
+ * salvo las tablas en EMPRESA_ID_FROM_DB_TRIGGER (trigger en BD).
  *
  * Activar al iniciar sesión:  setTenantEmpresaId(user.empresa_id)
  * Desactivar al cerrar:       clearTenantEmpresaId()
  */
 
 let _tenantId = null
+
+/**
+ * Tablas donde `empresa_id` lo asigna el trigger de BD (p. ej. `fn_set_empresa_id_global`)
+ * desde el contexto de sesión / JWT, no el payload del cliente.
+ * En INSERT/UPSERT no se inyecta `empresa_id` desde el motor tenant.
+ */
+const EMPRESA_ID_FROM_DB_TRIGGER = new Set(['clientes'])
 
 /** Tablas de negocio que deben filtrarse por empresa_id. */
 export const ERP_TABLES = new Set([
@@ -82,10 +90,10 @@ export const applyTenantFilter = (table, builder) => {
         }
       }
 
-      // INSERT → inyecta empresa_id en el payload
+      // INSERT → inyecta empresa_id salvo tablas cuyo trigger fija el valor en BD
       if (prop === 'insert') {
         return (payload, opts) => {
-          if (_tenantId) {
+          if (_tenantId && !EMPRESA_ID_FROM_DB_TRIGGER.has(table)) {
             if (Array.isArray(payload)) {
               payload = payload.map((item) => ({
                 ...item,
@@ -102,10 +110,10 @@ export const applyTenantFilter = (table, builder) => {
         }
       }
 
-      // UPSERT → inyecta empresa_id en el payload
+      // UPSERT → misma lógica que insert
       if (prop === 'upsert') {
         return (payload, opts) => {
-          if (_tenantId) {
+          if (_tenantId && !EMPRESA_ID_FROM_DB_TRIGGER.has(table)) {
             if (Array.isArray(payload)) {
               payload = payload.map((item) => ({
                 ...item,
