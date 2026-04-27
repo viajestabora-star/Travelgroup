@@ -7,12 +7,13 @@ export const esDominioTabora = (email) => String(email || '').toLowerCase().ends
 const normalizarEmail = (email) => String(email || '').trim().toLowerCase()
 
 export const resolverEmpresaIdActiva = ({ authUser = null, appUser = null } = {}) => {
+  // Prioridad: sesión local → app_metadata (servidor) → null
+  // NUNCA se hardcodea empresa_id=1: cada tenant opera exclusivamente con su propio ID.
   const byApp = Number(appUser?.empresa_id)
   if (byApp > 0) return byApp
   const byClaim = Number(authUser?.app_metadata?.empresa_id)
   if (byClaim > 0) return byClaim
-  if (esDominioTabora(authUser?.email || appUser?.email)) return 1
-  return 1
+  return null
 }
 
 export async function resolverActorCrm({ authUser = null } = {}) {
@@ -61,11 +62,16 @@ export async function resolverActorCrm({ authUser = null } = {}) {
 export async function asegurarVinculacionEmpleado({ authUser = null, appUser = null } = {}) {
   if (!authUser?.id || !authUser?.email) return { ok: false, motivo: 'sin_sesion_auth' }
 
+  // Si ya existe actor (empleado o profile), no crear duplicado.
   const actor = await resolverActorCrm({ authUser })
   if (actor.actorId) return { ok: true, creado: false, ...actor }
-  if (!esDominioTabora(authUser.email)) return { ok: true, creado: false, actorId: null, fuente: null }
 
+  // Resolver empresa_id del tenant activo. Si no se puede determinar, salir sin crear.
+  // La restricción anterior (@viajestabora.com) se elimina: cualquier tenant puede tener
+  // un actor en empleados para el sistema CRM.
   const empresaId = resolverEmpresaIdActiva({ authUser, appUser })
+  if (!empresaId) return { ok: true, creado: false, actorId: null, fuente: null }
+
   const email = normalizarEmail(authUser.email)
   const nombre =
     String(appUser?.nombre || authUser?.user_metadata?.nombre || authUser?.user_metadata?.name || email.split('@')[0] || '').trim()

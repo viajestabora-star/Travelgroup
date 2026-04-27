@@ -86,10 +86,12 @@ const LoginPortal = ({ onSesion }) => {
     const empresaIdSesion = empresaIdPerfil ?? (empresaIdJWT > 0 ? empresaIdJWT : null)
 
     if (perfilError || !empresaIdSesion) {
-      // No bloquear si el JWT confirma empresa_id=1 (Superadmin de Tabora).
-      // En ese caso el perfil se creará / completará en el próximo acceso al ERP.
-      if (empresaIdJWT === 1) {
-        console.warn('[Login] profiles sin empresa_id, pero JWT confirma Superadmin (empresa_id=1). Acceso permitido.')
+      // Bypass: si el JWT (app_metadata) confirma un empresa_id válido, permitir acceso
+      // aunque profiles aún no tenga la columna rellena (p.ej. primer login de un Tenant
+      // recién creado cuyo trigger de BD no ha ejecutado todavía).
+      // Aplica a CUALQUIER empresa_id > 0, no solo al Superadmin (id=1).
+      if (empresaIdJWT > 0) {
+        console.warn('[Login] profiles sin empresa_id, pero JWT confirma empresa_id válido:', empresaIdJWT, '— Acceso permitido.')
       } else {
         setCargando(false)
         await supabase.auth.signOut()
@@ -119,9 +121,9 @@ const LoginPortal = ({ onSesion }) => {
 
     setCargando(false)
 
-    // perfil puede ser null en el bypass de Superadmin (empresa_id=1 desde JWT).
-    // Se usa optional chaining para evitar TypeError. Si empresa_id=1, el nivel
-    // por defecto es 'ADMIN' (Superadmin de Tabora), no 'STAFF'.
+    // perfil puede ser null en el bypass por JWT (primer login de cualquier tenant).
+    // Si empresa_id=1 (Superadmin de Tabora) el nivel por defecto es ADMIN; para el
+    // resto de tenants el nivel por defecto es STAFF hasta que profiles lo complete.
     const nivelAccesoDefault = empresaIdSesion === 1 ? 'ADMIN' : 'STAFF'
     const sesion = {
       email:        perfil?.email        || emailNorm,

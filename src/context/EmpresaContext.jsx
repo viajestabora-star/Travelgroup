@@ -2,8 +2,8 @@ import React, { createContext, useContext, useMemo } from 'react'
 import { toSlug } from '../utils/slugify'
 
 const EmpresaContext = createContext({
-  empresaId: 1,
-  empresaSlug: 'mi-agencia',
+  empresaId: null,   // null hasta que el Provider reciba un user con empresa_id válido
+  empresaSlug: '',
   withEmpresaId: (payload) => payload,
 })
 
