@@ -332,10 +332,13 @@ const Cierres = ({ user, onClose }) => {
   const cargarFacturas = async () => {
     setCargandoFacturas(true)
     try {
+      // Query mínima para evitar fallos por columnas opcionales/ausentes en ORDER BY.
       const { data, error } = await supabase
         .from('facturas')
         .select('*')
-        .order('created_at', { ascending: false, nullsFirst: false })
+
+      console.log('DATOS_RECIBIDOS:', data)
+      console.error('ERROR_RECUPERACION:', error)
 
       if (error) {
         setFacturas([])
