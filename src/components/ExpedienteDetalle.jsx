@@ -2956,9 +2956,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return toNum(total_servicio)
   }
 
+  const asegurarSesionAutenticada = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) {
+      alert('Tu sesión ha expirado. Vuelve a iniciar sesión para guardar pagos/facturas de proveedores.')
+      return false
+    }
+    return true
+  }
+
   // Registrar pago a proveedor (insert en pagos_proveedores)
   const registrarPagoProveedor = async () => {
     if (isSubmittingPagoProveedor) return
+    if (!(await asegurarSesionAutenticada())) return
     if (!expediente?.id || !formPago.servicio_id || !formPago.fecha_pago || !formPago.importe_pagado) {
       alert('Completa Servicio, Fecha e Importe.')
       return
@@ -3028,7 +3038,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   const guardarFacturaCot = async (servicio) => {
     if (subiendoPdfCot) return
+    if (!(await asegurarSesionAutenticada())) return
     if (!fInline.fecha_pago || !fInline.importe_pagado) { alert('Completa Fecha e Importe.'); return }
+    const numeroFacturaLimpio = String(fInline.numero_factura || '').trim()
+    if (!numeroFacturaLimpio) { alert('Completa el Nº de factura.'); return }
     const importe = parseFloat(String(fInline.importe_pagado).replace(',', '.'))
     if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
     const firmaFactura = {
@@ -3036,7 +3049,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       servicio_id: String(servicio?.id ?? ''),
       fecha_pago: fInline.fecha_pago,
       importe: Number(importe.toFixed(2)),
-      numero_factura: String(fInline.numero_factura || '').trim(),
+      numero_factura: numeroFacturaLimpio,
       pdf_nombre: pdfInline?.name || null,
     }
     if (esSubmitDuplicadoReciente('guardarFacturaCot', firmaFactura)) return
@@ -3058,6 +3071,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const conceptoTitulo = tituloServicioParaConcepto(servicio)
       const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicio)
       const urlPdfFinal = urlPdf != null && urlPdf !== '' ? urlPdf : (existente?.url_pdf ?? null)
+      if (!urlPdfFinal) {
+        alert('Adjunta un PDF de factura antes de registrar.')
+        return
+      }
       const servicioIdPersistencia =
         existente?.servicio_id != null && existente.servicio_id !== ''
           ? existente.servicio_id
@@ -3071,7 +3088,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           servicio_id: servicioIdPersistencia,
           fecha_pago: fInline.fecha_pago,
           importe_pagado: importe,
-          numero_factura: fInline.numero_factura || existente.numero_factura || null,
+          numero_factura: numeroFacturaLimpio || existente.numero_factura || null,
           url_pdf: urlPdfFinal,
           concepto: conceptoTitulo,
         })
@@ -3094,7 +3111,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               servicio_id: servicioIdPersistencia,
               fecha_pago: fInline.fecha_pago,
               importe_pagado: importe,
-              numero_factura: fInline.numero_factura || null,
+              numero_factura: numeroFacturaLimpio || null,
               url_pdf: urlPdfFinal,
               concepto: conceptoTitulo,
             }),
@@ -3157,6 +3174,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   const guardarGastoExtra = async () => {
     if (subiendoPdfCot) return
+    if (!(await asegurarSesionAutenticada())) return
     if (!fExtra.concepto || !fExtra.importe_pagado || !fExtra.fecha_pago) { alert('Completa Concepto, Fecha e Importe.'); return }
     const importe = parseFloat(String(fExtra.importe_pagado).replace(',', '.'))
     if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
@@ -6237,7 +6255,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           } ${tarjetaServicioCotOcultaEnVistaPagosTab(s) ? 'hidden' : ''}`}
                         >
                           {/* Fila principal */}
-                          <div className="flex items-center justify-between px-4 py-3">
+                          <div
+                            className={`flex items-center justify-between px-4 py-3 ${!documentado ? 'cursor-pointer' : ''}`}
+                            onClick={() => {
+                              if (documentado) return
+                              setInlineId(s.id)
+                              setFInline({
+                                numero_factura: pagoRegistrado?.numero_factura || '',
+                                fecha_pago: pagoRegistrado?.fecha_pago || new Date().toISOString().split('T')[0],
+                                importe_pagado: pagoRegistrado?.importe_pagado || s.total_servicio_manual || s.total_servicio || s.coste_unitario || '',
+                              })
+                              setPdfInline(null)
+                            }}
+                          >
                             <div className="min-w-0">
                               {/* Tipo + nombre específico */}
                               <p className="font-semibold text-slate-800 text-sm leading-snug">
@@ -6306,17 +6336,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   </button>
                                 </div>
                               ) : (
-                                /* Sin registro — botón principal */
-                                <button
-                                  onClick={() => {
-                                    setInlineId(s.id)
-                                    setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: s.total_servicio_manual || s.total_servicio || s.coste_unitario || '' })
-                                    setPdfInline(null)
-                                  }}
-                                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
-                                >
-                                  <Paperclip size={14} /> Registrar Factura
-                                </button>
+                                /* Sin registro — apertura del formulario al pulsar la tarjeta */
+                                <span className="text-xs text-blue-700 font-semibold">Completa los datos abajo para registrar</span>
                               )}
                             </div>
                           </div>
@@ -6352,20 +6373,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 </div>
                                 <div>
                                   <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
-                                    <Paperclip size={10} className="inline mr-1" />PDF Factura
+                                    <Paperclip size={10} className="inline mr-1" />PDF Factura *
                                   </label>
-                                  <input type="file" accept=".pdf,.PDF"
-                                    className="w-full text-xs text-gray-600 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700"
-                                    onChange={e => setPdfInline(e.target.files?.[0] || null)}
-                                  />
-                                  {pdfInline && <p className="text-xs text-green-600 mt-0.5">✓ {pdfInline.name}</p>}
+                                  <label className="inline-flex cursor-pointer items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors">
+                                    <Paperclip size={14} />
+                                    Seleccionar archivo
+                                    <input
+                                      type="file"
+                                      accept=".pdf,.PDF"
+                                      className="hidden"
+                                      onChange={e => setPdfInline(e.target.files?.[0] || null)}
+                                    />
+                                  </label>
+                                  {pdfInline && <p className="text-xs text-green-600 mt-1">✓ {pdfInline.name}</p>}
                                 </div>
                               </div>
                               <div className="flex gap-3 mt-3">
                                 <button onClick={() => guardarFacturaCot(s)} disabled={subiendoPdfCot}
                                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm disabled:opacity-50 transition-colors">
                                   <CreditCard size={14} />
-                                  {subiendoPdfCot ? 'Guardando…' : 'REGISTRAR FACTURA'}
+                                  {subiendoPdfCot ? 'GUARDANDO...' : 'REGISTRAR'}
                                 </button>
                                 <button onClick={() => { setInlineId(null); setPdfInline(null) }}
                                   className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-100">
