@@ -35,7 +35,7 @@ import VisualizadorPro from './VisualizadorPro'
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
-const BUCKET_ROOMING_LIST = 'rooming_list'
+const BUCKET_EXPEDIENTES = 'expedientes'
 const SUBMIT_DEDUPE_MS = 2000
 
 const proveedorInformeTexto = (proveedor) => {
@@ -4186,16 +4186,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     try {
       const ext = obtenerExtensionArchivo(file.name) || 'bin'
       const nombreSeguro = String(file.name || `rooming.${ext}`).replace(/\s+/g, '_')
-      const ruta = `${expediente.id}/rooming-${Date.now()}-${nombreSeguro}`
-      const { error: uploadError } = await supabase.storage.from(BUCKET_ROOMING_LIST).upload(ruta, file, { upsert: false })
+      const rutaBase = `${expediente.id}/${nombreSeguro}`
+      let rutaFinal = rutaBase
+      let { error: uploadError } = await supabase.storage.from(BUCKET_EXPEDIENTES).upload(rutaFinal, file, { upsert: false })
+      if (uploadError && String(uploadError.message || '').toLowerCase().includes('already exists')) {
+        const nombreConTimestamp = `rooming_${Date.now()}_${nombreSeguro}`
+        rutaFinal = `${expediente.id}/${nombreConTimestamp}`
+        const retry = await supabase.storage.from(BUCKET_EXPEDIENTES).upload(rutaFinal, file, { upsert: false })
+        uploadError = retry.error
+      }
       if (uploadError) {
         alert(`No se pudo subir el archivo: ${uploadError.message}`)
+        return
+      }
+      const { data: publicData } = supabase.storage.from(BUCKET_EXPEDIENTES).getPublicUrl(rutaFinal)
+      const urlPublica = publicData?.publicUrl || null
+      if (!urlPublica) {
+        alert('No se pudo obtener la URL pública del archivo subido.')
         return
       }
 
       const { error: updateError } = await supabase
         .from('expedientes')
-        .update({ rooming_list_url: ruta })
+        .update({ rooming_list_url: urlPublica })
         .eq('id', expediente.id)
       if (updateError) {
         alert(buildWriteErrorMessage({ table: 'expedientes', error: updateError, action: 'guardar rooming_list_url' }))
@@ -4207,10 +4220,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         nombre: file.name,
         tipo: file.type,
         fecha: new Date().toISOString(),
-        path: ruta,
+        path: urlPublica,
       }
       setDocumentos((prev) => [nuevoDoc, ...(prev || [])])
-      if (onUpdate) onUpdate({ ...expediente, rooming_list_url: ruta })
+      if (onUpdate) onUpdate({ ...expediente, rooming_list_url: urlPublica })
     } finally {
       setSubiendoRooming(false)
       e.target.value = ''
@@ -4234,7 +4247,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const bucket =
       doc?.bucket ||
       doc?.bucket_name ||
-      (valor.includes('/') ? valor.split('/')[0] : 'rooming_list')
+      (valor.includes('/') ? valor.split('/')[0] : BUCKET_EXPEDIENTES)
     const path = doc?.bucket || doc?.bucket_name ? valor : valor.split('/').slice(1).join('/')
     if (!path) return null
 
