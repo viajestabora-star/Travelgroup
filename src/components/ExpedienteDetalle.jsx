@@ -4194,9 +4194,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   try {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-1 sm:p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]">
         <div 
-          className="bg-white rounded-2xl shadow-2xl max-w-7xl w-full h-[90vh] sm:h-[90vh] flex flex-col"
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-none h-[94vh] sm:h-[94vh] flex flex-col"
           style={{ backgroundColor: 'white', color: 'black' }}
         >
           
@@ -4302,7 +4302,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             
             {/* TAB: Ficha del Grupo */}
             {tab === 'grupo' && (
-              <div className="max-w-4xl mx-auto space-y-6">
+              <div className="w-full space-y-6">
                 {/* Contenedor principal */}
                 <div 
                   style={{ 
@@ -5099,7 +5099,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
             {/* TAB: Cotización */}
           {tab === 'cotizacion' && formData && (
-              <div className="max-w-6xl mx-auto space-y-6 relative">
+              <div className="w-full space-y-6 relative">
                 {/* Botón Guardar Cotización + feedback éxito */}
                 {hasCotizacionSinGuardar && (
                   <div className="sticky top-0 z-10 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 bg-amber-50/95 backdrop-blur border-b border-amber-200 flex items-center justify-between gap-4">
@@ -6048,7 +6048,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
             {/* TAB: Rooming List */}
           {tab === 'pasajeros' && (
-              <div className="max-w-4xl mx-auto space-y-6">
+              <div className="w-full space-y-6">
                 <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
                   <h3 className="text-xl font-bold text-navy-900 mb-4">Desglose de Habitaciones</h3>
                   
@@ -6203,7 +6203,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
           {/* TAB: Pagos a Proveedores */}
           {tab === 'pagosProveedores' && (
-            <div className="max-w-4xl mx-auto space-y-6">
+            <div className="w-full space-y-6">
 
               {/* ── Sección inteligente: registrar factura por servicio ──────── */}
               <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
@@ -6593,14 +6593,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
           {/* TAB: Facturación */}
           {tab === 'facturacion' && (
-              <div className="max-w-6xl mx-auto space-y-6">
+              <div className="w-full space-y-6">
                 <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
                   <h3 className="text-2xl font-bold text-navy-900 mb-6">Emisión de Factura</h3>
 
-                  {/* Datos del Receptor (Editable) */}
-                  <div className="mb-8">
-                    <h4 className="text-lg font-semibold text-navy-900 mb-4">Datos del Receptor</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+                    {/* Datos del Receptor (Editable) */}
+                    <div className="xl:col-span-8">
+                      <h4 className="text-lg font-semibold text-navy-900 mb-4">Datos del Receptor</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="md:col-span-2">
                         <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
                           Nombre o Razón Social *
@@ -6776,76 +6777,75 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         />
                       </div>
                     </div>
-                  </div>
+                    </div>
 
-                  {/* Resumen de Cálculo */}
-                  <div className="mb-8 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl shadow-md p-6 border border-blue-200">
-                    <h4 className="text-lg font-semibold text-navy-900 mb-4">Desglose de la Factura</h4>
-                    <div className="space-y-3">
-                      <div className="flex justify-between py-2 border-b border-blue-200">
-                        <span className="text-gray-700">Precio Venta al Cliente (€/pax):</span>
-                        <span className="font-semibold text-navy-900">{calcularBaseFactura.precioVentaPax}€</span>
-                      </div>
-                      <div className="flex justify-between py-2 border-b border-blue-200">
-                        <span className="text-gray-700">Precio Final (€/pax):</span>
-                        <span className="font-semibold text-navy-900">{calcularBaseFactura.precioNetoPax}€</span>
-                      </div>
-                      <div className="py-2 border-b border-blue-200">
-                        <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Detalle (Unid. × P. Unit = Total)</div>
-                        <div className="space-y-1.5 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-700">
-                              Viaje · {calcularBaseFactura.paxPago} × {calcularBaseFactura.precioNetoPax}€
-                            </span>
-                            <span className="font-semibold text-navy-900">{calcularBaseFactura.totalServiciosConIVA}€</span>
+                    <aside className="xl:col-span-4 xl:sticky xl:top-4">
+                      <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl shadow-md p-6 border border-blue-200">
+                        <h4 className="text-lg font-semibold text-navy-900 mb-4">Desglose de la Factura</h4>
+                        <div className="space-y-3">
+                          <div className="flex justify-between py-2 border-b border-blue-200">
+                            <span className="text-gray-700">Precio Venta al Cliente (€/pax):</span>
+                            <span className="font-semibold text-navy-900">{calcularBaseFactura.precioVentaPax}€</span>
                           </div>
-                          {parseFloat(suplementos.totalSupHabitacion) > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-gray-700">
-                                Habitación individual · {formDataParaVariante?.sup_individual_pax || 0} × {(parseFloat(suplementos.totalSupHabitacion) / Math.max(1, parseFloat(formDataParaVariante?.sup_individual_pax || 0))).toFixed(2)}€
-                              </span>
-                              <span className="font-semibold text-navy-900">{suplementos.totalSupHabitacion}€</span>
+                          <div className="flex justify-between py-2 border-b border-blue-200">
+                            <span className="text-gray-700">Precio Final (€/pax):</span>
+                            <span className="font-semibold text-navy-900">{calcularBaseFactura.precioNetoPax}€</span>
+                          </div>
+                          <div className="py-2 border-b border-blue-200">
+                            <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Detalle (Unid. × P. Unit = Total)</div>
+                            <div className="space-y-1.5 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-gray-700">
+                                  Viaje · {calcularBaseFactura.paxPago} × {calcularBaseFactura.precioNetoPax}€
+                                </span>
+                                <span className="font-semibold text-navy-900">{calcularBaseFactura.totalServiciosConIVA}€</span>
+                              </div>
+                              {parseFloat(suplementos.totalSupHabitacion) > 0 && (
+                                <div className="flex justify-between">
+                                  <span className="text-gray-700">
+                                    Habitación individual · {formDataParaVariante?.sup_individual_pax || 0} × {(parseFloat(suplementos.totalSupHabitacion) / Math.max(1, parseFloat(formDataParaVariante?.sup_individual_pax || 0))).toFixed(2)}€
+                                  </span>
+                                  <span className="font-semibold text-navy-900">{suplementos.totalSupHabitacion}€</span>
+                                </div>
+                              )}
+                              {parseFloat(suplementos.totalSupSeguro) > 0 && (
+                                <div className="flex justify-between">
+                                  <span className="text-gray-700">
+                                    Seguro cancelación · {formDataParaVariante?.sup_seguro_pax || 0} × {formDataParaVariante?.sup_seguro_precio_total || 0}€
+                                  </span>
+                                  <span className="font-semibold text-navy-900">{suplementos.totalSupSeguro}€</span>
+                                </div>
+                              )}
                             </div>
-                          )}
-                          {parseFloat(suplementos.totalSupSeguro) > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-gray-700">
-                                Seguro cancelación · {formDataParaVariante?.sup_seguro_pax || 0} × {formDataParaVariante?.sup_seguro_precio_total || 0}€
-                              </span>
-                              <span className="font-semibold text-navy-900">{suplementos.totalSupSeguro}€</span>
-                            </div>
-                          )}
+                          </div>
+                          <div className="flex justify-between py-3 bg-green-100 rounded-lg px-4 mt-3 border-2 border-green-400">
+                            <span className="text-lg font-bold text-green-900">TOTAL FACTURA (IVA INCLUIDO):</span>
+                            <span className="text-2xl font-bold text-green-900">{calcularBaseFactura.totalFactura}€</span>
+                          </div>
+                          <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                            <p className="text-[10px] text-slate-600 leading-relaxed">
+                              Régimen especial de las agencias de viaje. El IVA ya está incluido en todos los conceptos especificados en esta factura, de acuerdo con lo señalado en el art 142 de la Ley 37/1992, de 28 de diciembre, del Impuesto sobre el Valor Añadido.
+                            </p>
+                          </div>
+                          <div className="mt-3 pt-3 border-t border-slate-200 text-[10px] text-slate-600">
+                            <p className="font-semibold text-slate-700">{datosEmisor.nombre}</p>
+                            <p>CIF: {datosEmisor.cif} · Licencia: {datosEmisor.licencia}</p>
+                            <p>{datosEmisor.direccion}</p>
+                            <p>{datosEmisor.telefono ? `Tel: ${datosEmisor.telefono} · ` : ''}{datosEmisor.email}</p>
+                            <p className="mt-1">Ingresos: {datosEmisor.banco1} · {datosEmisor.banco2}</p>
+                          </div>
+
+                          <button
+                            onClick={emitirFactura}
+                            disabled={isSubmittingFactura}
+                            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed text-white py-4 px-8 rounded-lg font-bold text-lg transition-colors shadow-lg flex items-center justify-center gap-2"
+                          >
+                            <FileText size={24} />
+                            {isSubmittingFactura ? 'Emitiendo…' : 'Emitir Factura'}
+                          </button>
                         </div>
                       </div>
-                      <div className="flex justify-between py-3 bg-green-100 rounded-lg px-4 mt-3 border-2 border-green-400">
-                        <span className="text-lg font-bold text-green-900">TOTAL FACTURA (IVA INCLUIDO):</span>
-                        <span className="text-2xl font-bold text-green-900">{calcularBaseFactura.totalFactura}€</span>
-                      </div>
-                      <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                        <p className="text-[10px] text-slate-600 leading-relaxed">
-                          Régimen especial de las agencias de viaje. El IVA ya está incluido en todos los conceptos especificados en esta factura, de acuerdo con lo señalado en el art 142 de la Ley 37/1992, de 28 de diciembre, del Impuesto sobre el Valor Añadido.
-                        </p>
-                      </div>
-                      <div className="mt-3 pt-3 border-t border-slate-200 text-[10px] text-slate-600">
-                        <p className="font-semibold text-slate-700">{datosEmisor.nombre}</p>
-                        <p>CIF: {datosEmisor.cif} · Licencia: {datosEmisor.licencia}</p>
-                        <p>{datosEmisor.direccion}</p>
-                        <p>{datosEmisor.telefono ? `Tel: ${datosEmisor.telefono} · ` : ''}{datosEmisor.email}</p>
-                        <p className="mt-1">Ingresos: {datosEmisor.banco1} · {datosEmisor.banco2}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Botón de Emisión */}
-                  <div className="flex justify-between items-center">
-                    <button
-                      onClick={emitirFactura}
-                      disabled={isSubmittingFactura}
-                      className="bg-green-600 hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed text-white py-4 px-8 rounded-lg font-bold text-lg transition-colors shadow-lg flex items-center gap-2"
-                    >
-                      <FileText size={24} />
-                      {isSubmittingFactura ? 'Emitiendo…' : 'Emitir Factura'}
-                    </button>
+                    </aside>
                   </div>
 
                   {/* Historial de Versiones */}
@@ -6934,7 +6934,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
           {/* TAB: Documentación */}
           {tab === 'documentacion' && (
-            <div className="max-w-4xl mx-auto">
+            <div className="w-full">
               <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200 space-y-6">
                 <h3 className="text-xl font-bold text-navy-900">Documentación del Viaje</h3>
                 <p className="text-gray-600 text-sm">
