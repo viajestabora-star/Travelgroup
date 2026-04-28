@@ -758,6 +758,33 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const validado = normalizarServicioIdFk(c)
       if (validado != null && String(validado).trim() !== '') return validado
     }
+
+    // Fallback robusto para filas unificadas: resolver por huella del servicio de cotización.
+    const tipoObjetivo = normalizarTipo(filaServicio?.tipo_servicio || filaServicio?.tipo || '')
+    const nombreObjetivo = String(
+      filaServicio?.nombre_especifico
+      || filaServicio?.nombreEspecifico
+      || filaServicio?.nombre_servicio
+      || ''
+    ).trim().toLowerCase()
+    const proveedorObjetivo = Number(filaServicio?.proveedor_id_int ?? filaServicio?.proveedorId ?? 0) || null
+
+    const match = (serviciosCotDb || []).find((s) => {
+      const tipo = normalizarTipo(s?.tipo_servicio || s?.tipo || '')
+      const nombre = String(
+        s?.nombre_especifico
+        || s?.nombreEspecifico
+        || s?.nombre_servicio
+        || ''
+      ).trim().toLowerCase()
+      const proveedor = Number(s?.proveedor_id_int ?? s?.proveedorId ?? 0) || null
+      const sameTipo = tipoObjetivo ? tipo === tipoObjetivo : true
+      const sameNombre = nombreObjetivo ? nombre === nombreObjetivo : true
+      const sameProveedor = proveedorObjetivo ? proveedor === proveedorObjetivo : true
+      return sameTipo && sameNombre && sameProveedor
+    })
+    if (match?.id != null && String(match.id).trim() !== '') return match.id
+
     return null
   }
 
@@ -3251,6 +3278,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           url_pdf: urlPdfFinal,
           concepto: conceptoTitulo,
         })
+        console.log('[pagos_proveedores][payload][update]', {
+          expediente_id: expedienteUuid,
+          servicio_id: servicioIdFk,
+          pago_id: existente.id,
+          fila,
+        })
         const res = await supabase
           .from('pagos_proveedores')
           .update(fila)
@@ -3260,21 +3293,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         dbError = res.error
         filaGuardada = res.data
       } else {
+        const payloadInsert = filaPagosProveedores({
+          expediente_id: expedienteUuid,
+          proveedor_id: proveedorId,
+          proveedor_nombre: proveedorNombre,
+          servicio_id: servicioIdFk,
+          fecha_pago: fInline.fecha_pago,
+          importe_pagado: importe,
+          numero_factura: numeroFacturaLimpio || null,
+          url_pdf: urlPdfFinal,
+          concepto: conceptoTitulo,
+        })
+        console.log('[pagos_proveedores][payload][insert]', {
+          expediente_id: expedienteUuid,
+          servicio_id: servicioIdFk,
+          servicio: {
+            id: servicio?.id,
+            tipo_servicio: servicio?.tipo_servicio || servicio?.tipo,
+            nombre_especifico: servicio?.nombre_especifico || servicio?.nombreEspecifico || '',
+          },
+          fila: payloadInsert,
+        })
         const res = await supabase
           .from('pagos_proveedores')
-          .insert([
-            filaPagosProveedores({
-              expediente_id: expedienteUuid,
-              proveedor_id: proveedorId,
-              proveedor_nombre: proveedorNombre,
-              servicio_id: servicioIdFk,
-              fecha_pago: fInline.fecha_pago,
-              importe_pagado: importe,
-              numero_factura: numeroFacturaLimpio || null,
-              url_pdf: urlPdfFinal,
-              concepto: conceptoTitulo,
-            }),
-          ])
+          .insert([payloadInsert])
           .select(PAGOS_PROVEEDORES_COLUMNAS)
           .single()
         dbError = res.error
