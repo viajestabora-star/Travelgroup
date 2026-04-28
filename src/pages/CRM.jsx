@@ -59,6 +59,7 @@ const CRM = ({ user = null }) => {
   const [agendaProspectoId, setAgendaProspectoId] = useState('')
   const [agendaComentario, setAgendaComentario] = useState('')
   const [agendaNombreContacto, setAgendaNombreContacto] = useState('')
+  const [isSubmittingAgendaVisita, setIsSubmittingAgendaVisita] = useState(false)
   
   // Estados para nueva visita en panel
   const [nuevaVisita, setNuevaVisita] = useState({
@@ -66,6 +67,7 @@ const CRM = ({ user = null }) => {
     comentario: '',
     nombre_contacto_externo: ''
   })
+  const [isSubmittingVisitaPanel, setIsSubmittingVisitaPanel] = useState(false)
   
   // Visitas del prospecto seleccionado
   const [visitasProspecto, setVisitasProspecto] = useState([])
@@ -101,8 +103,8 @@ const CRM = ({ user = null }) => {
   })
 
   // Función local de refresco: invoca la función maestra y sincroniza el panel del prospecto seleccionado
-  const refrescarDatos = async () => {
-    setLoading(true)
+  const refrescarDatos = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true)
     try {
       const { prospectosData, visitasData } = await fetchCrmData(setProspectos, setVisitas, setClientes)
       if (prospectoSelected?.id) {
@@ -113,7 +115,7 @@ const CRM = ({ user = null }) => {
         }
       }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -430,7 +432,7 @@ const CRM = ({ user = null }) => {
 
     await supabase.from('prospectos').update({ puntuacion_lead: puntuacion }).eq('id', prospectoId)
 
-    await refrescarDatos()
+    await refrescarDatos({ silent: true })
     if (prospectoSelected?.id === prospectoId) {
       const { data } = await supabase.from('prospectos').select('*').eq('id', prospectoId).single()
       if (data) setProspectoSelected({ ...data, programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : [] })
@@ -455,6 +457,7 @@ const CRM = ({ user = null }) => {
 
   // Registrar nueva visita desde panel
   const registrarVisita = async () => {
+    if (isSubmittingVisitaPanel) return
     const prospectoId = prospectoSelected?.id || null
     const nombreContacto = String(nuevaVisita.nombre_contacto_externo || '').trim()
     if (!prospectoId && !nombreContacto) {
@@ -462,33 +465,38 @@ const CRM = ({ user = null }) => {
       return
     }
 
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session?.user) {
-      const actor = await resolverActorCrm({ authUser: session.user }).catch(() => actorCrm)
-      if (actor?.actorId) setActorCrm(actor)
-    }
+    setIsSubmittingVisitaPanel(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        const actor = await resolverActorCrm({ authUser: session.user }).catch(() => actorCrm)
+        if (actor?.actorId) setActorCrm(actor)
+      }
 
-    const payloadVisita = {
-      fecha: nuevaVisita.fecha,
-      prospecto_id: prospectoId,
-      comentario: nuevaVisita.comentario,
-      nombre_contacto_externo: nombreContacto || null,
-      empresa_id: empresaId,
-    }
-    const { data: visitaNueva, error } = await supabase
-      .from('visitas')
-      .insert(payloadVisita)
-      .select('*')
-      .single()
+      const payloadVisita = {
+        fecha: nuevaVisita.fecha,
+        prospecto_id: prospectoId,
+        comentario: nuevaVisita.comentario,
+        nombre_contacto_externo: nombreContacto || null,
+        empresa_id: empresaId,
+      }
+      const { data: visitaNueva, error } = await supabase
+        .from('visitas')
+        .insert(payloadVisita)
+        .select('*')
+        .single()
 
-    if (error) {
-      alert(getMensajeErrorBd(error, 'registrar la visita'))
-    } else {
-      if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
-      setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '', nombre_contacto_externo: '' })
-      alert('Visita registrada con éxito')
-      if (prospectoId) await recalcularPuntuacionLead(prospectoId)
-      await refrescarDatos()
+      if (error) {
+        alert(getMensajeErrorBd(error, 'registrar la visita'))
+      } else {
+        if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
+        setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '', nombre_contacto_externo: '' })
+        alert('Visita registrada con éxito')
+        if (prospectoId) recalcularPuntuacionLead(prospectoId)
+        refrescarDatos({ silent: true })
+      }
+    } finally {
+      setIsSubmittingVisitaPanel(false)
     }
   }
 
@@ -596,90 +604,102 @@ const CRM = ({ user = null }) => {
   }
 
   const guardarVisitaDesdeCalendario = async () => {
+    if (isSubmittingAgendaVisita) return
     const nombreContacto = String(agendaNombreContacto || '').trim()
     if (!agendaProspectoId && !nombreContacto) {
       alert('Selecciona un prospecto/cliente o escribe el nombre del contacto.')
       return
     }
 
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session?.user) {
-      const actor = await resolverActorCrm({ authUser: session.user }).catch(() => actorCrm)
-      if (actor?.actorId) setActorCrm(actor)
-    }
-
-    let prospectoIdFinal = null
-
-    if (agendaProspectoId.startsWith('cliente-')) {
-      // IDs son UUID — usar string comparison, nunca Number()
-      const clienteId = agendaProspectoId.replace('cliente-', '')
-      const cliente = clientes.find(c => String(c.id) === clienteId)
-      if (!cliente) {
-        alert('Cliente no encontrado')
-        return
+    setIsSubmittingAgendaVisita(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        const actor = await resolverActorCrm({ authUser: session.user }).catch(() => actorCrm)
+        if (actor?.actorId) setActorCrm(actor)
       }
-      const nombreNorm = String(cliente.nombre || '').trim()
-      const existente = prospectos.find(
-        p => String(p.grupo || '').trim().toLowerCase() === nombreNorm.toLowerCase()
-      )
-      if (existente) {
-        prospectoIdFinal = existente.id
-      } else {
-        const { data: nuevoPros, error: errPros } = await supabase
-          .from('prospectos')
-          .insert({
-            grupo: nombreNorm,
-            telefono: cliente.movil || cliente.telefono || '',
-            poblacion: cliente.poblacion || '',
-            provincia: cliente.provincia || '',
-            estado_comercial: 'CLIENTE'
-          })
-          .select()
-          .single()
-        if (errPros || !nuevoPros) {
-          alert(getMensajeErrorBd(errPros, 'crear el prospecto desde cliente'))
+
+      let prospectoIdFinal = null
+
+      if (agendaProspectoId.startsWith('cliente-')) {
+        // IDs son UUID — usar string comparison, nunca Number()
+        const clienteId = agendaProspectoId.replace('cliente-', '')
+        const cliente = clientes.find(c => String(c.id) === clienteId)
+        if (!cliente) {
+          alert('Cliente no encontrado')
           return
         }
-        prospectoIdFinal = nuevoPros.id
-        await refrescarDatos()
+        const nombreNorm = String(cliente.nombre || '').trim()
+        const existente = prospectos.find(
+          p => String(p.grupo || '').trim().toLowerCase() === nombreNorm.toLowerCase()
+        )
+        if (existente) {
+          prospectoIdFinal = existente.id
+        } else {
+          const { data: nuevoPros, error: errPros } = await supabase
+            .from('prospectos')
+            .insert({
+              grupo: nombreNorm,
+              telefono: cliente.movil || cliente.telefono || '',
+              poblacion: cliente.poblacion || '',
+              provincia: cliente.provincia || '',
+              estado_comercial: 'CLIENTE'
+            })
+            .select()
+            .single()
+          if (errPros || !nuevoPros) {
+            alert(getMensajeErrorBd(errPros, 'crear el prospecto desde cliente'))
+            return
+          }
+          prospectoIdFinal = nuevoPros.id
+          refrescarDatos({ silent: true })
+        }
+      } else if (agendaProspectoId.startsWith('prospecto-')) {
+        // UUID — no convertir a Number
+        prospectoIdFinal = agendaProspectoId.replace('prospecto-', '')
+      } else {
+        prospectoIdFinal = agendaProspectoId
       }
-    } else if (agendaProspectoId.startsWith('prospecto-')) {
-      // UUID — no convertir a Number
-      prospectoIdFinal = agendaProspectoId.replace('prospecto-', '')
-    } else {
-      prospectoIdFinal = agendaProspectoId
-    }
 
-    const payloadVisita = {
-      fecha: fechaSeleccionada,
-      prospecto_id: prospectoIdFinal || null,
-      comentario: agendaComentario,
-      nombre_contacto_externo: nombreContacto || null,
-      empresa_id: empresaId,
-    }
-    const { data: visitaNueva, error } = await supabase
-      .from('visitas')
-      .insert(payloadVisita)
-      .select('*')
-      .single()
-
-    if (error) {
-      alert(getMensajeErrorBd(error, 'agendar la visita'))
-    } else {
-      if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
-      if (prospectoIdFinal) {
-        await supabase
-          .from('prospectos')
-          .update({ proxima_visita: fechaSeleccionada })
-          .eq('id', prospectoIdFinal)
-        await recalcularPuntuacionLead(prospectoIdFinal)
+      const payloadVisita = {
+        fecha: fechaSeleccionada,
+        // Regla explícita: visitas se relaciona por prospecto_id (nunca cliente_id).
+        prospecto_id: prospectoIdFinal || null,
+        comentario: agendaComentario,
+        nombre_contacto_externo: nombreContacto || null,
+        empresa_id: empresaId,
       }
-      await refrescarDatos()
+      const insertVisitaPromise = supabase
+        .from('visitas')
+        .insert(payloadVisita)
+        .select('*')
+        .single()
+
+      // Cierre optimista: cerrar modal inmediatamente después de disparar el insert.
       setShowAgendaModal(false)
       setAgendaProspectoId('')
       setAgendaComentario('')
       setAgendaNombreContacto('')
-      alert('Visita agendada con éxito')
+
+      const { data: visitaNueva, error } = await insertVisitaPromise
+
+      if (error) {
+        alert(getMensajeErrorBd(error, 'agendar la visita'))
+      } else {
+        if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
+        if (prospectoIdFinal) {
+          supabase
+            .from('prospectos')
+            .update({ proxima_visita: fechaSeleccionada })
+            .eq('id', prospectoIdFinal)
+          recalcularPuntuacionLead(prospectoIdFinal)
+        }
+        // Refresco masivo en segundo plano para no bloquear la interfaz.
+        refrescarDatos({ silent: true })
+        alert('Visita agendada con éxito')
+      }
+    } finally {
+      setIsSubmittingAgendaVisita(false)
     }
   }
 
@@ -1399,9 +1419,10 @@ const CRM = ({ user = null }) => {
                   <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">Registrar Nueva Visita</h3>
                     <button
                     onClick={registrarVisita}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#0f172a] text-white"
+                    disabled={isSubmittingVisitaPanel}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#0f172a] text-white disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    + Registrar
+                    {isSubmittingVisitaPanel ? 'Guardando...' : '+ Registrar'}
                     </button>
                 </div>
                 <div>
@@ -1619,9 +1640,10 @@ const CRM = ({ user = null }) => {
               </button>
               <button
                 onClick={guardarVisitaDesdeCalendario}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-[#0f172a] text-white"
+                disabled={isSubmittingAgendaVisita}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[#0f172a] text-white disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Guardar Visita
+                {isSubmittingAgendaVisita ? 'Guardando...' : 'Guardar Visita'}
               </button>
             </div>
           </div>
