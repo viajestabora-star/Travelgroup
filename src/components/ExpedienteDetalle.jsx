@@ -173,17 +173,28 @@ const filaPagosProveedores = ({
   numero_factura,
   url_pdf,
   concepto,
-}) => ({
-  expediente_id,
-  proveedor_id: proveedor_id ?? null,
-  proveedor_nombre: proveedor_nombre ?? null,
-  servicio_id: servicio_id ?? null,
-  fecha_pago,
-  importe_pagado,
-  numero_factura: numero_factura ?? null,
-  url_pdf: url_pdf ?? null,
-  concepto,
-})
+}) => {
+  const normalizarServicioIdOpcional = (raw) => {
+    if (raw == null) return null
+    const v = String(raw).trim()
+    if (!v || v === '0' || v.toLowerCase() === 'null' || v.toLowerCase() === 'undefined') return null
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    return uuidRegex.test(v) ? v : null
+  }
+
+  return {
+    expediente_id,
+    proveedor_id: proveedor_id ?? null,
+    proveedor_nombre: proveedor_nombre ?? null,
+    // FK opcional: si no es UUID válido, enviar null para no romper la inserción.
+    servicio_id: normalizarServicioIdOpcional(servicio_id),
+    fecha_pago,
+    importe_pagado,
+    numero_factura: numero_factura ?? null,
+    url_pdf: url_pdf ?? null,
+    concepto,
+  }
+}
 
 /**
  * Vista «Pagos a Proveedores»: ocultar en pantalla (no borrar datos) líneas con importe 0 € y sin proveedor.
