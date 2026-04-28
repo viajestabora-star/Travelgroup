@@ -2780,6 +2780,25 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   })
   const [subiendoRooming, setSubiendoRooming] = useState(false)
 
+  const refrescarRoomingListUrlDesdeBd = async () => {
+    if (!expediente?.id) return null
+    const { data, error } = await supabase
+      .from('expedientes')
+      .select('id, rooming_list_url')
+      .eq('id', expediente.id)
+      .single()
+    if (error) return null
+    const roomingUrl = String(data?.rooming_list_url || '').trim() || null
+    if (onUpdate) onUpdate({ ...expediente, rooming_list_url: roomingUrl })
+    return roomingUrl
+  }
+
+  // Carga fresca obligatoria del rooming_list_url al entrar/cambiar expediente.
+  // Evita depender de caché de la lista general.
+  useEffect(() => {
+    refrescarRoomingListUrlDesdeBd().catch(() => {})
+  }, [expediente?.id])
+
   // Sincroniza el estado local de documentos cada vez que llegue rooming_list_url desde BD.
   // Esto garantiza persistencia visual tras recargar/abrir expediente.
   useEffect(() => {
@@ -4240,21 +4259,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         return
       }
 
+      const roomingPersistido = await refrescarRoomingListUrlDesdeBd()
+      if (!roomingPersistido) {
+        const marker = `/object/public/${BUCKET_EXPEDIENTES}/`
+        const idx = urlPublica.indexOf(marker)
+        if (idx >= 0) {
+          const pathToRemove = urlPublica.slice(idx + marker.length).split('?')[0]
+          if (pathToRemove) {
+            await supabase.storage.from(BUCKET_EXPEDIENTES).remove([pathToRemove]).catch(() => {})
+          }
+        }
+        alert('❌ Subida incompleta: el archivo se subió al bucket, pero no se pudo persistir rooming_list_url en expedientes. Operación cancelada.')
+        return
+      }
+
       const nuevoDoc = {
         id: Date.now(),
         nombre: file.name,
         tipo: file.type,
         fecha: new Date().toISOString(),
-        path: urlPublica,
+        path: roomingPersistido,
       }
       setDocumentos((prev) => [nuevoDoc, ...(prev || [])])
-      const { data: expedienteActualizadoBd } = await supabase
-        .from('expedientes')
-        .select('id, rooming_list_url')
-        .eq('id', expediente.id)
-        .single()
-      const roomingPersistido = expedienteActualizadoBd?.rooming_list_url || urlPublica
       if (onUpdate) onUpdate({ ...expediente, rooming_list_url: roomingPersistido })
+      if (typeof onRefresh === 'function') onRefresh()
     } finally {
       setSubiendoRooming(false)
       e.target.value = ''
