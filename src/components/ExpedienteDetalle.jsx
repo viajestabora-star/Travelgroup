@@ -97,6 +97,8 @@ const pagoProveedorCoincideFilaServiciosCot = (pago, filaServicio) => {
   return ids.some((id) => pagoProveedorCoincideServicioCot(pago, id))
 }
 
+const esUuidV4Valido = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim())
+
 const normalizarUuidExpediente = (raw) => {
   const value = String(raw ?? '').trim()
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -746,8 +748,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (!id) return null
     const filaValida = (serviciosCotDb || []).find((s) => String(s?.id ?? '').trim() === id)
     if (!filaValida) return null
-    // Respetar el tipo real del ID en servicios_cotizacion (bigint/number/uuid-string).
-    return filaValida.id
+    if (!esUuidV4Valido(filaValida.id)) return null
+    return String(filaValida.id).trim()
   }
 
   const resolverServicioIdDesdeFila = (filaServicio, servicioIdPreferido = null) => {
@@ -2129,10 +2131,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 .filter(Boolean)
         }
 
-        const serviciosFiltrados = serviciosFuente.filter(s => {
-          const t = (s.tipo_servicio || '').toLowerCase().trim()
-          return t !== 'guía' && t !== 'guia'
-        })
+        const serviciosFiltrados = serviciosFuente
 
         const idsNumericos = [...new Set(
           serviciosFiltrados
@@ -3261,8 +3260,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           ? existente.servicio_id
           : servicio.id
       const servicioIdFk = resolverServicioIdDesdeFila(servicio, servicioIdPersistencia)
-      if (servicioIdFk == null || String(servicioIdFk).trim() === '') {
-        alert('No se pudo vincular la factura al servicio seleccionado. Selecciona un servicio válido de cotización.')
+      const servicioIdDirecto = String(servicioIdPersistencia || '').trim()
+      const servicioIdFila = idsServicioFilaPagos(servicio).map((id) => String(id || '').trim()).find((id) => esUuidV4Valido(id))
+      const servicioIdPayload = servicioIdFk || (esUuidV4Valido(servicioIdDirecto) ? servicioIdDirecto : null) || servicioIdFila || null
+      if (!servicioIdPayload) {
+        alert('Selecciona un servicio válido de la cotización para registrar la factura.')
         return
       }
 
@@ -3271,7 +3273,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           expediente_id: expedienteUuid,
           proveedor_id: proveedorId,
           proveedor_nombre: proveedorNombre,
-          servicio_id: servicioIdFk,
+          servicio_id: servicioIdPayload,
           fecha_pago: fInline.fecha_pago,
           importe_pagado: importe,
           numero_factura: numeroFacturaLimpio || existente.numero_factura || null,
@@ -3280,7 +3282,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         })
         console.log('[pagos_proveedores][payload][update]', {
           expediente_id: expedienteUuid,
-          servicio_id: servicioIdFk,
+          servicio_id: servicioIdPayload,
           pago_id: existente.id,
           fila,
         })
@@ -3297,7 +3299,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           expediente_id: expedienteUuid,
           proveedor_id: proveedorId,
           proveedor_nombre: proveedorNombre,
-          servicio_id: servicioIdFk,
+          servicio_id: servicioIdPayload,
           fecha_pago: fInline.fecha_pago,
           importe_pagado: importe,
           numero_factura: numeroFacturaLimpio || null,
@@ -3306,7 +3308,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         })
         console.log('[pagos_proveedores][payload][insert]', {
           expediente_id: expedienteUuid,
-          servicio_id: servicioIdFk,
+          servicio_id: servicioIdPayload,
           servicio: {
             id: servicio?.id,
             tipo_servicio: servicio?.tipo_servicio || servicio?.tipo,
