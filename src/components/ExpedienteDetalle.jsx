@@ -175,11 +175,15 @@ const filaPagosProveedores = ({
   concepto,
 }) => {
   const normalizarServicioIdOpcional = (raw) => {
-    if (raw == null) return null
-    const v = String(raw).trim()
+    // El selector debe enviar solo el ID. Si llega un objeto por error, intentar extraer .id.
+    const rawId = (raw && typeof raw === 'object') ? raw.id : raw
+    if (rawId == null) return null
+    if (typeof rawId === 'number') return Number.isFinite(rawId) && rawId > 0 ? rawId : null
+    const v = String(rawId).trim()
     if (!v || v === '0' || v.toLowerCase() === 'null' || v.toLowerCase() === 'undefined') return null
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-    return uuidRegex.test(v) ? v : null
+    // No forzamos UUID: servicios_cotizacion.id puede ser bigint o uuid.
+    // Dejamos pasar el ID escalar saneado y validamos existencia real antes del INSERT.
+    return v
   }
 
   return {
@@ -720,10 +724,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const lastSubmitRef = useRef({})
 
   const normalizarServicioIdFk = (rawId) => {
-    const id = String(rawId ?? '').trim()
+    const idBruto = (rawId && typeof rawId === 'object') ? rawId.id : rawId
+    const id = String(idBruto ?? '').trim()
     if (!id) return null
-    const idsValidos = new Set((serviciosCotDb || []).map((s) => String(s.id || '').trim()).filter(Boolean))
-    return idsValidos.has(id) ? id : null
+    const filaValida = (serviciosCotDb || []).find((s) => String(s?.id ?? '').trim() === id)
+    if (!filaValida) return null
+    // Respetar el tipo real del ID en servicios_cotizacion (bigint/number/uuid-string).
+    return filaValida.id
   }
 
   const esSubmitDuplicadoReciente = (key, payload) => {
@@ -3120,6 +3127,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           }),
         ])
       if (error) {
+        console.error('[pagos_proveedores][registrarPagoProveedor] Error completo:', error)
         alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error, action: 'registrar el pago' }))
         return
       }
@@ -3237,7 +3245,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         filaGuardada = res.data
       }
 
-      if (dbError) { alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: dbError, action: 'guardar la factura de proveedor' })); return }
+      if (dbError) {
+        console.error('[pagos_proveedores][guardarFacturaCot] Error completo:', dbError)
+        alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: dbError, action: 'guardar la factura de proveedor' }))
+        return
+      }
 
       setMensajeExitoFacturaProveedor('Factura registrada con éxito')
       window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
