@@ -706,6 +706,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Lista inteligente de servicios (solo activa en la pestaña de pagos)
   const [serviciosCot,     setServiciosCot]     = useState([])
+  const [serviciosCotDb,   setServiciosCotDb]   = useState([])
   const [cargandoCot,      setCargandoCot]       = useState(false)
   const [errorCot,         setErrorCot]          = useState(null)
   const [inlineId,         setInlineId]          = useState(null)   // ID del servicio con form abierto
@@ -717,6 +718,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [pdfExtra,         setPdfExtra]          = useState(null)
   const [mensajeExitoFacturaProveedor, setMensajeExitoFacturaProveedor] = useState(null)
   const lastSubmitRef = useRef({})
+
+  const normalizarServicioIdFk = (rawId) => {
+    const id = String(rawId ?? '').trim()
+    if (!id) return null
+    const idsValidos = new Set((serviciosCotDb || []).map((s) => String(s.id || '').trim()).filter(Boolean))
+    return idsValidos.has(id) ? id : null
+  }
 
   const esSubmitDuplicadoReciente = (key, payload) => {
     const ahora = Date.now()
@@ -1992,6 +2000,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     // Expedientes en estado Petición no tienen servicios confirmados aún
     if (esPeticion) {
       setServiciosCot([])
+      setServiciosCotDb([])
       setCargandoCot(false)
       return
     }
@@ -2003,6 +2012,26 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     ;(async () => {
       try {
         let serviciosFuente = []
+        let serviciosBd = []
+
+        // Fuente de verdad para FK servicio_id: servicios_cotizacion.id
+        let refRes = await supabase
+          .from('servicios_cotizacion')
+          .select('*')
+          .eq('id_expediente', expId)
+          .order('orden', { ascending: true })
+          .order('id', { ascending: true })
+        if (refRes.error && (refRes.error.code === 'PGRST204' || String(refRes.error.message || '').includes('orden'))) {
+          refRes = await supabase
+            .from('servicios_cotizacion')
+            .select('*')
+            .eq('id_expediente', expId)
+            .order('id', { ascending: true })
+        }
+        serviciosBd = (refRes.data || [])
+          .map((row) => normalizarServicioFuentePresupuestoParaPagos(row))
+          .filter(Boolean)
+        setServiciosCotDb(serviciosBd)
 
         if (Array.isArray(versiones) && versiones.length > 0 && versionActiva >= 0 && versionActiva < versiones.length) {
           const rawList = versiones[versionActiva]?.servicios || []
@@ -2030,9 +2059,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           console.log('[Pagos] id_expediente:', expId, '| estado:', estadoActual, '→', res.data?.length ?? 0, 'filas', res.error || '')
           if (res.error) throw res.error
 
-          serviciosFuente = (res.data || [])
-            .map((row) => normalizarServicioFuentePresupuestoParaPagos(row))
-            .filter(Boolean)
+          serviciosFuente = serviciosBd.length > 0
+            ? serviciosBd
+            : (res.data || [])
+                .map((row) => normalizarServicioFuentePresupuestoParaPagos(row))
+                .filter(Boolean)
         }
 
         const serviciosFiltrados = serviciosFuente.filter(s => {
@@ -2074,6 +2105,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         setServiciosCot(unificados)
       } catch (err) {
         console.error('[Pagos] Error cargando servicios:', err)
+        setServiciosCotDb([])
         setErrorCot('No se pudieron cargar los servicios de la cotización.')
       } finally {
         setCargandoCot(false)
@@ -3054,16 +3086,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       alert('El importe debe ser un número positivo.')
       return
     }
+    const servicioIdValido = normalizarServicioIdFk(formPago.servicio_id)
+    if (!servicioIdValido) {
+      alert('Selecciona un servicio válido de la tabla servicios_cotizacion antes de guardar.')
+      return
+    }
     const firmaPago = {
       expediente_id: expediente.id,
-      servicio_id: String(formPago.servicio_id),
+      servicio_id: String(servicioIdValido),
       fecha_pago: formPago.fecha_pago,
       importe: Number(importe.toFixed(2)),
     }
     if (esSubmitDuplicadoReciente('registrarPagoProveedor', firmaPago)) return
     setIsSubmittingPagoProveedor(true)
     try {
-      const servicioRow = serviciosCot.find((sc) => String(sc.id) === String(formPago.servicio_id))
+      const servicioRow = serviciosCotDb.find((sc) => String(sc.id) === String(servicioIdValido))
+        || serviciosCot.find((sc) => String(sc.id) === String(servicioIdValido))
       const concepto = servicioRow ? tituloServicioParaConcepto(servicioRow) : 'Servicio'
       const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicioRow)
       const { error } = await supabase
@@ -3073,7 +3111,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             expediente_id: expediente.id,
             proveedor_id: proveedorId,
             proveedor_nombre: proveedorNombre,
-            servicio_id: formPago.servicio_id,
+            servicio_id: servicioIdValido,
             fecha_pago: formPago.fecha_pago,
             importe_pagado: importe,
             numero_factura: null,
@@ -3155,13 +3193,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         existente?.servicio_id != null && existente.servicio_id !== ''
           ? existente.servicio_id
           : servicio.id
+      const servicioIdFk = normalizarServicioIdFk(servicioIdPersistencia)
 
       if (existente?.id) {
         const fila = filaPagosProveedores({
           expediente_id: expediente.id,
           proveedor_id: proveedorId,
           proveedor_nombre: proveedorNombre,
-          servicio_id: servicioIdPersistencia,
+          servicio_id: servicioIdFk,
           fecha_pago: fInline.fecha_pago,
           importe_pagado: importe,
           numero_factura: numeroFacturaLimpio || existente.numero_factura || null,
@@ -3184,7 +3223,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               expediente_id: expediente.id,
               proveedor_id: proveedorId,
               proveedor_nombre: proveedorNombre,
-              servicio_id: servicioIdPersistencia,
+              servicio_id: servicioIdFk,
               fecha_pago: fInline.fecha_pago,
               importe_pagado: importe,
               numero_factura: numeroFacturaLimpio || null,
