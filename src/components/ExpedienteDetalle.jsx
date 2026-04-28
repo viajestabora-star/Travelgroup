@@ -790,6 +790,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return null
   }
 
+  const fetchServiciosCotizacionActuales = async (expedienteUuid) => {
+    let refRes = await supabase
+      .from('servicios_cotizacion')
+      .select('*')
+      .eq('id_expediente', expedienteUuid)
+      .order('orden', { ascending: true })
+      .order('id', { ascending: true })
+
+    if (refRes.error && (refRes.error.code === 'PGRST204' || String(refRes.error.message || '').includes('orden'))) {
+      refRes = await supabase
+        .from('servicios_cotizacion')
+        .select('*')
+        .eq('id_expediente', expedienteUuid)
+        .order('id', { ascending: true })
+    }
+    if (refRes.error) throw refRes.error
+
+    const lista = (refRes.data || [])
+      .map((row) => normalizarServicioFuentePresupuestoParaPagos(row))
+      .filter(Boolean)
+    setServiciosCotDb(lista)
+    return lista
+  }
+
   const esSubmitDuplicadoReciente = (key, payload) => {
     const ahora = Date.now()
     const previo = lastSubmitRef.current[key]
@@ -2076,60 +2100,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
     ;(async () => {
       try {
-        let serviciosFuente = []
-        let serviciosBd = []
-
-        // Fuente de verdad para FK servicio_id: servicios_cotizacion.id
-        let refRes = await supabase
-          .from('servicios_cotizacion')
-          .select('*')
-          .eq('id_expediente', expId)
-          .order('orden', { ascending: true })
-          .order('id', { ascending: true })
-        if (refRes.error && (refRes.error.code === 'PGRST204' || String(refRes.error.message || '').includes('orden'))) {
-          refRes = await supabase
-            .from('servicios_cotizacion')
-            .select('*')
-            .eq('id_expediente', expId)
-            .order('id', { ascending: true })
-        }
-        serviciosBd = (refRes.data || [])
-          .map((row) => normalizarServicioFuentePresupuestoParaPagos(row))
-          .filter(Boolean)
-        setServiciosCotDb(serviciosBd)
-
-        if (Array.isArray(versiones) && versiones.length > 0 && versionActiva >= 0 && versionActiva < versiones.length) {
-          const rawList = versiones[versionActiva]?.servicios || []
-          serviciosFuente = rawList
-            .map((row) => normalizarServicioFuentePresupuestoParaPagos(row))
-            .filter(Boolean)
-        } else {
-          let res = await supabase
-            .from('servicios_cotizacion')
-            .select('*')
-            .eq('id_expediente', expId)
-            .order('orden', { ascending: true })
-            .order('created_at', { ascending: true, nullsFirst: false })
-            .order('id', { ascending: true })
-
-          if (res.error && (res.error.code === 'PGRST204' || String(res.error.message || '').includes('created_at'))) {
-            res = await supabase
-              .from('servicios_cotizacion')
-              .select('*')
-              .eq('id_expediente', expId)
-              .order('orden', { ascending: true })
-              .order('id', { ascending: true })
-          }
-
-          console.log('[Pagos] id_expediente:', expId, '| estado:', estadoActual, '→', res.data?.length ?? 0, 'filas', res.error || '')
-          if (res.error) throw res.error
-
-          serviciosFuente = serviciosBd.length > 0
-            ? serviciosBd
-            : (res.data || [])
-                .map((row) => normalizarServicioFuentePresupuestoParaPagos(row))
-                .filter(Boolean)
-        }
+        // Fuente de verdad SIEMPRE fresca desde BD para evitar IDs obsoletos (23503 FK).
+        const serviciosFuente = await fetchServiciosCotizacionActuales(expId)
+        console.log('[Pagos] id_expediente:', expId, '| estado:', estadoActual, '→', serviciosFuente.length, 'filas')
 
         const serviciosFiltrados = serviciosFuente
 
@@ -3259,6 +3232,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         existente?.servicio_id != null && existente.servicio_id !== ''
           ? existente.servicio_id
           : servicio.id
+      // Refetch obligatorio antes del insert/update para usar IDs actuales y evitar 23503.
+      await fetchServiciosCotizacionActuales(expedienteUuid)
       const servicioIdFk = resolverServicioIdDesdeFila(servicio, servicioIdPersistencia)
       const servicioIdDirecto = String(servicioIdPersistencia || '').trim()
       const servicioIdFila = idsServicioFilaPagos(servicio).map((id) => String(id || '').trim()).find((id) => esUuidV4Valido(id))
