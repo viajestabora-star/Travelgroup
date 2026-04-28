@@ -97,6 +97,12 @@ const pagoProveedorCoincideFilaServiciosCot = (pago, filaServicio) => {
   return ids.some((id) => pagoProveedorCoincideServicioCot(pago, id))
 }
 
+const normalizarUuidExpediente = (raw) => {
+  const value = String(raw ?? '').trim()
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  return uuidRegex.test(value) ? value : null
+}
+
 const esErrorRls = (error) => {
   const msg = String(error?.message || '').toLowerCase()
   const details = String(error?.details || '').toLowerCase()
@@ -1969,7 +1975,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Cargar pagos a proveedores solo cuando se abre la pestaña (evita bucles)
   const cargarPagosProveedores = async () => {
-    if (!expediente?.id) {
+    const expedienteUuid = normalizarUuidExpediente(expediente?.id)
+    if (!expedienteUuid) {
       setPagosProveedores([])
       return
     }
@@ -1978,7 +1985,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const { data, error } = await supabase
         .from('pagos_proveedores')
         .select(PAGOS_PROVEEDORES_COLUMNAS)
-        .eq('expediente_id', expediente.id)
+        .eq('expediente_id', expedienteUuid)
         .order('fecha_pago', { ascending: false })
       if (error) {
         setPagosProveedores([])
@@ -3106,7 +3113,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const registrarPagoProveedor = async () => {
     if (isSubmittingPagoProveedor) return
     if (!(await asegurarSesionAutenticada())) return
-    if (!expediente?.id || !formPago.servicio_id || !formPago.fecha_pago || !formPago.importe_pagado) {
+    const expedienteUuid = normalizarUuidExpediente(expediente?.id)
+    if (!expedienteUuid || !formPago.servicio_id || !formPago.fecha_pago || !formPago.importe_pagado) {
       alert('Completa Servicio, Fecha e Importe.')
       return
     }
@@ -3137,7 +3145,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         .from('pagos_proveedores')
         .insert([
           filaPagosProveedores({
-            expediente_id: expediente.id,
+            expediente_id: expedienteUuid,
             proveedor_id: proveedorId,
             proveedor_nombre: proveedorNombre,
             servicio_id: servicioIdValido,
@@ -3183,13 +3191,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const guardarFacturaCot = async (servicio) => {
     if (subiendoPdfCot) return
     if (!(await asegurarSesionAutenticada())) return
+    const expedienteUuid = normalizarUuidExpediente(expediente?.id)
+    if (!expedienteUuid) { alert('Expediente inválido para guardar la factura.'); return }
     if (!fInline.fecha_pago || !fInline.importe_pagado) { alert('Completa Fecha e Importe.'); return }
     const numeroFacturaLimpio = String(fInline.numero_factura || '').trim()
     if (!numeroFacturaLimpio) { alert('Completa el Nº de factura.'); return }
     const importe = parseFloat(String(fInline.importe_pagado).replace(',', '.'))
     if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
     const firmaFactura = {
-      expediente_id: expediente?.id || null,
+      expediente_id: expedienteUuid,
       servicio_id: String(servicio?.id ?? ''),
       fecha_pago: fInline.fecha_pago,
       importe: Number(importe.toFixed(2)),
@@ -3231,7 +3241,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
       if (existente?.id) {
         const fila = filaPagosProveedores({
-          expediente_id: expediente.id,
+          expediente_id: expedienteUuid,
           proveedor_id: proveedorId,
           proveedor_nombre: proveedorNombre,
           servicio_id: servicioIdFk,
@@ -3254,7 +3264,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           .from('pagos_proveedores')
           .insert([
             filaPagosProveedores({
-              expediente_id: expediente.id,
+              expediente_id: expedienteUuid,
               proveedor_id: proveedorId,
               proveedor_nombre: proveedorNombre,
               servicio_id: servicioIdFk,
@@ -3298,14 +3308,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   const limpiarExtrasErroneosDePrueba = async () => {
     if (!(await asegurarSesionAutenticada())) return
-    if (!expediente?.id) return
+    const expedienteUuid = normalizarUuidExpediente(expediente?.id)
+    if (!expedienteUuid) return
     if (!window.confirm('Se eliminarán del expediente los registros "Extra" de prueba sin servicio vinculado. ¿Continuar?')) return
 
     try {
       const { error: errNull } = await supabase
         .from('pagos_proveedores')
         .delete()
-        .eq('expediente_id', expediente.id)
+        .eq('expediente_id', expedienteUuid)
         .is('servicio_id', null)
       if (errNull) {
         alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: errNull, action: 'limpiar extras de prueba' }))
@@ -3315,7 +3326,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const { error: errVacio } = await supabase
         .from('pagos_proveedores')
         .delete()
-        .eq('expediente_id', expediente.id)
+        .eq('expediente_id', expedienteUuid)
         .eq('servicio_id', '')
       if (errVacio) {
         alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: errVacio, action: 'limpiar extras de prueba' }))

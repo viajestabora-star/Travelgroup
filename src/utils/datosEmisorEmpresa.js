@@ -45,9 +45,10 @@ export const cargarDatosEmisorEmpresa = async (empresaId) => {
   if (!empresaId || Number(empresaId) <= 0) return { ...DATOS_EMISOR, logo_url: null }
 
   try {
+    // Consulta robusta mínima: no bloquear la operativa por columnas SaaS opcionales.
     const { data } = await supabase
       .from('empresas')
-      .select('nombre_comercial, cif, saas_razon_social, saas_nif, saas_direccion, logo_url')
+      .select('id, nombre_comercial, cif, logo_url')
       .eq('id', Number(empresaId))
       .maybeSingle()
 
@@ -56,10 +57,10 @@ export const cargarDatosEmisorEmpresa = async (empresaId) => {
     const logoAccesible = await resolverLogoAccesible(data.logo_url)
 
     return {
-      nombre:    data.saas_razon_social || data.nombre_comercial || DATOS_EMISOR.nombre,
-      cif:       data.saas_nif          || data.cif              || DATOS_EMISOR.cif,
+      nombre:    data.nombre_comercial || DATOS_EMISOR.nombre,
+      cif:       data.cif              || DATOS_EMISOR.cif,
       licencia:  '',
-      direccion: data.saas_direccion    || '',
+      direccion: DATOS_EMISOR.direccion || '',
       email:     DATOS_EMISOR.email || '',
       banco1:    '',
       banco2:    '',
