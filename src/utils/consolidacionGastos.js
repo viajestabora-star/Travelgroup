@@ -110,12 +110,23 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
   if (!expedienteId) return { ok: false, error: 'Expediente sin ID' }
 
   try {
+    const { data: ses } = await supabase.auth.getSession()
+    if (!ses?.session?.access_token) {
+      return { ok: false, error: 'Sesión no válida para consolidar gastos (RLS).' }
+    }
+
     const { error: delError } = await supabase
       .from('gastos_consolidados')
       .delete()
       .eq('expediente_id', expedienteId)
 
-    if (delError) return { ok: false, error: delError?.message || 'Error al limpiar gastos consolidados' }
+    if (delError) {
+      const msg = String(delError?.message || '')
+      if (/row-level security|rls|permission denied/i.test(msg) || String(delError?.code || '') === '42501') {
+        return { ok: false, error: 'RLS bloqueó DELETE en gastos_consolidados. Revisa la política para el usuario autenticado y su empresa_id.' }
+      }
+      return { ok: false, error: delError?.message || 'Error al limpiar gastos consolidados' }
+    }
 
     if (!debeConsolidar) return { ok: true }
 
@@ -148,6 +159,10 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
 
     const { error: insError } = await supabase.from('gastos_consolidados').insert(filas)
     if (insError) {
+      const msg = String(insError?.message || '')
+      if (/row-level security|rls|permission denied/i.test(msg) || String(insError?.code || '') === '42501') {
+        return { ok: false, error: 'RLS bloqueó INSERT en gastos_consolidados. Verifica política INSERT y asignación de empresa_id en BD.' }
+      }
       // En algunos entornos la columna proveedor_id sigue en NOT NULL.
       // Se envía null explícito, y si el esquema lo bloquea se reintenta sin esas filas.
       const filasConProveedor = filas.filter((f) => f.proveedor_id != null)

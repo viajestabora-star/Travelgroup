@@ -13,6 +13,31 @@
 import { supabase } from '../supabase'
 import { DATOS_EMISOR } from '../config/empresa'
 
+const parseStoragePublicUrl = (url) => {
+  const value = String(url || '').trim()
+  if (!value) return null
+  const marker = '/storage/v1/object/public/'
+  const idx = value.indexOf(marker)
+  if (idx < 0) return null
+  const rest = value.slice(idx + marker.length)
+  const [bucket, ...pathParts] = rest.split('?')[0].split('/').filter(Boolean)
+  const path = pathParts.join('/')
+  if (!bucket || !path) return null
+  return { bucket, path }
+}
+
+const resolverLogoAccesible = async (logoUrl) => {
+  const raw = String(logoUrl || '').trim()
+  if (!raw) return null
+  const parsed = parseStoragePublicUrl(raw)
+  if (!parsed) return raw
+  const { data: signedData, error: signedErr } = await supabase.storage
+    .from(parsed.bucket)
+    .createSignedUrl(parsed.path, 60 * 60)
+  if (!signedErr && signedData?.signedUrl) return signedData.signedUrl
+  return raw
+}
+
 /**
  * @param {number|null} empresaId
  * @returns {Promise<Object>}  Objeto compatible con DATOS_EMISOR + logo_url
@@ -40,6 +65,8 @@ export const cargarDatosEmisorEmpresa = async (empresaId) => {
 
     if (!data) return { ...DATOS_EMISOR, logo_url: null }
 
+    const logoAccesible = await resolverLogoAccesible(data.logo_url)
+
     return {
       nombre:    data.saas_razon_social || data.nombre_comercial || DATOS_EMISOR.nombre,
       cif:       data.saas_nif          || data.cif              || DATOS_EMISOR.cif,
@@ -48,7 +75,7 @@ export const cargarDatosEmisorEmpresa = async (empresaId) => {
       email:     data.saas_email_facturacion || data.saas_email || '',
       banco1:    '',
       banco2:    '',
-      logo_url:  data.logo_url          || null,
+      logo_url:  logoAccesible || null,
     }
   } catch (_) {
     return { ...DATOS_EMISOR, logo_url: null }

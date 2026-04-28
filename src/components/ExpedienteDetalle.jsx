@@ -97,6 +97,17 @@ const pagoProveedorCoincideFilaServiciosCot = (pago, filaServicio) => {
   return ids.some((id) => pagoProveedorCoincideServicioCot(pago, id))
 }
 
+const esErrorRls = (error) => {
+  const msg = String(error?.message || '').toLowerCase()
+  const details = String(error?.details || '').toLowerCase()
+  return (
+    String(error?.code || '') === '42501' ||
+    msg.includes('row-level security') ||
+    msg.includes('rls') ||
+    details.includes('row-level security')
+  )
+}
+
 // Función helper para normalizar tipos: minúsculas + sin tildes
 // Ejemplo: 'Autobús' -> 'autobus', 'Restaurante' -> 'restaurante'
 const normalizarTipo = (tipo) => {
@@ -731,6 +742,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (!filaValida) return null
     // Respetar el tipo real del ID en servicios_cotizacion (bigint/number/uuid-string).
     return filaValida.id
+  }
+
+  const resolverServicioIdDesdeFila = (filaServicio, servicioIdPreferido = null) => {
+    const candidatos = []
+    if (servicioIdPreferido != null && servicioIdPreferido !== '') candidatos.push(servicioIdPreferido)
+    idsServicioFilaPagos(filaServicio).forEach((id) => candidatos.push(id))
+    for (const c of candidatos) {
+      const validado = normalizarServicioIdFk(c)
+      if (validado != null && String(validado).trim() !== '') return validado
+    }
+    return null
   }
 
   const esSubmitDuplicadoReciente = (key, payload) => {
@@ -3201,7 +3223,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         existente?.servicio_id != null && existente.servicio_id !== ''
           ? existente.servicio_id
           : servicio.id
-      const servicioIdFk = normalizarServicioIdFk(servicioIdPersistencia)
+      const servicioIdFk = resolverServicioIdDesdeFila(servicio, servicioIdPersistencia)
 
       if (existente?.id) {
         const fila = filaPagosProveedores({
@@ -3247,6 +3269,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
       if (dbError) {
         console.error('[pagos_proveedores][guardarFacturaCot] Error completo:', dbError)
+        if (esErrorRls(dbError)) {
+          alert('RLS bloqueó el guardado en pagos_proveedores. Verifica sesión autenticada y políticas de la tabla.')
+          return
+        }
         alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: dbError, action: 'guardar la factura de proveedor' }))
         return
       }
