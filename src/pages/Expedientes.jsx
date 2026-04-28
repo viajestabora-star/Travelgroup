@@ -17,6 +17,7 @@ import { DURACION_VIAJE_OPTIONS, TIPO_COLECTIVO_OPTIONS } from '../constants/via
 import { sanitizarExpedienteParaDB } from '../utils/constraintValidator'
 import { DestinoExpedienteEditable } from '../components/expedientes/FichaDelGrupo'
 import { useEmpresa } from '../context/EmpresaContext'
+import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -797,6 +798,12 @@ const Expedientes = ({ user = null }) => {
     }
 
     try {
+      const sessionCheck = await ensureAuthenticatedSession(supabase)
+      if (!sessionCheck.ok) {
+        alert(sessionCheck.message)
+        return
+      }
+
       // Inserta en Supabase
       const { data, error } = await supabase.from('clientes').insert([newCliente]).select().single()
       if (error) {
@@ -827,8 +834,7 @@ const Expedientes = ({ user = null }) => {
       setShowClienteModal(false)
       resetClienteForm()
     } catch (err) {
-      const detalle = err?.message || 'No se pudo completar la operación.'
-      alert(`No ha sido posible crear el cliente. Revisa los datos e inténtalo de nuevo. Detalle: ${detalle}`)
+      alert(buildWriteErrorMessage({ table: 'clientes', error: err, action: 'crear el cliente' }))
       // Opcional: setShowClienteModal(false)
     }
   }

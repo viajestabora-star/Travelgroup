@@ -3,13 +3,10 @@ import { supabase } from '../supabase'
 import { desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
 import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone, Users, Navigation } from 'lucide-react'
 import { useEmpresa } from '../context/EmpresaContext'
+import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
 
 const Clientes = ({ user = null }) => {
   const { empresaId } = useEmpresa()
-  const getMensajeErrorBd = (error, accion) => {
-    const detalle = error?.message || 'No se pudo completar la operación.'
-    return `No ha sido posible ${accion}. Revisa los datos e inténtalo de nuevo. Detalle: ${detalle}`
-  }
   const [clientes, setClientes] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -64,6 +61,12 @@ const Clientes = ({ user = null }) => {
       }
     }
 
+    const sessionCheck = await ensureAuthenticatedSession(supabase)
+    if (!sessionCheck.ok) {
+      alert(sessionCheck.message)
+      return
+    }
+
     // INSERT: empresa_id la fija el trigger en BD (fn_set_empresa_id_global); no enviar manualmente.
     // UPDATE: el proxy tenant añade .eq('empresa_id', sesión) — no incluir empresa_id en formData.
     const action = editingId
@@ -75,7 +78,7 @@ const Clientes = ({ user = null }) => {
       closeModal()
       await fetchClientesData()
     } else {
-      alert(getMensajeErrorBd(error, 'guardar el cliente'))
+      alert(buildWriteErrorMessage({ table: 'clientes', error, action: 'guardar el cliente' }))
     }
   }
 

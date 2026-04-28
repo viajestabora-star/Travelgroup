@@ -23,6 +23,8 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_x
 const _rawClient = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
     persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
   },
 })
 

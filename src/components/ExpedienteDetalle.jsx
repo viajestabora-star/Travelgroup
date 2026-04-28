@@ -3,6 +3,7 @@ import { X, Users, Calculator, Bed, DollarSign, FileUp, TrendingUp, Save, Upload
 import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { supabase } from '../supabase'
+import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { detectarCamposPendientes } from '../utils/constraintValidator'
@@ -2957,9 +2958,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   const asegurarSesionAutenticada = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) {
-      alert('Tu sesión ha expirado. Vuelve a iniciar sesión para guardar pagos/facturas de proveedores.')
+    const res = await ensureAuthenticatedSession(supabase)
+    if (!res.ok) {
+      alert(res.message)
       return false
     }
     return true
@@ -3006,7 +3007,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           }),
         ])
       if (error) {
-        alert(`Error al registrar pago: ${error.message}`)
+        alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error, action: 'registrar el pago' }))
         return
       }
       setFormPago({ servicio_id: '', fecha_pago: '', importe_pagado: '' })
@@ -3122,7 +3123,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         filaGuardada = res.data
       }
 
-      if (dbError) { alert('Error al guardar: ' + dbError.message); return }
+      if (dbError) { alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: dbError, action: 'guardar la factura de proveedor' })); return }
 
       setMensajeExitoFacturaProveedor('Factura registrada con éxito')
       window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
@@ -3205,7 +3206,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           concepto: String(fExtra.concepto || '').trim(),
         }),
       ])
-      if (error) { alert('Error: ' + error.message); return }
+      if (error) { alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error, action: 'guardar el gasto extra' })); return }
       await cargarPagosProveedores()
       setMensajeExitoFacturaProveedor('Factura guardada con éxito')
       window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
@@ -3929,7 +3930,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (error?.code === '23505') {
         alert('ESTA FACTURA YA FUE REGISTRADA. El sistema ha bloqueado el duplicado por seguridad.')
       } else {
-        alert(`❌ Error emitiendo factura: ${error?.message || 'Error desconocido'}`)
+        alert(buildWriteErrorMessage({ table: 'facturas', error, action: 'emitir la factura' }))
       }
       setIsSubmittingFactura(false)
     }
