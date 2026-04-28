@@ -35,6 +35,7 @@ import VisualizadorPro from './VisualizadorPro'
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
+const BUCKET_ROOMING_LIST = 'rooming_list'
 const SUBMIT_DEDUPE_MS = 2000
 
 const proveedorInformeTexto = (proveedor) => {
@@ -2761,7 +2762,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     doblesTwin: expediente?.pasajeros?.habitaciones?.doblesTwin || 0,
     individuales: expediente?.pasajeros?.habitaciones?.individuales || 0,
   })
-  const [documentos, setDocumentos] = useState(expediente?.documentos || [])
+  const [documentos, setDocumentos] = useState(() => {
+    const base = Array.isArray(expediente?.documentos) ? expediente.documentos : []
+    if (!expediente?.rooming_list_url) return base
+    const yaExiste = base.some((d) => String(d?.url || d?.path || '').trim() === String(expediente.rooming_list_url).trim())
+    if (yaExiste) return base
+    return [
+      {
+        id: `rooming-${expediente?.id || Date.now()}`,
+        nombre: String(expediente.rooming_list_url).split('/').pop() || 'Rooming List',
+        tipo: '',
+        fecha: new Date().toISOString(),
+        path: expediente.rooming_list_url,
+      },
+      ...base,
+    ]
+  })
+  const [subiendoRooming, setSubiendoRooming] = useState(false)
   
   // ============ ESTADOS PARA GESTIÓN DE COBROS ============
   const [cobros, setCobros] = useState([])
@@ -4147,16 +4164,56 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // ============ DOCUMENTOS ============
   
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0]
-    if (file) {
+  const obtenerExtensionArchivo = (valor = '') => {
+    const limpio = String(valor || '').split('?')[0].toLowerCase()
+    const partes = limpio.split('.')
+    return partes.length > 1 ? partes.pop() : ''
+  }
+
+  const extensionDescargableSinPreview = (ext) => ['xlsx', 'xls', 'csv'].includes(String(ext || '').toLowerCase())
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !expediente?.id) return
+
+    const sessionCheck = await ensureAuthenticatedSession(supabase)
+    if (!sessionCheck.ok) {
+      alert(sessionCheck.message)
+      return
+    }
+
+    setSubiendoRooming(true)
+    try {
+      const ext = obtenerExtensionArchivo(file.name) || 'bin'
+      const nombreSeguro = String(file.name || `rooming.${ext}`).replace(/\s+/g, '_')
+      const ruta = `${expediente.id}/rooming-${Date.now()}-${nombreSeguro}`
+      const { error: uploadError } = await supabase.storage.from(BUCKET_ROOMING_LIST).upload(ruta, file, { upsert: false })
+      if (uploadError) {
+        alert(`No se pudo subir el archivo: ${uploadError.message}`)
+        return
+      }
+
+      const { error: updateError } = await supabase
+        .from('expedientes')
+        .update({ rooming_list_url: ruta })
+        .eq('id', expediente.id)
+      if (updateError) {
+        alert(buildWriteErrorMessage({ table: 'expedientes', error: updateError, action: 'guardar rooming_list_url' }))
+        return
+      }
+
       const nuevoDoc = {
         id: Date.now(),
         nombre: file.name,
         tipo: file.type,
         fecha: new Date().toISOString(),
+        path: ruta,
       }
-      setDocumentos([...documentos, nuevoDoc])
+      setDocumentos((prev) => [nuevoDoc, ...(prev || [])])
+      if (onUpdate) onUpdate({ ...expediente, rooming_list_url: ruta })
+    } finally {
+      setSubiendoRooming(false)
+      e.target.value = ''
     }
   }
 
@@ -4183,6 +4240,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
     const { data } = supabase.storage.from(bucket).getPublicUrl(path)
     return data?.publicUrl || null
+  }
+
+  const abrirDocumentoRooming = (doc) => {
+    const urlDoc = obtenerUrlDocumentoRooming(doc)
+    if (!urlDoc) return
+    const ext = obtenerExtensionArchivo(doc?.nombre || doc?.path || doc?.url || urlDoc)
+    if (extensionDescargableSinPreview(ext)) {
+      window.open(urlDoc, '_blank', 'noopener,noreferrer')
+      return
+    }
+    abrirVisualizadorPro({
+      src: urlDoc,
+      title: doc?.nombre || 'Rooming List',
+      downloadName: doc?.nombre || `rooming_list.${ext || 'pdf'}`,
+    })
   }
 
   // Regla 1.14: Confirmación doble antes de borrar documento oficial
@@ -4259,12 +4331,30 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 <p className="text-sm text-gray-600 mb-2">
                   👤 {expediente.cliente_responsable || expediente.responsable || grupo.responsable || 'Sin Responsable'}
                 </p>
-                <DestinoExpedienteEditable
-                  expedienteId={expediente.id}
-                  value={expediente.destino}
-                  variant="header"
-                  onSaved={(d) => onUpdate && onUpdate({ ...expediente, destino: d })}
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <DestinoExpedienteEditable
+                    expedienteId={expediente.id}
+                    value={expediente.destino}
+                    variant="header"
+                    onSaved={(d) => onUpdate && onUpdate({ ...expediente, destino: d })}
+                  />
+                  {expediente?.rooming_list_url && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        abrirDocumentoRooming({
+                          nombre: String(expediente.rooming_list_url).split('/').pop() || 'Rooming List',
+                          path: expediente.rooming_list_url,
+                        })
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      title="Archivo de Rooming List"
+                    >
+                      {extensionDescargableSinPreview(obtenerExtensionArchivo(expediente.rooming_list_url)) ? <FileDown size={14} /> : <Eye size={14} />}
+                      {extensionDescargableSinPreview(obtenerExtensionArchivo(expediente.rooming_list_url)) ? 'Descargar Rooming' : 'Ver Rooming'}
+                    </button>
+                  )}
+                </div>
           </div>
               <button 
                 onClick={handleClose} 
@@ -6116,12 +6206,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   <div className="mb-4">
                     <label className="btn-secondary cursor-pointer inline-flex items-center gap-2">
                       <Upload size={20} />
-                      Subir Documento
+                      {subiendoRooming ? 'Subiendo...' : 'Subir Documento'}
                       <input
                         type="file"
                         onChange={handleFileUpload}
                         className="hidden"
-                        accept=".pdf,.doc,.docx,.xls,.xlsx"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv"
                       />
                     </label>
                   </div>
@@ -6140,17 +6230,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 if (!urlDoc) {
                                   return <p className="font-medium text-gray-900">{doc.nombre}</p>
                                 }
+                                const ext = obtenerExtensionArchivo(doc?.nombre || doc?.path || urlDoc)
+                                const esDescarga = extensionDescargableSinPreview(ext)
                                 return (
-                                  <a
-                                    href={urlDoc}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
+                                  <button
+                                    type="button"
+                                    onClick={() => abrirDocumentoRooming(doc)}
                                     className="font-medium text-blue-700 hover:text-blue-900 inline-flex items-center gap-2 underline"
-                                    title="Abrir documento en nueva pestaña"
+                                    title={esDescarga ? 'Descargar documento' : 'Previsualizar documento'}
                                   >
                                     {doc.nombre}
-                                    <Eye size={16} />
-                                  </a>
+                                    {esDescarga ? <FileDown size={16} /> : <Eye size={16} />}
+                                  </button>
                                 )
                               })()}
                               <p className="text-xs text-gray-500">{new Date(doc.fecha).toLocaleDateString()}</p>
