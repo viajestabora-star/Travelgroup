@@ -3658,7 +3658,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
     try {
       // Obtener número de factura
-      const numeroFactura = await obtenerSiguienteNumeroFactura()
+      const numeroFactura = String(await obtenerSiguienteNumeroFactura() || '').trim()
+      if (!numeroFactura) {
+        alert('❌ Error: numero_factura vacío. No se puede guardar una factura sin número.')
+        return
+      }
 
       // INSERT EN facturas_versiones INMEDIATAMENTE DESPUÉS DE GENERAR EL NÚMERO
       try {
@@ -3768,30 +3772,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         conceptoFactura = `Viaje a ${destinoFactura} del ${fechaInicioFormateada} al ${fechaFinalFormateada}`
       }
       
-      // Construir objeto limpio solo con columnas confirmadas del esquema real
-      // Actualización de esquema: base_imponible y direccion_receptor confirmados
+      // Payload alineado con el contrato solicitado para public.facturas.
+      // `empresa_id` NO se calcula ni se envía desde frontend: lo asigna el trigger en BD.
       const datosFactura = {
-        numero_factura: numeroFactura,
         expediente_id: expediente.id,
-        cliente_id: expediente.clienteId || null,
+        cliente_id: expediente.cliente_id || expediente.clienteId || null,
+        numero_factura: numeroFactura,
         nombre_receptor: formFactura.receptorNombre.trim(),
         cif_receptor: formFactura.receptorCIF.trim() || null,
-        direccion_receptor: formFactura.receptorDireccion.trim() || null,
-        base_imponible: parseFloat(baseImponibleCalculada.toFixed(2)),
         total_factura: parseFloat(calcularBaseFactura.totalFactura),
         concepto: conceptoFactura,
-        estado: 'emitida',
       }
 
-      // Actualización de esquema: base_imponible y direccion_receptor confirmados
       // Guardar en Supabase - SOLO INSERT, NO UPDATE del expediente
       const { error } = await supabase
         .from('facturas')
         .insert([datosFactura])
 
       if (error) {
+        // Log completo del objeto Supabase para diagnóstico (NOT NULL numero_factura vs RLS)
+        console.error('[facturas.insert] error completo:', error)
         alert(`❌ Error guardando factura: ${error.message}`)
-          return
+        return
       }
 
       // Generar PDF

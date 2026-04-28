@@ -870,10 +870,22 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
     const precheckEmailAdmin = async (emailNorm) => {
       const probe = await portalConsultarTieneAuth(supabase, emailNorm)
       if (!probe.ok) {
-        console.warn('[Panel Master] portalConsultarTieneAuth:', probe.error)
         return { adminYaEnAuth: null, probeError: probe.error }
       }
       return { adminYaEnAuth: probe.tieneAuth === true ? true : false, probeError: null }
+    }
+
+    const precheckAdministradorGlobal = async (emailNorm) => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('empresa_id, nivel_acceso')
+        .eq('email', emailNorm)
+        .eq('empresa_id', MASTER_EMPRESA_ID)
+        .eq('nivel_acceso', 'ADMIN')
+        .limit(1)
+
+      if (error) return { ok: false, isGlobalAdmin: false }
+      return { ok: true, isGlobalAdmin: Array.isArray(data) && data.length > 0 }
     }
 
     /**
@@ -1080,15 +1092,32 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
       }
 
       const emailNormPrecheck = form.admin_email.trim().toLowerCase()
-      let adminPrecheck = { adminYaEnAuth: null, probeError: null }
+      let adminPrecheck = { adminYaEnAuth: null, probeError: null, globalAdmin: false }
       if (emailNormPrecheck && form.admin_password.trim()) {
         setPasoActual('Comprobando correo del administrador en Auth (antes de crear empresa)…')
         adminPrecheck = await precheckEmailAdmin(emailNormPrecheck)
+
         if (adminPrecheck.probeError) {
           setMsg({
             tipo:  'warn',
             texto: `No se pudo comprobar si el correo existe (${adminPrecheck.probeError}). Se continúa; si falla Auth podrás reintentar la vinculación.`,
           })
+        }
+
+        if (adminPrecheck.adminYaEnAuth === true) {
+          const globalProbe = await precheckAdministradorGlobal(emailNormPrecheck)
+          adminPrecheck.globalAdmin = globalProbe.isGlobalAdmin === true
+
+          if (!adminPrecheck.globalAdmin) {
+            setMsg({
+              tipo:  'err',
+              texto:
+                `El correo "${emailNormPrecheck}" ya existe en Auth y no es un administrador global de Tabora. `
+                + 'Usa otro email para crear el tenant o vincúlalo desde una empresa ya existente.',
+            })
+            setPasoActual('')
+            return
+          }
         }
       }
 

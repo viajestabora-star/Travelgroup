@@ -15,11 +15,9 @@ import Cierres from './pages/Cierres';
 import CierresEconomicos from './pages/CierresEconomicos';
 import NotasTrabajo from './pages/NotasTrabajo';
 import Composer from './pages/Composer';
-import InteligenciaEconomica from './pages/InteligenciaEconomica';
 import GestionEquipo from './pages/GestionEquipo';
 import AdminMaster from './pages/AdminMaster';
 import SuscripcionExpirada from './pages/SuscripcionExpirada';
-import AdminRouteGuard from './components/AdminRouteGuard';
 import AdminMasterRouteGuard from './components/AdminMasterRouteGuard';
 import { esUsuarioGestoria, puedeAccederCierresEconomicos } from './utils/userRoles';
 import { sincronizarNivelAccesoEnSesion } from './utils/nivelAcceso';
@@ -209,7 +207,7 @@ function App() {
               Los guards internos (AdminRouteGuard, etc.) redirigen a rutas absolutas
               como /dashboard o /cierres; estas rutas las capturan y añaden el slug. */}
           {['dashboard','clientes','expedientes','proveedores','planning','crm',
-            'notas','composer','cierres','historial-cierres','inteligencia-economica',
+            'notas','composer','cierres','historial-cierres',
             'gestion-equipo','admin-master'].map((p) => (
             <Route key={p} path={`/${p}`} element={<Navigate to={`/${empresaSlug}/${p}`} replace />} />
           ))}
@@ -250,17 +248,6 @@ function App() {
             <Route path="notas"       element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><NotasTrabajo user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
             <Route path="composer"    element={<ProtectedRoute user={session}><GestoriaBlockGuard user={session}><Composer user={session} /></GestoriaBlockGuard></ProtectedRoute>} />
 
-            {/* ── Inteligencia Económica: ADMIN + GESTORIA ── */}
-            <Route
-              path="inteligencia-economica"
-              element={
-                <ProtectedRoute user={session}>
-                  <AdminRouteGuard user={session}>
-                    <InteligenciaEconomica user={session} />
-                  </AdminRouteGuard>
-                </ProtectedRoute>
-              }
-            />
 
             {/* ── Gestión de Equipo: todos los no-gestores (Admin + Staff de cualquier empresa) ── */}
             <Route

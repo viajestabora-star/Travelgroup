@@ -155,9 +155,6 @@ const Layout = ({ user, onLogout }) => {
     if (puedeAccederCierresEconomicos(user)) {
       base.push({ path: 'historial-cierres', icon: History, label: 'CIERRES ECONÓMICOS' })
     }
-    if (esAdmin || esGestoria) {
-      base.push({ path: 'inteligencia-economica', icon: TrendingUp, label: 'INTELIGENCIA ECONÓMICA' })
-    }
     if (!esGestoria) {
       base.push({ path: 'gestion-equipo', icon: UserCog, label: 'GESTIÓN DE EQUIPO' })
     }
@@ -167,7 +164,7 @@ const Layout = ({ user, onLogout }) => {
 
     // Gestor?a: filtrar solo secciones autorizadas.
     if (esGestoria) {
-      const permitidas = new Set(['cierres', 'historial-cierres', 'proveedores', 'inteligencia-economica', 'crm'])
+      const permitidas = new Set(['cierres', 'historial-cierres', 'proveedores', 'crm'])
       return base.filter(item => permitidas.has(item.path))
     }
     return base
