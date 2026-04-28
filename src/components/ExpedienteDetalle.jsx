@@ -2590,7 +2590,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     try {
       const importeNumerico = Number(parseFloat(String(importeLimpio))) || 0
       const datosCobro = {
-        expediente_id: expediente.id,
+        expediente_id: expedienteId,
         cliente_id: clienteId,
         importe: importeNumerico,
         metodo_pago: normalizarMetodoPago(formCobro.metodo_pago),
@@ -2652,7 +2652,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           const { error: logError } = await supabase
             .from('logs_financieros')
             .insert([{
-              expediente_id: expediente.id,
+              expediente_id: expedienteId,
               tipo: 'COBRO',
               descripcion: descripcion,
               importe: importeLimpio,
@@ -2702,7 +2702,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           const { error: logError } = await supabase
             .from('logs_financieros')
             .insert([{
-              expediente_id: expediente.id,
+              expediente_id: expedienteId,
               tipo: 'COBRO',
               descripcion: `Cobro registrado: ${importeLimpio}€ - ${formCobro.concepto || 'Sin concepto'}`,
               importe: importeLimpio,
@@ -2902,6 +2902,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   )
 
   // Estados para Facturación
+  const [isSubmittingFactura, setIsSubmittingFactura] = useState(false)
   const [formFactura, setFormFactura] = useState({
     receptorNombre: '',
     receptorCIF: '',
@@ -3632,14 +3633,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // - SOLO hace INSERT en la tabla 'facturas'
   // - Los datos de cotización son independientes y solo se modifican desde su pestaña
   const emitirFactura = async () => {
+    if (isSubmittingFactura) return
+    setIsSubmittingFactura(true)
+
     // Validar datos del receptor
     if (!formFactura.receptorNombre || formFactura.receptorNombre.trim() === '') {
       alert('⚠️ Por favor, completa el nombre del receptor de la factura.')
-        return
-      }
+      setIsSubmittingFactura(false)
+      return
+    }
 
-    if (!expediente?.id) {
-      alert('❌ Error: El expediente no tiene ID.')
+    const expedienteId = expediente?.id
+    if (expedienteId == null || expedienteId === '') {
+      alert('❌ Error: expediente_id inválido. No se puede emitir la factura.')
+      setIsSubmittingFactura(false)
       return
     }
 
@@ -3649,10 +3656,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const totalF = parseFloat(calcularBaseFactura.totalFactura) || 0
     if (paxP <= 0 || precioNeto <= 0) {
       alert('⚠️ Revisa la cotización: Pasajeros de pago y Precio neto deben ser mayores que 0. Completa el Desglose antes de emitir.')
+      setIsSubmittingFactura(false)
       return
     }
     if (totalF <= 0) {
       alert('⚠️ El total de la factura es 0. Revisa el Desglose (Pasajeros, Precio, Suplementos) antes de emitir.')
+      setIsSubmittingFactura(false)
       return
     }
 
@@ -3661,6 +3670,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const numeroFactura = String(await obtenerSiguienteNumeroFactura() || '').trim()
       if (!numeroFactura) {
         alert('❌ Error: numero_factura vacío. No se puede guardar una factura sin número.')
+        setIsSubmittingFactura(false)
         return
       }
 
@@ -3792,8 +3802,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (error) {
         // Log completo del objeto Supabase para diagnóstico (NOT NULL numero_factura vs RLS)
         console.error('[facturas.insert] error completo:', error)
-        alert(`❌ Error guardando factura: ${error.message}`)
-        return
+        throw error
       }
 
       // Generar PDF
@@ -3883,11 +3892,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       }
 
       alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente.`)
-      
+
+      // Reset del formulario + redirección de flujo tras éxito
+      setFormFactura({
+        receptorNombre: '',
+        receptorCIF: '',
+        receptorDireccion: '',
+        receptorPoblacion: '',
+        receptorProvincia: '',
+        receptorCP: '',
+      })
+      setTab('cierre')
+
       // Recargar historial de versiones para reflejar la nueva factura emitida
       await cargarVersionesFactura()
+      setIsSubmittingFactura(false)
     } catch (error) {
-      alert(`❌ Error emitiendo factura: ${error.message}`)
+      if (error?.code === '23505') {
+        alert('ESTA FACTURA YA FUE REGISTRADA. El sistema ha bloqueado el duplicado por seguridad.')
+      } else {
+        alert(`❌ Error emitiendo factura: ${error?.message || 'Error desconocido'}`)
+      }
+      setIsSubmittingFactura(false)
     }
   }
 
@@ -6786,10 +6812,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   <div className="flex justify-between items-center">
                     <button
                       onClick={emitirFactura}
-                      className="bg-green-600 hover:bg-green-700 text-white py-4 px-8 rounded-lg font-bold text-lg transition-colors shadow-lg flex items-center gap-2"
+                      disabled={isSubmittingFactura}
+                      className="bg-green-600 hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed text-white py-4 px-8 rounded-lg font-bold text-lg transition-colors shadow-lg flex items-center gap-2"
                     >
                       <FileText size={24} />
-                      Emitir Factura
+                      {isSubmittingFactura ? 'Emitiendo…' : 'Emitir Factura'}
                     </button>
                   </div>
 
