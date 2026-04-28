@@ -2779,6 +2779,31 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     ]
   })
   const [subiendoRooming, setSubiendoRooming] = useState(false)
+
+  // Sincroniza el estado local de documentos cada vez que llegue rooming_list_url desde BD.
+  // Esto garantiza persistencia visual tras recargar/abrir expediente.
+  useEffect(() => {
+    const roomingUrl = String(expediente?.rooming_list_url || '').trim()
+    if (!roomingUrl) return
+    setDocumentos((prev) => {
+      const lista = Array.isArray(prev) ? prev : []
+      const existe = lista.some((d) => {
+        const valor = String(d?.url || d?.path || d?.ruta || '').trim()
+        return valor === roomingUrl
+      })
+      if (existe) return lista
+      return [
+        {
+          id: `rooming-${expediente?.id || Date.now()}`,
+          nombre: roomingUrl.split('/').pop() || 'Rooming List',
+          tipo: '',
+          fecha: new Date().toISOString(),
+          path: roomingUrl,
+        },
+        ...lista,
+      ]
+    })
+  }, [expediente?.id, expediente?.rooming_list_url])
   
   // ============ ESTADOS PARA GESTIÓN DE COBROS ============
   const [cobros, setCobros] = useState([])
@@ -4223,7 +4248,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         path: urlPublica,
       }
       setDocumentos((prev) => [nuevoDoc, ...(prev || [])])
-      if (onUpdate) onUpdate({ ...expediente, rooming_list_url: urlPublica })
+      const { data: expedienteActualizadoBd } = await supabase
+        .from('expedientes')
+        .select('id, rooming_list_url')
+        .eq('id', expediente.id)
+        .single()
+      const roomingPersistido = expedienteActualizadoBd?.rooming_list_url || urlPublica
+      if (onUpdate) onUpdate({ ...expediente, rooming_list_url: roomingPersistido })
     } finally {
       setSubiendoRooming(false)
       e.target.value = ''
