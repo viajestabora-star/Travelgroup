@@ -31,6 +31,7 @@ import {
   crearJsPdfInformeCierreFinanciero,
 } from '../utils/informeCierreHaciendaPdf'
 import { useEmpresa } from '../context/EmpresaContext'
+import VisualizadorPro from './VisualizadorPro'
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
@@ -62,20 +63,18 @@ const extraerRutaObjectoFacturaProveedor = (urlPdf) => {
  * Ver factura: getPublicUrl(nombreUnico) en facturas_proveedores + window.open.
  * En BD se guarda la ruta del objeto (fac-….pdf) o URL legada.
  */
-const abrirFacturaProveedorPorUrlGuardada = (valorGuardado) => {
-  if (!valorGuardado || typeof valorGuardado !== 'string') return
+const resolverUrlFacturaProveedorPorUrlGuardada = (valorGuardado) => {
+  if (!valorGuardado || typeof valorGuardado !== 'string') return null
   const nombreUnico =
     extraerRutaObjectoFacturaProveedor(valorGuardado) || valorGuardado.replace(/^\/+/, '').trim()
   if (nombreUnico) {
     const publicUrl = supabase.storage.from('facturas_proveedores').getPublicUrl(nombreUnico).data
       ?.publicUrl
-    if (publicUrl) {
-      window.open(publicUrl, '_blank', 'noopener,noreferrer')
-      return
-    }
+    if (publicUrl) return publicUrl
   }
   const t = valorGuardado.trim()
-  if (/^https?:\/\//i.test(t)) window.open(t, '_blank', 'noopener,noreferrer')
+  if (/^https?:\/\//i.test(t)) return t
+  return null
 }
 
 const eliminarObjetoStorageFacturaProveedor = async (urlPdf) => {
@@ -2915,6 +2914,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   
   // Estados para Versiones de Facturas
   const [versionesFactura, setVersionesFactura] = useState([])
+  const [visualizadorOpen, setVisualizadorOpen] = useState(false)
+  const [visualizadorSrc, setVisualizadorSrc] = useState(null)
+  const [visualizadorTitulo, setVisualizadorTitulo] = useState('Documento')
+  const [visualizadorDownloadName, setVisualizadorDownloadName] = useState('documento.pdf')
   const [cargandoVersiones, setCargandoVersiones] = useState(false)
   
   // Estados para Facturas Emitidas (Cierres)
@@ -3934,6 +3937,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       }
       setIsSubmittingFactura(false)
     }
+  }
+
+
+  const abrirVisualizadorPro = ({ src, title, downloadName }) => {
+    if (!src) return
+    setVisualizadorSrc(src)
+    setVisualizadorTitulo(title || 'Documento')
+    setVisualizadorDownloadName(downloadName || 'documento.pdf')
+    setVisualizadorOpen(true)
   }
 
   // ============ RECARGAR DATOS FINANCIEROS DESDE SUPABASE ============
@@ -6294,13 +6306,32 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   <div className="flex flex-wrap items-center gap-1.5">
                                     <button
                                       type="button"
-                                      onClick={() => abrirFacturaProveedorPorUrlGuardada(urlPdf)}
+                                      onClick={() => {
+                                        const src = resolverUrlFacturaProveedorPorUrlGuardada(urlPdf)
+                                        abrirVisualizadorPro({
+                                          src,
+                                          title: `Factura proveedor · ${pagoRegistrado?.numero_factura || 'sin número'}`,
+                                          downloadName: `Factura_Proveedor_${pagoRegistrado?.numero_factura || pagoRegistrado?.id || 'documento'}.pdf`,
+                                        })
+                                      }}
                                       className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 transition-colors"
-                                      title="Ver factura en una pestaña nueva"
+                                      title="Ver factura en el visor"
                                       aria-label="Ver Factura"
                                     >
                                       <Eye size={18} strokeWidth={1.75} className="shrink-0 text-slate-600" />
                                       Ver Factura
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const src = resolverUrlFacturaProveedorPorUrlGuardada(urlPdf)
+                                        if (src) window.open(src, '_blank', 'noopener,noreferrer')
+                                      }}
+                                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
+                                      title="Descargar PDF"
+                                      aria-label="Descargar PDF"
+                                    >
+                                      <FileDown size={16} strokeWidth={1.75} />
                                     </button>
                                     <button
                                       type="button"
@@ -6528,15 +6559,35 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             <td className="py-2.5 pr-3 text-right font-semibold">{Number(p.importe_pagado || 0).toFixed(2)} €</td>
                             <td className="py-2.5 text-center">
                               {p.url_pdf ? (
-                                <button
-                                  type="button"
-                                  onClick={() => abrirFacturaProveedorPorUrlGuardada(p.url_pdf)}
-                                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                                  title="Ver Factura"
-                                >
-                                  <Eye size={16} strokeWidth={1.75} />
-                                  Ver Factura
-                                </button>
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const src = resolverUrlFacturaProveedorPorUrlGuardada(p.url_pdf)
+                                      abrirVisualizadorPro({
+                                        src,
+                                        title: `Factura proveedor · ${p.numero_factura || 'sin número'}`,
+                                        downloadName: `Factura_Proveedor_${p.numero_factura || p.id || 'documento'}.pdf`,
+                                      })
+                                    }}
+                                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                    title="Ver Factura"
+                                  >
+                                    <Eye size={16} strokeWidth={1.75} />
+                                    Ver
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const src = resolverUrlFacturaProveedorPorUrlGuardada(p.url_pdf)
+                                      if (src) window.open(src, '_blank', 'noopener,noreferrer')
+                                    }}
+                                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                    title="Descargar Factura"
+                                  >
+                                    <FileDown size={14} />
+                                  </button>
+                                </div>
                               ) : (
                                 <span className="text-slate-300 text-xs">—</span>
                               )}
@@ -6965,6 +7016,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               </div>
             </div>
           )}
+
+          <VisualizadorPro
+            open={visualizadorOpen}
+            src={visualizadorSrc}
+            title={visualizadorTitulo}
+            downloadName={visualizadorDownloadName}
+            onClose={() => {
+              setVisualizadorOpen(false)
+              setVisualizadorSrc(null)
+            }}
+          />
 
             
           </div>

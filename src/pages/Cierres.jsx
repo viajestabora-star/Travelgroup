@@ -3,6 +3,7 @@ import { esUsuarioGestoria } from '../utils/userRoles'
 import {
   FileText,
   Eye,
+  FileDown,
   Receipt,
   TrendingUp,
   Search,
@@ -22,10 +23,11 @@ import {
 } from '../utils/informeCierreHaciendaPdf'
 import { obtenerLineasInformeComoCierres } from '../utils/lineasInformeCierres'
 import { finanzasExpedienteParaInformes } from '../utils/cierreGrupoFuenteVerdad'
+import VisualizadorPro from '../components/VisualizadorPro'
 
 // ===================== FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF =====================
 // Función compartida para generar PDFs de facturas con diseño profesional unificado
-const generarFacturaPDFUnificado = async (factura, emisorOpts = {}) => {
+const generarFacturaPDFUnificado = async (factura, emisorOpts = {}, opciones = {}) => {
   // Extraer datos de forma robusta desde cualquier fuente (facturas o facturas)
   const datos = factura?.datos_factura || factura?.datos_json || {}
   const receptor = datos.receptor || datos.formFactura?.receptor || datos.formFactura || {}
@@ -267,26 +269,37 @@ const generarFacturaPDFUnificado = async (factura, emisorOpts = {}) => {
     // Nombre del archivo
     const nombreArchivo = `Factura_${numeroFactura}_${clienteNombre.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
     
-    // Descargar PDF
-    doc.save(nombreArchivo)
+    if (opciones.mode === 'download') {
+      doc.save(nombreArchivo)
+    }
+    return {
+      blobUrl: doc.output('bloburl'),
+      nombreArchivo,
+    }
   }
   
   // Cargar logo dinámico desde emisorOpts, con fallback sin imagen
   const logoSrc = emisorOpts.logoSrc || null
-  if (logoSrc) {
-    const logo = new Image()
-    logo.crossOrigin = 'anonymous'
-    logo.src = logoSrc
-    logo.onload  = () => crearDocumento(logo)
-    logo.onerror = () => crearDocumento(null)
-  } else {
-    crearDocumento(null)
-  }
+  return await new Promise((resolve) => {
+    if (logoSrc) {
+      const logo = new Image()
+      logo.crossOrigin = 'anonymous'
+      logo.src = logoSrc
+      logo.onload = () => resolve(crearDocumento(logo))
+      logo.onerror = () => resolve(crearDocumento(null))
+    } else {
+      resolve(crearDocumento(null))
+    }
+  })
 }
 
 const Cierres = ({ user, onClose }) => {
   const esGestoria = esUsuarioGestoria(user)
   const [tabActiva, setTabActiva] = useState('facturas')
+  const [visualizadorOpen, setVisualizadorOpen] = useState(false)
+  const [visualizadorSrc, setVisualizadorSrc] = useState(null)
+  const [visualizadorTitulo, setVisualizadorTitulo] = useState('Documento')
+  const [visualizadorDownloadName, setVisualizadorDownloadName] = useState('documento.pdf')
 
   // Emisor dinámico: datos fiscales de la empresa actual (para PDFs de facturas)
   const [emisorData, setEmisorData] = useState({ ...DATOS_EMISOR, logo_url: null })
@@ -804,10 +817,13 @@ const Cierres = ({ user, onClose }) => {
 
   // ===================== PDF: VISOR / REGENERADOR PARA CUALQUIER FACTURA =====================
   // Usa la función unificada de generación de PDF
-  const verPDF = (factura) => {
+  const verPDF = async (factura) => {
     // Si hay URL de PDF, abrir directamente
     if (factura.url_pdf) {
-      window.open(factura.url_pdf, '_blank')
+      setVisualizadorSrc(factura.url_pdf)
+      setVisualizadorTitulo(`Factura ${factura.display_num || factura.numero_factura || ''}`.trim())
+      setVisualizadorDownloadName(`Factura_${factura.display_num || factura.numero_factura || 'documento'}.pdf`)
+      setVisualizadorOpen(true)
       return
     }
 
@@ -817,7 +833,33 @@ const Cierres = ({ user, onClose }) => {
       datos_factura: factura.datos_factura || factura.datos_json || factura.datosFactura
     }
 
-    generarFacturaPDFUnificado(facturaNormalizada, { emisor: emisorData, logoSrc: emisorData.logo_url })
+    const resultado = await generarFacturaPDFUnificado(
+      facturaNormalizada,
+      { emisor: emisorData, logoSrc: emisorData.logo_url },
+      { mode: 'viewer' }
+    )
+    if (resultado?.blobUrl) {
+      setVisualizadorSrc(resultado.blobUrl)
+      setVisualizadorTitulo(`Factura ${factura.display_num || factura.numero_factura || ''}`.trim())
+      setVisualizadorDownloadName(resultado.nombreArchivo || 'Factura.pdf')
+      setVisualizadorOpen(true)
+    }
+  }
+
+  const descargarPDF = async (factura) => {
+    if (factura.url_pdf) {
+      window.open(factura.url_pdf, '_blank')
+      return
+    }
+    const facturaNormalizada = {
+      ...factura,
+      datos_factura: factura.datos_factura || factura.datos_json || factura.datosFactura,
+    }
+    await generarFacturaPDFUnificado(
+      facturaNormalizada,
+      { emisor: emisorData, logoSrc: emisorData.logo_url },
+      { mode: 'download' }
+    )
   }
 
   const totalFacturado = useMemo(() => {
@@ -1129,14 +1171,24 @@ const Cierres = ({ user, onClose }) => {
                         })()}
                       </td>
                       <td className="px-6 py-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => verPDF(factura)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors"
-                        >
-                          <Eye size={14} />
-                          PDF
-                        </button>
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => verPDF(factura)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors"
+                          >
+                            <Eye size={14} />
+                            Ver
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => descargarPDF(factura)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-sm transition-colors"
+                          >
+                            <FileDown size={14} />
+                            Descargar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1415,6 +1467,17 @@ const Cierres = ({ user, onClose }) => {
           </div>
         </div>
       )}
+
+      <VisualizadorPro
+        open={visualizadorOpen}
+        src={visualizadorSrc}
+        title={visualizadorTitulo}
+        downloadName={visualizadorDownloadName}
+        onClose={() => {
+          setVisualizadorOpen(false)
+          setVisualizadorSrc(null)
+        }}
+      />
     </div>
   )
 }

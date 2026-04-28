@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown } from 'lucide-react'
+import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown, Eye } from 'lucide-react'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
@@ -14,6 +14,7 @@ import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { DATOS_EMISOR } from '../config/empresa'
 import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmisorEmpresa'
 import { useEmpresa } from '../context/EmpresaContext'
+import VisualizadorPro from './VisualizadorPro'
 
 /**
  * ============ DEFAULT_SERVICE_VALUES - DEFENSA CONTRA UNDEFINED ============
@@ -153,6 +154,10 @@ const ExpedienteFinanzas = ({
   })
   const [paxPorAsociacion, setPaxPorAsociacion] = useState([])
   const [guardandoCierre, setGuardandoCierre] = useState(false)
+  const [visualizadorOpen, setVisualizadorOpen] = useState(false)
+  const [visualizadorSrc, setVisualizadorSrc] = useState(null)
+  const [visualizadorTitulo, setVisualizadorTitulo] = useState('Documento')
+  const [visualizadorDownloadName, setVisualizadorDownloadName] = useState('documento.pdf')
   const informeLiquidacionInicializadoRef = useRef(false)
   const lastSubmitRef = useRef({})
 
@@ -469,7 +474,7 @@ const ExpedienteFinanzas = ({
     }
   }
 
-  const generarReciboPDF = (cobro) => {
+  const generarReciboPDF = async (cobro, opciones = {}) => {
     const crearDocumento = (logoImg) => {
       const doc = new jsPDF()
       const pageWidth = doc.internal.pageSize.getWidth()
@@ -578,10 +583,19 @@ const ExpedienteFinanzas = ({
       const nombreArchivo = numeroRecibo !== '—'
         ? `Recibo_${numeroRecibo}_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
         : `Recibo_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}_${fechaCobro.toISOString().split('T')[0]}.pdf`
-      doc.save(nombreArchivo)
+      if (opciones.mode === 'download') {
+        doc.save(nombreArchivo)
+      }
+      return {
+        blobUrl: doc.output('bloburl'),
+        nombreArchivo,
+      }
     }
 
-    cargarLogoParaPDF(emisorData.logo_url || user?.logo_url || user?.favicon_url || null, crearDocumento)
+    const logoSrc = emisorData.logo_url || user?.logo_url || user?.favicon_url || null
+    return await new Promise((resolve) => {
+      cargarLogoParaPDF(logoSrc, (logoImg) => resolve(crearDocumento(logoImg)))
+    })
   }
 
   const cargarLogsFinancieros = async () => {
@@ -1391,12 +1405,27 @@ const ExpedienteFinanzas = ({
                                 <span className="text-xs">Editar</span>
                               </button>
                               <button
-                                onClick={() => generarReciboPDF(cobro)}
+                                onClick={async () => {
+                                  const resultado = await generarReciboPDF(cobro, { mode: 'viewer' })
+                                  if (!resultado?.blobUrl) return
+                                  setVisualizadorSrc(resultado.blobUrl)
+                                  setVisualizadorTitulo(`Recibo ${cobro.numero_recibo || ''}`.trim())
+                                  setVisualizadorDownloadName(resultado.nombreArchivo || 'Recibo.pdf')
+                                  setVisualizadorOpen(true)
+                                }}
+                                className="text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1"
+                                title="Ver recibo"
+                              >
+                                <Eye size={16} />
+                                <span className="text-xs">Ver</span>
+                              </button>
+                              <button
+                                onClick={() => generarReciboPDF(cobro, { mode: 'download' })}
                                 className="text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1"
                                 title="Generar PDF del recibo"
                               >
                                 <FileText size={18} />
-                                <span className="text-xs">PDF</span>
+                                <span className="text-xs">Descargar</span>
                               </button>
                               <button
                                 onClick={() => eliminarCobro(cobro)}
@@ -1760,6 +1789,17 @@ const ExpedienteFinanzas = ({
         onGuardar={guardarCobro}
         onWheel={handleWheel}
         isSubmitting={isSubmittingCobro}
+      />
+
+      <VisualizadorPro
+        open={visualizadorOpen}
+        src={visualizadorSrc}
+        title={visualizadorTitulo}
+        downloadName={visualizadorDownloadName}
+        onClose={() => {
+          setVisualizadorOpen(false)
+          setVisualizadorSrc(null)
+        }}
       />
 
       {/* Modal de Historial de Logs Financieros */}
