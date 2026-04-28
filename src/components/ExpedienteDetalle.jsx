@@ -3224,6 +3224,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           ? existente.servicio_id
           : servicio.id
       const servicioIdFk = resolverServicioIdDesdeFila(servicio, servicioIdPersistencia)
+      if (servicioIdFk == null || String(servicioIdFk).trim() === '') {
+        alert('No se pudo vincular la factura al servicio seleccionado. Selecciona un servicio válido de cotización.')
+        return
+      }
 
       if (existente?.id) {
         const fila = filaPagosProveedores({
@@ -3290,6 +3294,41 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (typeof onRefresh === 'function') onRefresh()
     } catch (e) { alert(e.message || 'Error inesperado.')
     } finally { setSubiendoPdfCot(false) }
+  }
+
+  const limpiarExtrasErroneosDePrueba = async () => {
+    if (!(await asegurarSesionAutenticada())) return
+    if (!expediente?.id) return
+    if (!window.confirm('Se eliminarán del expediente los registros "Extra" de prueba sin servicio vinculado. ¿Continuar?')) return
+
+    try {
+      const { error: errNull } = await supabase
+        .from('pagos_proveedores')
+        .delete()
+        .eq('expediente_id', expediente.id)
+        .is('servicio_id', null)
+      if (errNull) {
+        alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: errNull, action: 'limpiar extras de prueba' }))
+        return
+      }
+
+      const { error: errVacio } = await supabase
+        .from('pagos_proveedores')
+        .delete()
+        .eq('expediente_id', expediente.id)
+        .eq('servicio_id', '')
+      if (errVacio) {
+        alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: errVacio, action: 'limpiar extras de prueba' }))
+        return
+      }
+
+      setMensajeExitoFacturaProveedor('Registros "Extra" de prueba eliminados.')
+      window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
+      await cargarPagosProveedores()
+      if (typeof onRefresh === 'function') onRefresh()
+    } catch (e) {
+      alert('No se pudieron limpiar los registros extra de prueba.')
+    }
   }
 
   const abrirFormularioCambiarPdfServicio = (servicio, pagoRegistrado) => {
@@ -6774,7 +6813,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
               {/* ── Facturas y pagos registrados ──────────────────────────── */}
               <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 transition-all duration-200 hover:shadow-md hover:border-blue-300">
-                <h3 className="text-xl font-bold text-navy-900 mb-4">Facturas registradas</h3>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-xl font-bold text-navy-900">Facturas registradas</h3>
+                  <button
+                    type="button"
+                    onClick={limpiarExtrasErroneosDePrueba}
+                    className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
+                    title="Eliminar registros extra de pruebas"
+                  >
+                    <Trash2 size={14} />
+                    Limpiar Extras de Prueba
+                  </button>
+                </div>
                 {cargandoPagosProveedores ? (
                   <p className="text-gray-500">Cargando...</p>
                 ) : pagosProveedores.length === 0 ? (
