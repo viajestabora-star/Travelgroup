@@ -8,7 +8,8 @@ import {
   Search,
   User,
   Euro,
-  CheckCircle2
+  CheckCircle2,
+  RefreshCw
 } from 'lucide-react'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
@@ -25,7 +26,7 @@ import { finanzasExpedienteParaInformes } from '../utils/cierreGrupoFuenteVerdad
 // ===================== FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF =====================
 // Función compartida para generar PDFs de facturas con diseño profesional unificado
 const generarFacturaPDFUnificado = async (factura, emisorOpts = {}) => {
-  // Extraer datos de forma robusta desde cualquier fuente (facturas_emitidas_global o facturas)
+  // Extraer datos de forma robusta desde cualquier fuente (facturas o facturas)
   const datos = factura?.datos_factura || factura?.datos_json || {}
   const receptor = datos.receptor || datos.formFactura?.receptor || datos.formFactura || {}
   
@@ -295,7 +296,7 @@ const Cierres = ({ user, onClose }) => {
     cargarDatosEmisorEmpresa(empresaId).then(setEmisorData).catch(() => {})
   }, [user?.empresa_id])
 
-  // Facturas ya emitidas (lectura unificada desde facturas_emitidas_global)
+  // Facturas ya emitidas (lectura unificada desde facturas)
   const [facturas, setFacturas] = useState([])
   const [cargandoFacturas, setCargandoFacturas] = useState(false)
 
@@ -325,88 +326,32 @@ const Cierres = ({ user, onClose }) => {
     }
   }, [tabActiva])
 
-  // ===================== LECTURA FACTURAS (3 FUENTES, SIN FILTROS RESTRICTIVOS) =====================
-  // Consulta facturas_emitidas_global, facturas_emitidas y facturas. El PDF usa datos_json de global.
+  // ===================== LECTURA FACTURAS (FUENTE ÚNICA: public.facturas) =====================
+  // Lista sincronizada solo con la tabla `facturas` para evitar registros obsoletos
+  // provenientes de tablas auxiliares.
   const cargarFacturas = async () => {
     setCargandoFacturas(true)
     try {
-      // Queries independientes: un fallo no bloquea las demás
-      const [resGlobal, resEmitidas, resFacturas] = await Promise.all([
-        supabase.from('facturas_emitidas_global').select('*'),
-        supabase.from('facturas_emitidas').select('*'),
-        supabase.from('facturas').select('*')
-      ])
+      const { data, error } = await supabase
+        .from('facturas')
+        .select('*')
+        .order('created_at', { ascending: false, nullsFirst: false })
 
-      const listaGlobal = Array.isArray(resGlobal.data) ? resGlobal.data : []
-      const listaEmitidas = Array.isArray(resEmitidas.data) ? resEmitidas.data : []
-      const listaFacturas = Array.isArray(resFacturas.data) ? resFacturas.data : []
+      if (error) {
+        setFacturas([])
+        return
+      }
 
-      // Normalización: datos_factura/datos_json para PDF (prioridad global > emitidas)
-      const normalizadasGlobal = listaGlobal.map((f) => ({
+      const normalizadas = (Array.isArray(data) ? data : []).map((f) => ({
         ...f,
-        _origen: 'global',
-        datos_factura: f.datos_json || f.datos_factura,
-        datos_json: f.datos_json || f.datos_factura,
-        display_num: f.numero_factura || '',
-        display_nombre: f.cliente_nombre || 'Sin nombre',
-        display_doc: f.cliente_documento || '-',
-        display_total: f.importe_total ?? 0
-      }))
-
-      const normalizadasEmitidas = listaEmitidas.map((f) => ({
-        ...f,
-        _origen: 'emitidas',
-        datos_factura: f.datos_factura || f.datos_json,
-        datos_json: f.datos_json || f.datos_factura,
-        display_num: f.numero_factura || '',
-        display_nombre: f.cliente_nombre || 'Sin nombre',
-        display_doc: f.cliente_documento || '-',
-        display_total: f.importe_total ?? 0
-      }))
-
-      const normalizadasFacturas = listaFacturas.map((f) => ({
-        ...f,
-        _origen: 'expedientes',
+        _origen: 'facturas',
         display_num: f.numero_factura || '',
         display_nombre: f.nombre_receptor || 'Sin nombre',
         display_doc: f.cif_receptor || '-',
-        display_total: f.total_factura ?? 0
+        display_total: f.total_factura ?? 0,
       }))
 
-      // Unificación: preferir global (datos_json con lineasFactura) > emitidas > facturas
-      const porNumero = new Map()
-      const candidatas = [...normalizadasGlobal, ...normalizadasEmitidas, ...normalizadasFacturas]
-      const prioridad = { global: 3, emitidas: 2, expedientes: 1 }
-
-      const tieneDesglose = (f) => {
-        const d = f?.datos_factura || f?.datos_json || {}
-        return (Array.isArray(d.lineasFactura) && d.lineasFactura.length > 0) || (d.calcularBaseFactura && (d.calcularBaseFactura.paxPago != null || d.calcularBaseFactura.totalServiciosConIVA != null))
-      }
-
-      for (const f of candidatas) {
-        const key = f.display_num || f.numero_factura || ''
-        const keyFinal = key || `__NO_NUM__${(f.id || Math.random()).toString()}`
-        const existente = porNumero.get(key || keyFinal)
-        if (!existente) {
-          porNumero.set(key || keyFinal, f)
-        } else {
-          const prefiereNuevo = prioridad[f._origen] > prioridad[existente._origen] ||
-            (prioridad[f._origen] === prioridad[existente._origen] && tieneDesglose(f) && !tieneDesglose(existente))
-          if (prefiereNuevo) porNumero.set(key || keyFinal, f)
-        }
-      }
-
-      let todasLasFacturas = Array.from(porNumero.values())
-      todasLasFacturas.sort((a, b) => {
-        const fechaA = (a.fecha_emision || a.created_at) ? new Date(a.fecha_emision || a.created_at).getTime() : 0
-        const fechaB = (b.fecha_emision || b.created_at) ? new Date(b.fecha_emision || b.created_at).getTime() : 0
-        if (fechaA > 0 && fechaB > 0) return fechaB - fechaA
-        if (fechaA > 0) return -1
-        if (fechaB > 0) return 1
-        return 0
-      })
-
-      setFacturas(todasLasFacturas)
+      setFacturas(normalizadas)
     } catch (err) {
       setFacturas([])
     } finally {
@@ -414,7 +359,26 @@ const Cierres = ({ user, onClose }) => {
     }
   }
 
-  // ===================== CLIENTES PARA FACTURACIÓN DIRECTA =====================
+  useEffect(() => {
+    if (tabActiva !== 'facturas') return
+
+    const channel = supabase
+      .channel('facturas-sync-cierres')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'facturas' },
+        () => {
+          cargarFacturas()
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [tabActiva])
+
+// ===================== CLIENTES PARA FACTURACIÓN DIRECTA =====================
   const cargarClientes = async () => {
     // Ya cargados: no recargar si ya tenemos datos
     if (clientes.length > 0) return
@@ -699,7 +663,7 @@ const Cierres = ({ user, onClose }) => {
         clienteSeleccionado.cif_nif || clienteSeleccionado.cif || ''
       ).trim()
 
-      // Sincronización: escribir en AMBAS tablas (facturas_emitidas y facturas_emitidas_global)
+      // Sincronización: escribir en AMBAS tablas (facturas_emitidas y facturas)
       const registroGlobal = {
         numero_factura: numeroFactura,
         cliente_nombre: nombreCliente,
@@ -930,7 +894,7 @@ const Cierres = ({ user, onClose }) => {
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <CheckCircle2 className="text-emerald-500" size={16} />
-                <span>Sincronizado con `facturas_emitidas_global`</span>
+                <span>Sincronizado con `facturas`</span>
               </div>
             </div>
 
@@ -1061,14 +1025,25 @@ const Cierres = ({ user, onClose }) => {
               <div className="flex items-center gap-2">
                 <FileText className="text-slate-500" size={18} />
                 <h3 className="text-sm font-bold text-slate-800 uppercase tracking-[0.2em]">
-                  Facturas emitidas (facturas_emitidas_global)
+                  Facturas emitidas (tabla facturas)
                 </h3>
               </div>
-              <div className="text-xs text-slate-500 font-medium">
-                Total facturado:{' '}
-                <span className="font-semibold text-emerald-700">
-                  {totalFacturado.toFixed(2)} €
-                </span>
+              <div className="flex items-center gap-3">
+                <div className="text-xs text-slate-500 font-medium">
+                  Total facturado:{' '}
+                  <span className="font-semibold text-emerald-700">
+                    {totalFacturado.toFixed(2)} €
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={cargarFacturas}
+                  disabled={cargandoFacturas}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                >
+                  <RefreshCw size={12} className={cargandoFacturas ? 'animate-spin' : ''} />
+                  Actualizar
+                </button>
               </div>
             </div>
 
@@ -1118,7 +1093,7 @@ const Cierres = ({ user, onClose }) => {
                       <td className="px-6 py-3 font-semibold">
                         <span
                           className={
-                            factura.cliente_nombre // heurística: registros de facturas_emitidas_global
+                            factura.cliente_nombre // heurística: registros de facturas
                               ? 'text-emerald-700 font-extrabold'
                               : 'text-slate-900 font-semibold'
                           }
@@ -1208,7 +1183,7 @@ const Cierres = ({ user, onClose }) => {
                   El módulo de cierres y liquidación detallada se implementará en la siguiente
                   fase. De momento, toda la facturación está sincronizada contra{' '}
                   <span className="font-mono text-xs bg-slate-800 text-slate-100 px-2 py-1 rounded">
-                    facturas_emitidas_global
+                    facturas
                   </span>
                   .
                 </td>
