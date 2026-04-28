@@ -4196,7 +4196,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-1 sm:p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]">
         <div 
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-none h-[94vh] sm:h-[94vh] flex flex-col"
+          className="bg-white rounded-2xl shadow-2xl w-full lg:w-[95vw] max-w-none h-[94vh] sm:h-[94vh] flex flex-col"
           style={{ backgroundColor: 'white', color: 'black' }}
         >
           
@@ -4276,17 +4276,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
           {/* TABS */}
           <div className="border-b border-gray-200 px-4 sm:px-8 bg-white flex-shrink-0">
-            <nav className="flex gap-2 -mb-px overflow-x-auto">
+            <nav className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 pb-2">
               {tabs.map(t => {
                 const Icon = t.icon
                 return (
               <button
                 key={t.id}
                 onClick={() => handleTabChange(t.id)}
-                    className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+                    className={`flex items-center justify-center gap-1 px-2 py-2 border rounded-lg font-medium text-xs sm:text-sm transition-all duration-200 ${
                   tab === t.id
-                        ? 'border-blue-600 text-blue-600'
-                        : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                        ? 'border-blue-600 text-blue-600 bg-blue-50'
+                        : 'border-gray-200 text-gray-600 hover:text-blue-700 hover:border-blue-300 hover:bg-blue-50'
                 }`}
               >
                     <Icon size={18} />
@@ -4305,11 +4305,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               <div className="w-full space-y-6">
                 {/* Contenedor principal */}
                 <div 
+                  className="transition-all duration-200 hover:shadow-md hover:border-blue-300"
                   style={{ 
                     background: 'white', 
                     padding: '32px', 
                     borderRadius: '24px', 
-                    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.05), 0 10px 10px -5px rgba(0,0,0,0.04)',
+                    boxShadow: '0 4px 10px rgba(0,0,0,0.06)',
                     border: '1px solid #f1f5f9'
                   }}
                 >
@@ -5122,7 +5123,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 )}
                 
                 {/* Parámetros Principales */}
-                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 transition-all duration-200 hover:shadow-md hover:border-blue-300">
                   <h3 className="text-xl font-bold text-navy-900 mb-4">Parámetros del Viaje</h3>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div>
@@ -5442,7 +5443,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 </div>
 
                 {/* Card de Suplementos */}
-                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 transition-all duration-200 hover:shadow-md hover:border-blue-300">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <div className="p-2 bg-blue-100 rounded-full">
@@ -6049,7 +6050,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             {/* TAB: Rooming List */}
           {tab === 'pasajeros' && (
               <div className="w-full space-y-6">
-                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 transition-all duration-200 hover:shadow-md hover:border-blue-300">
                   <h3 className="text-xl font-bold text-navy-900 mb-4">Desglose de Habitaciones</h3>
                   
                   <div className="grid grid-cols-3 gap-4 mb-6">
@@ -6206,7 +6207,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             <div className="w-full space-y-6">
 
               {/* ── Sección inteligente: registrar factura por servicio ──────── */}
-              <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+              <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 transition-all duration-200 hover:shadow-md hover:border-blue-300">
                 <h3 className="text-xl font-bold text-navy-900 mb-5">Registrar Factura por Servicio</h3>
 
                 {mensajeExitoFacturaProveedor ? (
@@ -6490,7 +6491,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               </div>
 
               {/* ── Facturas y pagos registrados ──────────────────────────── */}
-              <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+              <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 transition-all duration-200 hover:shadow-md hover:border-blue-300">
                 <h3 className="text-xl font-bold text-navy-900 mb-4">Facturas registradas</h3>
                 {cargandoPagosProveedores ? (
                   <p className="text-gray-500">Cargando...</p>
@@ -6594,7 +6595,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           {/* TAB: Facturación */}
           {tab === 'facturacion' && (
               <div className="w-full space-y-6">
-                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+                <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 transition-all duration-200 hover:shadow-md hover:border-blue-300">
                   <h3 className="text-2xl font-bold text-navy-900 mb-6">Emisión de Factura</h3>
 
                   <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
@@ -6935,7 +6936,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           {/* TAB: Documentación */}
           {tab === 'documentacion' && (
             <div className="w-full">
-              <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200 space-y-6">
+              <div className="bg-white rounded-xl shadow-md p-8 border border-gray-200 space-y-6 transition-all duration-200 hover:shadow-md hover:border-blue-300">
                 <h3 className="text-xl font-bold text-navy-900">Documentación del Viaje</h3>
                 <p className="text-gray-600 text-sm">
                   Guarda aquí el enlace a la carpeta de Google Drive donde almacenas contratos,
