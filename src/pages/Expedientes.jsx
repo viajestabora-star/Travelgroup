@@ -326,8 +326,7 @@ const Expedientes = ({ user = null }) => {
         supabase
           .from('expedientes')
           .select('*')
-          .eq('empresa_id', empresaId)         // AISLAMIENTO: solo expedientes de esta empresa
-          .order('fecha_inicio', { ascending: true, nullsFirst: false })
+        .eq('empresa_id', empresaId)         // AISLAMIENTO: solo expedientes de esta empresa
       ).finally(() => setIsLoading(false))
 
       if (error) {
@@ -355,6 +354,7 @@ const Expedientes = ({ user = null }) => {
           fecha_final: exp.fecha_final || exp.fecha_fin || '',
           fechaInicio: exp.fecha_inicio || '',
           fechaFin: exp.fecha_final || exp.fecha_fin || '',
+          created_at: exp.created_at || null,
           destino: exp.destino || '',
           telefono: exp.telefono || '',
           email: exp.email || '',
@@ -1242,11 +1242,11 @@ const Expedientes = ({ user = null }) => {
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
   const expedientesFinales = (expedientesFiltradosPorEjercicio || []).slice().sort((a, b) => {
-    // Criterio forzado en UI: si ambos son Cerrado, ordenar por created_at DESC.
     if (a?.estado === 'Cerrado' && b?.estado === 'Cerrado') {
-      return new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime()
+      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0
+      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0
+      return dateB - dateA // Descendente: más nuevo arriba
     }
-    // Mantener orden original para el resto de estados.
     return 0
   })
 
