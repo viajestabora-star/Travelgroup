@@ -1241,14 +1241,12 @@ const Expedientes = ({ user = null }) => {
   }, {})
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
-  const expedientesAMostrar = (expedientesFiltradosPorEjercicio || [])
-    .slice()
-    .sort((a, b) => {
-      if (a?.estado === 'Cerrado' && b?.estado === 'Cerrado') {
-        return new Date(b?.created_at || 0) - new Date(a?.created_at || 0)
-      }
-      return 0
-    })
+  const expedientesFinales = (expedientesFiltradosPorEjercicio || []).slice().sort((a, b) => {
+    if (a?.estado === 'Cerrado' && b?.estado === 'Cerrado') {
+      return new Date(b?.created_at || 0) - new Date(a?.created_at || 0)
+    }
+    return 0 // Mantener orden original para el resto
+  })
 
   // No desmontar el modal de detalle durante el loading: preservar pestaña activa (ej. Cotización)
   if (isLoading && !showDetalleModal) {
@@ -1403,7 +1401,7 @@ const Expedientes = ({ user = null }) => {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {expedientesAMostrar.map((expediente, idx) => {
+          {expedientesFinales.map((expediente, idx) => {
               try {
                 if (!expediente || !expediente.id) return null
                 const estado = getEstadoUI(expediente.estado)
