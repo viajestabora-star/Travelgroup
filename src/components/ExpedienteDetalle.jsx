@@ -19,8 +19,6 @@ import EditableInput from './EditableInput'
 import {
   DestinoExpedienteEditable,
   normalizarServicioFuentePresupuestoParaPagos,
-  filtrarServiciosParaTabPagosProveedores,
-  unificarServiciosPagosPorNombreYProveedor,
   limpiarDesgloseGruposParaSupabase,
   idsServicioFilaPagos,
 } from './expedientes/FichaDelGrupo'
@@ -217,26 +215,6 @@ const filaPagosProveedores = ({
     url_pdf: url_pdf ?? null,
     concepto,
   }
-}
-
-/**
- * Vista «Pagos a Proveedores»: ocultar en pantalla (no borrar datos) líneas con importe 0 € y sin proveedor.
- * Criterio alineado con la tarjeta: nombre vacío e id ausente.
- */
-const filaPagoProveedorOcultaEnVistaPagosTab = (p) => {
-  const imp = Math.round(Number(p?.importe_pagado ?? 0) * 100) / 100
-  const nom = String(p?.proveedor_nombre ?? '').trim()
-  const id = p?.proveedor_id
-  const tieneProveedor = nom.length > 0 || (id != null && String(id).trim() !== '')
-  return imp === 0 && !tieneProveedor
-}
-
-const tarjetaServicioCotOcultaEnVistaPagosTab = (s) => {
-  const imp = Math.round(
-    Number(s?.total_servicio_manual ?? s?.total_servicio ?? s?.coste_unitario ?? 0) * 100
-  ) / 100
-  const tieneProveedor = String(s?._proveedorNombre ?? '').trim().length > 0
-  return imp === 0 && !tieneProveedor
 }
 
 /** Título del servicio como en la tarjeta (tipo_servicio / tipo); si vacío, etiqueta legible. */
@@ -2147,9 +2125,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           return { ...s, _proveedorNombre }
         })
 
-        const filtrados = filtrarServiciosParaTabPagosProveedores(enriquecidos)
-        const unificados = unificarServiciosPagosPorNombreYProveedor(filtrados)
-        setServiciosCot(unificados)
+        // Vista fiel a BD: sin unificación ni filtros fantasma en cliente.
+        setServiciosCot(enriquecidos)
       } catch (err) {
         console.error('[Pagos] Error cargando servicios:', err)
         setServiciosCotDb([])
@@ -3137,6 +3114,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const serviciosActuales = await fetchServiciosCotizacionActuales(expedienteUuid)
     const servicioIdValido = normalizarServicioIdFk(formPago.servicio_id, serviciosActuales)
     if (!servicioIdValido) {
+      console.error('[pagos_proveedores][registrarPagoProveedor] servicio_id inválido o inexistente', {
+        expediente_id: expedienteUuid,
+        servicio_id_form: formPago.servicio_id,
+        serviciosActuales: (serviciosActuales || []).map((x) => x?.id),
+      })
       alert('Selecciona un servicio válido de la tabla servicios_cotizacion antes de guardar.')
       return
     }
@@ -3248,10 +3230,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       // Refetch obligatorio antes del insert/update para usar IDs actuales y evitar 23503.
       const serviciosActuales = await fetchServiciosCotizacionActuales(expedienteUuid)
       const servicioIdFk = resolverServicioIdDesdeFila(servicio, servicioIdPersistencia, serviciosActuales)
-      const servicioIdDirecto = String(servicioIdPersistencia || '').trim()
-      const servicioIdFila = idsServicioFilaPagos(servicio).map((id) => String(id || '').trim()).find((id) => esUuidV4Valido(id))
-      const servicioIdPayload = servicioIdFk || (esUuidV4Valido(servicioIdDirecto) ? servicioIdDirecto : null) || servicioIdFila || null
+      const servicioIdPayload = servicioIdFk || null
       if (!servicioIdPayload) {
+        console.error('[pagos_proveedores][vinculacion] servicio_id no encontrado en servicios_cotizacion', {
+          expediente_id: expedienteUuid,
+          servicioSeleccionado: servicio,
+          idsFila: idsServicioFilaPagos(servicio),
+          serviciosActuales: (serviciosActuales || []).map((x) => x?.id),
+        })
         alert('Selecciona un servicio válido de la cotización para registrar la factura.')
         return
       }
@@ -3315,6 +3301,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
       if (dbError) {
         console.error('[pagos_proveedores][guardarFacturaCot] Error completo:', dbError)
+        if (String(dbError?.code || '') === '23503') {
+          alert('Integridad referencial: el servicio seleccionado ya no existe en servicios_cotizacion. Refresca la lista y vuelve a intentarlo.')
+          return
+        }
         if (esErrorRls(dbError)) {
           alert('RLS bloqueó el guardado en pagos_proveedores. Verifica sesión autenticada y políticas de la tabla.')
           return
@@ -6599,7 +6589,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           : documentado   ? 'border-green-300 bg-green-50'
                           : pagoRegistrado? 'border-amber-300 bg-amber-50'
                           :                 'border-gray-200 bg-gray-50'
-                          } ${tarjetaServicioCotOcultaEnVistaPagosTab(s) ? 'hidden' : ''}`}
+                          }`}
                         >
                           {/* Fila principal */}
                           <div
@@ -6902,7 +6892,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         {pagosProveedores.map((p) => (
                           <tr
                             key={p.id || `${p.servicio_id}-${p.fecha_pago}`}
-                            className={`hover:bg-slate-50/80 transition-colors${filaPagoProveedorOcultaEnVistaPagosTab(p) ? ' hidden' : ''}`}
+                            className="hover:bg-slate-50/80 transition-colors"
                           >
                             <td className="py-2.5 pr-3">
                               {(p.servicio_id == null || String(p.servicio_id).trim() === '')
