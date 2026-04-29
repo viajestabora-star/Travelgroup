@@ -1,11 +1,10 @@
 /**
  * Carga los datos fiscales/contacto de la empresa actual para usar como emisor en PDFs.
  *
- * Prioridad de campos:
- *   saas_razon_social || nombre_comercial → nombre
- *   saas_nif          || cif             → cif
- *   saas_direccion                       → direccion
- *   logo_url                             → logo_url (imagen de cabecera)
+ * Campos mínimos usados:
+ *   nombre_comercial → nombre
+ *   cif              → cif
+ *   logo_url         → logo_url (imagen de cabecera)
  *
  * Si la BD no devuelve datos, se retorna DATOS_EMISOR (Tabora) como fallback.
  */

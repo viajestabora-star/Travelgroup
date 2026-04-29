@@ -106,7 +106,9 @@ export function normalizarServicioFuentePresupuestoParaPagos(s) {
   return {
     ...s,
     tipo_servicio: s.tipo_servicio || s.tipo || 'Hotel',
-    nombre_especifico: s.nombre_especifico ?? s.nombreEspecifico ?? '',
+    // Esquema real servicios_cotizacion: nombre_servicio
+    nombre_especifico: s.nombre_especifico ?? s.nombreEspecifico ?? s.nombre_servicio ?? '',
+    nombre_servicio: s.nombre_servicio ?? s.nombre_especifico ?? s.nombreEspecifico ?? '',
     proveedor_id_int: pid,
     nombre_proveedor_manual: manual || temp || '',
   }

@@ -742,22 +742,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [mensajeExitoFacturaProveedor, setMensajeExitoFacturaProveedor] = useState(null)
   const lastSubmitRef = useRef({})
 
-  const normalizarServicioIdFk = (rawId) => {
+  const normalizarServicioIdFk = (rawId, serviciosSource = serviciosCotDb) => {
     const idBruto = (rawId && typeof rawId === 'object') ? rawId.id : rawId
     const id = String(idBruto ?? '').trim()
     if (!id) return null
-    const filaValida = (serviciosCotDb || []).find((s) => String(s?.id ?? '').trim() === id)
+    const filaValida = (serviciosSource || []).find((s) => String(s?.id ?? '').trim() === id)
     if (!filaValida) return null
     if (!esUuidV4Valido(filaValida.id)) return null
     return String(filaValida.id).trim()
   }
 
-  const resolverServicioIdDesdeFila = (filaServicio, servicioIdPreferido = null) => {
+  const resolverServicioIdDesdeFila = (filaServicio, servicioIdPreferido = null, serviciosSource = serviciosCotDb) => {
     const candidatos = []
     if (servicioIdPreferido != null && servicioIdPreferido !== '') candidatos.push(servicioIdPreferido)
     idsServicioFilaPagos(filaServicio).forEach((id) => candidatos.push(id))
     for (const c of candidatos) {
-      const validado = normalizarServicioIdFk(c)
+      const validado = normalizarServicioIdFk(c, serviciosSource)
       if (validado != null && String(validado).trim() !== '') return validado
     }
 
@@ -771,7 +771,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     ).trim().toLowerCase()
     const proveedorObjetivo = Number(filaServicio?.proveedor_id_int ?? filaServicio?.proveedorId ?? 0) || null
 
-    const match = (serviciosCotDb || []).find((s) => {
+    const match = (serviciosSource || []).find((s) => {
       const tipo = normalizarTipo(s?.tipo_servicio || s?.tipo || '')
       const nombre = String(
         s?.nombre_especifico
@@ -3122,7 +3122,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       alert('El importe debe ser un número positivo.')
       return
     }
-    const servicioIdValido = normalizarServicioIdFk(formPago.servicio_id)
+    const serviciosActuales = await fetchServiciosCotizacionActuales(expedienteUuid)
+    const servicioIdValido = normalizarServicioIdFk(formPago.servicio_id, serviciosActuales)
     if (!servicioIdValido) {
       alert('Selecciona un servicio válido de la tabla servicios_cotizacion antes de guardar.')
       return
@@ -3136,7 +3137,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (esSubmitDuplicadoReciente('registrarPagoProveedor', firmaPago)) return
     setIsSubmittingPagoProveedor(true)
     try {
-      const servicioRow = serviciosCotDb.find((sc) => String(sc.id) === String(servicioIdValido))
+      const servicioRow = serviciosActuales.find((sc) => String(sc.id) === String(servicioIdValido))
         || serviciosCot.find((sc) => String(sc.id) === String(servicioIdValido))
       const concepto = servicioRow ? tituloServicioParaConcepto(servicioRow) : 'Servicio'
       const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicioRow)
@@ -3233,8 +3234,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           ? existente.servicio_id
           : servicio.id
       // Refetch obligatorio antes del insert/update para usar IDs actuales y evitar 23503.
-      await fetchServiciosCotizacionActuales(expedienteUuid)
-      const servicioIdFk = resolverServicioIdDesdeFila(servicio, servicioIdPersistencia)
+      const serviciosActuales = await fetchServiciosCotizacionActuales(expedienteUuid)
+      const servicioIdFk = resolverServicioIdDesdeFila(servicio, servicioIdPersistencia, serviciosActuales)
       const servicioIdDirecto = String(servicioIdPersistencia || '').trim()
       const servicioIdFila = idsServicioFilaPagos(servicio).map((id) => String(id || '').trim()).find((id) => esUuidV4Valido(id))
       const servicioIdPayload = servicioIdFk || (esUuidV4Valido(servicioIdDirecto) ? servicioIdDirecto : null) || servicioIdFila || null
