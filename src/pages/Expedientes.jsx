@@ -1241,11 +1241,9 @@ const Expedientes = ({ user = null }) => {
   }, {})
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
-  const expedientesFinales = (expedientesFiltradosPorEjercicio || []).slice().sort((a, b) => {
-    if (a?.estado === 'Cerrado' && b?.estado === 'Cerrado') {
-      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0
-      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0
-      return dateB - dateA // Descendente: más nuevo arriba
+  const expedientesFinales = [...(expedientesFiltradosPorEjercicio || [])].sort((a, b) => {
+    if (a.estado === 'Cerrado' && b.estado === 'Cerrado') {
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0)
     }
     return 0
   })
@@ -1421,6 +1419,7 @@ const Expedientes = ({ user = null }) => {
                       <div className="flex-1">
                         <h2 className="text-2xl font-black text-navy-900 uppercase tracking-wide mb-1" style={{ fontSize: '16px' }}>
                           {nombreGrupo}
+                          {expediente.estado === 'Cerrado' && <span style={{ color: 'red', marginLeft: '8px' }}>DEBUG: {expediente.created_at}</span>}
                         </h2>
                         {responsableCompleto && (
                           <p className="text-navy-700 font-medium mb-1" style={{ fontSize: '16px' }} title="Responsable">
