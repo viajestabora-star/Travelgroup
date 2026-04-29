@@ -333,7 +333,6 @@ const Expedientes = ({ user = null }) => {
         setExpedientes([])
         return
       }
-      console.log('[DEBUG][expedientes][cloudData[0]]:', (cloudData || [])[0])
 
       // Parsear campos de Supabase
       const expedientesParseados = (cloudData || []).map(exp => {
@@ -1242,12 +1241,11 @@ const Expedientes = ({ user = null }) => {
   }, {})
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
-  const expedientesFinales = [...(expedientesFiltradosPorEjercicio || [])].sort((a, b) => {
+  const expedientesOrdenados = [...(expedientesFiltradosPorEjercicio || [])].sort((a, b) => {
     if (a.estado === 'Cerrado' && b.estado === 'Cerrado') {
-    // Convertimos YYYY-MM-DD a valor numérico para comparar
-    const dateA = a.fecha_inicio ? new Date(a.fecha_inicio).getTime() : 0
-    const dateB = b.fecha_inicio ? new Date(b.fecha_inicio).getTime() : 0
-    return dateB - dateA // DESCENDENTE: lo más reciente primero
+      const dA = a.fecha_inicio ? new Date(a.fecha_inicio).getTime() : 0
+      const dB = b.fecha_inicio ? new Date(b.fecha_inicio).getTime() : 0
+      return dB - dA // DESCENDENTE: Más reciente arriba
     }
     return 0
   })
@@ -1405,7 +1403,7 @@ const Expedientes = ({ user = null }) => {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {expedientesFinales.map((expediente, idx) => {
+          {expedientesOrdenados.map((expediente, idx) => {
               try {
                 if (!expediente || !expediente.id) return null
                 const estado = getEstadoUI(expediente.estado)
@@ -1423,7 +1421,6 @@ const Expedientes = ({ user = null }) => {
                       <div className="flex-1">
                         <h2 className="text-2xl font-black text-navy-900 uppercase tracking-wide mb-1" style={{ fontSize: '16px' }}>
                           {nombreGrupo}
-                          {expediente.estado === 'Cerrado' && <span style={{ color: 'red', marginLeft: '8px' }}>DEBUG: {expediente.created_at}</span>}
                         </h2>
                         {responsableCompleto && (
                           <p className="text-navy-700 font-medium mb-1" style={{ fontSize: '16px' }} title="Responsable">
