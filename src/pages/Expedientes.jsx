@@ -333,6 +333,7 @@ const Expedientes = ({ user = null }) => {
         setExpedientes([])
         return
       }
+      console.log('[DEBUG][expedientes][cloudData[0]]:', (cloudData || [])[0])
 
       // Parsear campos de Supabase
       const expedientesParseados = (cloudData || []).map(exp => {
@@ -1243,7 +1244,10 @@ const Expedientes = ({ user = null }) => {
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
   const expedientesFinales = [...(expedientesFiltradosPorEjercicio || [])].sort((a, b) => {
     if (a.estado === 'Cerrado' && b.estado === 'Cerrado') {
-      return new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    // Convertimos YYYY-MM-DD a valor numérico para comparar
+    const dateA = a.fecha_inicio ? new Date(a.fecha_inicio).getTime() : 0
+    const dateB = b.fecha_inicio ? new Date(b.fecha_inicio).getTime() : 0
+    return dateB - dateA // DESCENDENTE: lo más reciente primero
     }
     return 0
   })
