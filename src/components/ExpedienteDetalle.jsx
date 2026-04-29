@@ -769,18 +769,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   const fetchServiciosCotizacionActuales = async (expedienteUuid) => {
+    const expId = String(expedienteUuid || '').trim()
     let refRes = await supabase
       .from('servicios_cotizacion')
       .select('*')
-      .eq('id_expediente', expedienteUuid)
+      .eq('id_expediente', expId)
       .order('orden', { ascending: true })
+      .order('created_at', { ascending: true, nullsFirst: false })
       .order('id', { ascending: true })
 
-    if (refRes.error && (refRes.error.code === 'PGRST204' || String(refRes.error.message || '').includes('orden'))) {
+    if (
+      refRes.error &&
+      (refRes.error.code === 'PGRST204' || String(refRes.error.message || '').includes('created_at'))
+    ) {
       refRes = await supabase
         .from('servicios_cotizacion')
         .select('*')
-        .eq('id_expediente', expedienteUuid)
+        .eq('id_expediente', expId)
+        .order('orden', { ascending: true })
         .order('id', { ascending: true })
     }
     if (refRes.error) throw refRes.error
@@ -2075,6 +2081,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const expId = String(expediente.id).trim()
     setCargandoCot(true)
     setErrorCot(null)
+    setServiciosCot([])
+    setServiciosCotDb([])
 
     ;(async () => {
       try {
@@ -2082,10 +2090,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         const serviciosFuente = await fetchServiciosCotizacionActuales(expId)
         console.log('[Pagos] id_expediente:', expId, '| estado:', estadoActual, '→', serviciosFuente.length, 'filas')
 
-        const serviciosFiltrados = serviciosFuente
-
         const idsNumericos = [...new Set(
-          serviciosFiltrados
+          serviciosFuente
             .map(s => s.proveedor_id_int)
             .filter(id => id != null && id !== '' && !isNaN(Number(id)))
             .map(id => Number(id))
@@ -2102,7 +2108,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           }
         }
 
-        const enriquecidos = serviciosFiltrados.map(s => {
+        const enriquecidos = serviciosFuente.map(s => {
           const provId = s.proveedor_id_int != null ? Number(s.proveedor_id_int) : null
           const _proveedorNombre =
             (provId && proveedoresMap[provId])
@@ -2124,6 +2130,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       }
     })()
   }, [tab, expediente?.id, expediente?.estado, firmaServiciosPresupuestoPagos])
+
+  useEffect(() => {
+    if (tab !== 'pagosProveedores' || !expediente?.id) return
+    const expId = String(expediente.id).trim()
+    const channel = supabase
+      .channel(`pagos-servicios-sync-${expId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'servicios_cotizacion', filter: `id_expediente=eq.${expId}` },
+        async () => {
+          try {
+            const serviciosFuente = await fetchServiciosCotizacionActuales(expId)
+            setServiciosCot(serviciosFuente)
+          } catch (_) {}
+        }
+      )
+      .subscribe()
+
+    return () => {
+      try { supabase.removeChannel(channel) } catch (_) {}
+    }
+  }, [tab, expediente?.id])
 
   // ============ CARGAR VERSIONES DE FACTURAS ============
   // ============ CARGAR VERSIONES DE FACTURA (SINCRONIZADO) ============
