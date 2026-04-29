@@ -1241,6 +1241,14 @@ const Expedientes = ({ user = null }) => {
   }, {})
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
+  const expedientesAMostrar = (expedientesFiltradosPorEjercicio || [])
+    .slice()
+    .sort((a, b) => {
+      if (a?.estado === 'Cerrado' && b?.estado === 'Cerrado') {
+        return new Date(b?.created_at || 0) - new Date(a?.created_at || 0)
+      }
+      return 0
+    })
 
   // No desmontar el modal de detalle durante el loading: preservar pestaña activa (ej. Cotización)
   if (isLoading && !showDetalleModal) {
@@ -1395,41 +1403,7 @@ const Expedientes = ({ user = null }) => {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {(expedientesFiltradosPorEjercicio || [])
-            .slice()
-            .sort((a, b) => {
-              try {
-                const estadoA = String(a?.estado || '').trim()
-                const estadoB = String(b?.estado || '').trim()
-                const ambosCerradosExactos = estadoA === 'Cerrado' && estadoB === 'Cerrado'
-                if (ambosCerradosExactos) {
-                  const createdA = a?.created_at ? new Date(a.created_at).getTime() : 0
-                  const createdB = b?.created_at ? new Date(b.created_at).getTime() : 0
-                  return createdB - createdA // DESC: más nuevo arriba
-                }
-                // Regla de negocio: Ordenación por fecha de salida (más próximo a más lejano)
-                const fechaInicioA = a.fecha_inicio || a.fechaInicio
-                const fechaInicioB = b.fecha_inicio || b.fechaInicio
-                const fechaObjA = parsearFecha(fechaInicioA)
-                const fechaObjB = parsearFecha(fechaInicioB)
-                if (!fechaObjA && !fechaObjB) {
-                  const nombreA = (a.cliente_nombre || a.clienteNombre || '').toLowerCase().trim()
-                  const nombreB = (b.cliente_nombre || b.clienteNombre || '').toLowerCase().trim()
-                  return nombreA.localeCompare(nombreB, 'es')
-                }
-                if (!fechaObjA) return 1
-                if (!fechaObjB) return -1
-                const cmpFecha = fechaObjA - fechaObjB
-                if (cmpFecha !== 0) return cmpFecha
-                // Desempate: por cliente A-Z
-                const nombreA = (a.cliente_nombre || a.clienteNombre || '').toLowerCase().trim()
-                const nombreB = (b.cliente_nombre || b.clienteNombre || '').toLowerCase().trim()
-                return nombreA.localeCompare(nombreB, 'es')
-              } catch (error) {
-                return 0
-              }
-            })
-            .map((expediente, idx) => {
+          {expedientesAMostrar.map((expediente, idx) => {
               try {
                 if (!expediente || !expediente.id) return null
                 const estado = getEstadoUI(expediente.estado)
