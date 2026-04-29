@@ -1399,6 +1399,14 @@ const Expedientes = ({ user = null }) => {
             .slice()
             .sort((a, b) => {
               try {
+                const estadoA = String(a?.estado || '').trim()
+                const estadoB = String(b?.estado || '').trim()
+                const ambosCerradosExactos = estadoA === 'Cerrado' && estadoB === 'Cerrado'
+                if (ambosCerradosExactos) {
+                  const createdA = a?.created_at ? new Date(a.created_at).getTime() : 0
+                  const createdB = b?.created_at ? new Date(b.created_at).getTime() : 0
+                  return createdB - createdA // DESC: más nuevo arriba
+                }
                 // Regla de negocio: Ordenación por fecha de salida (más próximo a más lejano)
                 const fechaInicioA = a.fecha_inicio || a.fechaInicio
                 const fechaInicioB = b.fecha_inicio || b.fechaInicio
