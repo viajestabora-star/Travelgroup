@@ -1241,11 +1241,17 @@ const Expedientes = ({ user = null }) => {
   }, {})
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
-  const expedientesOrdenados = [...(expedientesFiltradosPorEjercicio || [])].sort((a, b) => {
+  // Aseguramos que trabajamos sobre una copia limpia para evitar mutaciones
+  const expedientesFinales = [...(expedientesFiltradosPorEjercicio || [])].sort((a, b) => {
     if (a.estado === 'Cerrado' && b.estado === 'Cerrado') {
-      const dA = a.fecha_inicio ? new Date(a.fecha_inicio).getTime() : 0
-      const dB = b.fecha_inicio ? new Date(b.fecha_inicio).getTime() : 0
-      return dB - dA // DESCENDENTE: Más reciente arriba
+      // Usamos split y números para evitar errores de zona horaria del objeto Date
+      const [yA, mA, dA] = (a.fecha_inicio || '1970-01-01').split('-').map(Number)
+      const [yB, mB, dB] = (b.fecha_inicio || '1970-01-01').split('-').map(Number)
+
+      const valA = new Date(yA, mA - 1, dA).getTime()
+      const valB = new Date(yB, mB - 1, dB).getTime()
+
+      return valB - valA // DESCENDENTE
     }
     return 0
   })
@@ -1403,7 +1409,7 @@ const Expedientes = ({ user = null }) => {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {expedientesOrdenados.map((expediente, idx) => {
+          {expedientesFinales.map((expediente, idx) => {
               try {
                 if (!expediente || !expediente.id) return null
                 const estado = getEstadoUI(expediente.estado)
