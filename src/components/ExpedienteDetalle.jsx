@@ -2078,6 +2078,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [versiones, versionActiva, expediente?.id])
 
+  const duplicadosServiciosPagos = useMemo(() => {
+    const map = new Map()
+    ;(serviciosCot || []).forEach((s) => {
+      const tipo = String(s?.tipo_servicio || s?.tipo || '').trim().toLowerCase()
+      const nombre = String(s?.nombre_servicio || s?.nombre_especifico || s?.nombreEspecifico || '').trim().toLowerCase()
+      const proveedor = String(s?._proveedorNombre || s?.nombre_proveedor_texto || s?.nombre_proveedor_manual || '').trim().toLowerCase()
+      const key = `${tipo}__${nombre}__${proveedor}`
+      map.set(key, (map.get(key) || 0) + 1)
+    })
+    return map
+  }, [serviciosCot])
+
   // Carga servicios para Pagos: misma fuente que el presupuesto (versiones_json) si existe; si no, servicios_cotizacion.
   // Se sincroniza al montar la pestaña y cuando cambia la firma del presupuesto (sin botón de refresco).
   useEffect(() => {
@@ -6609,6 +6621,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 {s.tipo_servicio || 'Servicio'}
                                 {s.nombre_especifico ? ` — ${s.nombre_especifico}` : ''}
                               </p>
+                              {(() => {
+                                const tipo = String(s?.tipo_servicio || s?.tipo || '').trim().toLowerCase()
+                                const nombre = String(s?.nombre_servicio || s?.nombre_especifico || s?.nombreEspecifico || '').trim().toLowerCase()
+                                const proveedor = String(s?._proveedorNombre || s?.nombre_proveedor_texto || s?.nombre_proveedor_manual || '').trim().toLowerCase()
+                                const key = `${tipo}__${nombre}__${proveedor}`
+                                const total = duplicadosServiciosPagos.get(key) || 0
+                                if (total <= 1) return null
+                                return (
+                                  <p className="text-[11px] mt-1 font-semibold text-amber-700">
+                                    Duplicado detectado ({total}) - revisa proveedor/importe
+                                  </p>
+                                )
+                              })()}
                               {/* Proveedor resuelto (DB lookup → texto manual → fallback) */}
                               <p className={`text-xs mt-0.5 font-medium ${s._proveedorNombre ? 'text-indigo-700' : 'text-gray-400 italic'}`}>
                                 {s._proveedorNombre || 'Sin proveedor asignado'}

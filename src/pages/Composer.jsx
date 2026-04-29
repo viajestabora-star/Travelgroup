@@ -159,7 +159,7 @@ const Composer = ({ user }) => {
         ]
         if (empresaId) {
           queries.push(
-            supabase.from('empresas').select('nombre_comercial, saas_razon_social, saas_direccion, saas_telefono, logo_url').eq('id', empresaId).maybeSingle()
+            supabase.from('empresas').select('id, nombre_comercial, cif, logo_url').eq('id', empresaId).maybeSingle()
           )
         }
         const [provRes, expRes, empRes] = await Promise.all(queries)
@@ -167,7 +167,7 @@ const Composer = ({ user }) => {
         if (!expRes.error && Array.isArray(expRes.data)) setExpedientes(expRes.data)
         if (empRes && !empRes.error && empRes.data) {
           const emp = empRes.data
-          setAgenciaNombre(emp.saas_razon_social || emp.nombre_comercial || user?.nombre_app || '')
+          setAgenciaNombre(emp.nombre_comercial || user?.nombre_app || '')
           setAgenciaLogo(emp.logo_url || user?.logo_url || user?.favicon_url || null)
           setAgenciaDireccion(emp.saas_direccion || '')
           setAgenciaTelefono(emp.saas_telefono   || '')
