@@ -1241,17 +1241,11 @@ const Expedientes = ({ user = null }) => {
   }, {})
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
-  // Aseguramos que trabajamos sobre una copia limpia para evitar mutaciones
+  // Ordenación universal (UI): expedientes Cerrados por fecha_inicio descendente tras filtro ejercicio/búsqueda y pestaña.
+  // Copia para no mutar el array filtrado; el resto de estados conserva el orden relativo (return 0).
   const expedientesFinales = [...(expedientesFiltradosPorEjercicio || [])].sort((a, b) => {
     if (a.estado === 'Cerrado' && b.estado === 'Cerrado') {
-      // Usamos split y números para evitar errores de zona horaria del objeto Date
-      const [yA, mA, dA] = (a.fecha_inicio || '1970-01-01').split('-').map(Number)
-      const [yB, mB, dB] = (b.fecha_inicio || '1970-01-01').split('-').map(Number)
-
-      const valA = new Date(yA, mA - 1, dA).getTime()
-      const valB = new Date(yB, mB - 1, dB).getTime()
-
-      return valB - valA // DESCENDENTE
+      return new Date(b.fecha_inicio).getTime() - new Date(a.fecha_inicio).getTime()
     }
     return 0
   })
