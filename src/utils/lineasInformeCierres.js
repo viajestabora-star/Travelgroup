@@ -1,5 +1,7 @@
 import { supabase } from '../supabase'
 
+const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
+
 /**
  * Campos del expediente necesarios para `calcularTotalesInforme` + `crearJsPdfInformeCierre`
  * (misma consulta que usa la pestaña Informe Hacienda en Cierres.jsx).
@@ -122,6 +124,9 @@ export async function obtenerLineasInformeComoCierres(supabaseClient, exp, optio
         'id, tipo_servicio, tipo, nombre_especifico, nombre_servicio, nombre_proveedor_texto, nombre_proveedor_manual, proveedor_id_int, coste_unitario, noches, tipo_calculo, total_servicio'
       )
       .eq('id_expediente', exp.id)
+      .gt('total_servicio', 0)
+      .not('nombre_servicio', 'is', null)
+      .neq('id', SERVICIO_ANOMALO_ID)
       .order('id', { ascending: true })
 
     if (error) return []

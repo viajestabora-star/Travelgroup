@@ -35,6 +35,7 @@ import VisualizadorPro from './VisualizadorPro'
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
 const BUCKET_EXPEDIENTES = 'expedientes'
 const SUBMIT_DEDUPE_MS = 2000
+const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
 const proveedorInformeTexto = (proveedor) => {
   const txt = String(proveedor ?? '').trim()
@@ -774,6 +775,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       .from('servicios_cotizacion')
       .select('*')
       .eq('id_expediente', expId)
+      .gt('total_servicio', 0)
+      .not('nombre_servicio', 'is', null)
+      .neq('id', SERVICIO_ANOMALO_ID)
       .order('orden', { ascending: true })
       .order('created_at', { ascending: true, nullsFirst: false })
       .order('id', { ascending: true })
@@ -786,6 +790,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', expId)
+        .gt('total_servicio', 0)
+        .not('nombre_servicio', 'is', null)
+        .neq('id', SERVICIO_ANOMALO_ID)
         .order('orden', { ascending: true })
         .order('id', { ascending: true })
     }
@@ -1149,14 +1156,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             // Consultar servicios del expediente para calcular coste total
             const { data: servicios } = await supabase
               .from('servicios_cotizacion')
-              .select('coste_unitario, tipo_servicio, noches')
+              .select('id, total_servicio, coste_unitario, tipo_servicio, noches, nombre_servicio')
               .eq('id_expediente', exp.id)
+              .gt('total_servicio', 0)
+              .not('nombre_servicio', 'is', null)
+              .neq('id', SERVICIO_ANOMALO_ID)
 
             let costeTotal = 0
             if (servicios && servicios.length > 0) {
               servicios.forEach(servicio => {
+                const totalServicio = parseFloat(servicio.total_servicio)
+                if (!Number.isNaN(totalServicio) && totalServicio > 0) {
+                  costeTotal += totalServicio
+                  return
+                }
                 const coste = parseFloat(servicio.coste_unitario) || 0
-                const cantidad = servicio.tipo_servicio === 'Hotel' || servicio.tipo_servicio === 'Guía' 
+                const cantidad = servicio.tipo_servicio === 'Hotel' || servicio.tipo_servicio === 'Guía'
                   ? (parseInt(servicio.noches) || 1)
                   : 1
                 costeTotal += coste * cantidad

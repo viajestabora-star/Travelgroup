@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { X, Users, TrendingUp, MapPin } from 'lucide-react'
 import { supabase } from '../supabase'
 
+const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
+
 /**
  * IntelligenceHub - Modal con sección CRM y Económica.
  * CRM: Cruza clientes con expedientes (veces viajado, total pasajeros, destinos favoritos).
@@ -46,8 +48,11 @@ const IntelligenceHub = ({ user, isOpen, onClose }) => {
         if (idsExp.length > 0) {
           const { data, error: errServ } = await supabase
             .from('servicios_cotizacion')
-            .select('id_expediente, especificacion_destino, coste_real_proveedor')
+            .select('id, id_expediente, especificacion_destino, coste_real_proveedor, total_servicio, nombre_servicio')
             .in('id_expediente', idsExp)
+            .gt('total_servicio', 0)
+            .not('nombre_servicio', 'is', null)
+            .neq('id', SERVICIO_ANOMALO_ID)
           if (!errServ && data) serviciosData = data
         }
 

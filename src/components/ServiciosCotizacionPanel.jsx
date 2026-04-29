@@ -3,6 +3,8 @@ import { X, Save, Plus, Trash2, CheckCircle } from 'lucide-react'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
 
+const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
+
 /** Sanitización de números: cualquier valor no numérico → 0 (para cálculos financieros) */
 const toNum = (v) => {
   if (v === null || v === undefined) return 0
@@ -474,6 +476,7 @@ const ServiciosCotizacionPanel = ({
     return {
       id_expediente: String(expediente?.id ?? '').trim(),
       tipo_servicio: servicio?.tipo || 'Hotel',
+      nombre_servicio: servicio?.nombreEspecifico || '',
       nombre_especifico: servicio?.nombreEspecifico || '',
       localizacion: servicio?.localizacion || '',
       especificacion_destino: (servicio?.especificacion_destino && String(servicio.especificacion_destino).trim()) || null,
@@ -515,6 +518,30 @@ const ServiciosCotizacionPanel = ({
     console.log('[Guardar Servicios] Iniciando guardado para expediente:', expIdStr, '| Servicios:', servicios.length)
 
     try {
+      const filasValidadas = servicios.map((s, index) => {
+        const datos = buildDatosParaSupabase(s)
+        return {
+          ...datos,
+          id_expediente: expIdStr,
+          id: s.id && typeof s.id === 'string' && s.id.length > 10 ? s.id : generarUUID(),
+          orden: index,
+        }
+      })
+      const invalidas = filasValidadas.filter((r) => {
+        const nombre = String(r.nombre_servicio || '').trim()
+        const total = Number(r.total_servicio || 0)
+        return !nombre || !(total > 0)
+      })
+      if (invalidas.length > 0) {
+        console.error('[Guardar Servicios] Validación fallida:', invalidas)
+        alert('No se puede guardar: todos los servicios deben tener nombre_servicio y total_servicio mayor que 0.')
+        return { ok: false, error: 'Validación de servicios fallida' }
+      }
+
+      if (!window.confirm('Se reemplazarán los servicios existentes del expediente. ¿Confirmas continuar?')) {
+        return { ok: false, error: 'Operación cancelada por el usuario' }
+      }
+
       // 1. Borrar filas existentes
       const { error: deleteError } = await supabase
         .from('servicios_cotizacion')
@@ -529,15 +556,7 @@ const ServiciosCotizacionPanel = ({
       console.log('[Guardar Servicios] DELETE OK')
 
       // 2. Preparar filas — usar expIdStr para id_expediente (no expediente?.id que puede variar)
-      const rowsToInsert = servicios.map((s, index) => {
-        const datos = buildDatosParaSupabase(s)
-        return {
-          ...datos,
-          id_expediente: expIdStr,   // forzar el ID correcto en cada fila
-          id: s.id && typeof s.id === 'string' && s.id.length > 10 ? s.id : generarUUID(),
-          orden: index,
-        }
-      })
+      const rowsToInsert = filasValidadas.filter((r) => String(r.id || '').trim() !== SERVICIO_ANOMALO_ID)
       console.log('[Guardar Servicios] Filas a insertar:', rowsToInsert.length, '| Primer id_expediente:', rowsToInsert[0]?.id_expediente)
 
       // 3. Insertar

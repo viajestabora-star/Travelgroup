@@ -20,6 +20,7 @@ import { esUsuarioAdmin } from '../utils/userRoles'
  * - Índice de Eficiencia Pax: beneficio_neto_real / pax (por cliente agregado)
  */
 const toNum = (v) => (v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : 0)
+const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
 const esCerrado = (estado) => (estado || '').toString().trim().toLowerCase() === 'cerrado'
 
@@ -228,8 +229,11 @@ const InteligenciaPredictivaPanel = ({ user }) => {
         if (idsExp.length > 0) {
           const { data: serviciosData, error: errServ } = await supabase
             .from('servicios_cotizacion')
-            .select('id_expediente, total_servicio')
+            .select('id, id_expediente, total_servicio, nombre_servicio')
             .in('id_expediente', idsExp)
+            .gt('total_servicio', 0)
+            .not('nombre_servicio', 'is', null)
+            .neq('id', SERVICIO_ANOMALO_ID)
 
           if (!errServ && Array.isArray(serviciosData)) {
             serviciosData.forEach((s) => {

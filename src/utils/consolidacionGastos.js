@@ -8,6 +8,8 @@
 import { supabase } from '../supabase'
 import { toNum } from './finanzasHelpers'
 
+const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
+
 const toNumSafe = (v) => {
   if (v === null || v === undefined) return 0
   if (typeof v === 'number' && !isNaN(v)) return v
@@ -63,6 +65,9 @@ const obtenerServiciosParaConsolidar = async (expedienteId, versionesJson) => {
     .from('servicios_cotizacion')
     .select('*')
     .eq('id_expediente', String(expedienteId).trim())
+    .gt('total_servicio', 0)
+    .not('nombre_servicio', 'is', null)
+    .neq('id', SERVICIO_ANOMALO_ID)
   const rows = Array.isArray(data) ? data : []
   return rows.map((r) => ({
     ...r,

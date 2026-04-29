@@ -5,6 +5,8 @@ import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone, Users, Navig
 import { useEmpresa } from '../context/EmpresaContext'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
 
+const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
+
 const Clientes = ({ user = null }) => {
   const { empresaId } = useEmpresa()
   const [clientes, setClientes] = useState([])
@@ -129,14 +131,22 @@ const Clientes = ({ user = null }) => {
             // Consultar servicios del expediente para calcular coste total
             const { data: servicios } = await supabase
               .from('servicios_cotizacion')
-              .select('coste_unitario, tipo_servicio, noches')
+              .select('id, total_servicio, coste_unitario, tipo_servicio, noches, nombre_servicio')
               .eq('id_expediente', exp.id)
+              .gt('total_servicio', 0)
+              .not('nombre_servicio', 'is', null)
+              .neq('id', SERVICIO_ANOMALO_ID)
 
             let costeTotal = 0
             if (servicios && servicios.length > 0) {
               servicios.forEach(servicio => {
+                const totalServicio = parseFloat(servicio.total_servicio)
+                if (!Number.isNaN(totalServicio) && totalServicio > 0) {
+                  costeTotal += totalServicio
+                  return
+                }
                 const coste = parseFloat(servicio.coste_unitario) || 0
-                const cantidad = servicio.tipo_servicio === 'Hotel' || servicio.tipo_servicio === 'Guía' 
+                const cantidad = servicio.tipo_servicio === 'Hotel' || servicio.tipo_servicio === 'Guía'
                   ? (parseInt(servicio.noches) || 1)
                   : 1
                 costeTotal += coste * cantidad

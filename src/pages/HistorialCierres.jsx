@@ -49,6 +49,8 @@ import {
   NUMEROS_DIAGNOSTICO_HISTORIAL,
   subirPdfGastoEstructuraFacturaProveedor,
 } from '../utils/historialCierresShared'
+
+const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 import { desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
 
 /** Número puro para `importe_iva` (misma regla que CierresModals). Si no es finito → 0. */
@@ -727,6 +729,9 @@ const HistorialCierres = ({ user }) => {
           .from('servicios_cotizacion')
           .select('id, id_expediente, tipo_servicio, nombre_especifico, coste_real_proveedor, coste_unitario, total_servicio_manual, proveedor_id_int, nombre_proveedor_texto')
           .in('id_expediente', idsNecesitanFetch)
+          .gt('total_servicio', 0)
+          .not('nombre_servicio', 'is', null)
+          .neq('id', SERVICIO_ANOMALO_ID)
 
         const provIds = [...new Set((serviciosDB || []).map(s => s.proveedor_id_int).filter(Boolean))]
         let provNombres = {}
