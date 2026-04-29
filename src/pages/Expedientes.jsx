@@ -1242,10 +1242,12 @@ const Expedientes = ({ user = null }) => {
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
   const expedientesFinales = (expedientesFiltradosPorEjercicio || []).slice().sort((a, b) => {
+    // Criterio forzado en UI: si ambos son Cerrado, ordenar por created_at DESC.
     if (a?.estado === 'Cerrado' && b?.estado === 'Cerrado') {
-      return new Date(b?.created_at || 0) - new Date(a?.created_at || 0)
+      return new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime()
     }
-    return 0 // Mantener orden original para el resto
+    // Mantener orden original para el resto de estados.
+    return 0
   })
 
   // No desmontar el modal de detalle durante el loading: preservar pestaña activa (ej. Cotización)
