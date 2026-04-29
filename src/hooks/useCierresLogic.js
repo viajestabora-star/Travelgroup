@@ -227,7 +227,7 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
           .select(columnas)
           .eq('ejercicio', anioNum)
           .or('estado.ilike.Cerrado,estado.ilike.Finalizado')
-          .order('fecha_inicio', { ascending: true, nullsFirst: false })
+          .order('created_at', { ascending: false, nullsFirst: false })
 
         if (trimestreVal !== 'all') {
           const rango = rangoFechasConsultaExpedientes(anioStr, trimestreVal)

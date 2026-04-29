@@ -210,6 +210,7 @@ const fetchExpedientesCierrePorRango = async (supabaseClient, columnasSelect, an
         .from(nombreTabla)
         .select(columnasSelect)
         .or('estado.ilike.cerrado,estado.ilike.liquidado')
+        .order('created_at', { ascending: false, nullsFirst: false })
 
     const resConFecha = await base().gte('fecha_inicio', rango.inicio).lte('fecha_inicio', rango.fin)
     if (resConFecha.error) {

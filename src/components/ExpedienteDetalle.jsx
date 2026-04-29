@@ -5269,14 +5269,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                     </div>
                                   </td>
                                   <td className="px-4 py-3">
+                                    {(() => {
+                                      const estadoNorm = String(exp.estado || '').trim().toLowerCase()
+                                      const estadoClass =
+                                        estadoNorm === 'cerrado' ? 'bg-green-100 text-green-800' :
+                                        estadoNorm === 'confirmado' ? 'bg-blue-100 text-blue-800' :
+                                        estadoNorm === 'peticion' ? 'bg-yellow-100 text-yellow-800' :
+                                        'bg-slate-100 text-slate-800'
+                                      return (
                                     <span className={`inline-block px-2.5 py-1 rounded-full text-sm font-bold ${
-                                      exp.estado === 'cerrado' ? 'bg-green-100 text-green-800' :
-                                      exp.estado === 'confirmado' ? 'bg-blue-100 text-blue-800' :
-                                      exp.estado === 'peticion' ? 'bg-yellow-100 text-yellow-800' :
-                                      'bg-slate-100 text-slate-800'
+                                      estadoClass
                                     }`}>
                                       {exp.estado || 'Sin estado'}
                                     </span>
+                                      )
+                                    })()}
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                     <div className={`font-bold text-sm ${

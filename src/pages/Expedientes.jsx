@@ -1509,7 +1509,7 @@ const Expedientes = ({ user = null }) => {
                       <button
                         title="Cerrado"
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'cerrado'); }}
+                        onClick={(e) => { e.stopPropagation(); cambiarEstado(expediente?.id, 'Cerrado'); }}
                         className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-sm transition-all ${(expediente?.estado || '').toString().trim().toLowerCase() === 'cerrado' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-400'}`}
                       >Ce</button>
                       <button
