@@ -292,6 +292,8 @@ const ExpedienteFinanzas = ({
     setIsSubmittingCobro(true)
     try {
       const importeNumerico = Number(parseFloat(String(importeLimpio))) || 0
+      const empresaIdResueltoNum = Number(user?.empresa_id || empresaId)
+      const empresaIdResuelto = empresaIdResueltoNum > 0 ? empresaIdResueltoNum : null
       const datosCobro = {
         expediente_id: expediente.id,
         cliente_id: clienteId,
@@ -300,7 +302,12 @@ const ExpedienteFinanzas = ({
         cuenta_destino: String(formCobro.cuenta_destino || 'Caixabank'),
         concepto: String(formCobro.concepto || '').trim(),
         fecha: new Date().toISOString(),
-        empresa_id: empresaId
+        empresa_id: empresaIdResuelto
+      }
+      if (datosCobro.empresa_id === undefined || datosCobro.empresa_id === null) {
+        throw new Error(
+          'empresa_id es obligatorio para registrar cobros y recibos oficiales (RLS). Revise la sesión y el perfil (profiles). No se realizó la inserción.'
+        )
       }
 
       let errorOperacion = null
@@ -377,7 +384,7 @@ const ExpedienteFinanzas = ({
             metodo_pago: datosCobro.metodo_pago,
             cuenta_destino: datosCobro.cuenta_destino,
             fecha: datosCobro.fecha,
-            empresa_id: empresaId
+            empresa_id: datosCobro.empresa_id
           }
           const { error: errRecibo } = await supabase
             .from('recibos_oficiales')
