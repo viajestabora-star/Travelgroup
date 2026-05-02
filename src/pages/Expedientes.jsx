@@ -18,6 +18,7 @@ import { sanitizarExpedienteParaDB } from '../utils/constraintValidator'
 import { DestinoExpedienteEditable } from '../components/expedientes/FichaDelGrupo'
 import { useEmpresa } from '../context/EmpresaContext'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
+import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -218,12 +219,47 @@ const Expedientes = ({ user = null }) => {
     observaciones: '',
     itinerario: '',
     total_pax: '',
+    // IVA por defecto del tenant (empresas), no del cliente
+    config_iva_repercutido: '21',
+    config_iva_soportado: '21',
   })
 
   useEffect(() => {
     if (!showExpedienteModal) return
     setAvisoFormularioExpediente((prev) => (prev ? null : prev))
   }, [expedienteForm.clienteId, expedienteForm.fechaInicio, expedienteForm.destino, showExpedienteModal])
+
+  // Al abrir el modal de nuevo expediente: IVA por defecto desde empresas (tenant del perfil), nunca desde cliente.
+  useEffect(() => {
+    if (!showExpedienteModal) return undefined
+    let cancelled = false
+    ;(async () => {
+      const { empresaId, error } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+      if (cancelled || error || !empresaId) return
+      const { data } = await supabase
+        .from('empresas')
+        .select('config_iva_repercutido, config_iva_soportado')
+        .eq('id', empresaId)
+        .maybeSingle()
+      if (cancelled || !data) return
+      const r =
+        data.config_iva_repercutido != null && data.config_iva_repercutido !== ''
+          ? Number(data.config_iva_repercutido)
+          : 21
+      const s =
+        data.config_iva_soportado != null && data.config_iva_soportado !== ''
+          ? Number(data.config_iva_soportado)
+          : 21
+      setExpedienteForm((prev) => ({
+        ...prev,
+        config_iva_repercutido: String(Number.isFinite(r) ? r : 21),
+        config_iva_soportado: String(Number.isFinite(s) ? s : 21),
+      }))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [showExpedienteModal])
 
   const aplicarDestinoLocal = useCallback((id, destino) => {
     const d = destino ?? ''
@@ -653,6 +689,8 @@ const Expedientes = ({ user = null }) => {
       // ARQUITECTURA UUID: Usar id generado por Supabase (UUID), NO enviar campo id
       // CORRECCIÓN: Asegurar que todos los campos obligatorios tengan valores válidos
       const paxPagoNum = totalPaxSanitizado ? parseInt(totalPaxSanitizado, 10) : 0;
+      const ivaRepNum = parseFloat(String(expedienteForm.config_iva_repercutido || '').replace(',', '.'))
+      const ivaSopNum = parseFloat(String(expedienteForm.config_iva_soportado || '').replace(',', '.'))
       const datosInsertar = {
         cliente_id: clienteIdFinal, // UUID (string), NUNCA integer, NUNCA objeto
         cliente_nombre: String(finalNombre || '').trim() || 'Sin nombre', // Obligatorio: nunca null
@@ -671,6 +709,8 @@ const Expedientes = ({ user = null }) => {
         total_pax: totalPaxSanitizado || null,
         pax_pago: paxPagoNum,
         precio_venta_cliente: 0, // Valor por defecto para evitar NOT NULL
+        config_iva_repercutido: Number.isFinite(ivaRepNum) ? ivaRepNum : null,
+        config_iva_soportado: Number.isFinite(ivaSopNum) ? ivaSopNum : null,
       };
 
       // VERIFICACIÓN EXPLÍCITA: Asegurar que id NO esté en el objeto
@@ -1142,6 +1182,8 @@ const Expedientes = ({ user = null }) => {
       observaciones: '',
       itinerario: '',
       total_pax: '',
+      config_iva_repercutido: '21',
+      config_iva_soportado: '21',
     })
     setClienteInputValue('')
     setShowSuggestions(false)
@@ -1808,6 +1850,53 @@ const Expedientes = ({ user = null }) => {
                       <option key={key} value={key}>{ESTADOS[key].label}</option>
                     ))}
                   </select>
+                </div>
+                <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                  <p className="text-xs font-semibold text-slate-700 mb-2">
+                    IVA por defecto (configuración de tu empresa / tenant)
+                  </p>
+                  <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
+                    Valores cargados desde la tabla <code className="bg-white px-1 rounded border border-slate-200">empresas</code>{' '}
+                    según tu <code className="bg-white px-1 rounded border border-slate-200">profiles.empresa_id</code>. Son editables aquí solo para este expediente; no usan datos del cliente.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="label text-xs">IVA repercutido (%)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={expedienteForm.config_iva_repercutido}
+                        onChange={(e) =>
+                          setExpedienteForm({ ...expedienteForm, config_iva_repercutido: e.target.value })
+                        }
+                        className="input-field bg-white text-black border-gray-200"
+                        style={{
+                          backgroundColor: '#fff',
+                          color: '#0f172a',
+                          borderRadius: '12px',
+                          border: '1px solid #e2e8f0',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs">IVA soportado (%)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={expedienteForm.config_iva_soportado}
+                        onChange={(e) =>
+                          setExpedienteForm({ ...expedienteForm, config_iva_soportado: e.target.value })
+                        }
+                        className="input-field bg-white text-black border-gray-200"
+                        style={{
+                          backgroundColor: '#fff',
+                          color: '#0f172a',
+                          borderRadius: '12px',
+                          border: '1px solid #e2e8f0',
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <label className="label">Tipo Colectivo</label>

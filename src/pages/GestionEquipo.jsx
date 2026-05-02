@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { UserPlus, Users, RefreshCw, Shield, X, Pencil, Trash2 } from 'lucide-react'
+import { UserPlus, Users, RefreshCw, Shield, X, Pencil, Trash2, Building2 } from 'lucide-react'
 import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
 import { verificarLicenciasYRegistrarMiembro, MENSAJE_SIN_LICENCIAS } from '../utils/gestionEquipoRegistration'
 import { esUsuarioAdmin } from '../utils/userRoles'
+import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
 
 const emptyForm = () => ({
   email: '',
@@ -38,6 +39,13 @@ const GestionEquipo = ({ user }) => {
   const [guardandoEdicion, setGuardandoEdicion] = useState(false)
   const [borrandoMiembro, setBorrandoMiembro] = useState(false)
   const [mensajeAccion, setMensajeAccion] = useState({ tipo: '', texto: '' })
+
+  const [tenantCfgRep, setTenantCfgRep] = useState('21')
+  const [tenantCfgSop, setTenantCfgSop] = useState('21')
+  const [tenantCfgLogo, setTenantCfgLogo] = useState('')
+  const [cargandoCfgTenant, setCargandoCfgTenant] = useState(false)
+  const [guardandoCfgTenant, setGuardandoCfgTenant] = useState(false)
+  const [mensajeCfgTenant, setMensajeCfgTenant] = useState({ tipo: '', texto: '' })
 
   const [empresaSesion, setEmpresaSesion] = useState(() => {
     const id = Number(user?.empresa_id)
@@ -103,9 +111,100 @@ const GestionEquipo = ({ user }) => {
     setCargando(false)
   }, [])
 
+  const cargarConfiguracionTenantEmpresa = useCallback(async () => {
+    setCargandoCfgTenant(true)
+    setMensajeCfgTenant({ tipo: '', texto: '' })
+    try {
+      const { empresaId, error } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+      if (error || !empresaId) {
+        setMensajeCfgTenant({
+          tipo: 'err',
+          texto: error || 'No hay empresa_id en tu perfil (profiles).',
+        })
+        return
+      }
+      const { data, error: qErr } = await supabase
+        .from('empresas')
+        .select('config_iva_repercutido, config_iva_soportado, logo_url')
+        .eq('id', empresaId)
+        .maybeSingle()
+
+      if (qErr) {
+        setMensajeCfgTenant({ tipo: 'err', texto: qErr.message || 'No se pudo cargar empresas.' })
+        return
+      }
+      setTenantCfgRep(
+        data?.config_iva_repercutido != null && data.config_iva_repercutido !== ''
+          ? String(data.config_iva_repercutido)
+          : '21'
+      )
+      setTenantCfgSop(
+        data?.config_iva_soportado != null && data.config_iva_soportado !== ''
+          ? String(data.config_iva_soportado)
+          : '21'
+      )
+      setTenantCfgLogo(String(data?.logo_url || '').trim())
+    } finally {
+      setCargandoCfgTenant(false)
+    }
+  }, [])
+
+  const guardarConfiguracionTenantEmpresa = async (e) => {
+    e.preventDefault()
+    if (!canManageTeam) return
+    setMensajeCfgTenant({ tipo: '', texto: '' })
+    setGuardandoCfgTenant(true)
+    try {
+      const { empresaId, error } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+      if (error || !empresaId) {
+        setMensajeCfgTenant({
+          tipo: 'err',
+          texto: error || 'No hay empresa_id en profiles; no se actualizará empresas.',
+        })
+        return
+      }
+      const rep = parseFloat(String(tenantCfgRep || '').replace(',', '.'))
+      const sop = parseFloat(String(tenantCfgSop || '').replace(',', '.'))
+      if (
+        !Number.isFinite(rep) ||
+        rep < 0 ||
+        rep > 100 ||
+        !Number.isFinite(sop) ||
+        sop < 0 ||
+        sop > 100
+      ) {
+        setMensajeCfgTenant({
+          tipo: 'err',
+          texto: 'Los porcentajes de IVA deben ser números entre 0 y 100.',
+        })
+        return
+      }
+      const { error: upErr } = await supabase
+        .from('empresas')
+        .update({
+          config_iva_repercutido: rep,
+          config_iva_soportado: sop,
+          logo_url: tenantCfgLogo.trim() === '' ? null : tenantCfgLogo.trim(),
+        })
+        .eq('id', empresaId)
+
+      if (upErr) {
+        setMensajeCfgTenant({ tipo: 'err', texto: upErr.message || 'Error al guardar.' })
+        return
+      }
+      setMensajeCfgTenant({ tipo: 'ok', texto: 'Configuración del tenant guardada correctamente.' })
+    } finally {
+      setGuardandoCfgTenant(false)
+    }
+  }
+
   useEffect(() => {
     cargar()
   }, [cargar])
+
+  useEffect(() => {
+    cargarConfiguracionTenantEmpresa()
+  }, [cargarConfiguracionTenantEmpresa])
 
   const abrirModal = () => {
     if (!canManageTeam) return
@@ -282,7 +381,10 @@ const GestionEquipo = ({ user }) => {
         </div>
         <button
           type="button"
-          onClick={cargar}
+          onClick={() => {
+            cargar()
+            cargarConfiguracionTenantEmpresa()
+          }}
           disabled={cargando}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-50"
         >
@@ -354,6 +456,100 @@ const GestionEquipo = ({ user }) => {
 
       {errorLista && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm mb-4">{errorLista}</div>
+      )}
+
+      {canManageTeam && (
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm mb-6 overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+            <Building2 size={18} className="text-slate-600" />
+            <span className="font-semibold text-slate-800">Configuración del tenant (empresa SaaS)</span>
+          </div>
+          <div className="p-4 md:p-5 space-y-4">
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Datos de tu agencia en <code className="text-[11px] bg-slate-100 px-1 rounded">empresas</code>. La
+              actualización usa únicamente el <span className="font-semibold">empresa_id</span> de tu fila en{' '}
+              <code className="text-[11px] bg-slate-100 px-1 rounded">profiles</code> (no se puede editar la empresa de
+              otro tenant).
+            </p>
+            {cargandoCfgTenant ? (
+              <div className="text-sm text-slate-500">Cargando configuración fiscal…</div>
+            ) : (
+              <form onSubmit={guardarConfiguracionTenantEmpresa} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    IVA repercutido (% por defecto)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={tenantCfgRep}
+                    onChange={(e) => setTenantCfgRep(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    IVA soportado (% por defecto)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={tenantCfgSop}
+                    onChange={(e) => setTenantCfgSop(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    URL del logo (empresa)
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://…"
+                    value={tenantCfgLogo}
+                    onChange={(e) => setTenantCfgLogo(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none"
+                  />
+                  {tenantCfgLogo.trim() !== '' && (
+                    <div className="mt-2 flex items-center gap-3">
+                      <span className="text-xs text-slate-500">Vista previa:</span>
+                      <img
+                        src={tenantCfgLogo.trim()}
+                        alt="Logo tenant"
+                        className="h-10 max-w-[160px] object-contain border border-slate-200 rounded bg-white p-1"
+                        onError={(ev) => {
+                          ev.currentTarget.style.display = 'none'
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {mensajeCfgTenant.texto && (
+                  <div
+                    className={`md:col-span-2 rounded-lg px-3 py-2 text-sm ${
+                      mensajeCfgTenant.tipo === 'ok'
+                        ? 'bg-emerald-50 text-emerald-900'
+                        : 'bg-rose-50 text-rose-900'
+                    }`}
+                  >
+                    {mensajeCfgTenant.texto}
+                  </div>
+                )}
+
+                <div className="md:col-span-2 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={guardandoCfgTenant || cargandoCfgTenant}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-800 text-white font-semibold hover:bg-slate-900 disabled:opacity-50"
+                  >
+                    {guardandoCfgTenant ? 'Guardando…' : 'Guardar configuración del tenant'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
       )}
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
