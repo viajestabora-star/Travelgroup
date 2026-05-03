@@ -14,13 +14,13 @@ export async function obtenerEmpresaIdTenantDesdePerfil(supabase) {
     .maybeSingle()
 
   if (perfilErr) {
-    return { empresaId: null, error: perfilErr.message || 'No se pudo leer profiles' }
+    return { empresaId: null, error: perfilErr.message || 'No se pudo leer el perfil de usuario.' }
   }
   const id = Number(perfil?.empresa_id)
   if (!Number.isFinite(id) || id <= 0) {
     return {
       empresaId: null,
-      error: 'Tu perfil (profiles) no tiene empresa_id válido. No se puede continuar.',
+      error: 'Tu perfil no tiene una agencia asignada. No se puede continuar.',
     }
   }
   return { empresaId: id, error: null }

@@ -8,7 +8,7 @@ export const MENSAJE_SIN_LICENCIAS =
 /**
  * Flujo lineal Auth → DB, sin Edge Function:
  *   1. Validaciones locales
- *   2. Check de licencias (empresas.licencias_max vs perfiles por empresa_id)
+ *   2. Check de licencias (empresas.limite_licencias + conteo profiles; ver licenciasEmpresa.js)
  *   3. supabase.auth.signUp
  *   4. INSERT en public.empleados { id, email, empresa_id, rol }
  *

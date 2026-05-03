@@ -103,7 +103,7 @@ const GestionEquipo = ({ user }) => {
       setErrorLista('')
     }
 
-    // ── 3. Licencias (empresas.licencias_max + conteo en profiles) ─────────────
+    // ── 3. Licencias: limite_licencias + profiles (mismo tenant que profiles; ver licenciasEmpresa.js)
     const lic = await obtenerResumenLicenciasEmpresa(supabase, idABuscar)
     if (lic.ok && lic.resumen) {
       setLicencias(lic.resumen)
@@ -447,12 +447,12 @@ const GestionEquipo = ({ user }) => {
       {licencias && !licencias.error && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Licencias usadas</p>
-            <p className="text-2xl font-bold text-slate-900">{licencias.usados ?? '—'}</p>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Contratadas</p>
+            <p className="text-2xl font-bold text-slate-900">{licencias.contratadas ?? '—'}</p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Máximo contratado</p>
-            <p className="text-2xl font-bold text-slate-900">{licencias.max ?? '—'}</p>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Usadas</p>
+            <p className="text-2xl font-bold text-slate-900">{licencias.usados ?? '—'}</p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-xs uppercase tracking-wide text-slate-500">Disponibles</p>
@@ -468,21 +468,21 @@ const GestionEquipo = ({ user }) => {
       )}
 
       {(() => {
-        // Límite de licencias: se bloquea cuando los miembros actuales alcanzan max_usuarios
-        const maxLic = Number(licencias?.max)
+        // Límite: usadas >= contratadas (limite_licencias)
+        const cupoContratado = Number(licencias?.contratadas)
         const usadosLic = Number(licencias?.usados)
         const limiteAlcanzado =
           licencias != null &&
           !licencias.error &&
-          Number.isFinite(maxLic) &&
+          Number.isFinite(cupoContratado) &&
           Number.isFinite(usadosLic) &&
-          usadosLic >= maxLic
+          usadosLic >= cupoContratado
         return (
           <>
             {limiteAlcanzado && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-4 flex items-center gap-2">
                 <Shield size={16} className="shrink-0 text-amber-600" />
-                Has alcanzado el límite de <strong className="mx-1">{maxLic}</strong> licencias contratadas.
+                Has alcanzado el límite de <strong className="mx-1">{cupoContratado}</strong> licencias contratadas.
                 Contacta con el administrador para ampliar tu plan.
               </div>
             )}
@@ -497,7 +497,7 @@ const GestionEquipo = ({ user }) => {
                   type="button"
                   onClick={abrirModal}
                   disabled={!!errorLista || limiteAlcanzado}
-                  title={limiteAlcanzado ? `Límite de ${maxLic} licencias alcanzado` : undefined}
+                  title={limiteAlcanzado ? `Límite de ${cupoContratado} licencias alcanzado` : undefined}
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <UserPlus size={20} />

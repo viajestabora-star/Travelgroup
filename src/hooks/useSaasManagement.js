@@ -54,10 +54,12 @@ export const useSaasManagement = () => {
    */
   const createEmpresa = useCallback(async (data) => {
     // Campos obligatorios
+    const maxUsuariosPlan = Math.max(1, Number(data.max_usuarios) || 3)
     const payload = {
       nombre_comercial:          (data.nombre_comercial || '').trim(),
       plan_tipo:                 (data.plan_tipo        || 'basic').trim(),
-      max_usuarios:              Math.max(1, Number(data.max_usuarios) || 3),
+      max_usuarios:              maxUsuariosPlan,
+      limite_licencias:          maxUsuariosPlan,
       suscripcion_activa:        true,
       saas_precio_pack_base:     Number(data.saas_precio_pack_base)     || 60,
       saas_precio_usuario_extra: Number(data.saas_precio_usuario_extra) || 12,
