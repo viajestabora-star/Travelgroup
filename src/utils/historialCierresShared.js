@@ -318,9 +318,11 @@ const PROVEEDORES_FIJOS_MENSUALES = [
   { id: 'otro', label: 'Otro' },
 ]
 
-/** Misma política que ExpedienteDetalle.subirPdfFacturaCot: bucket facturas_proveedores, nombre fac-{timestamp}.pdf */
-const subirPdfFacturaProveedorComoExpediente = async (file) => {
-  const nombreUnico = `fac-${Date.now()}.pdf`
+/** Misma política que ExpedienteDetalle.subirPdfFacturaCot: bucket facturas_proveedores, ruta `{empresa_id}/fac-{timestamp}.pdf`. */
+const subirPdfFacturaProveedorComoExpediente = async (file, empresaIdNum = null) => {
+  const eid = Number(empresaIdNum)
+  const prefijo = Number.isFinite(eid) && eid > 0 ? `${eid}/` : ''
+  const nombreUnico = `${prefijo}fac-${Date.now()}.pdf`
   const { error } = await supabase.storage.from('facturas_proveedores').upload(nombreUnico, file)
   if (error) {
     const hint =
@@ -354,11 +356,14 @@ export function nombreStoragePdfGastoEstructura(proveedor, mesRaw, anioNum, rowI
 }
 
 /** Sube PDF de gasto de estructura al bucket estándar con nombre convencionado. */
-export async function subirPdfGastoEstructuraFacturaProveedor(file, proveedor, mesRaw, anioNum, rowId) {
+export async function subirPdfGastoEstructuraFacturaProveedor(file, proveedor, mesRaw, anioNum, rowId, empresaIdNum = null) {
   if (!file || file.type !== 'application/pdf') {
     throw new Error('Selecciona un archivo PDF.')
   }
-  const nombre = nombreStoragePdfGastoEstructura(proveedor, mesRaw, anioNum, rowId)
+  const eid = Number(empresaIdNum)
+  const baseNombre = nombreStoragePdfGastoEstructura(proveedor, mesRaw, anioNum, rowId)
+  const nombre =
+    Number.isFinite(eid) && eid > 0 ? `${eid}/${baseNombre}` : baseNombre
   const { error } = await supabase.storage.from('facturas_proveedores').upload(nombre, file, { upsert: true })
   if (error) {
     const hint =

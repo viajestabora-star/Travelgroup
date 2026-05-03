@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { toSlug } from './utils/slugify';
 import SlugGuard from './components/SlugGuard';
@@ -176,6 +176,16 @@ function App() {
 
   const session = user;
 
+  // Sesión con email pero sin tenant: limpiar antes de mostrar login (protección de datos)
+  useLayoutEffect(() => {
+    if (user?.email && !(Number(user.empresa_id) > 0)) {
+      clearTenantEmpresaId();
+      localStorage.removeItem('sesion_tabora');
+      void supabase.auth.signOut();
+      setUser(null);
+    }
+  }, [user?.email, user?.empresa_id]);
+
   // Slug URL-safe de la empresa (prioriza empresa_slug guardado en sesión)
   const empresaSlug = session?.empresa_slug || toSlug(session?.nombre_app || NOMBRE_APP_DEFAULT);
 
@@ -185,7 +195,8 @@ function App() {
     }
   }, [session]);
 
-  if (!session || !session.email) {
+  // Sin email o sin empresa_id válido → no ERP (evita navegación / escrituras sin tenant)
+  if (!session || !session.email || !(Number(session.empresa_id) > 0)) {
     return (
       <ErrorBoundary>
         <LoginPortal

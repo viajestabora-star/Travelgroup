@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { Edit2, Trash2, X, Search, MapPin, Phone, Mail } from 'lucide-react'
+import { useEmpresa } from '../context/EmpresaContext'
+import { empresaIdSesionValido } from '../utils/tenantEmpresa'
 
-const Proveedores = () => {
+const Proveedores = ({ user = null }) => {
+  const { empresaId } = useEmpresa()
+  const empresaIdRequerido = empresaIdSesionValido(user, empresaId)
   const [proveedores, setProveedores] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -55,9 +59,15 @@ const Proveedores = () => {
     setCargando(true)
     setErrorBusqueda(null)
     try {
+      if (!empresaIdRequerido) {
+        setProveedores([])
+        setErrorBusqueda('No hay empresa en sesión (empresa_id). No se pueden cargar proveedores.')
+        return
+      }
       const { data, error } = await supabase
         .from('proveedores')
         .select('*')
+        .eq('empresa_id', empresaIdRequerido)
         .order('nombre_comercial', { ascending: true })
       if (!error) setProveedores(Array.isArray(data) ? data : [])
       else {
@@ -77,6 +87,11 @@ const Proveedores = () => {
     setCargando(true)
     setErrorBusqueda(null)
     try {
+      if (!empresaIdRequerido) {
+        setProveedores([])
+        setErrorBusqueda('No hay empresa en sesión (empresa_id).')
+        return
+      }
       const { data, error } = await supabase.rpc('buscar_proveedores', {
         termino_busqueda: termino || ''
       })
@@ -86,7 +101,11 @@ const Proveedores = () => {
         setCargando(false)
         return
       }
-      setProveedores(Array.isArray(data) ? data : [])
+      const filas = Array.isArray(data) ? data : []
+      const filtrado = empresaIdRequerido
+        ? filas.filter((p) => Number(p?.empresa_id) === empresaIdRequerido)
+        : []
+      setProveedores(filtrado)
     } catch (err) {
       setProveedores([])
       setErrorBusqueda(err?.message || 'Error al buscar proveedores')
@@ -101,14 +120,19 @@ const Proveedores = () => {
     } else {
       buscarProveedores(searchTerm)
     }
-  }, [searchTerm])
+  }, [searchTerm, empresaIdRequerido])
 
   // Sanitizar valores a texto para evitar errores uuid vs bigint en Supabase
   const sanitizarTexto = (v) => (v == null || v === '') ? '' : String(v).trim()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
+
+    if (!empresaIdRequerido) {
+      alert('No hay empresa en sesión (empresa_id). No se puede crear ni editar proveedores.')
+      return
+    }
+
     // Normalizar el tipo de servicio (minúsculas, sin tildes) para coincidir con la BD
     const servicioNormalizado = normalizarTipoServicio(formData.servicio)
     
@@ -137,7 +161,8 @@ const Proveedores = () => {
       entidad_bancaria: sanitizarTexto(formData.entidad_bancaria),
       swift_bic: sanitizarTexto(formData.swift_bic),
       es_mayorista: Boolean(formData.es_mayorista),
-      observaciones: sanitizarTexto(formData.observaciones)
+      observaciones: sanitizarTexto(formData.observaciones),
+      empresa_id: empresaIdRequerido,
     }
 
     // Detección de duplicados por CIF antes de guardar
@@ -155,8 +180,13 @@ const Proveedores = () => {
       }
     }
     
-    const action = editingId 
-      ? supabase.from('proveedores').update(datosParaGuardar).eq('id', editingId)
+    const { empresa_id: _empresaIdInsertOnly, ...datosUpdateSinEmpresa } = datosParaGuardar
+    const action = editingId
+      ? supabase
+          .from('proveedores')
+          .update(datosUpdateSinEmpresa)
+          .eq('id', editingId)
+          .eq('empresa_id', empresaIdRequerido)
       : supabase.from('proveedores').insert([datosParaGuardar])
     
     const { error } = await action
@@ -175,7 +205,16 @@ const Proveedores = () => {
   const ejecutarBorradoProveedor = async () => {
     if (!confirmarBorrado?.id) return
     if (!window.confirm('¿Estás seguro de que quieres borrar este registro definitivamente?')) return
-    const { error } = await supabase.from('proveedores').delete().eq('id', confirmarBorrado.id)
+    if (!empresaIdRequerido) {
+      alert('No hay empresa en sesión.')
+      setConfirmarBorrado(null)
+      return
+    }
+    const { error } = await supabase
+      .from('proveedores')
+      .delete()
+      .eq('id', confirmarBorrado.id)
+      .eq('empresa_id', empresaIdRequerido)
     setConfirmarBorrado(null)
     if (!error) {
       await fetchProveedoresData()

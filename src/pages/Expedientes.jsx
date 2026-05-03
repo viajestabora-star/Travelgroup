@@ -18,7 +18,7 @@ import { sanitizarExpedienteParaDB } from '../utils/constraintValidator'
 import { DestinoExpedienteEditable } from '../components/expedientes/FichaDelGrupo'
 import { useEmpresa } from '../context/EmpresaContext'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
-import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
+import { obtenerEmpresaIdTenantDesdePerfil, empresaIdSesionValido } from '../utils/tenantEmpresa'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -95,8 +95,11 @@ const toIntOrNull = (value) => {
  * Comprueba si ya existe un expediente con el mismo cliente_id, fecha_inicio y destino.
  * Alineado con los valores que se insertarán (null vs cadena vacía → null en destino).
  */
-const consultarExpedienteDuplicadoSupabase = async ({ cliente_id, fecha_inicio, destino }) => {
+const consultarExpedienteDuplicadoSupabase = async ({ cliente_id, fecha_inicio, destino, empresa_id }) => {
   let q = supabase.from('expedientes').select('id').eq('cliente_id', cliente_id)
+  if (empresa_id != null && Number(empresa_id) > 0) {
+    q = q.eq('empresa_id', Number(empresa_id))
+  }
   if (fecha_inicio == null || fecha_inicio === '') {
     q = q.is('fecha_inicio', null)
   } else {
@@ -183,6 +186,7 @@ const formatearFecha = formatearFechaVisual  // Devuelve DD/MM/AAAA para mostrar
 
 const Expedientes = ({ user = null }) => {
   const { empresaId } = useEmpresa()
+  const empresaIdRequerido = empresaIdSesionValido(user, empresaId)
   const location = useLocation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -288,9 +292,14 @@ const Expedientes = ({ user = null }) => {
   // Cargar todos los clientes de Supabase (orden A-Z por nombre)
   const fetchClientesFromSupabase = async () => {
     try {
+      if (!empresaIdRequerido) {
+        setClientes([])
+        return []
+      }
       const { data, error } = await supabase
         .from('clientes')
         .select('*')
+        .eq('empresa_id', empresaIdRequerido)
         .order('nombre', { ascending: true })
       if (error) {
         manejarErrorSupabase(error, 'cargar clientes');
@@ -320,7 +329,7 @@ const Expedientes = ({ user = null }) => {
       setIsLoading(false)
     }
     // eslint-disable-next-line
-  }, [])
+  }, [empresaIdRequerido])
 
   // Actualiza clientes al crear uno nuevo o al modificar
   const reloadClientes = () => fetchClientesFromSupabase()
@@ -357,12 +366,17 @@ const Expedientes = ({ user = null }) => {
   const fetchExpedientesData = async () => {
     setIsLoading(true)
     try {
+      if (!empresaIdRequerido) {
+        setExpedientes([])
+        setIsLoading(false)
+        return
+      }
       // Lee expedientes de Supabase - usar select('*') para evitar errores de columnas
       const { data: cloudData, error } = await Promise.resolve(
         supabase
           .from('expedientes')
           .select('*')
-        .eq('empresa_id', empresaId)         // AISLAMIENTO: solo expedientes de esta empresa
+        .eq('empresa_id', empresaIdRequerido) // AISLAMIENTO: solo expedientes de esta empresa
       ).finally(() => setIsLoading(false))
 
       if (error) {
@@ -497,6 +511,10 @@ const Expedientes = ({ user = null }) => {
 
   const saveExpedientes = async (data) => {
     try {
+      if (!empresaIdRequerido) {
+        alert('No hay empresa en sesión (empresa_id). No se puede guardar en Supabase.')
+        return
+      }
       const dataToSave = Array.isArray(data) ? data : [];
 
       for (const expediente of dataToSave) {
@@ -559,6 +577,7 @@ const Expedientes = ({ user = null }) => {
           pax_pago: paxPagoNum,
           precio_venta_cliente: expediente.precio_venta_cliente != null ? Number(expediente.precio_venta_cliente) : 0,
           bonificacion_pax: expediente.bonificacion_pax != null ? Number(expediente.bonificacion_pax) : 0,
+          empresa_id: empresaIdRequerido,
         };
 
         const idExpediente = expediente.id;
@@ -591,7 +610,12 @@ const Expedientes = ({ user = null }) => {
 
   const handleExpedienteSubmit = async (e) => {
     e.preventDefault();
-    
+
+    if (!empresaIdRequerido) {
+      alert('No hay empresa en sesión (empresa_id). No se puede crear el expediente. Vuelve a iniciar sesión.')
+      return
+    }
+
     // CORRECCIÓN: Activar loading al inicio
     setIsSubmittingExpediente(true);
     
@@ -711,6 +735,7 @@ const Expedientes = ({ user = null }) => {
         precio_venta_cliente: 0, // Valor por defecto para evitar NOT NULL
         config_iva_repercutido: Number.isFinite(ivaRepNum) ? ivaRepNum : null,
         config_iva_soportado: Number.isFinite(ivaSopNum) ? ivaSopNum : null,
+        empresa_id: empresaIdRequerido,
       };
 
       // VERIFICACIÓN EXPLÍCITA: Asegurar que id NO esté en el objeto
@@ -733,6 +758,7 @@ const Expedientes = ({ user = null }) => {
           cliente_id: datosInsertar.cliente_id,
           fecha_inicio: datosInsertar.fecha_inicio,
           destino: datosInsertar.destino,
+          empresa_id: empresaIdRequerido,
         });
       if (errorConsultaDuplicado) {
         const errorInfo = manejarErrorSupabase(errorConsultaDuplicado, 'comprobar duplicado de expediente');
@@ -838,6 +864,12 @@ const Expedientes = ({ user = null }) => {
     }
 
     try {
+      if (!empresaIdRequerido) {
+        alert('No hay empresa en sesión (empresa_id). No se puede crear el cliente.')
+        return
+      }
+      newCliente.empresa_id = empresaIdRequerido
+
       const sessionCheck = await ensureAuthenticatedSession(supabase)
       if (!sessionCheck.ok) {
         alert(sessionCheck.message)
@@ -889,12 +921,17 @@ const Expedientes = ({ user = null }) => {
   // Regla 1.14: Confirmación doble antes de borrar documento oficial
   const handleDeleteExpediente = async (id) => {
     if (!id) return
+    if (!empresaIdRequerido) {
+      alert('No hay empresa en sesión. No se puede eliminar.')
+      return
+    }
     // La confirmación se muestra en el modal (confirmarBorrado)
     try {
       const { error } = await supabase
         .from('expedientes')
         .delete()
         .eq('id', id)
+        .eq('empresa_id', empresaIdRequerido)
 
       if (error) {
         const errorInfo = manejarErrorSupabase(error, 'eliminar expediente');

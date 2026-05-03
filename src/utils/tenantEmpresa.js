@@ -25,3 +25,13 @@ export async function obtenerEmpresaIdTenantDesdePerfil(supabase) {
   }
   return { empresaId: id, error: null }
 }
+
+/**
+ * empresa_id del usuario ya hidratado en sesión (App / LoginPortal) o fallback del contexto.
+ * No sustituye la lectura de profiles para operaciones de escritura críticas del tenant.
+ */
+export function empresaIdSesionValido(user, empresaIdContext = null) {
+  const n = Number(user?.empresa_id ?? empresaIdContext)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return n
+}

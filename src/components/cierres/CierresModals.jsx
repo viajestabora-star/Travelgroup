@@ -133,6 +133,7 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
   recargarGastosEstructura,
   fuenteGastosEstructura,
 }) {
+  const { withEmpresaId, empresaId } = useEmpresa()
   const [formGastoMensual, setFormGastoMensual] = useState(() => formInicialGastoMensual())
   const [archivoGastoMensual, setArchivoGastoMensual] = useState(null)
   const importeModalRef = useRef(null)
@@ -179,6 +180,10 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
       alert('Los gastos de estructura aún se están cargando. Espera unos segundos y vuelve a intentarlo.')
       return
     }
+    if (!(Number(empresaId) > 0)) {
+      alert('No hay empresa en sesión (empresa_id). No se puede subir el PDF.')
+      return
+    }
 
     setSubiendoGastoMensual(true)
     let pathStorage = null
@@ -189,7 +194,8 @@ const GastoMensualModalContent = memo(function GastoMensualModalContent({
         proveedor,
         mesTxt,
         anioEjercicio,
-        null
+        null,
+        empresaId
       )
       const row = filaInsertGastosEstructuraManualConPdf({
         proveedor,

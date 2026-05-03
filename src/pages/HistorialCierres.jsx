@@ -52,6 +52,8 @@ import {
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 import { desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
+import { useEmpresa } from '../context/EmpresaContext'
+import { empresaIdSesionValido } from '../utils/tenantEmpresa'
 
 /** Número puro para `importe_iva` (misma regla que CierresModals). Si no es finito → 0. */
 function importeNumeroGastosEstructura(valor) {
@@ -115,6 +117,7 @@ function gastoEstructuraEditorPropsIguales(prev, next) {
   if (prev.layout !== next.layout) return false
   if (prev.mesNum !== next.mesNum || prev.anioNum !== next.anioNum) return false
   if (prev.url !== next.url) return false
+  if (prev.empresaIdTenant !== next.empresaIdTenant) return false
   const a = prev.r
   const b = next.r
   return (
@@ -137,6 +140,7 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
   onBorrar,
   onGuardarEdicion,
   layout,
+  empresaIdTenant,
 }) {
   const importeInputRef = useRef(null)
   const [guardando, setGuardando] = useState(false)
@@ -188,6 +192,10 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
       alert('Selecciona un PDF.')
       return
     }
+    if (!empresaIdTenant) {
+      alert('No hay empresa en sesión (empresa_id). No se puede subir el PDF.')
+      return
+    }
     setSubiendoPdf(true)
     let pathNuevo = null
     try {
@@ -196,7 +204,8 @@ const GastoEstructuraEditor = memo(function GastoEstructuraEditor({
         r.proveedor,
         mesTxt,
         anioFila,
-        r.id
+        r.id,
+        empresaIdTenant
       )
       if (r.url_pdf && r.url_pdf !== pathNuevo) {
         await eliminarObjetoStorageFacturaProveedor(r.url_pdf)
@@ -586,6 +595,8 @@ const TrimestreAcordeonPanel = memo(function TrimestreAcordeonPanel({
 })
 
 const HistorialCierres = ({ user }) => {
+  const { empresaId } = useEmpresa()
+  const empresaIdTenant = empresaIdSesionValido(user, empresaId)
   const esGestoria = user ? esUsuarioGestoria(user) : false
   const esAdmin = user ? esUsuarioAdmin(user) : false
 
@@ -979,6 +990,7 @@ const HistorialCierres = ({ user }) => {
                           onBorrar={borrarFacturaEstructura}
                           onGuardarEdicion={guardarEdicionGastoEstructura}
                           layout="table"
+                          empresaIdTenant={empresaIdTenant}
                         />
                       )
                     })}
@@ -1007,6 +1019,7 @@ const HistorialCierres = ({ user }) => {
                     onBorrar={borrarFacturaEstructura}
                     onGuardarEdicion={guardarEdicionGastoEstructura}
                     layout="card"
+                    empresaIdTenant={empresaIdTenant}
                   />
                 )
               })
@@ -1028,6 +1041,7 @@ const HistorialCierres = ({ user }) => {
     generarGastosMensualesPlantilla,
     generandoGastosMes,
     guardarEdicionGastoEstructura,
+    empresaIdTenant,
   ])
 
   const renderFila = useCallback((c) => {

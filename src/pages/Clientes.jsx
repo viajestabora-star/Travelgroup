@@ -4,11 +4,13 @@ import { desgloseIvaBeneficioBruto } from '../utils/finanzasHelpers'
 import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone, Users, Navigation } from 'lucide-react'
 import { useEmpresa } from '../context/EmpresaContext'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
+import { empresaIdSesionValido } from '../utils/tenantEmpresa'
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
 const Clientes = ({ user = null }) => {
   const { empresaId } = useEmpresa()
+  const empresaIdRequerido = empresaIdSesionValido(user, empresaId)
   const [clientes, setClientes] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -48,6 +50,11 @@ const Clientes = ({ user = null }) => {
   const handleSubmit = async (e) => {
     e.preventDefault()
 
+    if (!empresaIdRequerido) {
+      alert('No hay empresa asignada en la sesión (empresa_id). No se puede crear ni editar clientes. Vuelve a iniciar sesión.')
+      return
+    }
+
     // Detección de duplicados por CIF antes de guardar
     const cifValor = (formData.cif_nif || '').trim()
     if (cifValor) {
@@ -69,11 +76,10 @@ const Clientes = ({ user = null }) => {
       return
     }
 
-    // INSERT: empresa_id la fija el trigger en BD (fn_set_empresa_id_global); no enviar manualmente.
-    // UPDATE: el proxy tenant añade .eq('empresa_id', sesión) — no incluir empresa_id en formData.
+    // empresa_id obligatorio en INSERT/UPDATE (tenant de la sesión; no usar datos del formulario cliente).
     const action = editingId
-      ? supabase.from('clientes').update(formData).eq('id', editingId)
-      : supabase.from('clientes').insert([{ ...formData }])
+      ? supabase.from('clientes').update(formData).eq('id', editingId).eq('empresa_id', empresaIdRequerido)
+      : supabase.from('clientes').insert([{ ...formData, empresa_id: empresaIdRequerido }])
     
     const { error } = await action
     if (!error) {
@@ -86,9 +92,17 @@ const Clientes = ({ user = null }) => {
 
   // Regla 1.14: Confirmación doble antes de borrar (evita pérdidas accidentales)
   const deleteCliente = async (id, nombre) => {
+    if (!empresaIdRequerido) {
+      alert('No hay empresa en sesión. No se puede borrar.')
+      return
+    }
     if (!window.confirm(`¿Estás seguro de que quieres borrar al cliente "${nombre}"?\n\nEsta acción no se puede deshacer.`)) return
     if (!window.confirm('¿Estás seguro de que quieres borrar este registro definitivamente?')) return
-    const { error } = await supabase.from('clientes').delete().eq('id', id)
+    const { error } = await supabase
+      .from('clientes')
+      .delete()
+      .eq('id', id)
+      .eq('empresa_id', empresaIdRequerido)
     if (!error) {
       await fetchClientesData()
     } else {

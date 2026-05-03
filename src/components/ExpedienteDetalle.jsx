@@ -29,6 +29,7 @@ import {
   crearJsPdfInformeCierreFinanciero,
 } from '../utils/informeCierreHaciendaPdf'
 import { useEmpresa } from '../context/EmpresaContext'
+import { empresaIdSesionValido } from '../utils/tenantEmpresa'
 import VisualizadorPro from './VisualizadorPro'
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
@@ -563,6 +564,7 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
 
 const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes = [], initialTab, user = null }) => {
   const { empresaId } = useEmpresa()
+  const empresaIdRequerido = empresaIdSesionValido(user, empresaId)
   const cierreGrupo = expediente?.cierre_grupo || {}
 
   // Datos fiscales del emisor (dinámicos por tenant, para PDFs)
@@ -3207,7 +3209,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   const subirPdfFacturaCot = async (file) => {
     if (!file || !expediente?.id) return null
-    const nombreUnico = 'fac-' + Date.now() + '.pdf'
+    if (!empresaIdRequerido) {
+      throw new Error('No hay empresa en sesión (empresa_id). No se puede subir la factura.')
+    }
+    const nombreUnico = `${empresaIdRequerido}/fac-${Date.now()}.pdf`
     const { error } = await supabase.storage.from('facturas_proveedores').upload(nombreUnico, file)
     if (error) {
       const hint =
@@ -4418,22 +4423,38 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const file = e.target.files?.[0]
     if (!file || !expediente?.id) return
 
+    if (!empresaIdRequerido) {
+      alert('No hay empresa en sesión (empresa_id). No se pueden subir archivos. Vuelve a iniciar sesión.')
+      return
+    }
+
     const sessionCheck = await ensureAuthenticatedSession(supabase)
     if (!sessionCheck.ok) {
       alert(sessionCheck.message)
       return
     }
 
+    const extNorm = (obtenerExtensionArchivo(file.name) || '').toLowerCase()
+    const esJpgPng = ['jpg', 'jpeg', 'png'].includes(extNorm)
+    if (esJpgPng) {
+      const t = String(file.type || '').toLowerCase()
+      if (t !== 'image/jpeg' && t !== 'image/png') {
+        alert('Las imágenes deben ser JPG o PNG válidos.')
+        e.target.value = ''
+        return
+      }
+    }
+
     setSubiendoRooming(true)
     try {
       const ext = obtenerExtensionArchivo(file.name) || 'bin'
       const nombreSeguro = String(file.name || `rooming.${ext}`).replace(/\s+/g, '_')
-      const rutaBase = `${expediente.id}/${nombreSeguro}`
+      const rutaBase = `${empresaIdRequerido}/${expediente.id}/${nombreSeguro}`
       let rutaFinal = rutaBase
       let { error: uploadError } = await supabase.storage.from(BUCKET_EXPEDIENTES).upload(rutaFinal, file, { upsert: false })
       if (uploadError && String(uploadError.message || '').toLowerCase().includes('already exists')) {
         const nombreConTimestamp = `rooming_${Date.now()}_${nombreSeguro}`
-        rutaFinal = `${expediente.id}/${nombreConTimestamp}`
+        rutaFinal = `${empresaIdRequerido}/${expediente.id}/${nombreConTimestamp}`
         const retry = await supabase.storage.from(BUCKET_EXPEDIENTES).upload(rutaFinal, file, { upsert: false })
         uploadError = retry.error
       }
@@ -4452,6 +4473,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         .from('expedientes')
         .update({ rooming_list_url: urlPublica })
         .eq('id', expediente.id)
+        .eq('empresa_id', empresaIdRequerido)
       if (updateError) {
         alert(buildWriteErrorMessage({ table: 'expedientes', error: updateError, action: 'guardar rooming_list_url' }))
         return
@@ -6488,7 +6510,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         type="file"
                         onChange={handleFileUpload}
                         className="hidden"
-                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,image/jpeg,image/png"
                       />
                     </label>
                   </div>
