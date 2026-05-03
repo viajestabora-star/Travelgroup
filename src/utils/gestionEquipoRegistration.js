@@ -1,5 +1,6 @@
 import { normalizarNivelAccesoParaServidor } from './nivelAcceso'
 import { portalConsultarTieneAuth } from './portalAuthEmail'
+import { obtenerResumenLicenciasEmpresa } from './licenciasEmpresa'
 
 export const MENSAJE_SIN_LICENCIAS =
   'No tienes licencias disponibles. Contacta con soporte para ampliar tu plan.'
@@ -7,7 +8,7 @@ export const MENSAJE_SIN_LICENCIAS =
 /**
  * Flujo lineal Auth → DB, sin Edge Function:
  *   1. Validaciones locales
- *   2. Check de licencias (RPC licencias_equipo_resumen)
+ *   2. Check de licencias (empresas.licencias_max vs perfiles por empresa_id)
  *   3. supabase.auth.signUp
  *   4. INSERT en public.empleados { id, email, empresa_id, rol }
  *
@@ -46,15 +47,13 @@ export async function verificarLicenciasYRegistrarMiembro(
   }
 
   // ── 2. Check de licencias ────────────────────────────────────────────────────
-  const { data: resumen, error: errResumen } = await supabase.rpc('licencias_equipo_resumen', {
-    p_empresa_id: empresaIdNum,
-  })
+  const { ok: licOk, resumen, error: errLic } = await obtenerResumenLicenciasEmpresa(supabase, empresaIdNum)
 
-  if (errResumen) {
+  if (!licOk) {
     return {
       ok: false,
       code: 'RPC_LICENCIAS',
-      message: errResumen.message || 'No se pudo validar el cupo de licencias.',
+      message: errLic || 'No se pudo validar el cupo de licencias.',
     }
   }
 

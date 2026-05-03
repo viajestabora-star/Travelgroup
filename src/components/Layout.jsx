@@ -3,12 +3,11 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 import {
   LayoutDashboard, Users, Calculator, Calendar, Briefcase,
-  FileText, Menu, X, Plane, Truck, Edit3, History, TrendingUp, LogOut, UserCog, Shield, KeyRound,
+  FileText, Menu, X, Plane, Truck, Edit3, History, LogOut, UserCog, Shield,
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import { esUsuarioGestoria, puedeAccederCierresEconomicos, esUsuarioAdmin } from '../utils/userRoles'
 import { puedeAccederAdminMaster } from '../utils/adminMasterAccess'
-import CuentaPasswordModal from './CuentaPasswordModal'
 import { NOMBRE_APP_DEFAULT } from '../utils/marcaBlanca'
 import { asegurarVinculacionEmpleado } from '../utils/empleadosVinculacion'
 
@@ -18,7 +17,6 @@ const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [ejercicioActual, setEjercicioActual] = useState(getEjercicioActual())
   const [authSession, setAuthSession] = useState(null)
-  const [cuentaModalOpen, setCuentaModalOpen] = useState(false)
   /** nombre_comercial desde empresas, resolviendo empresa_id vía JWT o public.profiles */
   const [nombreEmpresaBD, setNombreEmpresaBD] = useState(null)
   const [nombreEmpresaError, setNombreEmpresaError] = useState(null)
@@ -268,14 +266,6 @@ const Layout = ({ user, onLogout }) => {
               {sidebarOpen && <span className="text-sm font-medium uppercase tracking-wide">{item.label}</span>}
             </NavLink>
           ))}
-          <button
-            type="button"
-            onClick={() => setCuentaModalOpen(true)}
-            className="flex items-center px-4 py-3 w-full text-slate-400 hover:bg-slate-700 hover:text-white transition-colors mt-2"
-          >
-            <KeyRound size={22} className={sidebarOpen ? 'mr-3' : 'mx-auto'} />
-            {sidebarOpen && <span className="text-sm font-medium uppercase tracking-wide">CUENTA</span>}
-          </button>
           {onLogout && (
             <button
               onClick={() => {
@@ -292,11 +282,6 @@ const Layout = ({ user, onLogout }) => {
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
-      <CuentaPasswordModal
-        open={cuentaModalOpen}
-        onClose={() => setCuentaModalOpen(false)}
-        tieneSesionSupabase={!!authSession?.user}
-      />
     </div>
   )
 }

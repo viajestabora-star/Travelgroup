@@ -24,7 +24,7 @@ const parseStoragePublicUrl = (url) => {
   return { bucket, path }
 }
 
-const resolverLogoAccesible = async (logoUrl) => {
+export const resolverLogoAccesible = async (logoUrl) => {
   const raw = String(logoUrl || '').trim()
   if (!raw) return null
   const parsed = parseStoragePublicUrl(raw)

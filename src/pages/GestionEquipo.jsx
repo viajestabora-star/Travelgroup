@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { UserPlus, Users, RefreshCw, Shield, X, Pencil, Trash2, Building2 } from 'lucide-react'
+import { UserPlus, Users, RefreshCw, Shield, X, Pencil, Trash2, Building2, Lock } from 'lucide-react'
 import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
 import { verificarLicenciasYRegistrarMiembro, MENSAJE_SIN_LICENCIAS } from '../utils/gestionEquipoRegistration'
 import { esUsuarioAdmin } from '../utils/userRoles'
 import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
+import { obtenerResumenLicenciasEmpresa } from '../utils/licenciasEmpresa'
+import { resolverLogoAccesible } from '../utils/datosEmisorEmpresa'
+import CambioContraseñaForm from '../components/CambioContraseñaForm'
 
 const emptyForm = () => ({
   email: '',
@@ -46,6 +49,8 @@ const GestionEquipo = ({ user }) => {
   const [cargandoCfgTenant, setCargandoCfgTenant] = useState(false)
   const [guardandoCfgTenant, setGuardandoCfgTenant] = useState(false)
   const [mensajeCfgTenant, setMensajeCfgTenant] = useState({ tipo: '', texto: '' })
+  const [pestana, setPestana] = useState('equipo')
+  const [logoPreviewSrc, setLogoPreviewSrc] = useState('')
 
   const [empresaSesion, setEmpresaSesion] = useState(() => {
     const id = Number(user?.empresa_id)
@@ -98,14 +103,12 @@ const GestionEquipo = ({ user }) => {
       setErrorLista('')
     }
 
-    // ── 3. Licencias ──────────────────────────────────────────────────────────
-    const { data: licData, error: licErr } = await supabase.rpc('licencias_equipo_resumen', {
-      p_empresa_id: idABuscar,
-    })
-    if (!licErr && licData) {
-      setLicencias(licData)
+    // ── 3. Licencias (empresas.licencias_max + conteo en profiles) ─────────────
+    const lic = await obtenerResumenLicenciasEmpresa(supabase, idABuscar)
+    if (lic.ok && lic.resumen) {
+      setLicencias(lic.resumen)
     } else {
-      setLicencias(null)
+      setLicencias({ error: 'carga', detalle: lic.error || '' })
     }
 
     setCargando(false)
@@ -119,7 +122,7 @@ const GestionEquipo = ({ user }) => {
       if (error || !empresaId) {
         setMensajeCfgTenant({
           tipo: 'err',
-          texto: error || 'No hay empresa_id en tu perfil (profiles).',
+          texto: error || 'No se pudo identificar tu agencia.',
         })
         return
       }
@@ -159,7 +162,7 @@ const GestionEquipo = ({ user }) => {
       if (error || !empresaId) {
         setMensajeCfgTenant({
           tipo: 'err',
-          texto: error || 'No hay empresa_id en profiles; no se actualizará empresas.',
+          texto: error || 'No se pudo identificar tu agencia; no se guardaron los cambios.',
         })
         return
       }
@@ -205,6 +208,21 @@ const GestionEquipo = ({ user }) => {
   useEffect(() => {
     cargarConfiguracionTenantEmpresa()
   }, [cargarConfiguracionTenantEmpresa])
+
+  useEffect(() => {
+    const raw = String(tenantCfgLogo || '').trim()
+    if (!raw) {
+      setLogoPreviewSrc('')
+      return
+    }
+    let cancelled = false
+    resolverLogoAccesible(raw).then((url) => {
+      if (!cancelled) setLogoPreviewSrc(url || raw)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tenantCfgLogo])
 
   const abrirModal = () => {
     if (!canManageTeam) return
@@ -372,12 +390,6 @@ const GestionEquipo = ({ user }) => {
             <Users className="text-sky-600" size={28} />
             Gestión de Equipo
           </h1>
-          <p className="text-slate-600 mt-1 text-sm">
-            Empresa asociada a tu sesión: <span className="font-semibold text-slate-800">#{empresaSesion}</span>
-            {' · '}
-            Los nuevos miembros heredan el <span className="font-semibold">empresa_id</span> del administrador en
-            Supabase (no se envía desde el formulario).
-          </p>
         </div>
         <button
           type="button"
@@ -393,6 +405,45 @@ const GestionEquipo = ({ user }) => {
         </button>
       </div>
 
+      <div className="flex gap-1 mb-6 border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setPestana('equipo')}
+          className={`px-4 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 transition-colors ${
+            pestana === 'equipo'
+              ? 'bg-white border-slate-200 text-sky-700 -mb-px'
+              : 'border-transparent text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <span className="inline-flex items-center gap-2">
+            <Users size={18} />
+            Equipo
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setPestana('seguridad')}
+          className={`px-4 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 transition-colors ${
+            pestana === 'seguridad'
+              ? 'bg-white border-slate-200 text-sky-700 -mb-px'
+              : 'border-transparent text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <span className="inline-flex items-center gap-2">
+            <Lock size={18} />
+            Seguridad
+          </span>
+        </button>
+      </div>
+
+      {pestana === 'seguridad' && (
+        <div className="max-w-xl mb-8">
+          <CambioContraseñaForm />
+        </div>
+      )}
+
+      {pestana === 'equipo' && (
+      <>
       {licencias && !licencias.error && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -410,18 +461,22 @@ const GestionEquipo = ({ user }) => {
         </div>
       )}
 
-      {licencias?.error === 'sin_perfil' && (
+      {licencias?.error === 'carga' && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm mb-6">
-          No hay fila en <code className="text-xs bg-rose-100 px-1 rounded">public.profiles</code> para tu usuario.
-          Tras aplicar la migración <code className="text-xs">gestion-equipo-licencias.sql</code>, inserta tu perfil o
-          vuelve a registrarte para generarlo con el trigger.
+          No se pudieron cargar las licencias.{licencias.detalle ? ` ${licencias.detalle}` : ''}
         </div>
       )}
 
       {(() => {
         // Límite de licencias: se bloquea cuando los miembros actuales alcanzan max_usuarios
-        const maxLic    = Number(licencias?.max)
-        const limiteAlcanzado = licencias != null && Number.isFinite(maxLic) && miembros.length >= maxLic
+        const maxLic = Number(licencias?.max)
+        const usadosLic = Number(licencias?.usados)
+        const limiteAlcanzado =
+          licencias != null &&
+          !licencias.error &&
+          Number.isFinite(maxLic) &&
+          Number.isFinite(usadosLic) &&
+          usadosLic >= maxLic
         return (
           <>
             {limiteAlcanzado && (
@@ -462,15 +517,9 @@ const GestionEquipo = ({ user }) => {
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm mb-6 overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
             <Building2 size={18} className="text-slate-600" />
-            <span className="font-semibold text-slate-800">Configuración del tenant (empresa SaaS)</span>
+            <span className="font-semibold text-slate-800">Configuración de la agencia</span>
           </div>
           <div className="p-4 md:p-5 space-y-4">
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Datos de tu agencia en <code className="text-[11px] bg-slate-100 px-1 rounded">empresas</code>. La
-              actualización usa únicamente el <span className="font-semibold">empresa_id</span> de tu fila en{' '}
-              <code className="text-[11px] bg-slate-100 px-1 rounded">profiles</code> (no se puede editar la empresa de
-              otro tenant).
-            </p>
             {cargandoCfgTenant ? (
               <div className="text-sm text-slate-500">Cargando configuración fiscal…</div>
             ) : (
@@ -504,18 +553,19 @@ const GestionEquipo = ({ user }) => {
                     URL del logo (empresa)
                   </label>
                   <input
-                    type="url"
-                    placeholder="https://…"
+                    type="text"
+                    placeholder="URL pública o ruta de almacenamiento"
                     value={tenantCfgLogo}
                     onChange={(e) => setTenantCfgLogo(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none"
                   />
-                  {tenantCfgLogo.trim() !== '' && (
+                  {logoPreviewSrc !== '' && (
                     <div className="mt-2 flex items-center gap-3">
                       <span className="text-xs text-slate-500">Vista previa:</span>
                       <img
-                        src={tenantCfgLogo.trim()}
-                        alt="Logo tenant"
+                        key={logoPreviewSrc}
+                        src={logoPreviewSrc}
+                        alt="Logo de la agencia"
                         className="h-10 max-w-[160px] object-contain border border-slate-200 rounded bg-white p-1"
                         onError={(ev) => {
                           ev.currentTarget.style.display = 'none'
@@ -560,9 +610,7 @@ const GestionEquipo = ({ user }) => {
         {cargando ? (
           <div className="p-8 text-center text-slate-500">Cargando…</div>
         ) : miembros.length === 0 ? (
-          <div className="p-8 text-center text-slate-500">
-            No hay miembros registrados en la empresa #{empresaSesion}.
-          </div>
+          <div className="p-8 text-center text-slate-500">No hay miembros registrados.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -838,6 +886,8 @@ const GestionEquipo = ({ user }) => {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   )
