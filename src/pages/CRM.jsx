@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { X, Phone, Navigation, MoreVertical } from 'lucide-react'
 import { asegurarVinculacionEmpleado, resolverActorCrm } from '../utils/empleadosVinculacion'
@@ -31,9 +31,30 @@ const fetchCrmData = async (setProspectos, setVisitas, setClientes) => {
   }
 }
 
+const toIsoDate = (value) => {
+  if (!value) return null
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString().slice(0, 10)
+}
+
+const getEmpresaIdNumerico = (empresaId) => {
+  const n = Number(empresaId)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
+const esErrorRls = (error) => {
+  const code = String(error?.code || '')
+  const msg = String(error?.message || '').toLowerCase()
+  return code === '42501' || /row-level security|policy|rls/.test(msg)
+}
+
 const CRM = ({ user = null }) => {
   const { empresaId } = useEmpresa()
   const getMensajeErrorBd = (error, accion) => {
+    if (esErrorRls(error)) {
+      return `No ha sido posible ${accion}. Tu usuario no tiene permisos de escritura para este tenant (RLS).`
+    }
     const detalle = error?.message || 'No se pudo completar la operación.'
     return `No ha sido posible ${accion}. Revisa los datos e inténtalo de nuevo. Detalle: ${detalle}`
   }
@@ -103,7 +124,7 @@ const CRM = ({ user = null }) => {
   })
 
   // Función local de refresco: invoca la función maestra y sincroniza el panel del prospecto seleccionado
-  const refrescarDatos = async ({ silent = false } = {}) => {
+  const refrescarDatos = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true)
     try {
       const { prospectosData, visitasData } = await fetchCrmData(setProspectos, setVisitas, setClientes)
@@ -117,7 +138,11 @@ const CRM = ({ user = null }) => {
     } finally {
       if (!silent) setLoading(false)
     }
-  }
+  }, [prospectoSelected?.id])
+
+  const invalidarYRefrescarCRM = useCallback(async () => {
+    await refrescarDatos({ silent: true })
+  }, [refrescarDatos])
 
   // Carga inicial
   useEffect(() => {
@@ -467,18 +492,30 @@ const CRM = ({ user = null }) => {
 
     setIsSubmittingVisitaPanel(true)
     try {
+      const empresaIdNum = getEmpresaIdNumerico(empresaId)
+      if (!empresaIdNum) {
+        alert('No se pudo resolver el empresa_id del tenant actual. Vuelve a iniciar sesión.')
+        return
+      }
+
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
         const actor = await resolverActorCrm({ authUser: session.user }).catch(() => actorCrm)
         if (actor?.actorId) setActorCrm(actor)
       }
 
+      const fechaIso = toIsoDate(nuevaVisita.fecha)
+      if (!fechaIso) {
+        alert('La fecha de la visita no es válida.')
+        return
+      }
+
       const payloadVisita = {
-        fecha: nuevaVisita.fecha,
+        fecha: fechaIso,
         prospecto_id: prospectoId,
         comentario: nuevaVisita.comentario,
         nombre_contacto_externo: nombreContacto || null,
-        empresa_id: empresaId,
+        empresa_id: empresaIdNum,
       }
       const { data: visitaNueva, error } = await supabase
         .from('visitas')
@@ -488,13 +525,19 @@ const CRM = ({ user = null }) => {
 
       if (error) {
         alert(getMensajeErrorBd(error, 'registrar la visita'))
-      } else {
-        if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
-        setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '', nombre_contacto_externo: '' })
-        alert('Visita registrada con éxito')
-        if (prospectoId) recalcularPuntuacionLead(prospectoId)
-        refrescarDatos({ silent: true })
+        return
       }
+
+      if (!visitaNueva?.id) {
+        alert('La visita no se guardó correctamente: respuesta vacía de la base de datos.')
+        return
+      }
+
+      if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
+      setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '', nombre_contacto_externo: '' })
+      if (prospectoId) await recalcularPuntuacionLead(prospectoId)
+      await invalidarYRefrescarCRM()
+      alert('Visita registrada con éxito')
     } finally {
       setIsSubmittingVisitaPanel(false)
     }
@@ -613,6 +656,12 @@ const CRM = ({ user = null }) => {
 
     setIsSubmittingAgendaVisita(true)
     try {
+      const empresaIdNum = getEmpresaIdNumerico(empresaId)
+      if (!empresaIdNum) {
+        alert('No se pudo resolver el empresa_id del tenant actual. Vuelve a iniciar sesión.')
+        return
+      }
+
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
         const actor = await resolverActorCrm({ authUser: session.user }).catch(() => actorCrm)
@@ -662,12 +711,16 @@ const CRM = ({ user = null }) => {
       }
 
       const payloadVisita = {
-        fecha: fechaSeleccionada,
+        fecha: toIsoDate(fechaSeleccionada),
         // Regla explícita: visitas se relaciona por prospecto_id (nunca cliente_id).
         prospecto_id: prospectoIdFinal || null,
         comentario: agendaComentario,
         nombre_contacto_externo: nombreContacto || null,
-        empresa_id: empresaId,
+        empresa_id: empresaIdNum,
+      }
+      if (!payloadVisita.fecha) {
+        alert('La fecha seleccionada no es válida.')
+        return
       }
       const insertVisitaPromise = supabase
         .from('visitas')
@@ -685,19 +738,24 @@ const CRM = ({ user = null }) => {
 
       if (error) {
         alert(getMensajeErrorBd(error, 'agendar la visita'))
-      } else {
-        if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
-        if (prospectoIdFinal) {
-          supabase
-            .from('prospectos')
-            .update({ proxima_visita: fechaSeleccionada })
-            .eq('id', prospectoIdFinal)
-          recalcularPuntuacionLead(prospectoIdFinal)
-        }
-        // Refresco masivo en segundo plano para no bloquear la interfaz.
-        refrescarDatos({ silent: true })
-        alert('Visita agendada con éxito')
+        return
       }
+
+      if (!visitaNueva?.id) {
+        alert('La visita no se guardó correctamente: respuesta vacía de la base de datos.')
+        return
+      }
+
+      if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
+      if (prospectoIdFinal) {
+        await supabase
+          .from('prospectos')
+          .update({ proxima_visita: payloadVisita.fecha })
+          .eq('id', prospectoIdFinal)
+        await recalcularPuntuacionLead(prospectoIdFinal)
+      }
+      await invalidarYRefrescarCRM()
+      alert('Visita agendada con éxito')
     } finally {
       setIsSubmittingAgendaVisita(false)
     }
