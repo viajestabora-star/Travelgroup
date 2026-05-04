@@ -10,6 +10,7 @@ import { esUsuarioGestoria, puedeAccederCierresEconomicos, esUsuarioAdmin } from
 import { puedeAccederAdminMaster } from '../utils/adminMasterAccess'
 import { NOMBRE_APP_DEFAULT } from '../utils/marcaBlanca'
 import { asegurarVinculacionEmpleado } from '../utils/empleadosVinculacion'
+import { empresaIdDesdeJwtUsuario } from '../utils/tenantEmpresa'
 
 const Layout = ({ user, onLogout }) => {
   const location = useLocation()
@@ -78,15 +79,26 @@ const Layout = ({ user, onLogout }) => {
       )
 
       if (!(empresaId > 0)) {
-        const { data: perfil, error: errP } = await supabase
-          .from('profiles')
-          .select('empresa_id')
-          .eq('id', uid)
-          .maybeSingle()
+        const j = empresaIdDesdeJwtUsuario(authSession?.user)
+        if (j) empresaId = j
+      }
+
+      if (!(empresaId > 0)) {
+        const { data: sess2 } = await supabase.auth.getSession()
+        const j2 = empresaIdDesdeJwtUsuario(sess2?.session?.user)
+        if (j2) empresaId = j2
+      }
+
+      if (!(empresaId > 0)) {
+        const hint = Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : null
+        let q = supabase.from('profiles').select('empresa_id').eq('id', uid)
+        if (hint) q = q.eq('empresa_id', hint)
+        const { data: perfil, error: errP } = await q.maybeSingle()
         if (cancelled) return
         if (errP || perfil?.empresa_id == null || Number(perfil.empresa_id) <= 0) {
           setNombreEmpresaBD(null)
-          setNombreEmpresaError('Tu usuario no tiene empresa asignada. Contacta con el administrador.')
+          // No bloquear la app: marca blanca cae al nombre en sesión / default
+          setNombreEmpresaError(null)
           return
         }
         empresaId = Number(perfil.empresa_id)

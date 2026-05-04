@@ -66,6 +66,7 @@ Deno.serve(async (req) => {
     .from('profiles')
     .select('nivel_acceso, empresa_id')
     .eq('id', user.id)
+    .eq('empresa_id', empresaIdJwt)
     .maybeSingle()
 
   if (profErr) {

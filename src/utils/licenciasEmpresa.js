@@ -12,6 +12,16 @@
  */
 import { obtenerEmpresaIdTenantDesdePerfil } from './tenantEmpresa'
 
+/** Si el conteo de perfiles falla (RLS, red, etc.), no tumbar toda la UI: cupo leído, uso 0 hasta poder contar. */
+const resumenLicenciasDegradado = (empresaIdEfectivo, contratadas, mensajeConteo) => ({
+  empresa_id: empresaIdEfectivo,
+  contratadas,
+  usados: 0,
+  disponibles: contratadas,
+  _contadorDegradado: true,
+  _detalleConteo: mensajeConteo || null,
+})
+
 /**
  * Límite contractual de usuarios desde la fila empresas (max_usuarios en Supabase).
  * null / no numérico / ≤ 0 → 1 (empresas con cupo explícito, p. ej. Tabora con 999, leen su valor).
@@ -85,13 +95,6 @@ export async function obtenerResumenLicenciasEmpresa(supabase, empresaIdSolicita
       resumen: null,
     }
   }
-  if (countRes.error) {
-    return {
-      ok: false,
-      error: countRes.error.message || 'No se pudo contar los usuarios del tenant.',
-      resumen: null,
-    }
-  }
 
   const row = empRes.data
   if (!row) {
@@ -103,6 +106,14 @@ export async function obtenerResumenLicenciasEmpresa(supabase, empresaIdSolicita
   }
 
   const contratadas = limiteUsuariosDesdeEmpresaRow(row)
+
+  if (countRes.error) {
+    return {
+      ok: true,
+      error: null,
+      resumen: resumenLicenciasDegradado(empresaIdEfectivo, contratadas, countRes.error.message),
+    }
+  }
 
   const usados = Number(countRes.count) || 0
   const disponibles = Math.max(0, contratadas - usados)

@@ -808,6 +808,7 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
           .from('profiles')
           .select('empresa_id, nivel_acceso')
           .eq('id', user.id)
+          .eq('empresa_id', MASTER_EMPRESA_ID)
           .maybeSingle()
         eId = Number(perfil?.empresa_id) || 0
       }
@@ -1024,6 +1025,7 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
           .from('profiles')
           .select('empresa_id, nivel_acceso')
           .eq('id', user.id)
+          .eq('empresa_id', MASTER_EMPRESA_ID)
           .maybeSingle()
         empresaIdAuth = Number(perfil?.empresa_id) || 0
       }

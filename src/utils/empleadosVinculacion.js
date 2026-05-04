@@ -7,16 +7,18 @@ export const esDominioTabora = (email) => String(email || '').toLowerCase().ends
 const normalizarEmail = (email) => String(email || '').trim().toLowerCase()
 
 export const resolverEmpresaIdActiva = ({ authUser = null, appUser = null } = {}) => {
-  // Prioridad: sesión local → app_metadata (servidor) → null
+  // Prioridad: sesión local → app_metadata (servidor) → user_metadata (cliente) → null
   // NUNCA se hardcodea empresa_id=1: cada tenant opera exclusivamente con su propio ID.
   const byApp = Number(appUser?.empresa_id)
   if (byApp > 0) return byApp
   const byClaim = Number(authUser?.app_metadata?.empresa_id)
   if (byClaim > 0) return byClaim
+  const byUserMeta = Number(authUser?.user_metadata?.empresa_id)
+  if (byUserMeta > 0) return byUserMeta
   return null
 }
 
-export async function resolverActorCrm({ authUser = null } = {}) {
+export async function resolverActorCrm({ authUser = null, appUser = null } = {}) {
   const email = normalizarEmail(authUser?.email)
   if (!authUser?.id && !email) return { actorId: null, fuente: null }
 
@@ -38,20 +40,24 @@ export async function resolverActorCrm({ authUser = null } = {}) {
     if (empByEmail?.id) return { actorId: empByEmail.id, fuente: 'empleados' }
   }
 
-  if (authUser?.id) {
+  const empresaTenant = resolverEmpresaIdActiva({ authUser, appUser })
+
+  if (authUser?.id && empresaTenant) {
     const { data: profileById } = await supabase
       .from('profiles')
       .select('id')
       .eq('id', authUser.id)
+      .eq('empresa_id', empresaTenant)
       .maybeSingle()
     if (profileById?.id) return { actorId: profileById.id, fuente: 'profiles' }
   }
 
-  if (email) {
+  if (email && empresaTenant) {
     const { data: profileByEmail } = await supabase
       .from('profiles')
       .select('id')
       .eq('email', email)
+      .eq('empresa_id', empresaTenant)
       .maybeSingle()
     if (profileByEmail?.id) return { actorId: profileByEmail.id, fuente: 'profiles' }
   }
@@ -63,7 +69,7 @@ export async function asegurarVinculacionEmpleado({ authUser = null, appUser = n
   if (!authUser?.id || !authUser?.email) return { ok: false, motivo: 'sin_sesion_auth' }
 
   // Si ya existe actor (empleado o profile), no crear duplicado.
-  const actor = await resolverActorCrm({ authUser })
+  const actor = await resolverActorCrm({ authUser, appUser })
   if (actor.actorId) return { ok: true, creado: false, ...actor }
 
   // Resolver empresa_id del tenant activo. Si no se puede determinar, salir sin crear.
@@ -86,11 +92,11 @@ export async function asegurarVinculacionEmpleado({ authUser = null, appUser = n
   for (const payload of intentos) {
     const { error } = await supabase.from('empleados').insert([payload])
     if (!error) {
-      const nuevo = await resolverActorCrm({ authUser })
+      const nuevo = await resolverActorCrm({ authUser, appUser })
       return { ok: true, creado: true, ...nuevo }
     }
   }
 
-  const finalActor = await resolverActorCrm({ authUser })
+  const finalActor = await resolverActorCrm({ authUser, appUser })
   return { ok: true, creado: false, ...finalActor }
 }

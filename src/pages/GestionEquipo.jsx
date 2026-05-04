@@ -4,7 +4,7 @@ import { UserPlus, Users, RefreshCw, Shield, X, Pencil, Trash2, Building2, Lock 
 import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
 import { verificarLicenciasYRegistrarMiembro, MENSAJE_SIN_LICENCIAS } from '../utils/gestionEquipoRegistration'
 import { esUsuarioAdmin } from '../utils/userRoles'
-import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
+import { obtenerEmpresaIdTenantDesdePerfil, empresaIdDesdeJwtUsuario } from '../utils/tenantEmpresa'
 import { obtenerResumenLicenciasEmpresa } from '../utils/licenciasEmpresa'
 import { resolverLogoAccesible } from '../utils/datosEmisorEmpresa'
 import CambioContraseñaForm from '../components/CambioContraseñaForm'
@@ -61,19 +61,33 @@ const GestionEquipo = ({ user }) => {
     setCargando(true)
     setErrorLista('')
 
-    // ── 1. Detectar empresa_id: prop user → JWT → profiles (sin fallback a id=1) ──
+    // ── 1. Detectar empresa_id: prop user → JWT → profiles acotado por empresa (anti-RLS/recursión) ──
     let idABuscar = Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : null
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser()
       if (authUser) {
-        const { data: miPerfil } = await supabase
-          .from('profiles')
-          .select('empresa_id')
-          .eq('id', authUser.id)
-          .maybeSingle()
+        const jwtE = empresaIdDesdeJwtUsuario(authUser)
+        let miPerfil = null
+        if (jwtE) {
+          const { data } = await supabase
+            .from('profiles')
+            .select('empresa_id')
+            .eq('id', authUser.id)
+            .eq('empresa_id', jwtE)
+            .maybeSingle()
+          miPerfil = data
+        } else {
+          const { data } = await supabase
+            .from('profiles')
+            .select('empresa_id')
+            .eq('id', authUser.id)
+            .maybeSingle()
+          miPerfil = data
+        }
 
         const detectado =
-          Number(miPerfil?.empresa_id) ||
+          (Number(miPerfil?.empresa_id) > 0 ? Number(miPerfil.empresa_id) : 0) ||
+          jwtE ||
           Number(authUser.app_metadata?.empresa_id) ||
           Number(authUser.user_metadata?.empresa_id) ||
           0

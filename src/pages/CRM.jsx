@@ -148,7 +148,7 @@ const CRM = ({ user = null }) => {
       const authUser = session?.user
       if (!authUser?.id) return
       await asegurarVinculacionEmpleado({ authUser, appUser: user }).catch(() => {})
-      const actor = await resolverActorCrm({ authUser }).catch(() => ({ actorId: null, fuente: null }))
+      const actor = await resolverActorCrm({ authUser, appUser: user }).catch(() => ({ actorId: null, fuente: null }))
       setActorCrm(actor || { actorId: null, fuente: null })
     }
     sincronizarActorCrm()
@@ -520,7 +520,7 @@ const CRM = ({ user = null }) => {
 
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
-        const actor = await resolverActorCrm({ authUser: session.user }).catch(() => actorCrm)
+        const actor = await resolverActorCrm({ authUser: session.user, appUser: user }).catch(() => actorCrm)
         if (actor?.actorId) setActorCrm(actor)
       }
 
@@ -687,7 +687,7 @@ const CRM = ({ user = null }) => {
 
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
-        const actor = await resolverActorCrm({ authUser: session.user }).catch(() => actorCrm)
+        const actor = await resolverActorCrm({ authUser: session.user, appUser: user }).catch(() => actorCrm)
         if (actor?.actorId) setActorCrm(actor)
       }
 

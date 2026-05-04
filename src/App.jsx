@@ -26,6 +26,7 @@ import { aplicarMarcaDocumento, NOMBRE_APP_DEFAULT } from './utils/marcaBlanca';
 import { EmpresaProvider } from './context/EmpresaContext';
 import { supabase } from './supabase';
 import { setTenantEmpresaId, clearTenantEmpresaId } from './utils/tenantDb';
+import { empresaIdDesdeJwtUsuario } from './utils/tenantEmpresa';
 
 /** Ruta `/historial-cierres`: solo ADMIN o GESTORIA; resto → panel principal. */
 function CierresEconomicosRoute({ user }) {
@@ -82,20 +83,22 @@ function App() {
       if (!authUser) return; // Sin sesión activa → flujo de login ya lo gestiona
 
       // Intentar empresa_id desde JWT claims
-      let empresa_idReal =
-        Number(authUser.app_metadata?.empresa_id) ||
-        Number(authUser.user_metadata?.empresa_id) ||
-        0;
+      let empresa_idReal = empresaIdDesdeJwtUsuario(authUser) ?? 0;
       let nivelAccesoReal = null;
 
-      // Si no viene en JWT, leer desde profiles (sin tenant filter: profiles no está en ERP_TABLES)
-      // para evitar falsos 0/null cacheados en claims.
+      // Si no viene en JWT, leer desde profiles (hint: empresa_id en localStorage para acotar RLS)
       if (!empresa_idReal) {
-        const { data: perfil } = await supabase
+        let hint = 0;
+        try {
+          const raw = localStorage.getItem('sesion_tabora');
+          if (raw) hint = Number(JSON.parse(raw).empresa_id) || 0;
+        } catch (_) {}
+        let q = supabase
           .from('profiles')
           .select('empresa_id, nivel_acceso')
-          .eq('id', authUser.id)
-          .maybeSingle();
+          .eq('id', authUser.id);
+        if (hint > 0) q = q.eq('empresa_id', hint);
+        const { data: perfil } = await q.maybeSingle();
         empresa_idReal = Number(perfil?.empresa_id) || 0;
         nivelAccesoReal = perfil?.nivel_acceso || null;
       }

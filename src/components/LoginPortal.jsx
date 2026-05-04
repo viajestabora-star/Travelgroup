@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { sincronizarNivelAccesoEnSesion } from '../utils/nivelAcceso'
 import { aplicarMarcaDocumento, NOMBRE_APP_DEFAULT } from '../utils/marcaBlanca'
 import { setTenantEmpresaId } from '../utils/tenantDb'
+import { empresaIdDesdeJwtUsuario } from '../utils/tenantEmpresa'
 import { toSlug } from '../utils/slugify'
 
 /**
@@ -65,24 +66,35 @@ const LoginPortal = ({ onSesion }) => {
       return
     }
 
-    // 3. Leer empresa_id y nivel_acceso desde la tabla profiles
-    // La columna real es nivel_acceso (no rol). Se selecciona explícitamente.
-    const { data: perfil, error: perfilError } = await supabase
-      .from('profiles')
-      .select('empresa_id, nivel_acceso, nombre, email')
-      .eq('id', userId)
-      .maybeSingle()
+    // 3. Leer empresa_id y nivel_acceso desde profiles (acotado por JWT cuando exista, para evitar RLS recursivo).
+    const empresaIdJWT = empresaIdDesdeJwtUsuario(authUser) ?? 0
+
+    let perfil = null
+    let perfilError = null
+    if (empresaIdJWT > 0) {
+      const r = await supabase
+        .from('profiles')
+        .select('empresa_id, nivel_acceso, nombre, email')
+        .eq('id', userId)
+        .eq('empresa_id', empresaIdJWT)
+        .maybeSingle()
+      perfil = r.data
+      perfilError = r.error
+    } else {
+      const r = await supabase
+        .from('profiles')
+        .select('empresa_id, nivel_acceso, nombre, email')
+        .eq('id', userId)
+        .maybeSingle()
+      perfil = r.data
+      perfilError = r.error
+    }
 
     const empresaIdPerfil = Number(perfil?.empresa_id) > 0 ? Number(perfil.empresa_id) : null
 
     // Fallback: si profiles no tiene empresa_id, leer del JWT (app_metadata > user_metadata).
     // Imprescindible para el Superadmin (empresa_id=1 / Tabora) cuya fila de profiles
     // puede no tener empresa_id si el trigger de DB no lo escribió aún.
-    const empresaIdJWT = Number(
-      authUser?.app_metadata?.empresa_id
-      ?? authUser?.user_metadata?.empresa_id
-      ?? 0,
-    )
     const empresaIdSesion = empresaIdPerfil ?? (empresaIdJWT > 0 ? empresaIdJWT : null)
 
     if (perfilError || !empresaIdSesion) {
