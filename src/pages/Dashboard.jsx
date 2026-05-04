@@ -48,7 +48,7 @@ const Dashboard = ({ user = null }) => {
   const [cargandoNotas, setCargandoNotas]        = useState(true)
   const [ultimasFacturas, setUltimasFacturas]    = useState([])
   const [cargandoFacturas, setCargandoFacturas]  = useState(true)
-  /** Cupo contractual (empresas.limite_licencias) + uso en profiles; solo tenant de la sesión. */
+  /** Cupo contractual (empresas.max_usuarios) + uso en profiles; solo tenant de la sesión. */
   const [cupoLicencias, setCupoLicencias] = useState(null)
   const [cargandoCupoLicencias, setCargandoCupoLicencias] = useState(true)
 

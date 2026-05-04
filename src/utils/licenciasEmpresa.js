@@ -1,7 +1,7 @@
 /**
  * Cupo de licencias por tenant (Blueprint Tabora).
  *
- * - Contratadas: columna empresas.limite_licencias (solo lectura en esta capa).
+ * - Contratadas: columna empresas.max_usuarios (fuente de verdad). Si es nula o inválida, se usa 1.
  * - Usadas: COUNT(*) en public.profiles WHERE empresa_id = <tenant autenticado>.
  * - Disponibles: GREATEST(0, Contratadas - Usadas).
  *
@@ -13,9 +13,23 @@
 import { obtenerEmpresaIdTenantDesdePerfil } from './tenantEmpresa'
 
 /**
+ * Límite contractual de usuarios desde la fila empresas (max_usuarios en Supabase).
+ * null / no numérico / ≤ 0 → 1 (empresas con cupo explícito, p. ej. Tabora con 999, leen su valor).
+ *
+ * @param {{ max_usuarios?: number | null }} row
+ * @returns {number}
+ */
+export function limiteUsuariosDesdeEmpresaRow(row) {
+  const raw = row?.max_usuarios
+  if (raw == null) return 1
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : 1
+}
+
+/**
  * @typedef {Object} ResumenLicenciasTenant
  * @property {number} empresa_id
- * @property {number} contratadas   valor empresas.limite_licencias
+ * @property {number} contratadas   valor efectivo empresas.max_usuarios (mínimo 1)
  * @property {number} usados         perfiles con empresa_id = tenant
  * @property {number} disponibles    contratadas - usados (mínimo 0)
  */
@@ -55,7 +69,7 @@ export async function obtenerResumenLicenciasEmpresa(supabase, empresaIdSolicita
   const [empRes, countRes] = await Promise.all([
     supabase
       .from('empresas')
-      .select('limite_licencias')
+      .select('max_usuarios')
       .eq('id', empresaIdEfectivo)
       .maybeSingle(),
     supabase
@@ -88,8 +102,7 @@ export async function obtenerResumenLicenciasEmpresa(supabase, empresaIdSolicita
     }
   }
 
-  const contratadasRaw = Number(row.limite_licencias)
-  const contratadas = Number.isFinite(contratadasRaw) && contratadasRaw > 0 ? contratadasRaw : 0
+  const contratadas = limiteUsuariosDesdeEmpresaRow(row)
 
   const usados = Number(countRes.count) || 0
   const disponibles = Math.max(0, contratadas - usados)

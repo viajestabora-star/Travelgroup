@@ -215,13 +215,6 @@ const EmpresaTab = ({ row, esMatriz, onSave, onClose }) => {
       </Seccion>
 
       <Seccion titulo="Precios y licencias">
-        <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-          <Users size={14} className="mt-0.5 shrink-0 text-sky-500" />
-          <span>El plan base incluye <strong>3 licencias</strong>: <strong>1 Gestoría</strong> (obligatoria),{' '}
-            <strong>1 Admin</strong> (obligatorio) y <strong>1 a elección</strong> (Admin o Staff).
-            Los usuarios adicionales a partir del 4.º se facturan a precio extra.</span>
-        </div>
-
         <div className="grid grid-cols-3 gap-3 items-end">
           <Campo label={<span className="flex items-center gap-1"><Euro size={12} />Precio pack base</span>} hint="saas_precio_pack_base">
             <div className="relative">
@@ -1251,12 +1244,6 @@ const NuevaEmpresaPanel = ({ onCreate }) => {
 
           {/* ─ Precios y licencias ─ */}
           <Seccion titulo="Precios y licencias">
-            <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-              <Users size={14} className="mt-0.5 shrink-0 text-sky-500" />
-              <span>El plan base incluye <strong>3 licencias</strong>: <strong>1 Gestoría</strong> (obligatoria),{' '}
-                <strong>1 Admin</strong> (obligatorio) y <strong>1 a elección</strong> (Admin o Staff).
-                Los usuarios adicionales a partir del 4.º se facturan a precio extra.</span>
-            </div>
             <div className="grid grid-cols-3 gap-3 items-end">
               <Campo label={<span className="flex items-center gap-1"><Euro size={12} />Precio pack base</span>} hint="saas_precio_pack_base">
                 <div className="relative">

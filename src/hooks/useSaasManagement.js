@@ -59,7 +59,6 @@ export const useSaasManagement = () => {
       nombre_comercial:          (data.nombre_comercial || '').trim(),
       plan_tipo:                 (data.plan_tipo        || 'basic').trim(),
       max_usuarios:              maxUsuariosPlan,
-      limite_licencias:          maxUsuariosPlan,
       suscripcion_activa:        true,
       saas_precio_pack_base:     Number(data.saas_precio_pack_base)     || 60,
       saas_precio_usuario_extra: Number(data.saas_precio_usuario_extra) || 12,

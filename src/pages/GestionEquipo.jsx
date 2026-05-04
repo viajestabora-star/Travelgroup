@@ -103,7 +103,7 @@ const GestionEquipo = ({ user }) => {
       setErrorLista('')
     }
 
-    // ── 3. Licencias: limite_licencias + profiles (mismo tenant que profiles; ver licenciasEmpresa.js)
+    // ── 3. Licencias: max_usuarios + profiles (mismo tenant que profiles; ver licenciasEmpresa.js)
     const lic = await obtenerResumenLicenciasEmpresa(supabase, idABuscar)
     if (lic.ok && lic.resumen) {
       setLicencias(lic.resumen)
@@ -468,7 +468,7 @@ const GestionEquipo = ({ user }) => {
       )}
 
       {(() => {
-        // Límite: usadas >= contratadas (limite_licencias)
+        // Límite: usadas >= contratadas (max_usuarios)
         const cupoContratado = Number(licencias?.contratadas)
         const usadosLic = Number(licencias?.usados)
         const limiteAlcanzado =
