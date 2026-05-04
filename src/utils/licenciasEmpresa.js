@@ -55,7 +55,7 @@ export async function obtenerResumenLicenciasEmpresa(supabase, empresaIdSolicita
   const [empRes, countRes] = await Promise.all([
     supabase
       .from('empresas')
-      .select('limite_licencias, licencias_max')
+      .select('limite_licencias')
       .eq('id', empresaIdEfectivo)
       .maybeSingle(),
     supabase
@@ -88,12 +88,7 @@ export async function obtenerResumenLicenciasEmpresa(supabase, empresaIdSolicita
     }
   }
 
-  const limiteCol = row.limite_licencias
-  const legado = row.licencias_max
-  const contratadasRaw =
-    limiteCol != null && limiteCol !== ''
-      ? Number(limiteCol)
-      : Number(legado)
+  const contratadasRaw = Number(row.limite_licencias)
   const contratadas = Number.isFinite(contratadasRaw) && contratadasRaw > 0 ? contratadasRaw : 0
 
   const usados = Number(countRes.count) || 0

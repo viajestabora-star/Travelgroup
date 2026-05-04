@@ -14,15 +14,15 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS public.empresas (
   id SERIAL PRIMARY KEY,
   nombre TEXT NOT NULL DEFAULT '',
-  licencias_max INTEGER NOT NULL DEFAULT 25 CHECK (licencias_max > 0),
+  limite_licencias INTEGER NOT NULL DEFAULT 25 CHECK (limite_licencias > 0),
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-INSERT INTO public.empresas (id, nombre, licencias_max)
+INSERT INTO public.empresas (id, nombre, limite_licencias)
 VALUES (1, 'Viajes Tabora', 25)
 ON CONFLICT (id) DO UPDATE
 SET nombre = COALESCE(NULLIF(EXCLUDED.nombre, ''), empresas.nombre),
-    licencias_max = GREATEST(empresas.licencias_max, EXCLUDED.licencias_max);
+    limite_licencias = GREATEST(empresas.limite_licencias, EXCLUDED.limite_licencias);
 
 -- ── Perfiles (miembros por empresa) ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.profiles (
@@ -63,8 +63,8 @@ EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
 
--- ── Límite de licencias (disparador que debe coincidir con el mensaje de la app) ──
-CREATE OR REPLACE FUNCTION public.tf_profiles_enforce_licencias_max()
+-- ── Límite de licencias (disparador alineado con empresas.limite_licencias) ──
+CREATE OR REPLACE FUNCTION public.tf_profiles_enforce_limite_licencias()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -74,7 +74,7 @@ DECLARE
   v_max integer;
   v_usados integer;
 BEGIN
-  SELECT e.licencias_max INTO v_max
+  SELECT e.limite_licencias INTO v_max
   FROM public.empresas e
   WHERE e.id = NEW.empresa_id;
 
@@ -98,7 +98,7 @@ DROP TRIGGER IF EXISTS trg_profiles_enforce_licencias ON public.profiles;
 CREATE TRIGGER trg_profiles_enforce_licencias
   BEFORE INSERT ON public.profiles
   FOR EACH ROW
-  EXECUTE PROCEDURE public.tf_profiles_enforce_licencias_max();
+  EXECUTE PROCEDURE public.tf_profiles_enforce_limite_licencias();
 
 -- ── Alta automática de perfil tras registro en auth (empresa_id desde metadata) ──
 CREATE OR REPLACE FUNCTION public.handle_new_user_profile()
@@ -176,7 +176,7 @@ BEGIN
     );
   END IF;
 
-  SELECT e.licencias_max INTO v_max FROM public.empresas e WHERE e.id = v_empresa_id;
+  SELECT e.limite_licencias INTO v_max FROM public.empresas e WHERE e.id = v_empresa_id;
   SELECT count(*)::integer INTO v_usados FROM public.profiles p WHERE p.empresa_id = v_empresa_id;
 
   RETURN jsonb_build_object(

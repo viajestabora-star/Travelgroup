@@ -11,7 +11,7 @@ ALTER TABLE public.empresas ADD COLUMN IF NOT EXISTS limite_usuarios_staff INTEG
 ALTER TABLE public.empresas ADD COLUMN IF NOT EXISTS activa BOOLEAN DEFAULT true;
 
 UPDATE public.empresas
-SET limite_usuarios_staff = COALESCE(limite_usuarios_staff, licencias_max, 1)
+SET limite_usuarios_staff = COALESCE(limite_usuarios_staff, limite_licencias, 1)
 WHERE limite_usuarios_staff IS NULL;
 
 UPDATE public.empresas SET activa = true WHERE activa IS NULL;
@@ -38,13 +38,13 @@ RETURNS integer
 LANGUAGE sql
 STABLE
 AS $$
-  SELECT COALESCE(e.limite_usuarios_staff, e.licencias_max, 1)::integer
+  SELECT COALESCE(e.limite_licencias, e.limite_usuarios_staff, 1)::integer
   FROM public.empresas e
   WHERE e.id = p_empresa_id;
 $$;
 
--- ── Trigger perfiles: usa límite staff ───────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.tf_profiles_enforce_licencias_max()
+-- ── Trigger perfiles: usa empresa_limite_efectivo (limite_licencias primero) ─
+CREATE OR REPLACE FUNCTION public.tf_profiles_enforce_limite_licencias()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -181,7 +181,7 @@ RETURNS TABLE (
   id integer,
   nombre text,
   limite_usuarios_staff integer,
-  licencias_max integer,
+  limite_licencias integer,
   activa boolean,
   created_at timestamptz
 )
@@ -194,7 +194,7 @@ BEGIN
     RAISE EXCEPTION 'solo_master_tabora' USING ERRCODE = '42501';
   END IF;
   RETURN QUERY
-  SELECT e.id, e.nombre, e.limite_usuarios_staff, e.licencias_max, e.activa, e.created_at
+  SELECT e.id, e.nombre, e.limite_usuarios_staff, e.limite_licencias, e.activa, e.created_at
   FROM public.empresas e
   ORDER BY e.id ASC;
 END;
@@ -230,7 +230,7 @@ BEGIN
     RAISE EXCEPTION 'nombre_obligatorio';
   END IF;
 
-  INSERT INTO public.empresas (nombre, licencias_max, limite_usuarios_staff, activa)
+  INSERT INTO public.empresas (nombre, limite_licencias, limite_usuarios_staff, activa)
   VALUES (
     trim(COALESCE(p_nombre, '')),
     v_lim,
@@ -289,7 +289,7 @@ BEGIN
 
   UPDATE public.empresas e
   SET limite_usuarios_staff = v_nuevo,
-      licencias_max = GREATEST(e.licencias_max, v_nuevo)
+      limite_licencias = GREATEST(e.limite_licencias, v_nuevo)
   WHERE e.id = p_empresa_id;
 
   RETURN jsonb_build_object(

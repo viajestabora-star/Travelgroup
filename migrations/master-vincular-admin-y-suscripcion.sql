@@ -92,7 +92,7 @@ RETURNS TABLE (
   id integer,
   nombre text,
   limite_usuarios_staff integer,
-  licencias_max integer,
+  limite_licencias integer,
   activa boolean,
   fecha_expiracion date,
   created_at timestamptz
@@ -106,7 +106,7 @@ BEGIN
     RAISE EXCEPTION 'solo_master_tabora' USING ERRCODE = '42501';
   END IF;
   RETURN QUERY
-  SELECT e.id, e.nombre, e.limite_usuarios_staff, e.licencias_max, e.activa, e.fecha_expiracion, e.created_at
+  SELECT e.id, e.nombre, e.limite_usuarios_staff, e.limite_licencias, e.activa, e.fecha_expiracion, e.created_at
   FROM public.empresas e
   ORDER BY e.id ASC;
 END;

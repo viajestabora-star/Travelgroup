@@ -155,7 +155,7 @@ BEGIN
     RAISE EXCEPTION 'email_cliente_obligatorio';
   END IF;
 
-  INSERT INTO public.empresas (nombre, licencias_max, limite_usuarios_staff, activa, nombre_app)
+  INSERT INTO public.empresas (nombre, limite_licencias, limite_usuarios_staff, activa, nombre_app)
   VALUES (
     trim(COALESCE(p_nombre_comercial, '')),
     v_lim,

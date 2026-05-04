@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
 
   const { data: empRow, error: empErr } = await adminClient
     .from('empresas')
-    .select('limite_licencias, licencias_max')
+    .select('limite_licencias')
     .eq('id', empresaIdJwt)
     .maybeSingle()
 
@@ -121,13 +121,7 @@ Deno.serve(async (req) => {
   }
 
   const limiteCol = Number(empRow.limite_licencias)
-  const legado = Number(empRow.licencias_max)
-  const contratadas =
-    Number.isFinite(limiteCol) && limiteCol > 0
-      ? limiteCol
-      : Number.isFinite(legado) && legado > 0
-        ? legado
-        : 1
+  const contratadas = Number.isFinite(limiteCol) && limiteCol > 0 ? limiteCol : 1
   const usados = count ?? 0
   if (usados >= contratadas) {
     return json({ ok: false, error: 'LIMITE_USUARIOS_ALCANZADO' }, 400)
