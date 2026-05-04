@@ -1,10 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../supabase';
 import { useLocation } from 'react-router-dom';
 import { CheckCircle2 } from 'lucide-react';
 import { useEmpresa } from '../context/EmpresaContext';
 import { empresaIdSesionValido } from '../utils/tenantEmpresa';
 import { assertFilaPersistida, empresaIdNumericoOThrow, toIsoDateOnly } from '../utils/supabasePersistenciaCerteza';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+const hashStringHue = (s) => {
+  let h = 0
+  const str = String(s || '')
+  for (let i = 0; i < str.length; i += 1) h = ((h << 5) - h) + str.charCodeAt(i)
+  return Math.abs(h) % 360
+}
 
 const NotasTrabajo = ({ user, expedienteId = null }) => {
   const location = useLocation();
@@ -36,14 +45,68 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   // Estado para notas que están siendo completadas (para animación)
   const [notasCompletando, setNotasCompletando] = useState(new Set());
   const [notasOcultas, setNotasOcultas] = useState(new Set());
+  /** Perfiles del mismo tenant (selector "Para quién"); id = auth user id (UUID). */
+  const [perfilesDestinatario, setPerfilesDestinatario] = useState([]);
 
-  // Colores de borde según destinatario
-  const coloresDestinatario = {
-    'Todos': '#9ca3af',   // Gris neutro
-    'Andres': '#3b82f6',  // Azul
-    'Marisa': '#10b981',  // Verde
-    'German': '#f59e0b'   // Amarillo/Naranja
-  };
+  const perfilesPorId = useMemo(() => {
+    const m = new Map()
+    ;(perfilesDestinatario || []).forEach((p) => {
+      if (p?.id) m.set(String(p.id), p)
+    })
+    return m
+  }, [perfilesDestinatario])
+
+  const resolverEtiquetaDestinatario = useCallback(
+    (valor) => {
+      if (!valor || valor === 'Todos') return 'Todos'
+      const id = String(valor)
+      if (UUID_RE.test(id)) {
+        const p = perfilesPorId.get(id)
+        return p?.nombre?.trim() || id
+      }
+      const porNombre = perfilesDestinatario.find(
+        (x) => String(x.nombre || '').trim().toLowerCase() === String(valor).trim().toLowerCase(),
+      )
+      return porNombre?.nombre?.trim() || String(valor)
+    },
+    [perfilesDestinatario, perfilesPorId],
+  )
+
+  const normalizarNotaParaEdicion = useCallback(
+    (nota) => {
+      if (!nota) return nota
+      let dest = nota.destinatario || 'Todos'
+      if (dest !== 'Todos' && !UUID_RE.test(dest)) {
+        const m = perfilesDestinatario.find(
+          (p) => String(p.nombre || '').trim().toLowerCase() === String(dest).trim().toLowerCase(),
+        )
+        if (m) dest = m.id
+      }
+      return { ...nota, destinatario: dest }
+    },
+    [perfilesDestinatario],
+  )
+
+  useEffect(() => {
+    const cargarPerfilesMismaEmpresa = async () => {
+      if (!empresaIdRequerido) {
+        setPerfilesDestinatario([])
+        return
+      }
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, nombre')
+        .eq('empresa_id', empresaIdRequerido)
+        .order('nombre', { ascending: true, nullsFirst: false })
+      if (error) {
+        console.error('[Notas] profiles destinatarios:', error.message)
+        setPerfilesDestinatario([])
+        return
+      }
+      setPerfilesDestinatario(Array.isArray(data) ? data : [])
+    }
+    cargarPerfilesMismaEmpresa()
+  }, [empresaIdRequerido])
 
   // Cargar notas desde Supabase
   useEffect(() => {
@@ -54,9 +117,11 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   // Runs whenever notas loads (cargando flips to false) and a target ID is present.
   useEffect(() => {
     if (cargando || !notaIdFromState) return;
+    if (editando && editando.id !== notaIdFromState) return;
+
     const notaObjetivo = notas.find(n => n.id === notaIdFromState);
     if (notaObjetivo) {
-      setEditando(notaObjetivo);
+      setEditando(normalizarNotaParaEdicion(notaObjetivo));
       // Scroll the form into view after React paints
       setTimeout(() => {
         document.getElementById('nota-edit-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -64,9 +129,11 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
     } else {
       // The note may be Completado — fetch it directly so the form still opens
       supabase.from('notas').select('*').eq('id', notaIdFromState).single()
-        .then(({ data }) => { if (data) setEditando(data); });
+        .then(({ data }) => {
+          if (data) setEditando(normalizarNotaParaEdicion(data))
+        });
     }
-  }, [cargando, notaIdFromState]);
+  }, [cargando, notaIdFromState, notas, editando, normalizarNotaParaEdicion]);
 
   const cargarNotas = async () => {
     try {
@@ -116,7 +183,30 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
         return;
       }
 
-      const destinatarioFinal = (editando ? editando.destinatario : nuevaNota.destinatario) || 'Todos';
+      let destinatarioFinal = (editando ? editando.destinatario : nuevaNota.destinatario) || 'Todos'
+
+      if (destinatarioFinal !== 'Todos') {
+        if (!UUID_RE.test(destinatarioFinal)) {
+          const porNombre = perfilesDestinatario.find(
+            (p) => String(p.nombre || '').trim().toLowerCase() === String(destinatarioFinal).trim().toLowerCase(),
+          )
+          if (porNombre) destinatarioFinal = porNombre.id
+          else {
+            alert('El destinatario seleccionado no es válido. Elige un usuario de tu empresa en "Para quién".')
+            return
+          }
+        }
+        const { data: profOk, error: errProf } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', destinatarioFinal)
+          .eq('empresa_id', tenantId)
+          .maybeSingle()
+        if (errProf || !profOk?.id) {
+          alert('El usuario destinatario no pertenece a tu empresa o no existe. Revisa "Para quién".')
+          return
+        }
+      }
 
       if (editando) {
         const fechaPlazoIso = editando.fecha_plazo ? toIsoDateOnly(editando.fecha_plazo) : null;
@@ -211,9 +301,11 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   };
 
   const getColorBorde = (destinatario) => {
-    const dest = destinatario || 'Todos';
-    return coloresDestinatario[dest] || coloresDestinatario['Todos'];
-  };
+    const dest = destinatario || 'Todos'
+    if (!dest || dest === 'Todos') return '#9ca3af'
+    const hue = hashStringHue(dest)
+    return `hsl(${hue} 52% 42%)`
+  }
 
   // Obtener nombre del usuario logueado
   const obtenerNombreUsuario = () => {
@@ -450,16 +542,32 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
               onChange={e => editando ? setEditando({...editando, contenido: e.target.value}) : setNuevaNota({...nuevaNota, contenido: e.target.value})} 
               className="col-span-1 md:col-span-2 p-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 min-h-[80px]"
             />
-            <select 
-              value={editando ? editando.destinatario : nuevaNota.destinatario} 
-              onChange={e => editando ? setEditando({...editando, destinatario: e.target.value}) : setNuevaNota({...nuevaNota, destinatario: e.target.value})} 
-              className="p-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-            >
-              <option value="Todos">Todos</option>
-              <option value="Marisa">Marisa</option>
-              <option value="German">German</option>
-              <option value="Andres">Andres</option>
-            </select>
+            <div className="col-span-1 md:col-span-2">
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Para quién</label>
+              <select 
+                value={editando ? editando.destinatario : nuevaNota.destinatario} 
+                onChange={e => editando ? setEditando({...editando, destinatario: e.target.value}) : setNuevaNota({...nuevaNota, destinatario: e.target.value})} 
+                className="w-full p-3 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white"
+              >
+                <option value="Todos">Todos</option>
+                {perfilesDestinatario.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre?.trim() || 'Sin nombre'}
+                  </option>
+                ))}
+                {editando?.destinatario
+                  && editando.destinatario !== 'Todos'
+                  && UUID_RE.test(String(editando.destinatario))
+                  && !perfilesPorId.has(String(editando.destinatario)) && (
+                  <option value={editando.destinatario}>
+                    (Ya no en tu empresa — elige otro o Todos)
+                  </option>
+                )}
+              </select>
+              {!empresaIdRequerido && (
+                <p className="text-xs text-amber-600 mt-1">Inicia sesión con una empresa asignada para elegir destinatarios.</p>
+              )}
+            </div>
             <select 
               value={editando ? editando.estado : nuevaNota.estado} 
               onChange={e => editando ? setEditando({...editando, estado: e.target.value}) : setNuevaNota({...nuevaNota, estado: e.target.value})} 
@@ -498,7 +606,11 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
         {notas
           .filter(nota => !notasOcultas.has(nota.id))
           .map(nota => {
-          const colorBorde = getColorBorde(nota.destinatario);
+          const colorBorde = getColorBorde(nota.destinatario)
+          const chipBg =
+            nota.destinatario === 'Todos' || !nota.destinatario
+              ? '#f3f4f6'
+              : `hsl(${hashStringHue(nota.destinatario)} 42% 93%)`
           const estaCompletando = notasCompletando.has(nota.id);
           return (
             <div 
@@ -526,7 +638,8 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
                     </>
                   )}
                   <button 
-                    onClick={() => setEditando(nota)} 
+                    type="button"
+                    onClick={() => setEditando(normalizarNotaParaEdicion(nota))} 
                     className="text-blue-600 hover:text-blue-800 font-medium"
                   >
                     Edit
@@ -544,15 +657,13 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
                 <span 
                   className="text-xs font-semibold px-2 py-1 rounded"
                   style={{ 
-                    backgroundColor: (nota.destinatario === 'Todos' || !nota.destinatario) 
-                      ? '#f3f4f6' 
-                      : colorBorde + '20',
+                    backgroundColor: chipBg,
                     color: (nota.destinatario === 'Todos' || !nota.destinatario)
                       ? '#6b7280'
                       : colorBorde
                   }}
                 >
-                  Para: {nota.destinatario || 'Todos'}
+                  Para: {resolverEtiquetaDestinatario(nota.destinatario)}
                 </span>
               </div>
               <h4 className="text-lg font-bold text-gray-900 mb-2">{nota.titulo || 'Sin título'}</h4>
@@ -563,12 +674,12 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
                 <div className="mt-3 mb-3 border-t border-gray-200 pt-3">
                   <div className="space-y-2">
                     {nota.respuestas.map((respuesta, idx) => {
-                      const colorAutor = coloresDestinatario[respuesta.autor] || '#6b7280';
+                      const colorAutor = getColorBorde(respuesta.autor);
                       return (
                         <div 
                           key={idx} 
                           className="ml-4 pl-3 border-l-2 border-gray-200"
-                          style={{ borderLeftColor: colorAutor + '40' }}
+                          style={{ borderLeftColor: colorAutor }}
                         >
                           <div className="flex items-center gap-2 mb-1">
                             <span 
@@ -623,7 +734,7 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
                   <span className="font-semibold text-gray-600">
                     📅 {nota.fecha_plazo ? new Date(nota.fecha_plazo).toLocaleDateString('es-ES') : 'Sin fecha'}
                   </span>
-                  <span className="text-gray-500">👤 {nota.destinatario || 'Todos'}</span>
+                  <span className="text-gray-500">👤 {resolverEtiquetaDestinatario(nota.destinatario)}</span>
                 </div>
                 <span className="px-2 py-1 rounded text-xs font-medium"
                   style={{
