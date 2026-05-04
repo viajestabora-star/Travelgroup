@@ -32,17 +32,38 @@ export const useSaasManagement = () => {
    * @throws {Error} si Supabase devuelve un error
    */
   const updateEmpresa = useCallback(async (id, changes) => {
-    const { error: err } = await supabase
+    const empresaId = Number(id)
+    if (!Number.isInteger(empresaId) || empresaId < 1) {
+      throw new Error('ID de empresa inválido para actualizar.')
+    }
+
+    // Fuente de verdad del cupo: max_usuarios.
+    // Si llega un alias antiguo por error, se elimina antes del update.
+    const payload = { ...changes }
+    delete payload.limite_licencias
+    if (payload.max_usuarios !== undefined) {
+      payload.max_usuarios = Math.max(1, Number(payload.max_usuarios) || 1)
+    }
+
+    const { data: updatedRow, error: err } = await supabase
       .from('empresas')
-      .update(changes)
-      .eq('id', id)
+      .update(payload)
+      .eq('id', empresaId)
+      .select('*')
+      .maybeSingle()
 
     if (err) throw err
+    if (!updatedRow) {
+      throw new Error('La actualización no afectó registros (RLS o empresa inexistente).')
+    }
 
     setRows((prev) =>
-      prev.map((r) => ((r.id ?? r.empresa_id) === id ? { ...r, ...changes } : r))
+      prev.map((r) => ((r.id ?? r.empresa_id) === empresaId ? { ...r, ...updatedRow } : r))
     )
-  }, [])
+
+    // Fuerza sincronización con la vista fuente tras un update exitoso.
+    await reload()
+  }, [reload])
 
   /**
    * Crea un nuevo Tenant en la tabla `empresas`.
