@@ -37,28 +37,22 @@ export const useSaasManagement = () => {
       throw new Error('ID de empresa inválido para actualizar.')
     }
 
-    // Fuente de verdad del cupo: max_usuarios.
-    // Si llega un alias antiguo por error, se elimina antes del update.
-    const payload = { ...changes }
-    delete payload.limite_licencias
-    if (payload.max_usuarios !== undefined) {
-      payload.max_usuarios = Math.max(1, Number(payload.max_usuarios) || 1)
-    }
+    // Fuente de verdad del cupo: max_usuarios (numérico).
+    const maxUsuarios = Math.max(1, parseInt(changes?.max_usuarios, 10) || 1)
 
-    const { data: updatedRow, error: err } = await supabase
+    const { error: err } = await supabase
       .from('empresas')
-      .update(payload)
+      .update({ max_usuarios: maxUsuarios })
       .eq('id', empresaId)
-      .select('*')
-      .maybeSingle()
 
     if (err) throw err
-    if (!updatedRow) {
-      throw new Error('La actualización no afectó registros (RLS o empresa inexistente).')
-    }
 
     setRows((prev) =>
-      prev.map((r) => ((r.id ?? r.empresa_id) === empresaId ? { ...r, ...updatedRow } : r))
+      prev.map((r) => (
+        (r.id ?? r.empresa_id) === empresaId
+          ? { ...r, max_usuarios: maxUsuarios, saas_max_usuarios: maxUsuarios }
+          : r
+      ))
     )
 
     // Fuerza sincronización con la vista fuente tras un update exitoso.
