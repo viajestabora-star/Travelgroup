@@ -10,6 +10,8 @@ import ResumenPipeline from '../components/ResumenPipeline'
 import IntegrityPanel from '../components/IntegrityPanel'
 import { checkSystemIntegrity, autoCorregirDuraciones } from '../utils/integrityScanner'
 import { obtenerResumenLicenciasEmpresa } from '../utils/licenciasEmpresa'
+import { useEmpresa } from '../context/EmpresaContext'
+import { empresaIdSesionValido } from '../utils/tenantEmpresa'
 
 const Dashboard = ({ user = null }) => {
   const navigate    = useNavigate()
@@ -18,6 +20,8 @@ const Dashboard = ({ user = null }) => {
   const [showIntelligenceHub, setShowIntelligenceHub] = useState(false)
   const [showIntegrityPanel, setShowIntegrityPanel]   = useState(false)
   const esAdmin = esUsuarioAdmin(user)
+  const { empresaId } = useEmpresa()
+  const empresaIdNotas = empresaIdSesionValido(user, empresaId)
 
   // Corrección silenciosa en segundo plano: al cargar el dashboard,
   // ADMIN lanza un escaneo y auto-corrige duraciones legacy en Supabase sin molestar al usuario.
@@ -57,12 +61,15 @@ const Dashboard = ({ user = null }) => {
     if (esGestoria) { setCargandoNotas(false); return }
     const fetchNotas = async () => {
       try {
-        const { data } = await supabase
+        let q = supabase
           .from('notas')
           .select('*')
           .is('expediente_id', null)
           .eq('estado', 'Pendiente')
-          .order('fecha_plazo', { ascending: true })
+        if (empresaIdNotas) {
+          q = q.eq('empresa_id', empresaIdNotas)
+        }
+        const { data } = await q.order('fecha_plazo', { ascending: true })
         setNotasPendientes(data || [])
       } catch (_) {
         setNotasPendientes([])
@@ -71,7 +78,7 @@ const Dashboard = ({ user = null }) => {
       }
     }
     fetchNotas()
-  }, [esGestoria])
+  }, [esGestoria, empresaIdNotas])
 
   // Últimas facturas — solo gestoría
   useEffect(() => {

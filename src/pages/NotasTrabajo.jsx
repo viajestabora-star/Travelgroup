@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { useLocation } from 'react-router-dom';
 import { CheckCircle2 } from 'lucide-react';
+import { useEmpresa } from '../context/EmpresaContext';
+import { empresaIdSesionValido } from '../utils/tenantEmpresa';
+import { assertFilaPersistida, empresaIdNumericoOThrow, toIsoDateOnly } from '../utils/supabasePersistenciaCerteza';
 
 const NotasTrabajo = ({ user, expedienteId = null }) => {
   const location = useLocation();
@@ -22,6 +25,9 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   });
   const [mostrarForm, setMostrarForm] = useState(false);
   const [cargando, setCargando] = useState(true);
+  const [guardandoNota, setGuardandoNota] = useState(false);
+  const { empresaId } = useEmpresa();
+  const empresaIdRequerido = empresaIdSesionValido(user, empresaId);
   // Estado para manejar respuestas por cada nota
   const [respuestasTexto, setRespuestasTexto] = useState({});
   const [respondiendo, setRespondiendo] = useState({});
@@ -42,7 +48,7 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   // Cargar notas desde Supabase
   useEffect(() => {
     cargarNotas();
-  }, [mostrarCompletadas]);
+  }, [mostrarCompletadas, empresaIdRequerido]);
 
   // Deep-link: when arriving from Dashboard with a notaId, open that note for editing.
   // Runs whenever notas loads (cargando flips to false) and a target ID is present.
@@ -71,6 +77,10 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
         .from('notas')
         .select('*')
         .is('expediente_id', null); // Solo notas generales (sin expediente asociado)
+
+      if (empresaIdRequerido) {
+        query = query.eq('empresa_id', empresaIdRequerido);
+      }
       
       // Filtrar por estado según la vista activa
       if (!mostrarCompletadas) {
@@ -95,69 +105,86 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
   };
 
   const manejarGuardado = async () => {
+    if (guardandoNota) return;
+    setGuardandoNota(true);
     try {
-      // Sincronización de destinatario: usar valor del selector o 'Todos' por defecto
+      let tenantId;
+      try {
+        tenantId = empresaIdNumericoOThrow(empresaIdRequerido);
+      } catch (e) {
+        alert(e?.message || 'No hay empresa en sesión; no se puede guardar la nota.');
+        return;
+      }
+
       const destinatarioFinal = (editando ? editando.destinatario : nuevaNota.destinatario) || 'Todos';
 
       if (editando) {
-        // Actualizar nota existente - Notas generales: expediente_id siempre null
+        const fechaPlazoIso = editando.fecha_plazo ? toIsoDateOnly(editando.fecha_plazo) : null;
         const datosActualizar = {
-          expediente_id: null, // Notas generales sin expediente
+          expediente_id: null,
           titulo: editando.titulo || '',
           contenido: editando.contenido || '',
           destinatario: destinatarioFinal,
           estado: editando.estado || 'Pendiente',
-          fecha_plazo: editando.fecha_plazo || null
+          fecha_plazo: fechaPlazoIso,
+          empresa_id: tenantId,
         };
 
-        const { error } = await supabase
+        const result = await supabase
           .from('notas')
           .update(datosActualizar)
-          .eq('id', editando.id);
+          .eq('id', editando.id)
+          .select()
+          .single();
 
-        if (error) {
-          alert(`Error al actualizar la nota: ${error.message}`);
+        try {
+          assertFilaPersistida(result);
+        } catch (err) {
+          alert(`Error al actualizar la nota: ${err.message}`);
           return;
         }
 
         setEditando(null);
       } else {
-        // Crear nueva nota - Notas generales: expediente_id siempre null
+        const fechaPlazoIso = nuevaNota.fecha_plazo ? toIsoDateOnly(nuevaNota.fecha_plazo) : null;
         const notaParaGuardar = {
-          expediente_id: null, // Notas generales sin expediente
+          expediente_id: null,
           titulo: nuevaNota.titulo || '',
           contenido: nuevaNota.contenido || '',
           destinatario: destinatarioFinal,
           estado: nuevaNota.estado || 'Pendiente',
-          fecha_plazo: nuevaNota.fecha_plazo || null
+          fecha_plazo: fechaPlazoIso,
+          empresa_id: tenantId,
         };
 
-        const { data, error } = await supabase
+        const result = await supabase
           .from('notas')
           .insert([notaParaGuardar])
           .select()
           .single();
 
-        if (error) {
-          alert(`Error al guardar la nota: ${error.message}`);
+        try {
+          assertFilaPersistida(result);
+        } catch (err) {
+          alert(`Error al guardar la nota: ${err.message}`);
           return;
         }
 
-        // Limpiar formulario
         setMostrarForm(false);
-        setNuevaNota({ 
-          titulo: '', 
-          contenido: '', 
-          fecha_plazo: '', 
+        setNuevaNota({
+          titulo: '',
+          contenido: '',
+          fecha_plazo: '',
           destinatario: 'Todos',
-          estado: 'Pendiente' 
+          estado: 'Pendiente',
         });
       }
 
-      // Recargar notas
       await cargarNotas();
     } catch (error) {
       alert(`Error inesperado: ${error.message}`);
+    } finally {
+      setGuardandoNota(false);
     }
   };
 
@@ -256,17 +283,19 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
       // Limpiar campo de texto
       setRespuestasTexto(prev => ({ ...prev, [notaId]: '' }));
 
-      // Guardar en Supabase
-      const { error } = await supabase
+      const result = await supabase
         .from('notas')
         .update({ respuestas: respuestasActualizadas })
-        .eq('id', notaId);
+        .eq('id', notaId)
+        .select()
+        .single();
 
-      if (error) {
-        // Revertir actualización optimista
-        setNotas(prevNotas => 
-          prevNotas.map(nota => 
-            nota.id === notaId 
+      try {
+        assertFilaPersistida(result);
+      } catch (error) {
+        setNotas(prevNotas =>
+          prevNotas.map(nota =>
+            nota.id === notaId
               ? { ...nota, respuestas: respuestasExistentes }
               : nota
           )
@@ -288,13 +317,16 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
       // Marcar como completando para animación
       setNotasCompletando(prev => new Set(prev).add(notaId));
 
-      // Actualizar en Supabase
-      const { error } = await supabase
+      const result = await supabase
         .from('notas')
         .update({ estado: 'Completado' })
-        .eq('id', notaId);
+        .eq('id', notaId)
+        .select()
+        .single();
 
-      if (error) {
+      try {
+        assertFilaPersistida(result);
+      } catch (error) {
         alert(`Error al completar la nota: ${error.message}`);
         setNotasCompletando(prev => {
           const nuevo = new Set(prev);
@@ -439,17 +471,21 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
           </div>
           <div className="mt-4 flex gap-3">
             <button 
+              type="button"
               onClick={manejarGuardado} 
-              className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors shadow-md"
+              disabled={guardandoNota}
+              className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Guardar
+              {guardandoNota ? 'Guardando…' : 'Guardar'}
             </button>
             <button 
+              type="button"
               onClick={() => {
                 setMostrarForm(false);
                 setEditando(null);
               }} 
-              className="bg-gray-400 hover:bg-gray-500 text-white px-6 py-3 rounded-lg font-semibold transition-colors shadow-md"
+              disabled={guardandoNota}
+              className="bg-gray-400 hover:bg-gray-500 text-white px-6 py-3 rounded-lg font-semibold transition-colors shadow-md disabled:opacity-60"
             >
               Cancelar
             </button>

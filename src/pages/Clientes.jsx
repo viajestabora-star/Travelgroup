@@ -5,6 +5,7 @@ import { Plus, Edit2, Trash2, X, Search, User, MapPin, Mail, Phone, Users, Navig
 import { useEmpresa } from '../context/EmpresaContext'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
 import { empresaIdSesionValido } from '../utils/tenantEmpresa'
+import { assertFilaPersistida, empresaIdNumericoOThrow } from '../utils/supabasePersistenciaCerteza'
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -18,6 +19,8 @@ const Clientes = ({ user = null }) => {
   const [expedientesCliente, setExpedientesCliente] = useState([])
   const [cargandoExpedientes, setCargandoExpedientes] = useState(false)
   
+  const [guardandoCliente, setGuardandoCliente] = useState(false)
+
   const [formData, setFormData] = useState({
     nombre: '', 
     cif_nif: '', 
@@ -54,6 +57,8 @@ const Clientes = ({ user = null }) => {
       alert('No hay empresa asignada en la sesión (empresa_id). No se puede crear ni editar clientes. Vuelve a iniciar sesión.')
       return
     }
+    if (guardandoCliente) return
+    setGuardandoCliente(true)
 
     // Detección de duplicados por CIF antes de guardar
     const cifValor = (formData.cif_nif || '').trim()
@@ -66,27 +71,61 @@ const Clientes = ({ user = null }) => {
       })
       if (!dupError && isDuplicate === true) {
         const userConfirmed = window.confirm('⚠️ Ya existe un cliente con este CIF. ¿Desea guardarlo de todas formas?')
-        if (!userConfirmed) return
+        if (!userConfirmed) {
+          setGuardandoCliente(false)
+          return
+        }
       }
     }
 
     const sessionCheck = await ensureAuthenticatedSession(supabase)
     if (!sessionCheck.ok) {
       alert(sessionCheck.message)
+      setGuardandoCliente(false)
       return
     }
 
-    // empresa_id obligatorio en INSERT/UPDATE (tenant de la sesión; no usar datos del formulario cliente).
-    const action = editingId
-      ? supabase.from('clientes').update(formData).eq('id', editingId).eq('empresa_id', empresaIdRequerido)
-      : supabase.from('clientes').insert([{ ...formData, empresa_id: empresaIdRequerido }])
-    
-    const { error } = await action
-    if (!error) {
+    let tenantId
+    try {
+      tenantId = empresaIdNumericoOThrow(empresaIdRequerido)
+    } catch (err) {
+      alert(err?.message || 'empresa_id inválido.')
+      setGuardandoCliente(false)
+      return
+    }
+
+    try {
+      if (editingId) {
+        const result = await supabase
+          .from('clientes')
+          .update(formData)
+          .eq('id', editingId)
+          .eq('empresa_id', tenantId)
+          .select()
+          .single()
+        try {
+          assertFilaPersistida(result)
+        } catch (err) {
+          alert(buildWriteErrorMessage({ table: 'clientes', error: err, action: 'guardar el cliente' }))
+          return
+        }
+      } else {
+        const result = await supabase
+          .from('clientes')
+          .insert([{ ...formData, empresa_id: tenantId }])
+          .select()
+          .single()
+        try {
+          assertFilaPersistida(result)
+        } catch (err) {
+          alert(buildWriteErrorMessage({ table: 'clientes', error: err, action: 'guardar el cliente' }))
+          return
+        }
+      }
       closeModal()
       await fetchClientesData()
-    } else {
-      alert(buildWriteErrorMessage({ table: 'clientes', error, action: 'guardar el cliente' }))
+    } finally {
+      setGuardandoCliente(false)
     }
   }
 
@@ -776,9 +815,10 @@ const Clientes = ({ user = null }) => {
                   </div>
                   <button 
                     type="submit" 
-                    className="bg-slate-900 hover:bg-slate-800 text-white py-3 px-6 rounded-lg font-semibold transition-colors shadow-md"
+                    disabled={guardandoCliente}
+                    className="bg-slate-900 hover:bg-slate-800 text-white py-3 px-6 rounded-lg font-semibold transition-colors shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    Guardar Cliente
+                    {guardandoCliente ? 'Guardando…' : 'Guardar Cliente'}
                   </button>
                 </div>
               </form>

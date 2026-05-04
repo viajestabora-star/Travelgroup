@@ -19,6 +19,7 @@ import { DestinoExpedienteEditable } from '../components/expedientes/FichaDelGru
 import { useEmpresa } from '../context/EmpresaContext'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
 import { obtenerEmpresaIdTenantDesdePerfil, empresaIdSesionValido } from '../utils/tenantEmpresa'
+import { assertFilaPersistida } from '../utils/supabasePersistenciaCerteza'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -583,17 +584,19 @@ const Expedientes = ({ user = null }) => {
         const idExpediente = expediente.id;
 
         if (idExpediente) {
-          // UPDATE: Si tiene id (UUID), es un upsert
-          const { error } = await supabase
+          const result = await supabase
             .from('expedientes')
-            .upsert({ ...datosParaSupabase, id: idExpediente }, { onConflict: 'id' });
-          if (error) throw error;
+            .upsert({ ...datosParaSupabase, id: idExpediente }, { onConflict: 'id' })
+            .select()
+            .single()
+          assertFilaPersistida(result)
         } else {
-          // INSERT: Si no tiene id, Supabase generará el UUID automáticamente
-          const { error } = await supabase
+          const result = await supabase
             .from('expedientes')
-            .insert([datosParaSupabase]);
-          if (error) throw error;
+            .insert([datosParaSupabase])
+            .select()
+            .single()
+          assertFilaPersistida(result)
         }
       }
 
@@ -652,14 +655,19 @@ const Expedientes = ({ user = null }) => {
     // 1. Crear cliente si no existe
     if (!finalId && clienteInputValue.trim()) {
       try {
-      const { data, error } = await supabase
-        .from('clientes')
-        .insert([{
-          nombre: finalNombre,
-          responsable: expedienteForm.responsable || '',
-        }])
-        .select().single();
-        if (error) {
+        const resultCliente = await supabase
+          .from('clientes')
+          .insert([{
+            nombre: finalNombre,
+            responsable: expedienteForm.responsable || '',
+            empresa_id: empresaIdRequerido,
+          }])
+          .select()
+          .single()
+        let data
+        try {
+          data = assertFilaPersistida(resultCliente)
+        } catch (error) {
           const errorInfo = manejarErrorSupabase(error, 'crear cliente');
           if (errorInfo) {
             alert(errorInfo.mensaje);
@@ -667,17 +675,16 @@ const Expedientes = ({ user = null }) => {
           }
           throw error;
         }
-        // ARQUITECTURA UUID: El ID devuelto es UUID (string)
         const idGeneradoCliente = data.id ? String(data.id).trim() : null;
         if (!idGeneradoCliente || idGeneradoCliente === '') {
           alert('⚠️ ERROR: El cliente se creó pero el ID generado no es válido. Por favor, contacta al administrador.');
           throw new Error('ID de cliente generado inválido');
         }
-        finalId = idGeneradoCliente; // UUID (string)
-        finalNombre = data.nombre;
-        await reloadClientes();
+        finalId = idGeneradoCliente
+        finalNombre = data.nombre
+        await reloadClientes()
       } catch (err) {
-        throw err; // Re-lanzar para que el catch principal lo maneje
+        throw err
       }
     }
 
@@ -876,18 +883,20 @@ const Expedientes = ({ user = null }) => {
         return
       }
 
-      // Inserta en Supabase
-      const { data, error } = await supabase.from('clientes').insert([newCliente]).select().single()
-      if (error) {
+      const resultIns = await supabase.from('clientes').insert([newCliente]).select().single()
+      let data
+      try {
+        data = assertFilaPersistida(resultIns)
+      } catch (error) {
         const errorInfo = manejarErrorSupabase(error, 'crear cliente');
         if (errorInfo) {
           alert(errorInfo.mensaje);
           return;
         }
-        throw error;
+        alert(buildWriteErrorMessage({ table: 'clientes', error, action: 'crear el cliente' }))
+        return
       }
 
-      // ARQUITECTURA UUID: Insertar Cliente -> Obtener UUID -> Usar ese UUID para cliente_id
       const nuevoClienteIdUUID = data.id ? String(data.id).trim() : null;
       if (!nuevoClienteIdUUID || nuevoClienteIdUUID === '') {
         alert('⚠️ ERROR: El cliente se creó pero el ID generado no es válido. Por favor, contacta al administrador.');

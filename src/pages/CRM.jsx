@@ -3,6 +3,13 @@ import { supabase } from '../supabase'
 import { X, Phone, Navigation, MoreVertical } from 'lucide-react'
 import { asegurarVinculacionEmpleado, resolverActorCrm } from '../utils/empleadosVinculacion'
 import { useEmpresa } from '../context/EmpresaContext'
+import { isRlsError } from '../utils/supabaseWriteGuards'
+import {
+  assertFilaPersistida,
+  empresaIdNumericoOThrow,
+  getEmpresaIdNumerico,
+  toIsoDateOnly,
+} from '../utils/supabasePersistenciaCerteza'
 
 /**
  * Función maestra de refresco: obtiene prospectos, visitas y clientes de Supabase
@@ -31,28 +38,10 @@ const fetchCrmData = async (setProspectos, setVisitas, setClientes) => {
   }
 }
 
-const toIsoDate = (value) => {
-  if (!value) return null
-  const d = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(d.getTime())) return null
-  return d.toISOString().slice(0, 10)
-}
-
-const getEmpresaIdNumerico = (empresaId) => {
-  const n = Number(empresaId)
-  return Number.isInteger(n) && n > 0 ? n : null
-}
-
-const esErrorRls = (error) => {
-  const code = String(error?.code || '')
-  const msg = String(error?.message || '').toLowerCase()
-  return code === '42501' || /row-level security|policy|rls/.test(msg)
-}
-
 const CRM = ({ user = null }) => {
   const { empresaId } = useEmpresa()
   const getMensajeErrorBd = (error, accion) => {
-    if (esErrorRls(error)) {
+    if (isRlsError(error)) {
       return `No ha sido posible ${accion}. Tu usuario no tiene permisos de escritura para este tenant (RLS).`
     }
     const detalle = error?.message || 'No se pudo completar la operación.'
@@ -104,6 +93,9 @@ const CRM = ({ user = null }) => {
 
   // Modal Registrar Visita - Nuevo Prospecto (mapeo exacto CSV)
   const [showVisitaModal, setShowVisitaModal] = useState(false)
+  const [guardandoProspectoModal, setGuardandoProspectoModal] = useState(false)
+  const [guardandoFichaProspecto, setGuardandoFichaProspecto] = useState(false)
+
   const [formProspecto, setFormProspecto] = useState({
     grupo: '',
     cif: '',
@@ -280,8 +272,18 @@ const CRM = ({ user = null }) => {
   }
 
   const guardarProspectoDesdeModal = async () => {
+    if (guardandoProspectoModal) return
+    setGuardandoProspectoModal(true)
     try {
-      const { error } = await supabase
+      let empresaIdNum
+      try {
+        empresaIdNum = empresaIdNumericoOThrow(empresaId)
+      } catch (e) {
+        alert(e?.message || 'No hay empresa en sesión.')
+        return
+      }
+      const proxima = formProspecto.proxima_visita ? toIsoDateOnly(formProspecto.proxima_visita) : null
+      const result = await supabase
         .from('prospectos')
         .insert({
           grupo: formProspecto.grupo || null,
@@ -294,25 +296,30 @@ const CRM = ({ user = null }) => {
           direccion: formProspecto.direccion || null,
           interes: formProspecto.interes || null,
           nivel_interes: formProspecto.nivel_interes || null,
-          proxima_visita: formProspecto.proxima_visita || null,
+          proxima_visita: proxima,
           status: formProspecto.status || null,
           notas_comerciales: formProspecto.notas_comerciales || null,
           dias_visita: formProspecto.dias_visita || null,
           horario_visita_inicio: formProspecto.horario_visita_inicio || null,
           horario_visita_fin: formProspecto.horario_visita_fin || null,
           es_cliente: false,
-          estado_comercial: 'POTENCIAL'
+          estado_comercial: 'POTENCIAL',
+          empresa_id: empresaIdNum,
         })
-      if (error) {
-        alert(getMensajeErrorBd(error, 'registrar el prospecto'))
+        .select()
+        .single()
+      try {
+        assertFilaPersistida(result)
+      } catch (err) {
+        alert(getMensajeErrorBd(err, 'registrar el prospecto'))
         return
       }
       setShowVisitaModal(false)
       setFormProspecto(resetFormProspecto())
       await refrescarDatos()
       alert('Prospecto registrado con éxito')
-    } catch (err) {
-      alert(getMensajeErrorBd(err, 'guardar el prospecto'))
+    } finally {
+      setGuardandoProspectoModal(false)
     }
   }
 
@@ -375,53 +382,62 @@ const CRM = ({ user = null }) => {
       alert('Error: No hay prospecto seleccionado')
       return
     }
+    if (guardandoFichaProspecto) return
+    setGuardandoFichaProspecto(true)
+    try {
+      let empresaIdNum
+      try {
+        empresaIdNum = empresaIdNumericoOThrow(empresaId)
+      } catch (e) {
+        alert(e?.message || 'No hay empresa en sesión.')
+        return
+      }
 
-    // Si es un prospecto nuevo (sin ID), hacer INSERT
-    if (!prospectoSelected.id) {
-      const { data, error } = await supabase
-        .from('prospectos')
-        .insert(prospectoSelected)
-        .select()
-        .single()
-
-      if (error) {
-        alert('Error al crear prospecto: ' + error.message)
-      } else {
+      // Si es un prospecto nuevo (sin ID), hacer INSERT
+      if (!prospectoSelected.id) {
+        const resto = { ...prospectoSelected }
+        delete resto.id
+        const result = await supabase
+          .from('prospectos')
+          .insert({ ...resto, empresa_id: empresaIdNum })
+          .select()
+          .single()
+        try {
+          assertFilaPersistida(result)
+        } catch (err) {
+          alert(getMensajeErrorBd(err, 'crear el prospecto'))
+          return
+        }
+        const data = result.data
         alert('¡Prospecto creado con éxito!')
         await refrescarDatos()
-        // Actualizar el prospecto seleccionado con el ID recién creado
-        if (data) {
-          setProspectoSelected({
-            ...data,
-            programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : []
-          })
-        }
-      }
-    } else {
-      // Si tiene ID, hacer UPDATE
-      const { error } = await supabase
-        .from('prospectos')
-        .update(prospectoSelected)
-        .eq('id', prospectoSelected.id)
-
-      if (error) {
-        alert('Error al guardar: ' + error.message)
+        setProspectoSelected({
+          ...data,
+          programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : []
+        })
       } else {
+        const result = await supabase
+          .from('prospectos')
+          .update(prospectoSelected)
+          .eq('id', prospectoSelected.id)
+          .select()
+          .single()
+        try {
+          assertFilaPersistida(result)
+        } catch (err) {
+          alert(getMensajeErrorBd(err, 'guardar el prospecto'))
+          return
+        }
+        const data = result.data
         alert('¡Guardado con éxito!')
         await refrescarDatos()
-        // Actualizar el prospecto seleccionado con los datos frescos
-        const { data } = await supabase
-          .from('prospectos')
-          .select('*')
-          .eq('id', prospectoSelected.id)
-          .single()
-        if (data) {
-          setProspectoSelected({
-            ...data,
-            programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : []
-          })
-        }
+        setProspectoSelected({
+          ...data,
+          programas_presentados: Array.isArray(data.programas_presentados) ? data.programas_presentados : []
+        })
       }
+    } finally {
+      setGuardandoFichaProspecto(false)
     }
   }
 
@@ -467,17 +483,21 @@ const CRM = ({ user = null }) => {
   // Actualizar estado_comercial en Supabase inmediatamente (para el selector del panel)
   const actualizarEstadoComercial = async (nuevoEstado) => {
     if (!prospectoSelected?.id) return
-    const { error } = await supabase
+    const result = await supabase
       .from('prospectos')
       .update({ estado_comercial: nuevoEstado })
       .eq('id', prospectoSelected.id)
-    if (!error) {
-      setProspectoSelected(prev => prev ? { ...prev, estado_comercial: nuevoEstado } : prev)
-      setProspectos(prev => prev.map(p => p.id === prospectoSelected.id ? { ...p, estado_comercial: nuevoEstado } : p))
-      await recalcularPuntuacionLead(prospectoSelected.id)
-    } else {
-      alert('Error al actualizar estado: ' + error.message)
+      .select()
+      .single()
+    try {
+      assertFilaPersistida(result)
+    } catch (err) {
+      alert(getMensajeErrorBd(err, 'actualizar el estado comercial'))
+      return
     }
+    setProspectoSelected(prev => prev ? { ...prev, estado_comercial: nuevoEstado } : prev)
+    setProspectos(prev => prev.map(p => p.id === prospectoSelected.id ? { ...p, estado_comercial: nuevoEstado } : p))
+    await recalcularPuntuacionLead(prospectoSelected.id)
   }
 
   // Registrar nueva visita desde panel
@@ -504,7 +524,7 @@ const CRM = ({ user = null }) => {
         if (actor?.actorId) setActorCrm(actor)
       }
 
-      const fechaIso = toIsoDate(nuevaVisita.fecha)
+      const fechaIso = toIsoDateOnly(nuevaVisita.fecha)
       if (!fechaIso) {
         alert('La fecha de la visita no es válida.')
         return
@@ -517,23 +537,20 @@ const CRM = ({ user = null }) => {
         nombre_contacto_externo: nombreContacto || null,
         empresa_id: empresaIdNum,
       }
-      const { data: visitaNueva, error } = await supabase
+      const resultVisita = await supabase
         .from('visitas')
         .insert(payloadVisita)
         .select('*')
         .single()
-
-      if (error) {
-        alert(getMensajeErrorBd(error, 'registrar la visita'))
+      let visitaNueva
+      try {
+        visitaNueva = assertFilaPersistida(resultVisita)
+      } catch (err) {
+        alert(getMensajeErrorBd(err, 'registrar la visita'))
         return
       }
 
-      if (!visitaNueva?.id) {
-        alert('La visita no se guardó correctamente: respuesta vacía de la base de datos.')
-        return
-      }
-
-      if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
+      setVisitas(prev => [visitaNueva, ...prev])
       setNuevaVisita({ fecha: new Date().toISOString().split('T')[0], comentario: '', nombre_contacto_externo: '' })
       if (prospectoId) await recalcularPuntuacionLead(prospectoId)
       await invalidarYRefrescarCRM()
@@ -589,21 +606,27 @@ const CRM = ({ user = null }) => {
     if (!visitaGestionSelected?.id || !nuevaFechaVisita) return
 
     const prospectoId = visitaGestionSelected.prospecto_id
-    const { error } = await supabase
+    const rawFecha = String(nuevaFechaVisita || '').trim()
+    const fechaNorm = /^\d{4}-\d{2}-\d{2}$/.test(rawFecha) ? rawFecha : (toIsoDateOnly(nuevaFechaVisita) || rawFecha)
+    const result = await supabase
       .from('visitas')
-      .update({ fecha: nuevaFechaVisita })
+      .update({ fecha: fechaNorm })
       .eq('id', visitaGestionSelected.id)
-    if (error) {
-      alert('Error al actualizar fecha: ' + error.message)
-    } else {
-      await actualizarProximaVisitaProspecto(prospectoId)
-      alert('Fecha actualizada con éxito')
-      setShowInputFechaVisita(false)
-      setShowGestionVisitaModal(false)
-      setVisitaGestionSelected(null)
-      await recalcularPuntuacionLead(prospectoId)
-      await refrescarDatos()
+      .select()
+      .single()
+    try {
+      assertFilaPersistida(result)
+    } catch (err) {
+      alert(getMensajeErrorBd(err, 'actualizar la fecha de la visita'))
+      return
     }
+    await actualizarProximaVisitaProspecto(prospectoId)
+    alert('Fecha actualizada con éxito')
+    setShowInputFechaVisita(false)
+    setShowGestionVisitaModal(false)
+    setVisitaGestionSelected(null)
+    await recalcularPuntuacionLead(prospectoId)
+    await refrescarDatos()
   }
 
   // Agendar visita desde calendario
@@ -685,19 +708,23 @@ const CRM = ({ user = null }) => {
         if (existente) {
           prospectoIdFinal = existente.id
         } else {
-          const { data: nuevoPros, error: errPros } = await supabase
+          const resPros = await supabase
             .from('prospectos')
             .insert({
               grupo: nombreNorm,
               telefono: cliente.movil || cliente.telefono || '',
               poblacion: cliente.poblacion || '',
               provincia: cliente.provincia || '',
-              estado_comercial: 'CLIENTE'
+              estado_comercial: 'CLIENTE',
+              empresa_id: empresaIdNum,
             })
             .select()
             .single()
-          if (errPros || !nuevoPros) {
-            alert(getMensajeErrorBd(errPros, 'crear el prospecto desde cliente'))
+          let nuevoPros
+          try {
+            nuevoPros = assertFilaPersistida(resPros)
+          } catch (err) {
+            alert(getMensajeErrorBd(err, 'crear el prospecto desde cliente'))
             return
           }
           prospectoIdFinal = nuevoPros.id
@@ -711,7 +738,7 @@ const CRM = ({ user = null }) => {
       }
 
       const payloadVisita = {
-        fecha: toIsoDate(fechaSeleccionada),
+        fecha: toIsoDateOnly(fechaSeleccionada),
         // Regla explícita: visitas se relaciona por prospecto_id (nunca cliente_id).
         prospecto_id: prospectoIdFinal || null,
         comentario: agendaComentario,
@@ -734,19 +761,16 @@ const CRM = ({ user = null }) => {
       setAgendaComentario('')
       setAgendaNombreContacto('')
 
-      const { data: visitaNueva, error } = await insertVisitaPromise
-
-      if (error) {
-        alert(getMensajeErrorBd(error, 'agendar la visita'))
+      const resultVisita = await insertVisitaPromise
+      let visitaNueva
+      try {
+        visitaNueva = assertFilaPersistida(resultVisita)
+      } catch (err) {
+        alert(getMensajeErrorBd(err, 'agendar la visita'))
         return
       }
 
-      if (!visitaNueva?.id) {
-        alert('La visita no se guardó correctamente: respuesta vacía de la base de datos.')
-        return
-      }
-
-      if (visitaNueva) setVisitas(prev => [visitaNueva, ...prev])
+      setVisitas(prev => [visitaNueva, ...prev])
       if (prospectoIdFinal) {
         await supabase
           .from('prospectos')
@@ -1621,10 +1645,12 @@ const CRM = ({ user = null }) => {
           {/* BOTÓN GUARDAR */}
           <div className="p-4 border-t border-slate-200">
         <button
+              type="button"
               onClick={handleSave}
-              className="w-full py-3 rounded-2xl bg-[#0f172a] text-white text-sm font-black tracking-wide"
+              disabled={guardandoFichaProspecto}
+              className="w-full py-3 rounded-2xl bg-[#0f172a] text-white text-sm font-black tracking-wide disabled:opacity-60 disabled:cursor-not-allowed"
         >
-              Guardar Ficha Completa
+              {guardandoFichaProspecto ? 'Guardando…' : 'Guardar Ficha Completa'}
         </button>
       </div>
         </div>
@@ -1890,7 +1916,15 @@ const CRM = ({ user = null }) => {
 
               <div className="flex gap-3 mt-6 pt-6 border-t border-slate-200">
                 <button onClick={() => setShowVisitaModal(false)} className="flex-1 py-3 px-4 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-slate-200" style={{ fontSize: '16px' }}>Cancelar</button>
-                <button onClick={guardarProspectoDesdeModal} className="flex-1 py-3 px-4 rounded-xl font-bold bg-orange-500 text-white hover:bg-orange-600" style={{ fontSize: '16px' }}>Guardar Prospecto</button>
+                <button
+                  type="button"
+                  onClick={guardarProspectoDesdeModal}
+                  disabled={guardandoProspectoModal}
+                  className="flex-1 py-3 px-4 rounded-xl font-bold bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                  style={{ fontSize: '16px' }}
+                >
+                  {guardandoProspectoModal ? 'Guardando…' : 'Guardar Prospecto'}
+                </button>
               </div>
             </div>
           </div>
