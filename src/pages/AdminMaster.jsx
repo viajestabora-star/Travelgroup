@@ -114,7 +114,7 @@ const EmpresaTab = ({ row, esMatriz, onSave, onClose }) => {
       nombre_comercial:          form.nombre_comercial.trim()     || null,
       suscripcion_activa:        form.suscripcion_activa,
       fecha_expiracion:          form.fecha_expiracion            || null,
-      max_usuarios:              Number(form.max_usuarios)        || 1,
+      max_usuarios:              Math.max(1, parseInt(form.max_usuarios, 10) || 1),
       ...(esMatriz ? {} : { plan_tipo: form.plan_tipo.trim() || null }),
       saas_razon_social:         form.saas_razon_social.trim()        || null,
       saas_nif:                  form.saas_nif.trim()                  || null,
