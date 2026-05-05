@@ -22,6 +22,42 @@ const rolUiANivel = {
   Gestoria: 'GESTORIA',
 }
 
+const PROFILE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** `profiles.id` coincide con `auth.users.id` (UUID). Rechaza números y strings cortos tipo `"1"` (p. ej. empresa_id mal mapeado). */
+function esProfileUserIdValido(val) {
+  if (val == null) return false
+  if (typeof val === 'number') return false
+  const s = String(val).trim()
+  if (s.length < 32) return false
+  return PROFILE_UUID_RE.test(s)
+}
+
+/** Si la RPC devuelve `id` equivocado, intentar campos alternativos habituales. */
+function resolverProfileUuidDesdeFila(row) {
+  if (!row || typeof row !== 'object') return null
+  const keys = ['user_id', 'profile_id', 'usuario_id', 'auth_user_id', 'id']
+  for (const k of keys) {
+    if (esProfileUserIdValido(row[k])) return String(row[k]).trim()
+  }
+  return null
+}
+
+function normalizarMiembrosEquipo(rows) {
+  if (!Array.isArray(rows)) return []
+  return rows.map((row) => {
+    const uuid = resolverProfileUuidDesdeFila(row)
+    if (uuid && String(row.id) !== uuid) {
+      console.warn('[GestionEquipo] id devuelto por la RPC no es UUID de perfil; usando UUID corregido.', {
+        idRpc: row.id,
+        uuidPerfil: uuid,
+        email: row.email,
+      })
+    }
+    return uuid ? { ...row, id: uuid } : row
+  })
+}
+
 const GestionEquipo = ({ user }) => {
   const isAdmin = esUsuarioAdmin(user)
   const canManageTeam = isAdmin
@@ -113,7 +149,7 @@ const GestionEquipo = ({ user }) => {
       setErrorLista(error.message || 'No se pudo cargar el equipo.')
       setMiembros([])
     } else {
-      setMiembros(Array.isArray(data) ? data : [])
+      setMiembros(normalizarMiembrosEquipo(Array.isArray(data) ? data : []))
       setErrorLista('')
     }
 
@@ -253,6 +289,11 @@ const GestionEquipo = ({ user }) => {
   const abrirModalEdicion = (miembro) => {
     if (!canManageTeam) return
     if (!miembro) return
+    if (!esProfileUserIdValido(miembro.id)) {
+      console.error('[GestionEquipo] Edición abortada: se esperaba UUID de profiles; valor recibido:', miembro.id, miembro)
+      setErrorLista('No se puede editar: identificador de usuario inválido. Recarga la página.')
+      return
+    }
     setMiembroObjetivo(miembro)
     const rolUiActual = ROLES_UI.find((r) => rolUiANivel[r] === String(miembro?.nivel_acceso || '').toUpperCase()) || 'Staff'
     setRolEdit(rolUiActual)
@@ -270,6 +311,11 @@ const GestionEquipo = ({ user }) => {
   const abrirModalBorrado = (miembro) => {
     if (!canManageTeam) return
     if (!miembro) return
+    if (!esProfileUserIdValido(miembro.id)) {
+      console.error('[GestionEquipo] Borrado abortado: se esperaba UUID de profiles; valor recibido:', miembro.id, miembro)
+      setErrorLista('No se puede borrar: identificador de usuario inválido. Recarga la página.')
+      return
+    }
     setMiembroObjetivo(miembro)
     setMensajeAccion({ tipo: '', texto: '' })
     setDeleteOpen(true)
@@ -283,7 +329,15 @@ const GestionEquipo = ({ user }) => {
 
   const guardarEdicionMiembro = async (e) => {
     e.preventDefault()
-    if (!miembroObjetivo?.id) return
+    const profileId = miembroObjetivo?.id
+    if (!esProfileUserIdValido(profileId)) {
+      console.error('[GestionEquipo] Actualización abortada: user.id debe ser UUID de profiles; recibido:', profileId, miembroObjetivo)
+      setMensajeAccion({
+        tipo: 'err',
+        texto: 'Identificador de usuario inválido; no se envió la petición.',
+      })
+      return
+    }
     setMensajeAccion({ tipo: '', texto: '' })
     setGuardandoEdicion(true)
     try {
@@ -296,7 +350,7 @@ const GestionEquipo = ({ user }) => {
       const { error } = await supabase
         .from('profiles')
         .update({ nivel_acceso: nivel, nombre: nombreFinal || null })
-        .eq('id', miembroObjetivo.id)
+        .eq('id', String(profileId).trim())
         .eq('empresa_id', empresaSesion)
 
       if (error) {
@@ -316,12 +370,20 @@ const GestionEquipo = ({ user }) => {
   }
 
   const confirmarBorradoMiembro = async () => {
-    if (!miembroObjetivo?.id) return
+    const userIdPerfil = miembroObjetivo?.id
+    if (!esProfileUserIdValido(userIdPerfil)) {
+      console.error('[GestionEquipo] RPC eliminar abortada: user_id_to_delete debe ser UUID de profiles; recibido:', userIdPerfil, miembroObjetivo)
+      setMensajeAccion({
+        tipo: 'err',
+        texto: 'Identificador de usuario inválido; no se envió la petición.',
+      })
+      return
+    }
     setMensajeAccion({ tipo: '', texto: '' })
     setBorrandoMiembro(true)
     try {
       const { error } = await supabase.rpc('eliminar_miembro_equipo', {
-        user_id_to_delete: miembroObjetivo.id,
+        user_id_to_delete: String(userIdPerfil).trim(),
         target_empresa_id: empresaSesion,
       })
 
@@ -638,8 +700,11 @@ const GestionEquipo = ({ user }) => {
                 </tr>
               </thead>
               <tbody>
-                {miembros.map((m) => (
-                  <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50/80">
+                {miembros.map((m, idx) => (
+                  <tr
+                    key={esProfileUserIdValido(m.id) ? m.id : `${String(m.email || '')}-${idx}`}
+                    className="border-b border-slate-100 hover:bg-slate-50/80"
+                  >
                     <td className="px-4 py-3 text-slate-800">{m.email || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{m.nombre || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{m.nivel_acceso || '—'}</td>
@@ -656,16 +721,20 @@ const GestionEquipo = ({ user }) => {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
+                            disabled={!esProfileUserIdValido(m.id)}
+                            title={!esProfileUserIdValido(m.id) ? 'Identificador de usuario no válido para editar' : undefined}
                             onClick={() => abrirModalEdicion(m)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none"
                           >
                             <Pencil size={14} />
                             Editar
                           </button>
                           <button
                             type="button"
+                            disabled={!esProfileUserIdValido(m.id)}
+                            title={!esProfileUserIdValido(m.id) ? 'Identificador de usuario no válido para borrar' : undefined}
                             onClick={() => abrirModalBorrado(m)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50 disabled:opacity-40 disabled:pointer-events-none"
                           >
                             <Trash2 size={14} />
                             Borrar
@@ -862,12 +931,15 @@ const GestionEquipo = ({ user }) => {
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-slate-700">
-                ¿Estás seguro de que deseas eliminar a{' '}
+                ¿Estás seguro de borrar a{' '}
                 <span className="font-semibold">
-                  {miembroObjetivo?.nombre || miembroObjetivo?.email || '—'}
+                  {String(miembroObjetivo?.nombre || '').trim() ||
+                    miembroObjetivo?.email ||
+                    'este usuario'}
                 </span>
-                ? Esta acción es definitiva.
+                ?
               </p>
+              <p className="text-xs text-slate-500">Esta acción es definitiva.</p>
 
               {mensajeAccion.texto && (
                 <div
