@@ -7,7 +7,6 @@ import { esUsuarioAdmin } from '../utils/userRoles'
 import { obtenerEmpresaIdTenantDesdePerfil, empresaIdDesdeJwtUsuario } from '../utils/tenantEmpresa'
 import { obtenerResumenLicenciasEmpresa } from '../utils/licenciasEmpresa'
 import { resolverLogoAccesible } from '../utils/datosEmisorEmpresa'
-import { puedeAccederAdminMaster } from '../utils/adminMasterAccess'
 import CambioContraseñaForm from '../components/CambioContraseñaForm'
 
 const emptyForm = () => ({
@@ -56,7 +55,7 @@ function normalizarMiembrosEquipo(rows, empresaFallback = null) {
     const empresa_id = Number.isFinite(empRaw) && empRaw > 0 ? empRaw : null
 
     if (uuid && String(row.id) !== uuid) {
-      console.warn('[GestionEquipo] id devuelto por la RPC no es UUID de perfil; usando UUID corregido.', {
+      console.warn('[GestionEquipo] id de fila no es UUID de perfil; usando UUID corregido.', {
         idRpc: row.id,
         uuidPerfil: uuid,
         email: row.email,
@@ -67,7 +66,7 @@ function normalizarMiembrosEquipo(rows, empresaFallback = null) {
   })
 }
 
-/** Para updates/deletes: empresa del perfil en pantalla, no la sesión global (crítico para SuperAdmin). */
+/** Para updates/deletes: empresa del perfil en pantalla si viene informada; si no, sesión activa. */
 function empresaIdObjetivoMiembro(miembro, empresaSesion) {
   const deFila = Number(miembro?.empresa_id)
   if (Number.isFinite(deFila) && deFila > 0) return deFila
@@ -77,9 +76,7 @@ function empresaIdObjetivoMiembro(miembro, empresaSesion) {
 
 const GestionEquipo = ({ user }) => {
   const isAdmin = esUsuarioAdmin(user)
-  const esSuperAdminMaster = puedeAccederAdminMaster(user)
   const canManageTeam = isAdmin
-  console.log('[GestionEquipo] user.nivel_acceso:', user?.nivel_acceso, '| canManageTeam:', canManageTeam)
   const [miembros, setMiembros] = useState([])
   const [licencias, setLicencias] = useState(null)
   const [cargando, setCargando] = useState(true)
@@ -111,42 +108,34 @@ const GestionEquipo = ({ user }) => {
     return id > 0 ? id : null
   })
 
-  /**
-   * Lista filtrada en render layer como defensa en profundidad.
-   * - SuperAdmin: ve todos (la RPC ya devuelve perfiles de todas las agencias).
-   * - Resto: solo perfiles cuyo empresa_id coincide con la sesión actual.
-   * Cualquier fila filtrada deja un error en consola para auditoría.
-   */
+  /** Solo filas cuyo empresa_id coincide con el tenant activo (defensa tras la query explícita .eq). */
   const miembrosVisibles = useMemo(() => {
-    if (esSuperAdminMaster) return miembros
-    return miembros.filter((m) => {
-      if (m.empresa_id == null) {
-        console.warn('[GestionEquipo][tenant] Perfil sin empresa_id excluido del render:', m.email, m.id)
-        return false
-      }
-      if (m.empresa_id !== empresaSesion) {
-        console.error(
-          '[GestionEquipo][SEGURIDAD] Perfil de otra agencia excluido del render:',
-          { empresa_id: m.empresa_id, empresaSesion, email: m.email, id: m.id },
-        )
-        return false
-      }
-      return true
-    })
-  }, [miembros, esSuperAdminMaster, empresaSesion])
+    if (!empresaSesion) return []
+    const tid = Number(empresaSesion)
+    return miembros.filter((m) => Number(m?.empresa_id) === tid)
+  }, [miembros, empresaSesion])
 
   const cargar = useCallback(async () => {
-    const esSuper = puedeAccederAdminMaster(user)
     setCargando(true)
     setErrorLista('')
 
-    // ── 1. Detectar empresa_id: prop user → JWT → profiles acotado por empresa (anti-RLS/recursión) ──
-    let idABuscar = Number(user?.empresa_id) > 0 ? Number(user.empresa_id) : null
+    // ── 1. Tenant determinista: primero sesión de aplicación (user), luego JWT, último perfil propio acotado.
+    let currentTenantId = null
+    const fromSession = Number(user?.empresa_id)
+    if (Number.isFinite(fromSession) && fromSession > 0) {
+      currentTenantId = fromSession
+    }
+
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (authUser) {
+      if (!currentTenantId && authUser) {
         const jwtE = empresaIdDesdeJwtUsuario(authUser)
+        if (jwtE) currentTenantId = jwtE
+      }
+
+      if (!currentTenantId && authUser?.id) {
         let miPerfil = null
+        const jwtE = empresaIdDesdeJwtUsuario(authUser)
         if (jwtE) {
           const { data } = await supabase
             .from('profiles')
@@ -156,7 +145,6 @@ const GestionEquipo = ({ user }) => {
             .maybeSingle()
           miPerfil = data
         } else {
-          // Sin JWT: único filtro posible es .eq('id', uid). Añadimos localStorage como hint extra.
           let lsHint = 0
           try {
             const raw = localStorage.getItem('sesion_tabora')
@@ -170,75 +158,41 @@ const GestionEquipo = ({ user }) => {
 
         const detectado =
           (Number(miPerfil?.empresa_id) > 0 ? Number(miPerfil.empresa_id) : 0) ||
-          jwtE ||
+          empresaIdDesdeJwtUsuario(authUser) ||
           Number(authUser.app_metadata?.empresa_id) ||
           Number(authUser.user_metadata?.empresa_id) ||
           0
-        if (detectado > 0) idABuscar = detectado
+        if (detectado > 0) currentTenantId = detectado
       }
     } catch (_) { /* silencioso */ }
 
-    if (!idABuscar || idABuscar <= 0) {
+    if (!currentTenantId || currentTenantId <= 0) {
       setCargando(false)
-      setErrorLista('No se pudo determinar tu empresa. Cierra sesión y vuelve a entrar.')
+      setMiembros([])
+      setErrorLista('No se pudo determinar tu empresa. Espera a que cargue la sesión o vuelve a iniciar sesión.')
       return
     }
 
-    console.log('[GestionEquipo] Filtrando por empresa:', idABuscar, '| SuperAdmin master:', esSuper)
-    setEmpresaSesion(idABuscar)
+    setEmpresaSesion(currentTenantId)
 
-    // ── 2. Miembros: tenant normal vs SuperAdmin (todas las agencias / Gestoría)
-    let data = null
-    let error = null
-    if (esSuper) {
-      const r = await supabase.rpc('listar_equipo_superadmin')
-      data = r.data
-      error = r.error
-      if (error) {
-        console.error('[GestionEquipo] listar_equipo_superadmin:', error.message, '— Aplica migrations/add-listar-equipo-superadmin.sql en Supabase.')
-      }
-    }
-    if (!esSuper || error) {
-      const r = await supabase.rpc('listar_equipo_mi_empresa', { p_empresa_id: idABuscar })
-      data = r.data
-      error = r.error
-    }
-    console.log('Resultado Directo:', data, error)
+    // ── 2. Equipo: solo profiles del tenant actual (sin RPC; evita 404 y filtra explícito en cliente).
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('empresa_id', currentTenantId)
+      .order('created_at', { ascending: true, nullsFirst: false })
 
     if (error) {
-      console.error('[GestionEquipo] Error RPC:', error)
       setErrorLista(error.message || 'No se pudo cargar el equipo.')
       setMiembros([])
     } else {
-      const fallbackEmpresa = esSuper ? null : idABuscar
-      const rows = normalizarMiembrosEquipo(Array.isArray(data) ? data : [], fallbackEmpresa)
-
-      // Diagnóstico Alcor / Gestoría: si hay perfiles sin empresa_id informar en consola.
-      const sinEmpresa = rows.filter(r => r.empresa_id == null)
-      if (sinEmpresa.length > 0) {
-        console.warn(
-          '[GestionEquipo] Perfiles sin empresa_id — si ves Gestoría ausente, asigna empresa_id en DB:',
-          sinEmpresa.map(r => ({ email: r.email, id: r.id })),
-        )
-      }
-
-      // Diagnóstico multi-tenant: detectar perfiles de otras agencias en carga de tenant normal.
-      if (!esSuper) {
-        const cruzados = rows.filter(r => r.empresa_id != null && r.empresa_id !== idABuscar)
-        if (cruzados.length > 0) {
-          console.error(
-            '[GestionEquipo][SEGURIDAD] La RPC devolvió perfiles de otra agencia. Verifica la RLS/función SQL:',
-            cruzados.map(r => ({ email: r.email, empresa_id: r.empresa_id })),
-          )
-        }
-      }
-
+      const rows = normalizarMiembrosEquipo(Array.isArray(data) ? data : [], currentTenantId)
       setMiembros(rows)
       setErrorLista('')
     }
 
-    // ── 3. Licencias: max_usuarios + profiles (mismo tenant que profiles; ver licenciasEmpresa.js)
-    const lic = await obtenerResumenLicenciasEmpresa(supabase, idABuscar)
+    // ── 3. Licencias (solo si tenant válido; sin parámetros nulos).
+    const lic = await obtenerResumenLicenciasEmpresa(supabase, currentTenantId)
     if (lic.ok && lic.resumen) {
       setLicencias(lic.resumen)
     } else {
@@ -793,18 +747,9 @@ const GestionEquipo = ({ user }) => {
       )}
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <Shield size={18} className="text-slate-600" />
-            <span className="font-semibold text-slate-800">
-              {esSuperAdminMaster ? 'Usuarios pendientes' : 'Miembros'}
-            </span>
-          </div>
-          {esSuperAdminMaster && (
-            <p className="text-xs text-slate-500 pl-7">
-              Vista SuperAdmin: todos los perfiles (todas las agencias, incl. Gestoría). El borrado usa el UUID de <code className="text-[11px] bg-slate-100 px-1 rounded">profiles.id</code>, no el <code className="text-[11px] bg-slate-100 px-1 rounded">empresa_id</code>.
-            </p>
-          )}
+        <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+          <Shield size={18} className="text-slate-600" />
+          <span className="font-semibold text-slate-800">Miembros</span>
         </div>
         {cargando ? (
           <div className="p-8 text-center text-slate-500">Cargando…</div>
@@ -817,9 +762,6 @@ const GestionEquipo = ({ user }) => {
                 <tr className="text-left text-slate-500 border-b border-slate-200">
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Nombre</th>
-                  {esSuperAdminMaster && (
-                    <th className="px-4 py-3 font-medium whitespace-nowrap">Agencia (id)</th>
-                  )}
                   <th className="px-4 py-3 font-medium">Rol</th>
                   <th className="px-4 py-3 font-medium">Alta</th>
                   <th className="px-4 py-3 font-medium text-right">Acciones</th>
@@ -833,11 +775,6 @@ const GestionEquipo = ({ user }) => {
                   >
                     <td className="px-4 py-3 text-slate-800">{m.email || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{m.nombre || '—'}</td>
-                    {esSuperAdminMaster && (
-                      <td className="px-4 py-3 text-slate-600 tabular-nums">
-                        {m.empresa_id != null ? m.empresa_id : '—'}
-                      </td>
-                    )}
                     <td className="px-4 py-3 text-slate-700">{m.nivel_acceso || '—'}</td>
                     <td className="px-4 py-3 text-slate-500">
                       {m.created_at
