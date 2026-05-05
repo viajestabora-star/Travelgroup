@@ -7,6 +7,7 @@ import { esUsuarioAdmin } from '../utils/userRoles'
 import { obtenerEmpresaIdTenantDesdePerfil, empresaIdDesdeJwtUsuario } from '../utils/tenantEmpresa'
 import { obtenerResumenLicenciasEmpresa } from '../utils/licenciasEmpresa'
 import { resolverLogoAccesible } from '../utils/datosEmisorEmpresa'
+import { puedeAccederAdminMaster } from '../utils/adminMasterAccess'
 import CambioContraseñaForm from '../components/CambioContraseñaForm'
 
 const emptyForm = () => ({
@@ -33,20 +34,27 @@ function esProfileUserIdValido(val) {
   return PROFILE_UUID_RE.test(s)
 }
 
-/** Si la RPC devuelve `id` equivocado, intentar campos alternativos habituales. */
+/** Si la RPC devuelve `id` equivocado (p. ej. empresa_id numérico en columna id), intentar otros campos. `id` va al final para no confundir con INTEGER/Text corto. */
 function resolverProfileUuidDesdeFila(row) {
   if (!row || typeof row !== 'object') return null
   const keys = ['user_id', 'profile_id', 'usuario_id', 'auth_user_id', 'id']
   for (const k of keys) {
-    if (esProfileUserIdValido(row[k])) return String(row[k]).trim()
+    const v = row[k]
+    if (typeof v === 'number') continue
+    if (typeof v === 'string' && /^[0-9]+$/.test(v.trim())) continue
+    if (esProfileUserIdValido(v)) return String(v).trim()
   }
   return null
 }
 
-function normalizarMiembrosEquipo(rows) {
+/** Asegura `profiles.id` (UUID) y `empresa_id` en cada fila para borrar/editar con el tenant correcto. */
+function normalizarMiembrosEquipo(rows, empresaFallback = null) {
   if (!Array.isArray(rows)) return []
   return rows.map((row) => {
     const uuid = resolverProfileUuidDesdeFila(row)
+    const empRaw = row?.empresa_id != null ? Number(row.empresa_id) : empresaFallback
+    const empresa_id = Number.isFinite(empRaw) && empRaw > 0 ? empRaw : null
+
     if (uuid && String(row.id) !== uuid) {
       console.warn('[GestionEquipo] id devuelto por la RPC no es UUID de perfil; usando UUID corregido.', {
         idRpc: row.id,
@@ -54,12 +62,22 @@ function normalizarMiembrosEquipo(rows) {
         email: row.email,
       })
     }
-    return uuid ? { ...row, id: uuid } : row
+    const base = uuid ? { ...row, id: uuid } : { ...row }
+    return empresa_id != null ? { ...base, empresa_id } : base
   })
+}
+
+/** Para updates/deletes: empresa del perfil en pantalla, no la sesión global (crítico para SuperAdmin). */
+function empresaIdObjetivoMiembro(miembro, empresaSesion) {
+  const deFila = Number(miembro?.empresa_id)
+  if (Number.isFinite(deFila) && deFila > 0) return deFila
+  const ses = Number(empresaSesion)
+  return Number.isFinite(ses) && ses > 0 ? ses : null
 }
 
 const GestionEquipo = ({ user }) => {
   const isAdmin = esUsuarioAdmin(user)
+  const esSuperAdminMaster = puedeAccederAdminMaster(user)
   const canManageTeam = isAdmin
   console.log('[GestionEquipo] user.nivel_acceso:', user?.nivel_acceso, '| canManageTeam:', canManageTeam)
   const [miembros, setMiembros] = useState([])
@@ -94,6 +112,7 @@ const GestionEquipo = ({ user }) => {
   })
 
   const cargar = useCallback(async () => {
+    const esSuper = puedeAccederAdminMaster(user)
     setCargando(true)
     setErrorLista('')
 
@@ -137,19 +156,34 @@ const GestionEquipo = ({ user }) => {
       return
     }
 
-    console.log('[GestionEquipo] Filtrando por empresa:', idABuscar)
+    console.log('[GestionEquipo] Filtrando por empresa:', idABuscar, '| SuperAdmin master:', esSuper)
     setEmpresaSesion(idABuscar)
 
-    // ── 2. Cargar miembros (llamada directa, no bloqueada por auth) ───────────
-    const { data, error } = await supabase.rpc('listar_equipo_mi_empresa', { p_empresa_id: idABuscar })
-    console.log("Resultado Directo:", data, error)
+    // ── 2. Miembros: tenant normal vs SuperAdmin (todas las agencias / Gestoría)
+    let data = null
+    let error = null
+    if (esSuper) {
+      const r = await supabase.rpc('listar_equipo_superadmin')
+      data = r.data
+      error = r.error
+      if (error) {
+        console.error('[GestionEquipo] listar_equipo_superadmin:', error.message, '— Aplica migrations/add-listar-equipo-superadmin.sql en Supabase.')
+      }
+    }
+    if (!esSuper || error) {
+      const r = await supabase.rpc('listar_equipo_mi_empresa', { p_empresa_id: idABuscar })
+      data = r.data
+      error = r.error
+    }
+    console.log('Resultado Directo:', data, error)
 
     if (error) {
       console.error('[GestionEquipo] Error RPC:', error)
       setErrorLista(error.message || 'No se pudo cargar el equipo.')
       setMiembros([])
     } else {
-      setMiembros(normalizarMiembrosEquipo(Array.isArray(data) ? data : []))
+      const fallbackEmpresa = esSuper ? null : idABuscar
+      setMiembros(normalizarMiembrosEquipo(Array.isArray(data) ? data : [], fallbackEmpresa))
       setErrorLista('')
     }
 
@@ -162,7 +196,7 @@ const GestionEquipo = ({ user }) => {
     }
 
     setCargando(false)
-  }, [])
+  }, [user])
 
   const cargarConfiguracionTenantEmpresa = useCallback(async () => {
     setCargandoCfgTenant(true)
@@ -330,6 +364,15 @@ const GestionEquipo = ({ user }) => {
   const guardarEdicionMiembro = async (e) => {
     e.preventDefault()
     const profileId = miembroObjetivo?.id
+    const profileIdStr = String(profileId ?? '').trim()
+    if (profileIdStr.length < 30) {
+      console.error('ID no es UUID válido', profileIdStr)
+      setMensajeAccion({
+        tipo: 'err',
+        texto: 'Identificador de usuario inválido; no se envió la petición.',
+      })
+      return
+    }
     if (!esProfileUserIdValido(profileId)) {
       console.error('[GestionEquipo] Actualización abortada: user.id debe ser UUID de profiles; recibido:', profileId, miembroObjetivo)
       setMensajeAccion({
@@ -346,12 +389,18 @@ const GestionEquipo = ({ user }) => {
         setMensajeAccion({ tipo: 'err', texto: 'Selecciona un rol válido.' })
         return
       }
+      const empresaFila = empresaIdObjetivoMiembro(miembroObjetivo, empresaSesion)
+      if (!empresaFila) {
+        setMensajeAccion({ tipo: 'err', texto: 'No se pudo determinar la empresa del miembro.' })
+        return
+      }
+
       const nombreFinal = String(nombreEdit || '').trim()
       const { error } = await supabase
         .from('profiles')
         .update({ nivel_acceso: nivel, nombre: nombreFinal || null })
-        .eq('id', String(profileId).trim())
-        .eq('empresa_id', empresaSesion)
+        .eq('id', profileIdStr)
+        .eq('empresa_id', empresaFila)
 
       if (error) {
         setMensajeAccion({ tipo: 'err', texto: error.message || 'No se pudo actualizar el miembro.' })
@@ -371,6 +420,15 @@ const GestionEquipo = ({ user }) => {
 
   const confirmarBorradoMiembro = async () => {
     const userIdPerfil = miembroObjetivo?.id
+    const id = String(userIdPerfil ?? '').trim()
+    if (id.length < 30) {
+      console.error('ID no es UUID válido', id)
+      setMensajeAccion({
+        tipo: 'err',
+        texto: 'Identificador de usuario inválido; no se envió la petición.',
+      })
+      return
+    }
     if (!esProfileUserIdValido(userIdPerfil)) {
       console.error('[GestionEquipo] RPC eliminar abortada: user_id_to_delete debe ser UUID de profiles; recibido:', userIdPerfil, miembroObjetivo)
       setMensajeAccion({
@@ -379,12 +437,18 @@ const GestionEquipo = ({ user }) => {
       })
       return
     }
+    const targetEmpresaId = empresaIdObjetivoMiembro(miembroObjetivo, empresaSesion)
+    if (!targetEmpresaId) {
+      console.error('[GestionEquipo] Sin empresa destino para borrado:', miembroObjetivo)
+      setMensajeAccion({ tipo: 'err', texto: 'No se pudo determinar la empresa del usuario a borrar.' })
+      return
+    }
     setMensajeAccion({ tipo: '', texto: '' })
     setBorrandoMiembro(true)
     try {
       const { error } = await supabase.rpc('eliminar_miembro_equipo', {
-        user_id_to_delete: String(userIdPerfil).trim(),
-        target_empresa_id: empresaSesion,
+        user_id_to_delete: id,
+        target_empresa_id: targetEmpresaId,
       })
 
       if (error) {
@@ -679,9 +743,18 @@ const GestionEquipo = ({ user }) => {
       )}
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
-          <Shield size={18} className="text-slate-600" />
-          <span className="font-semibold text-slate-800">Miembros</span>
+        <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <Shield size={18} className="text-slate-600" />
+            <span className="font-semibold text-slate-800">
+              {esSuperAdminMaster ? 'Usuarios pendientes' : 'Miembros'}
+            </span>
+          </div>
+          {esSuperAdminMaster && (
+            <p className="text-xs text-slate-500 pl-7">
+              Vista SuperAdmin: todos los perfiles (todas las agencias, incl. Gestoría). El borrado usa el UUID de <code className="text-[11px] bg-slate-100 px-1 rounded">profiles.id</code>, no el <code className="text-[11px] bg-slate-100 px-1 rounded">empresa_id</code>.
+            </p>
+          )}
         </div>
         {cargando ? (
           <div className="p-8 text-center text-slate-500">Cargando…</div>
@@ -694,6 +767,9 @@ const GestionEquipo = ({ user }) => {
                 <tr className="text-left text-slate-500 border-b border-slate-200">
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Nombre</th>
+                  {esSuperAdminMaster && (
+                    <th className="px-4 py-3 font-medium whitespace-nowrap">Agencia (id)</th>
+                  )}
                   <th className="px-4 py-3 font-medium">Rol</th>
                   <th className="px-4 py-3 font-medium">Alta</th>
                   <th className="px-4 py-3 font-medium text-right">Acciones</th>
@@ -707,6 +783,11 @@ const GestionEquipo = ({ user }) => {
                   >
                     <td className="px-4 py-3 text-slate-800">{m.email || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{m.nombre || '—'}</td>
+                    {esSuperAdminMaster && (
+                      <td className="px-4 py-3 text-slate-600 tabular-nums">
+                        {m.empresa_id != null ? m.empresa_id : '—'}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-slate-700">{m.nivel_acceso || '—'}</td>
                     <td className="px-4 py-3 text-slate-500">
                       {m.created_at
