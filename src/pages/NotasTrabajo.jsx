@@ -95,7 +95,7 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
       }
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, nombre')
+        .select('id, nombre, empresa_id')
         .eq('empresa_id', empresaIdRequerido)
         .order('nombre', { ascending: true, nullsFirst: false })
       if (error) {
@@ -103,7 +103,15 @@ const NotasTrabajo = ({ user, expedienteId = null }) => {
         setPerfilesDestinatario([])
         return
       }
-      setPerfilesDestinatario(Array.isArray(data) ? data : [])
+      // Filtro defensivo: descartar cualquier perfil cuyo empresa_id difiera del tenant activo.
+      const rows = (Array.isArray(data) ? data : []).filter((p) => {
+        if (p.empresa_id != null && Number(p.empresa_id) !== Number(empresaIdRequerido)) {
+          console.error('[Notas][SEGURIDAD] Perfil de otra empresa excluido del selector:', p)
+          return false
+        }
+        return true
+      })
+      setPerfilesDestinatario(rows)
     }
     cargarPerfilesMismaEmpresa()
   }, [empresaIdRequerido])

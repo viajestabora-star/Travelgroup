@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../supabase'
 import { UserPlus, Users, RefreshCw, Shield, X, Pencil, Trash2, Building2, Lock } from 'lucide-react'
 import { normalizarNivelAccesoParaServidor } from '../utils/nivelAcceso'
@@ -111,6 +111,30 @@ const GestionEquipo = ({ user }) => {
     return id > 0 ? id : null
   })
 
+  /**
+   * Lista filtrada en render layer como defensa en profundidad.
+   * - SuperAdmin: ve todos (la RPC ya devuelve perfiles de todas las agencias).
+   * - Resto: solo perfiles cuyo empresa_id coincide con la sesión actual.
+   * Cualquier fila filtrada deja un error en consola para auditoría.
+   */
+  const miembrosVisibles = useMemo(() => {
+    if (esSuperAdminMaster) return miembros
+    return miembros.filter((m) => {
+      if (m.empresa_id == null) {
+        console.warn('[GestionEquipo][tenant] Perfil sin empresa_id excluido del render:', m.email, m.id)
+        return false
+      }
+      if (m.empresa_id !== empresaSesion) {
+        console.error(
+          '[GestionEquipo][SEGURIDAD] Perfil de otra agencia excluido del render:',
+          { empresa_id: m.empresa_id, empresaSesion, email: m.email, id: m.id },
+        )
+        return false
+      }
+      return true
+    })
+  }, [miembros, esSuperAdminMaster, empresaSesion])
+
   const cargar = useCallback(async () => {
     const esSuper = puedeAccederAdminMaster(user)
     setCargando(true)
@@ -132,11 +156,15 @@ const GestionEquipo = ({ user }) => {
             .maybeSingle()
           miPerfil = data
         } else {
-          const { data } = await supabase
-            .from('profiles')
-            .select('empresa_id')
-            .eq('id', authUser.id)
-            .maybeSingle()
+          // Sin JWT: único filtro posible es .eq('id', uid). Añadimos localStorage como hint extra.
+          let lsHint = 0
+          try {
+            const raw = localStorage.getItem('sesion_tabora')
+            if (raw) lsHint = Number(JSON.parse(raw).empresa_id) || 0
+          } catch (_) {}
+          let q2 = supabase.from('profiles').select('empresa_id').eq('id', authUser.id)
+          if (lsHint > 0) q2 = q2.eq('empresa_id', lsHint)
+          const { data } = await q2.maybeSingle()
           miPerfil = data
         }
 
@@ -183,7 +211,29 @@ const GestionEquipo = ({ user }) => {
       setMiembros([])
     } else {
       const fallbackEmpresa = esSuper ? null : idABuscar
-      setMiembros(normalizarMiembrosEquipo(Array.isArray(data) ? data : [], fallbackEmpresa))
+      const rows = normalizarMiembrosEquipo(Array.isArray(data) ? data : [], fallbackEmpresa)
+
+      // Diagnóstico Alcor / Gestoría: si hay perfiles sin empresa_id informar en consola.
+      const sinEmpresa = rows.filter(r => r.empresa_id == null)
+      if (sinEmpresa.length > 0) {
+        console.warn(
+          '[GestionEquipo] Perfiles sin empresa_id — si ves Gestoría ausente, asigna empresa_id en DB:',
+          sinEmpresa.map(r => ({ email: r.email, id: r.id })),
+        )
+      }
+
+      // Diagnóstico multi-tenant: detectar perfiles de otras agencias en carga de tenant normal.
+      if (!esSuper) {
+        const cruzados = rows.filter(r => r.empresa_id != null && r.empresa_id !== idABuscar)
+        if (cruzados.length > 0) {
+          console.error(
+            '[GestionEquipo][SEGURIDAD] La RPC devolvió perfiles de otra agencia. Verifica la RLS/función SQL:',
+            cruzados.map(r => ({ email: r.email, empresa_id: r.empresa_id })),
+          )
+        }
+      }
+
+      setMiembros(rows)
       setErrorLista('')
     }
 
@@ -758,7 +808,7 @@ const GestionEquipo = ({ user }) => {
         </div>
         {cargando ? (
           <div className="p-8 text-center text-slate-500">Cargando…</div>
-        ) : miembros.length === 0 ? (
+        ) : miembrosVisibles.length === 0 ? (
           <div className="p-8 text-center text-slate-500">No hay miembros registrados.</div>
         ) : (
           <div className="overflow-x-auto">
@@ -776,7 +826,7 @@ const GestionEquipo = ({ user }) => {
                 </tr>
               </thead>
               <tbody>
-                {miembros.map((m, idx) => (
+                {miembrosVisibles.map((m, idx) => (
                   <tr
                     key={esProfileUserIdValido(m.id) ? m.id : `${String(m.email || '')}-${idx}`}
                     className="border-b border-slate-100 hover:bg-slate-50/80"

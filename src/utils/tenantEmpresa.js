@@ -35,11 +35,17 @@ export async function obtenerEmpresaIdTenantDesdePerfil(supabase) {
     return { empresaId: jwtEmpresa, error: null }
   }
 
-  const { data: perfil, error: perfilErr } = await supabase
-    .from('profiles')
-    .select('empresa_id')
-    .eq('id', uid)
-    .maybeSingle()
+  // Fallback sin JWT: siempre se filtra al menos por .eq('id', uid) — solo devuelve la propia fila.
+  // Añadimos empresa_id desde localStorage como filtro extra si está disponible (determinismo máximo).
+  let lsHint = 0
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('sesion_tabora') : null
+    if (raw) lsHint = Number(JSON.parse(raw).empresa_id) || 0
+  } catch (_) {}
+
+  let q = supabase.from('profiles').select('empresa_id').eq('id', uid)
+  if (lsHint > 0) q = q.eq('empresa_id', lsHint)
+  const { data: perfil, error: perfilErr } = await q.maybeSingle()
 
   if (perfilErr) {
     return { empresaId: null, error: perfilErr.message || 'No se pudo leer el perfil de usuario.' }
