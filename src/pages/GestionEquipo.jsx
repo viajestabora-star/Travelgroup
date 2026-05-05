@@ -175,55 +175,67 @@ const GestionEquipo = ({ user }) => {
 
     setEmpresaSesion(currentTenantId)
 
-    // ── 2. Equipo: solo profiles del tenant actual (sin RPC; evita 404 y filtra explícito en cliente).
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('empresa_id', currentTenantId)
-      .order('created_at', { ascending: true, nullsFirst: false })
+    try {
+      // ── 2. Equipo: orden por email/id (PK en UUID); nunca por created_at si la columna no existe en BD.
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('empresa_id', currentTenantId)
+        .order('id', { ascending: true })
 
-    if (error) {
-      setErrorLista(error.message || 'No se pudo cargar el equipo.')
+      if (error) {
+        setErrorLista(error.message || 'No se pudo cargar el equipo.')
+        setMiembros([])
+      } else {
+        const rows = normalizarMiembrosEquipo(Array.isArray(data) ? data : [], currentTenantId)
+        setMiembros(rows)
+        setErrorLista('')
+      }
+
+      const lic = await obtenerResumenLicenciasEmpresa(supabase, currentTenantId)
+      if (lic.ok && lic.resumen) {
+        setLicencias(lic.resumen)
+      } else {
+        setLicencias({ error: 'carga', detalle: lic.error || '' })
+      }
+    } catch (_) {
+      setErrorLista('No se pudo completar la carga del equipo.')
       setMiembros([])
-    } else {
-      const rows = normalizarMiembrosEquipo(Array.isArray(data) ? data : [], currentTenantId)
-      setMiembros(rows)
-      setErrorLista('')
+      setLicencias({ error: 'carga', detalle: '' })
+    } finally {
+      setCargando(false)
     }
-
-    // ── 3. Licencias (solo si tenant válido; sin parámetros nulos).
-    const lic = await obtenerResumenLicenciasEmpresa(supabase, currentTenantId)
-    if (lic.ok && lic.resumen) {
-      setLicencias(lic.resumen)
-    } else {
-      setLicencias({ error: 'carga', detalle: lic.error || '' })
-    }
-
-    setCargando(false)
   }, [user])
 
   const cargarConfiguracionTenantEmpresa = useCallback(async () => {
     setCargandoCfgTenant(true)
     setMensajeCfgTenant({ tipo: '', texto: '' })
     try {
-      const { empresaId, error } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
-      if (error || !empresaId) {
-        setMensajeCfgTenant({
-          tipo: 'err',
-          texto: error || 'No se pudo identificar tu agencia.',
-        })
+      let empresaIdNum = Number(user?.empresa_id)
+      if (!Number.isFinite(empresaIdNum) || empresaIdNum <= 0) {
+        const res = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+        empresaIdNum = Number(res.empresaId)
+      }
+      if (!Number.isFinite(empresaIdNum) || empresaIdNum <= 0) {
+        setTenantCfgRep('21')
+        setTenantCfgSop('21')
+        setTenantCfgLogo('')
         return
       }
-      const { data, error: qErr } = await supabase
-        .from('empresas')
-        .select('config_iva_repercutido, config_iva_soportado, logo_url')
-        .eq('id', empresaId)
-        .maybeSingle()
 
-      if (qErr) {
-        setMensajeCfgTenant({ tipo: 'err', texto: qErr.message || 'No se pudo cargar empresas.' })
+      const { data, error } = await supabase
+        .from('empresas')
+        .select('*')
+        .eq('id', empresaIdNum)
+        .single()
+
+      if (error || !data) {
+        setTenantCfgRep('21')
+        setTenantCfgSop('21')
+        setTenantCfgLogo('')
         return
       }
+
       setTenantCfgRep(
         data?.config_iva_repercutido != null && data.config_iva_repercutido !== ''
           ? String(data.config_iva_repercutido)
@@ -235,10 +247,14 @@ const GestionEquipo = ({ user }) => {
           : '21'
       )
       setTenantCfgLogo(String(data?.logo_url || '').trim())
+    } catch (_) {
+      setTenantCfgRep('21')
+      setTenantCfgSop('21')
+      setTenantCfgLogo('')
     } finally {
       setCargandoCfgTenant(false)
     }
-  }, [])
+  }, [user])
 
   const guardarConfiguracionTenantEmpresa = async (e) => {
     e.preventDefault()
@@ -246,13 +262,17 @@ const GestionEquipo = ({ user }) => {
     setMensajeCfgTenant({ tipo: '', texto: '' })
     setGuardandoCfgTenant(true)
     try {
-      const { empresaId, error } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
-      if (error || !empresaId) {
-        setMensajeCfgTenant({
-          tipo: 'err',
-          texto: error || 'No se pudo identificar tu agencia; no se guardaron los cambios.',
-        })
-        return
+      let empresaId = Number(user?.empresa_id)
+      if (!Number.isFinite(empresaId) || empresaId <= 0) {
+        const res = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+        if (res.error || !res.empresaId) {
+          setMensajeCfgTenant({
+            tipo: 'err',
+            texto: res.error || 'No se pudo identificar tu agencia; no se guardaron los cambios.',
+          })
+          return
+        }
+        empresaId = Number(res.empresaId)
       }
       const rep = parseFloat(String(tenantCfgRep || '').replace(',', '.'))
       const sop = parseFloat(String(tenantCfgSop || '').replace(',', '.'))
@@ -284,6 +304,8 @@ const GestionEquipo = ({ user }) => {
         return
       }
       setMensajeCfgTenant({ tipo: 'ok', texto: 'Configuración del tenant guardada correctamente.' })
+    } catch (_) {
+      setMensajeCfgTenant({ tipo: 'err', texto: 'No se pudo guardar la configuración. Inténtalo de nuevo.' })
     } finally {
       setGuardandoCfgTenant(false)
     }
@@ -304,9 +326,13 @@ const GestionEquipo = ({ user }) => {
       return
     }
     let cancelled = false
-    resolverLogoAccesible(raw).then((url) => {
-      if (!cancelled) setLogoPreviewSrc(url || raw)
-    })
+    resolverLogoAccesible(raw)
+      .then((url) => {
+        if (!cancelled) setLogoPreviewSrc(url || raw)
+      })
+      .catch(() => {
+        if (!cancelled) setLogoPreviewSrc(raw)
+      })
     return () => {
       cancelled = true
     }
