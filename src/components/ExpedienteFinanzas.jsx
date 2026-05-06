@@ -208,6 +208,7 @@ const ExpedienteFinanzas = ({
   user = null,
 }) => {
   const { empresaId } = useEmpresa()
+  const versionesJson = expediente?.versiones_json || {}
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
   const onRefresh = onExpedienteRefresh
@@ -761,19 +762,6 @@ const ExpedienteFinanzas = ({
   const [cargandoCotizacion, setCargandoCotizacion] = React.useState(false)
   const [errorCargaCotizacion, setErrorCargaCotizacion] = React.useState(null)
 
-  const normalizarVersionesJson = React.useCallback((rawVersiones) => {
-    if (!rawVersiones) return {}
-    if (typeof rawVersiones === 'string') {
-      try {
-        const parsed = JSON.parse(rawVersiones)
-        return parsed && typeof parsed === 'object' ? parsed : {}
-      } catch {
-        return {}
-      }
-    }
-    return typeof rawVersiones === 'object' ? rawVersiones : {}
-  }, [])
-
   const recargarInformeDesdeCotizacion = async () => {
     if (!expediente?.id) return
     setCargandoCotizacion(true)
@@ -816,97 +804,26 @@ const ExpedienteFinanzas = ({
         console.warn('[Cierre] pagos_proveedores (PDF por servicio):', e)
       }
 
-      // ── 2. Resolve services — mantener compatibilidad (versiones_json / prop) ──────────
-      let serviciosActualizados = []
-      let sourceVersionIndex = null
-
-      const vj = normalizarVersionesJson(expFresco?.versiones_json ?? expediente?.versiones_json)
-      const versionesGuardadas = Array.isArray(vj?.versiones) ? vj.versiones : null
-
-      if (versionesGuardadas && versionesGuardadas.length > 0) {
-        const confirmed = versionesGuardadas.find(v => v.confirmada)
-        const targetIdx = versionActiva >= 0 && versionActiva < versionesGuardadas.length ? versionActiva : 0
-        const target = confirmed || versionesGuardadas[targetIdx]
-        sourceVersionIndex = confirmed ? versionesGuardadas.indexOf(confirmed) : targetIdx
-        const servs = target?.servicios
-        if (Array.isArray(servs) && servs.length > 0) {
-          serviciosActualizados = servs
-          console.log('[Cierre] Servicios desde versiones_json:', serviciosActualizados.length)
-        }
+      // ── 2. Fuente directa SQL (sin caché): servicios_cotizacion siempre ───────────────
+      let serviciosCotizacionRows = []
+      const { data: scRows, error: scErr } = await supabase
+        .from('servicios_cotizacion')
+        .select('*')
+        .eq('id_expediente', String(expediente.id).trim())
+        .order('orden', { ascending: true })
+        .order('id', { ascending: true })
+      if (scErr) {
+        console.warn('[Cierre] servicios_cotizacion (load):', scErr)
+      } else if (Array.isArray(scRows)) {
+        serviciosCotizacionRows = scRows
       }
 
-      const nombresServiciosDesdeVersiones = {}
-      for (const v of versionesGuardadas || []) {
-        for (const sv of v?.servicios || []) {
-          const sidv = String(sv?.id || '').trim()
-          if (!sidv) continue
-          const tipoSv = String(sv?.tipo_servicio || sv?.tipo || 'Servicio').trim() || 'Servicio'
-          const nomEspSv = String(sv?.nombre_especifico || sv?.nombreEspecifico || '').trim()
-          const compuesto = nomEspSv ? `${tipoSv} – ${nomEspSv}` : tipoSv
-          if (!nombresServiciosDesdeVersiones[sidv]) nombresServiciosDesdeVersiones[sidv] = compuesto
-        }
-      }
+      console.log('[Cierre] Total servicios SQL a cargar en Cierre:', serviciosCotizacionRows.length)
 
-      // ── 3. Fallback/soporte: servicios_cotizacion table ─────────────────────────────
-      if (serviciosActualizados.length === 0) {
-        let sq = await supabase
-          .from('servicios_cotizacion')
-          .select('*')
-          .eq('id_expediente', String(expediente.id).trim())
-          .order('orden', { ascending: true })
-          .order('id', { ascending: true })
-        if (sq.error) {
-          sq = await supabase
-            .from('servicios_cotizacion')
-            .select('*')
-            .eq('id_expediente', String(expediente.id).trim())
-            .order('id', { ascending: true })
-        }
-        if (!sq.error && Array.isArray(sq.data) && sq.data.length > 0) {
-          serviciosActualizados = sq.data
-          console.log('[Cierre] Servicios desde servicios_cotizacion:', serviciosActualizados.length)
-        }
-      }
-
-      // ── 4. In-memory fallback: servicios prop already passed by the parent ─────────
-      if (serviciosActualizados.length === 0 && Array.isArray(servicios) && servicios.length > 0) {
-        serviciosActualizados = servicios
-        console.log('[Cierre] Servicios desde prop (fallback):', serviciosActualizados.length)
-      }
-
-      if (serviciosActualizados.length > 0 && sourceVersionIndex == null) {
-        const vjs = normalizarVersionesJson(expediente?.versiones_json)?.versiones
-        if (Array.isArray(vjs) && vjs.length > 0) {
-          const confirmed = vjs.find(v => v.confirmada)
-          const targetIdx = versionActiva >= 0 && versionActiva < vjs.length ? versionActiva : 0
-          sourceVersionIndex = confirmed ? vjs.indexOf(confirmed) : targetIdx
-        }
-      }
-
-      // ── 4b. Fuente de verdad para facturas/coste real proveedor: servicios_cotizacion ──
-      // Se usa siempre que exista fila por id_servicio para mantener integridad al refrescar.
-      let serviciosCotizacionMap = {}
-      try {
-        const { data: scRows, error: scErr } = await supabase
-          .from('servicios_cotizacion')
-          .select('id, nombre_servicio, coste_real_proveedor, url_factura_pdf')
-          .eq('id_expediente', String(expediente.id).trim())
-        if (scErr) {
-          console.warn('[Cierre] servicios_cotizacion (coste/pdf):', scErr)
-        } else if (Array.isArray(scRows)) {
-          serviciosCotizacionMap = Object.fromEntries(scRows.map(r => [String(r.id), r]))
-        }
-      } catch (e) {
-        console.warn('[Cierre] servicios_cotizacion (coste/pdf) excepción:', e)
-      }
-
-      console.log('[Cierre] Total servicios a cargar en Cierre:', serviciosActualizados.length)
-
-      // ── 5. Resolve provider names ─────────────────────────────────────────────────
-      // Services from versiones_json use proveedorId; DB rows use proveedor_id_int.
+      // ── 3. Resolve provider names desde ids SQL ─────────────────────────────────────
       const idsNecesarios = [...new Set(
-        serviciosActualizados
-          .map(s => s.proveedor_id_int || s.proveedorId)
+        serviciosCotizacionRows
+          .map(s => s?.proveedor_id_int || s?.proveedorId)
           .filter(id => id != null && id !== '')
       )]
       let proveedoresMap = {}
@@ -929,63 +846,34 @@ const ExpedienteFinanzas = ({
       const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
       const descuentosVal = bonificacionFresco * paxPagoFresco
 
-      // ── 7. Build coste rows — fuente visual: coste_real_proveedor/url_factura_pdf ─────
-      const savedCostesReales = (informeLiquidacion.costesReales || []).reduce((acc, c) => {
-        acc[c.id_servicio] = {
-          coste_real: c.coste_real,
-          coste_real_proveedor: c.coste_real_proveedor ?? null,
-          url_pdf: c.url_pdf ?? null,
-          url_factura_pdf: c.url_factura_pdf ?? null,
-        }
-        return acc
-      }, {})
-
-      const costesRealesIniciales = serviciosActualizados.map((s) => {
-        const provId = s?.proveedor_id_int || s?.proveedorId || null
+      // ── 4. Build cierre rows directo desde SQL ────────────────────────────────────────
+      const sourceVersionIndex = Array.isArray(versionesJson?.versiones)
+        ? Math.max(0, Math.min(versionActiva, versionesJson.versiones.length - 1))
+        : null
+      const costesRealesIniciales = serviciosCotizacionRows.map((s) => {
+        const provId = s?.proveedor_id_int || null
         const nombreComercialCache = obtenerProveedorPorId && provId != null
           ? obtenerProveedorPorId(provId)?.nombreComercial
           : null
         const proveedor = nombreComercialCache
           || (provId != null ? proveedoresMap[provId] : null)
           || s?.nombre_proveedor_texto
-          || s?.proveedorNombreTemporal
-          || s?.nombre_proveedor_manual
+          || s?.nombre_proveedor
           || 'Pendiente de asignar'
-        const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
-        const nombreEsp = String(s?.nombre_especifico || s?.nombreEspecifico || '').trim()
-        const nombre = nombreEsp ? `${tipo} – ${nombreEsp}` : tipo
-        const sid = s?.id || generarUUID()
-        const filaServicioCot = serviciosCotizacionMap[String(sid)] || null
+        const sidFinal = String(s?.id ?? generarUUID())
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
-        const saved = savedCostesReales[sid] || savedCostesReales[String(filaServicioCot?.id || '')]
-        const sidFinal = filaServicioCot?.id ? String(filaServicioCot.id) : String(sid)
-        // FUENTE DE VERDAD: servicios_cotizacion SIEMPRE sobrescribe JSON/snapshot si existe fila SQL.
-        let costeRealProveedor = saved?.coste_real_proveedor
-        if (filaServicioCot) {
-          costeRealProveedor =
-            filaServicioCot.coste_real_proveedor != null && !Number.isNaN(Number(filaServicioCot.coste_real_proveedor))
-              ? toNum(filaServicioCot.coste_real_proveedor)
-              : null
-        } else if (costeRealProveedor == null && s.coste_real_proveedor != null && !Number.isNaN(Number(s.coste_real_proveedor))) {
-          costeRealProveedor = toNum(s.coste_real_proveedor)
-        }
-        // coste_real se mantiene para cálculos internos; si no hay dato real, usa cotizado.
+        const costeRealProveedor = s?.coste_real_proveedor != null && !Number.isNaN(Number(s?.coste_real_proveedor))
+          ? toNum(s.coste_real_proveedor)
+          : null
         const costeReal = (costeRealProveedor != null && !Number.isNaN(Number(costeRealProveedor)))
           ? toNum(costeRealProveedor)
-          : (saved?.coste_real ?? costeCotizado)
-        const urlFacturaServicio = filaServicioCot
-          ? (String(filaServicioCot.url_factura_pdf || '').trim() || null)
-          : (String(s.url_factura_pdf || '').trim() || null)
-        const urlFacturaSaved = saved?.url_factura_pdf ?? null
-        const urlPdfCierre = saved?.url_pdf ?? null
-        const urlPago = mapPdfPorServicio[sidFinal] || mapPdfPorServicio[String(sid)] || null
-        const url_factura_pdf = urlFacturaServicio || urlFacturaSaved || null
+          : costeCotizado
+        const urlPago = mapPdfPorServicio[sidFinal] || null
+        const url_factura_pdf = String(s?.url_factura_pdf || '').trim() || null
         const proveedor_id_int = provId != null && provId !== '' && !Number.isNaN(Number(provId))
           ? Number(provId)
           : null
-        const nombreSql = String(filaServicioCot?.nombre_servicio || '').trim()
-        const nombreRescatado = String(nombresServiciosDesdeVersiones[sidFinal] || nombresServiciosDesdeVersiones[String(sid)] || '').trim()
-        const conceptoFinal = nombreSql || nombreRescatado || nombre || 'Cargando concepto...'
+        const conceptoFinal = String(s?.nombre_servicio || s?.concepto || '').trim() || 'Cargando concepto...'
         return {
           id: sidFinal,
           id_servicio: sidFinal,
@@ -998,7 +886,7 @@ const ExpedienteFinanzas = ({
           coste_real_proveedor: (costeRealProveedor != null && !Number.isNaN(Number(costeRealProveedor))) ? toNum(costeRealProveedor) : null,
           url_factura_pdf,
           _url_pdf_pago: urlPago,
-          url_pdf: urlPdfCierre,
+          url_pdf: urlPago,
         }
       })
 
