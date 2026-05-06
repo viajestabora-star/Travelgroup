@@ -30,9 +30,6 @@ const resolverHrefFacturaUnificado = (valorGuardado) => {
   return pub || resolverUrlPublicaFacturaProveedor(valorGuardado)
 }
 
-const hrefFacturaDesdeFilaCierre = (c) =>
-  resolverHrefFacturaUnificado(String(c?.url_factura_pdf || c?._url_pdf_pago || c?.url_pdf || '').trim())
-
 /**
  * ============ DEFAULT_SERVICE_VALUES - DEFENSA CONTRA UNDEFINED ============
  * Valores por defecto para cualquier tipo de servicio. Campos canónicos únicos (sin duplicados).
@@ -240,6 +237,13 @@ const ExpedienteFinanzas = ({
     if (activeTab === 'cobros' && expediente?.id && onCobrosReload) {
       onCobrosReload()
     }
+  }, [activeTab, expediente?.id])
+
+  // Effect: al abrir "cierre", recargar siempre desde servicios_cotizacion/versiones_json.
+  // Esto garantiza que url_factura_pdf y coste_real_proveedor se reflejen sin recargar la página.
+  useEffect(() => {
+    if (activeTab !== 'cierre' || !expediente?.id) return
+    recargarInformeDesdeCotizacion()
   }, [activeTab, expediente?.id])
 
   // cargarCobros (internal, calls onCobrosReload)
@@ -1026,6 +1030,8 @@ const ExpedienteFinanzas = ({
       if (onUpdate) {
         onUpdate({ ...expediente, cierre_grupo: nuevoCierre })
       }
+      await onExpedienteRefresh?.()
+      await recargarInformeDesdeCotizacion()
     } catch (e) {
       console.error('[cierre] subirYVincularPdfCierre excepción:', e)
       alert(e.message || 'Error inesperado al subir el PDF.')
@@ -1816,8 +1822,8 @@ const ExpedienteFinanzas = ({
                           {/* ── Columna Factura ── */}
                           <td className="px-3 py-2 text-center">
                             {(() => {
-                              const pdfHref = hrefFacturaDesdeFilaCierre(c)
-                              return pdfHref ? (
+                              const pdfHref = c?.url_factura_pdf ? resolverHrefFacturaUnificado(c.url_factura_pdf) : null
+                              return (c?.url_factura_pdf && pdfHref) ? (
                               <div className="flex flex-col items-center gap-1">
                                 <a
                                   href={pdfHref}
