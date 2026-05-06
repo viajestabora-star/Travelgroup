@@ -1329,14 +1329,23 @@ const Expedientes = ({ user = null }) => {
   }, {})
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
-  // Ordenación universal (UI): expedientes Cerrados por fecha_inicio descendente tras filtro ejercicio/búsqueda y pestaña.
-  // Copia para no mutar el array filtrado; el resto de estados conserva el orden relativo (return 0).
-  const expedientesFinales = [...(expedientesFiltradosPorEjercicio || [])].sort((a, b) => {
-    if (a.estado === 'Cerrado' && b.estado === 'Cerrado') {
-      return new Date(b.fecha_inicio).getTime() - new Date(a.fecha_inicio).getTime()
-    }
-    return 0
-  })
+  // Solo pestaña "Cerrado": prioridad fecha_viaje DESC; fallback fecha_confirmacion DESC cuando fecha_viaje es nula.
+  const toMs = (v) => {
+    if (!v) return null
+    const t = new Date(v).getTime()
+    return Number.isFinite(t) ? t : null
+  }
+  const msCerrado = (exp) => {
+    const byViaje = toMs(exp?.fecha_viaje)
+    if (byViaje != null) return byViaje
+    const byConfirmacion = toMs(exp?.fecha_confirmacion)
+    if (byConfirmacion != null) return byConfirmacion
+    return -Infinity
+  }
+  const expedientesFinales =
+    tabExpedientes === 'cerrado'
+      ? [...(expedientesFiltradosPorEjercicio || [])].sort((a, b) => msCerrado(b) - msCerrado(a))
+      : expedientesFiltradosPorEjercicio
 
   // No desmontar el modal de detalle durante el loading: preservar pestaña activa (ej. Cotización)
   if (isLoading && !showDetalleModal) {
