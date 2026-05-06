@@ -321,11 +321,14 @@ const ExpedienteFinanzas = ({
       setInformeLiquidacion(prev => ({
         ...prev,
         ingresos: cg.ingresos || prev.ingresos,
-        costesReales: Array.isArray(cg.costesReales) ? cg.costesReales : (prev.costesReales || []),
+        // En pestaña Cierre, la fuente de verdad de costes es SQL (servicios_cotizacion).
+        costesReales: activeTab === 'cierre'
+          ? (prev.costesReales || [])
+          : (Array.isArray(cg.costesReales) ? cg.costesReales : (prev.costesReales || [])),
         gastosImprevistos: Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : (prev.gastosImprevistos || []),
       }))
     }
-  }, [expediente?.id, expediente?.cierre_grupo])
+  }, [expediente?.id, expediente?.cierre_grupo, activeTab])
 
   // Effect: paxPorAsociacion init — si hay guardado en cierre_grupo, usarlo; si no, distribuir total_pax
   useEffect(() => {
