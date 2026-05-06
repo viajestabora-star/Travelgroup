@@ -23,6 +23,13 @@ const rolUiANivel = {
 }
 
 const PROFILE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function esErrorLicencias406(resultado) {
+  if (resultado?.ok) return false
+  const msg = String(resultado?.error || '')
+  return msg.includes('406') || /not acceptable/i.test(msg)
+}
 
 /** `profiles.id` coincide con `auth.users.id` (UUID). Rechaza números y strings cortos tipo `"1"` (p. ej. empresa_id mal mapeado). */
 function esProfileUserIdValido(val) {
@@ -192,7 +199,11 @@ const GestionEquipo = ({ user }) => {
         setErrorLista('')
       }
 
-      const lic = await obtenerResumenLicenciasEmpresa(supabase, currentTenantId)
+      let lic = await obtenerResumenLicenciasEmpresa(supabase, currentTenantId)
+      if (esErrorLicencias406(lic)) {
+        await sleep(1000)
+        lic = await obtenerResumenLicenciasEmpresa(supabase, currentTenantId)
+      }
       if (lic.ok && lic.resumen) {
         setLicencias(lic.resumen)
       } else {
@@ -519,14 +530,20 @@ const GestionEquipo = ({ user }) => {
         setEnviando(false)
         return
       }
+      const empresaTenant = Number(empresaSesion)
+      if (!Number.isFinite(empresaTenant) || empresaTenant <= 0) {
+        setMensajeForm({ tipo: 'err', texto: 'No se pudo identificar la empresa del administrador logueado.' })
+        setEnviando(false)
+        return
+      }
 
-      // Flujo: Auth.signUp → insert en empleados (todo en el helper, sin Edge Function)
+      // Flujo obligatorio en cascada: Auth.signUp → profiles (mismo id + empresa_id) → empleados.
       const resultado = await verificarLicenciasYRegistrarMiembro(supabase, {
         email: emailNormalizado,
         password: form.password,
         nivel_acceso: nivel,
         rol_ui: form.rol,
-        empresa_id: empresaSesion,
+        empresa_id: empresaTenant,
         permitirSinConteo: isAdmin,
       })
 

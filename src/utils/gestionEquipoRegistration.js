@@ -10,7 +10,8 @@ export const MENSAJE_SIN_LICENCIAS =
  *   1. Validaciones locales
  *   2. Check de licencias (empresas.max_usuarios + conteo profiles; ver licenciasEmpresa.js)
  *   3. supabase.auth.signUp
- *   4. INSERT en public.empleados { id, email, empresa_id, rol }
+ *   4. UPSERT inmediato en public.profiles { id, empresa_id, email, nombre, nivel_acceso }
+ *   5. INSERT/UPDATE en public.empleados { id, email, empresa_id, rol }
  *
  * @param {*} supabase  instancia @supabase/supabase-js
  * @param {{
@@ -129,7 +130,29 @@ export async function verificarLicenciasYRegistrarMiembro(
     }
   }
 
-  // ── 4. INSERT en public.empleados ────────────────────────────────────────────
+  // ── 4. Crear perfil tenant en cascada (obligatorio tras Auth) ─────────────────
+  const { error: profileErr } = await supabase
+    .from('profiles')
+    .upsert(
+      {
+        id: userId,
+        empresa_id: empresaIdNum,
+        email: em,
+        nombre: em.split('@')[0] || em,
+        nivel_acceso: nivel,
+      },
+      { onConflict: 'id' },
+    )
+
+  if (profileErr) {
+    return {
+      ok: false,
+      code: 'PROFILE_INSERT',
+      message: `Usuario creado en Auth, pero falló el alta en profiles: ${profileErr.message}`,
+    }
+  }
+
+  // ── 5. INSERT en public.empleados ────────────────────────────────────────────
   // Columnas reales de la tabla: id (uuid PK), email, empresa_id, rol
   const { error: errIns } = await supabase.from('empleados').insert([
     {
