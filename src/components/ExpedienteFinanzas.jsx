@@ -212,6 +212,41 @@ const ExpedienteFinanzas = ({
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
   const onRefresh = onExpedienteRefresh
+  const versionesJsonSeguro = React.useMemo(() => {
+    const raw = expediente?.versiones_json
+    if (!raw) return {}
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw)
+        return parsed && typeof parsed === 'object' ? parsed : {}
+      } catch {
+        return {}
+      }
+    }
+    return typeof raw === 'object' ? raw : {}
+  }, [expediente?.versiones_json])
+  const nombresDesdeVersiones = React.useMemo(() => {
+    const mapa = {}
+    const versionesArr = Array.isArray(versionesJsonSeguro?.versiones) ? versionesJsonSeguro.versiones : []
+    for (const v of versionesArr) {
+      for (const sv of v?.servicios || []) {
+        const sid = String(sv?.id ?? '').trim()
+        if (!sid) continue
+        const tipoSv = String(sv?.tipo_servicio || sv?.tipo || 'Servicio').trim()
+        const nombreEspSv = String(sv?.nombre_especifico || sv?.nombreEspecifico || '').trim()
+        const nombreServicio = String(sv?.nombre_servicio || '').trim()
+        const proveedorSv = String(sv?.nombre_proveedor_texto || sv?.proveedorNombreTemporal || sv?.nombre_proveedor_manual || '').trim()
+        const concepto = nombreServicio || (nombreEspSv ? `${tipoSv || 'Servicio'} – ${nombreEspSv}` : (tipoSv || 'Servicio'))
+        if (!mapa[sid]) {
+          mapa[sid] = {
+            concepto,
+            proveedor: proveedorSv || null,
+          }
+        }
+      }
+    }
+    return mapa
+  }, [versionesJsonSeguro])
 
   // Datos fiscales del emisor dinámicos por tenant (para PDFs)
   const [emisorData, setEmisorData] = useState({ ...DATOS_EMISOR, logo_url: null })
@@ -823,14 +858,16 @@ const ExpedienteFinanzas = ({
       // 5) Filas para render de cierre
       const costesRealesIniciales = serviciosCotizacionRows.map((s) => {
         const provId = s?.proveedor_id_int || null
+        const sidFinal = String(s?.id ?? generarUUID())
+        const fallbackVisual = nombresDesdeVersiones[sidFinal] || null
         const nombreComercialCache = obtenerProveedorPorId && provId != null
           ? obtenerProveedorPorId(provId)?.nombreComercial
           : null
         const proveedor = nombreComercialCache
           || (provId != null ? proveedoresMap[provId] : null)
           || s?.nombre_proveedor_texto
+          || fallbackVisual?.proveedor
           || 'Pendiente de asignar'
-        const sidFinal = String(s?.id ?? generarUUID())
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
         const costeRealProveedor = s?.coste_real_proveedor != null && !Number.isNaN(Number(s?.coste_real_proveedor))
           ? toNum(s.coste_real_proveedor)
@@ -842,7 +879,7 @@ const ExpedienteFinanzas = ({
         const proveedor_id_int = provId != null && provId !== '' && !Number.isNaN(Number(provId))
           ? Number(provId)
           : null
-        const conceptoFinal = String(s?.nombre_servicio || s?.concepto || '').trim() || 'Cargando concepto...'
+        const conceptoFinal = String(s?.nombre_servicio || s?.concepto || fallbackVisual?.concepto || '').trim() || 'Cargando concepto...'
         return {
           id: sidFinal,
           id_servicio: sidFinal,
