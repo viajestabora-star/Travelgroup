@@ -137,14 +137,15 @@ const CierreServicioRow = ({
       <td className="px-3 py-2 text-center">
         {facturaUrl ? (
           <div className="flex flex-col items-center gap-1">
-            <button
-              type="button"
-              onClick={() => window.open(facturaUrl, '_blank')}
-              className="inline-flex items-center justify-center rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
+            <a
+              href={facturaUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
               title="Ver factura"
             >
               VER FACTURA
-            </button>
+            </a>
             {!camposBloqueados && (
               <button
                 type="button"
@@ -167,10 +168,10 @@ const CierreServicioRow = ({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className={`inline-flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendo ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}
+            className={`inline-flex cursor-pointer items-center justify-center px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendo ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}
             disabled={camposBloqueados || subiendo}
           >
-            {subiendo ? '…subiendo' : <><Paperclip size={11} /> Añadir Factura</>}
+            {subiendo ? '…subiendo' : 'AÑADIR FACTURA'}
             <input
               type="file"
               style={{ display: 'none' }}
@@ -208,7 +209,6 @@ const ExpedienteFinanzas = ({
   user = null,
 }) => {
   const { empresaId } = useEmpresa()
-  const versionesJson = expediente?.versiones_json || {}
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
   const onRefresh = onExpedienteRefresh
@@ -769,46 +769,19 @@ const ExpedienteFinanzas = ({
     informeLiquidacionInicializadoRef.current = false
 
     try {
-      // ── 1. Single DB call: PAX data + versiones_json (primary service storage) ────
+      // 1) Datos base de expediente para ingresos
       const { data: expFresco, error: errExp } = await supabase
         .from('expedientes')
-        .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, versiones_json')
+        .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
         .eq('id', expediente.id)
         .single()
       if (errExp) console.warn('[Cierre] No se pudo cargar expediente fresco:', errExp.message)
 
-      const tenantEidFetch = Number(user?.empresa_id || empresaId) || null
-      let mapPdfPorServicio = {}
-      try {
-        let pq = supabase
-          .from('pagos_proveedores')
-          .select('servicio_id, url_pdf, fecha_pago')
-          .eq('expediente_id', expediente.id)
-          .eq('es_extra', false)
-          .eq('es_gasto_extra', false)
-        if (tenantEidFetch) pq = pq.eq('empresa_id', tenantEidFetch)
-        const { data: pagosData } = await pq
-        const mejor = {}
-        for (const p of pagosData || []) {
-          const sid = p.servicio_id
-          if (sid == null || sid === '') continue
-          const u = String(p.url_pdf || '').trim()
-          if (!u) continue
-          const key = String(sid)
-          const fp = String(p.fecha_pago || '')
-          const prev = mejor[key]
-          if (!prev || (fp && (!prev.fecha || fp > prev.fecha))) mejor[key] = { url: u, fecha: fp }
-        }
-        mapPdfPorServicio = Object.fromEntries(Object.entries(mejor).map(([k, v]) => [k, v.url]))
-      } catch (e) {
-        console.warn('[Cierre] pagos_proveedores (PDF por servicio):', e)
-      }
-
-      // ── 2. Fuente directa SQL (sin caché): servicios_cotizacion siempre ───────────────
+      // 2) Fuente SQL pura para la tabla de cierre
       let serviciosCotizacionRows = []
       const { data: scRows, error: scErr } = await supabase
         .from('servicios_cotizacion')
-        .select('*')
+        .select('id, id_expediente, nombre_servicio, proveedor_id_int, nombre_proveedor_texto, total_servicio, coste_real_proveedor, url_factura_pdf')
         .eq('id_expediente', String(expediente.id).trim())
         .order('orden', { ascending: true })
         .order('id', { ascending: true })
@@ -817,13 +790,14 @@ const ExpedienteFinanzas = ({
       } else if (Array.isArray(scRows)) {
         serviciosCotizacionRows = scRows
       }
+      if (serviciosCotizacionRows.length === 0) {
+        console.error('ERROR: No se encuentran servicios en SQL')
+      }
 
-      console.log('[Cierre] Total servicios SQL a cargar en Cierre:', serviciosCotizacionRows.length)
-
-      // ── 3. Resolve provider names desde ids SQL ─────────────────────────────────────
+      // 3) Nombre proveedor
       const idsNecesarios = [...new Set(
         serviciosCotizacionRows
-          .map(s => s?.proveedor_id_int || s?.proveedorId)
+          .map(s => s?.proveedor_id_int)
           .filter(id => id != null && id !== '')
       )]
       let proveedoresMap = {}
@@ -835,7 +809,7 @@ const ExpedienteFinanzas = ({
         if (Array.isArray(provsDB)) provsDB.forEach(p => { proveedoresMap[p.id] = p.nombre_comercial })
       }
 
-      // ── 6. PAX figures — DB → props → formData. desglose_grupos has no effect here ─
+      // 4) Ingresos
       const paxTotalFresco = toNum(expFresco?.total_pax) || toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0
       const gratuidadesFrescas = toNum(expFresco?.gratuidades) || toNum(expediente?.gratuidades) || toNum(formData?.gratuidades) || 0
       const paxPagoFresco = toNum(expFresco?.pax_pago) || Math.max(0, paxTotalFresco - gratuidadesFrescas) || paxPago
@@ -846,10 +820,7 @@ const ExpedienteFinanzas = ({
       const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
       const descuentosVal = bonificacionFresco * paxPagoFresco
 
-      // ── 4. Build cierre rows directo desde SQL ────────────────────────────────────────
-      const sourceVersionIndex = Array.isArray(versionesJson?.versiones)
-        ? Math.max(0, Math.min(versionActiva, versionesJson.versiones.length - 1))
-        : null
+      // 5) Filas para render de cierre
       const costesRealesIniciales = serviciosCotizacionRows.map((s) => {
         const provId = s?.proveedor_id_int || null
         const nombreComercialCache = obtenerProveedorPorId && provId != null
@@ -858,7 +829,6 @@ const ExpedienteFinanzas = ({
         const proveedor = nombreComercialCache
           || (provId != null ? proveedoresMap[provId] : null)
           || s?.nombre_proveedor_texto
-          || s?.nombre_proveedor
           || 'Pendiente de asignar'
         const sidFinal = String(s?.id ?? generarUUID())
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
@@ -868,7 +838,6 @@ const ExpedienteFinanzas = ({
         const costeReal = (costeRealProveedor != null && !Number.isNaN(Number(costeRealProveedor)))
           ? toNum(costeRealProveedor)
           : costeCotizado
-        const urlPago = mapPdfPorServicio[sidFinal] || null
         const url_factura_pdf = String(s?.url_factura_pdf || '').trim() || null
         const proveedor_id_int = provId != null && provId !== '' && !Number.isNaN(Number(provId))
           ? Number(provId)
@@ -880,17 +849,17 @@ const ExpedienteFinanzas = ({
           concepto: conceptoFinal,
           proveedor,
           proveedor_id_int,
-          version_index: sourceVersionIndex,
+          version_index: null,
           coste_cotizado: costeCotizado,
           coste_real: costeReal,
           coste_real_proveedor: (costeRealProveedor != null && !Number.isNaN(Number(costeRealProveedor))) ? toNum(costeRealProveedor) : null,
           url_factura_pdf,
-          _url_pdf_pago: urlPago,
-          url_pdf: urlPago,
+          _url_pdf_pago: url_factura_pdf,
+          url_pdf: url_factura_pdf,
         }
       })
 
-      // ── 8. Commit state ────────────────────────────────────────────────────────────
+      // 6) Commit state
       setInformeLiquidacion(prev => ({
         ...prev,
         ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal },
@@ -898,7 +867,7 @@ const ExpedienteFinanzas = ({
         gastosImprevistos: prev.gastosImprevistos || [],
       }))
 
-      // ── 9. PAX por asociación — only update when no saved manual distribution ──────
+      // 7) PAX por asociación
       const guardado = expediente?.cierre_grupo?.pax_por_asociacion
       if (!Array.isArray(guardado) || guardado.length === 0) {
         if (expedienteClientes.length > 0) {
@@ -989,33 +958,29 @@ const ExpedienteFinanzas = ({
     if (error) console.error('[cierre] persistirRescateServicioCot:', error)
   }
 
-  // Persiste coste_real: cierre_grupo + coste_real_proveedor en servicios_cotizacion
+  // Persiste precio real directamente en SQL (servicios_cotizacion.coste_real_proveedor)
   const guardarCosteRealEnBD = async (idServicio, valor) => {
     if (!expediente?.id) return
     const valorRaw = String(valor ?? '').trim()
     const valorNum = valorRaw === '' ? null : toNum(valor)
-    const nuevosCostesReales = (informeLiquidacion.costesReales || []).map(c =>
-      c.id_servicio === idServicio
-        ? {
-            ...c,
-            coste_real_proveedor: valorNum,
-            coste_real: valorNum == null ? c.coste_real : valorNum,
-          }
-        : c
-    )
-    const existente = expediente?.cierre_grupo || {}
-    const nuevoCierre = { ...existente, costesReales: nuevosCostesReales }
-    const { error } = await supabase
-      .from('expedientes')
-      .update({ cierre_grupo: nuevoCierre })
-      .eq('id', expediente.id)
-    if (error) console.error('[cierre] guardarCosteRealEnBD cierre_grupo:', error)
-
     try {
-      const filaActual = nuevosCostesReales.find(c => c.id_servicio === idServicio) || null
+      const { error } = await supabase
+        .from('servicios_cotizacion')
+        .update({ coste_real_proveedor: valorNum })
+        .eq('id', idServicio)
+        .eq('id_expediente', String(expediente.id).trim())
+      if (error) {
+        console.error('[cierre] guardarCosteRealEnBD SQL:', error)
+        return
+      }
+      const filaActual = (informeLiquidacion.costesReales || []).find(c => c.id_servicio === idServicio) || null
       await persistirRescateServicioCot(filaActual, { coste_real_proveedor: valorNum })
-
-      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: nuevoCierre })
+      setServiciosLocalCierre(prev => prev.map(c => (
+        c.id_servicio === idServicio
+          ? { ...c, coste_real_proveedor: valorNum, coste_real: valorNum == null ? c.coste_cotizado : valorNum }
+          : c
+      )))
+      await onRefresh?.()
     } catch (e) {
       console.error('[cierre] guardarCosteRealEnBD excepción:', e)
     }
@@ -1141,6 +1106,12 @@ const ExpedienteFinanzas = ({
     })
   }
 
+  const calcularTotalReal = () => {
+    return (informeLiquidacion.costesReales || []).reduce((acc, servicio) => {
+      return acc + toNum(servicio?.coste_real_proveedor)
+    }, 0)
+  }
+
   const calcularCierreFinanciero = () => {
     const pP = Math.max(1, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
     const precioVenta = pP * toNum(expediente?.precio_venta_cliente ?? formData?.precio_venta_cliente ?? 0)
@@ -1149,7 +1120,7 @@ const ExpedienteFinanzas = ({
     const gratuidadesVal = toNum(expediente?.gratuidades_monetario ?? 0)
     const ingresosTotales = (precioVenta + suplementosVal) - (bonificaciones + gratuidadesVal)
 
-    const gastosReales = (informeLiquidacion.costesReales || []).reduce((a, c) => a + toNum(c.coste_real), 0)
+    const gastosReales = calcularTotalReal()
     const gastosImprevistos = (informeLiquidacion.gastosImprevistos || []).reduce((a, g) => a + toNum(g.importe), 0)
     const gastosTotales = gastosReales + gastosImprevistos
     const { beneficioBruto, ivaPagado, beneficioLimpio } = desgloseIvaBeneficioBruto(ingresosTotales - gastosTotales)
@@ -1881,7 +1852,7 @@ const ExpedienteFinanzas = ({
                     </tbody>
                   </table>
                   <div className="px-3 py-2 bg-slate-50 text-right font-bold text-slate-800 text-sm">
-                    Total Gastos Reales: {(informeLiquidacion.costesReales || []).reduce((a, c) => a + toNum(c.coste_real), 0).toFixed(2)} €
+                    Total Gastos Reales: {calcularTotalReal().toFixed(2)} €
                   </div>
                 </div>
               )}
