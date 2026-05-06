@@ -104,40 +104,46 @@ const CierreServicioRow = ({
   onSubirFactura,
 }) => {
   const fileInputRef = useRef(null)
+  const servicioId = servicio?.id ?? servicio?.id_servicio ?? null
   const conceptoVisible = String(servicio?.concepto || '').trim() || 'Cargando concepto...'
+  const proveedorVisible = String(servicio?.proveedor || '').trim()
+  const costeCotizadoVisible = Number(servicio?.coste_cotizado || 0).toFixed(2)
+  const costeRealProveedorVisible = servicio?.coste_real_proveedor ?? ''
+  const facturaUrl = String(servicio?.url_factura_pdf || '').trim()
+
   return (
-    <tr key={servicio.id_servicio || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
+    <tr key={servicio?.id_servicio || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
       <td className="px-3 py-2 font-medium text-slate-800">{conceptoVisible}</td>
       <td className="px-3 py-2 hidden sm:table-cell">
-        {servicio.proveedor && servicio.proveedor !== 'Pendiente de asignar'
-          ? <span className="text-slate-600">{servicio.proveedor}</span>
+        {proveedorVisible && proveedorVisible !== 'Pendiente de asignar'
+          ? <span className="text-slate-600">{proveedorVisible}</span>
           : <span className="text-slate-400 italic text-xs">Pendiente de asignar</span>
         }
       </td>
-      <td className="px-3 py-2 text-right text-slate-500">{Number(servicio.coste_cotizado || 0).toFixed(2)} €</td>
+      <td className="px-3 py-2 text-right text-slate-500">{costeCotizadoVisible} €</td>
       <td className="px-3 py-2">
         <input
           type="number"
           step="0.01"
-          value={servicio.coste_real_proveedor ?? ''}
-          onChange={(e) => onActualizarCoste(servicio.id, e.target.value)}
-          onBlur={(e) => onBlurCoste(servicio.id, e.target.value)}
+          value={costeRealProveedorVisible}
+          onChange={(e) => onActualizarCoste(servicioId, e.target.value)}
+          onBlur={(e) => onBlurCoste(servicioId, e.target.value)}
           disabled={camposBloqueados}
           readOnly={camposBloqueados}
           className={`w-full min-w-[80px] border rounded-lg px-2 py-1 text-right font-medium ${camposBloqueados ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300 focus:ring-2 focus:ring-blue-500'}`}
-          placeholder="0"
+          placeholder=""
         />
       </td>
       <td className="px-3 py-2 text-center">
-        {servicio?.url_factura_pdf ? (
+        {facturaUrl ? (
           <div className="flex flex-col items-center gap-1">
             <button
               type="button"
-              onClick={() => window.open(servicio.url_factura_pdf, '_blank')}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
-              title="Ver factura PDF"
+              onClick={() => window.open(facturaUrl, '_blank')}
+              className="inline-flex items-center justify-center rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
+              title="Ver factura"
             >
-              <FileText size={14} /> VER PDF
+              VER FACTURA
             </button>
             {!camposBloqueados && (
               <button
@@ -152,7 +158,7 @@ const CierreServicioRow = ({
                   accept=".pdf,.PDF"
                   ref={fileInputRef}
                   disabled={subiendo}
-                  onChange={(e) => onSubirFactura(e, servicio.id)}
+                  onChange={(e) => onSubirFactura(e, servicioId)}
                 />
               </button>
             )}
@@ -171,7 +177,7 @@ const CierreServicioRow = ({
               accept=".pdf,.PDF"
               ref={fileInputRef}
               disabled={camposBloqueados || subiendo}
-              onChange={(e) => onSubirFactura(e, servicio.id)}
+              onChange={(e) => onSubirFactura(e, servicioId)}
             />
           </button>
         )}
@@ -755,6 +761,19 @@ const ExpedienteFinanzas = ({
   const [cargandoCotizacion, setCargandoCotizacion] = React.useState(false)
   const [errorCargaCotizacion, setErrorCargaCotizacion] = React.useState(null)
 
+  const normalizarVersionesJson = React.useCallback((rawVersiones) => {
+    if (!rawVersiones) return {}
+    if (typeof rawVersiones === 'string') {
+      try {
+        const parsed = JSON.parse(rawVersiones)
+        return parsed && typeof parsed === 'object' ? parsed : {}
+      } catch {
+        return {}
+      }
+    }
+    return typeof rawVersiones === 'object' ? rawVersiones : {}
+  }, [])
+
   const recargarInformeDesdeCotizacion = async () => {
     if (!expediente?.id) return
     setCargandoCotizacion(true)
@@ -801,7 +820,7 @@ const ExpedienteFinanzas = ({
       let serviciosActualizados = []
       let sourceVersionIndex = null
 
-      const vj = expFresco?.versiones_json ?? expediente?.versiones_json
+      const vj = normalizarVersionesJson(expFresco?.versiones_json ?? expediente?.versiones_json)
       const versionesGuardadas = Array.isArray(vj?.versiones) ? vj.versiones : null
 
       if (versionesGuardadas && versionesGuardadas.length > 0) {
@@ -856,7 +875,7 @@ const ExpedienteFinanzas = ({
       }
 
       if (serviciosActualizados.length > 0 && sourceVersionIndex == null) {
-        const vjs = expediente?.versiones_json?.versiones
+        const vjs = normalizarVersionesJson(expediente?.versiones_json)?.versiones
         if (Array.isArray(vjs) && vjs.length > 0) {
           const confirmed = vjs.find(v => v.confirmada)
           const targetIdx = versionActiva >= 0 && versionActiva < vjs.length ? versionActiva : 0
@@ -936,9 +955,9 @@ const ExpedienteFinanzas = ({
         const nombreEsp = String(s?.nombre_especifico || s?.nombreEspecifico || '').trim()
         const nombre = nombreEsp ? `${tipo} – ${nombreEsp}` : tipo
         const sid = s?.id || generarUUID()
+        const filaServicioCot = serviciosCotizacionMap[String(sid)] || null
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
         const saved = savedCostesReales[sid] || savedCostesReales[String(filaServicioCot?.id || '')]
-        const filaServicioCot = serviciosCotizacionMap[String(sid)] || null
         const sidFinal = filaServicioCot?.id ? String(filaServicioCot.id) : String(sid)
         // FUENTE DE VERDAD: servicios_cotizacion SIEMPRE sobrescribe JSON/snapshot si existe fila SQL.
         let costeRealProveedor = saved?.coste_real_proveedor
