@@ -721,13 +721,44 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [cargandoCot,      setCargandoCot]       = useState(false)
   const [errorCot,         setErrorCot]          = useState(null)
   const [inlineId,         setInlineId]          = useState(null)   // ID del servicio con form abierto
-  const [fInline,          setFInline]           = useState({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', metodo_pago: 'Transferencia', referencia_pago: '' })
+  const HOY = new Date().toISOString().split('T')[0]
+  const FINLINE_VACIO = { numero_factura: '', fecha_pago: HOY, importe_pagado: '', concepto: '', metodo_pago: 'Transferencia', referencia_pago: '' }
+  const FEXTRA_VACIO  = { numero_factura: '', fecha_pago: HOY, importe_pagado: '', proveedor_nombre: '', concepto: '', metodo_pago: 'Transferencia', referencia_pago: '' }
+
+  const [fInline,          setFInline]           = useState(FINLINE_VACIO)
   const [pdfInline,        setPdfInline]         = useState(null)
   const [subiendoPdfCot,   setSubiendoPdfCot]    = useState(false)
   const [showGastoExtra,   setShowGastoExtra]    = useState(false)
-  const [fExtra,           setFExtra]            = useState({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '', metodo_pago: 'Transferencia', referencia_pago: '' })
+  const [fExtra,           setFExtra]            = useState(FEXTRA_VACIO)
   const [pdfExtra,         setPdfExtra]          = useState(null)
   const [mensajeExitoFacturaProveedor, setMensajeExitoFacturaProveedor] = useState(null)
+
+  // empresa_id cargado desde profiles al abrir la pestaña de pagos (multi-tenant)
+  const [empresaIdPerfil, setEmpresaIdPerfil] = useState(null)
+  const [errorPerfilPagos, setErrorPerfilPagos] = useState(null)
+  useEffect(() => {
+    if (tab !== 'pagosProveedores') return
+    let activo = true
+    ;(async () => {
+      try {
+        const { data: authData, error: authErr } = await supabase.auth.getUser()
+        if (authErr || !authData?.user?.id) throw new Error(authErr?.message || 'Sin sesión activa.')
+        const { data: perfil, error: perfilErr } = await supabase
+          .from('profiles')
+          .select('empresa_id')
+          .eq('id', authData.user.id)
+          .maybeSingle()
+        if (perfilErr) throw new Error(`Error leyendo perfil: ${perfilErr.message}`)
+        const eid = Number(perfil?.empresa_id)
+        if (!Number.isFinite(eid) || eid <= 0)
+          throw new Error('Tu usuario no tiene empresa_id válido en profiles.')
+        if (activo) { setEmpresaIdPerfil(eid); setErrorPerfilPagos(null) }
+      } catch (e) {
+        if (activo) setErrorPerfilPagos(e.message)
+      }
+    })()
+    return () => { activo = false }
+  }, [tab])
   const lastSubmitRef = useRef({})
 
   const normalizarServicioIdFk = (rawId, serviciosSource = serviciosCotDb) => {
@@ -3242,107 +3273,127 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // ── Facturación documental ─────────────────────────────────────────────────
 
-  const handleFileUpload = async (file, empresaIdPerfil, expedienteUuid) => {
+  const handleFileUpload = async (file, eid, expUuid) => {
     if (!file) return null
-    const nombreSeguro = String(file.name || 'factura.pdf').replace(/[^a-zA-Z0-9._-]/g, '_')
-    const ruta = `${empresaIdPerfil}/${expedienteUuid}/fac-${Date.now()}-${nombreSeguro}`
-    const { error: uploadErr } = await supabase.storage.from(BUCKET_FACTURAS).upload(ruta, file, { upsert: false })
+    if (!eid || !expUuid) throw new Error('empresa_id o expediente_id no disponibles para subir el PDF.')
+    // Ruta canónica: /{empresa_id}/{expediente_id}/{timestamp}_factura.pdf
+    const ruta = `${eid}/${expUuid}/${Date.now()}_factura.pdf`
+    const { error: uploadErr } = await supabase.storage
+      .from(BUCKET_FACTURAS)
+      .upload(ruta, file, { upsert: false, contentType: 'application/pdf' })
     if (uploadErr) {
-      throw new Error(`No se pudo subir el PDF: ${uploadErr.message}`)
+      throw new Error(`No se pudo subir el PDF al bucket '${BUCKET_FACTURAS}': ${uploadErr.message}`)
     }
-    const { data } = supabase.storage.from(BUCKET_FACTURAS).getPublicUrl(ruta)
-    const publicUrl = data?.publicUrl || null
-    if (!publicUrl) {
-      throw new Error('No se pudo obtener la URL pública del PDF subido.')
-    }
+    const { data: urlData } = supabase.storage.from(BUCKET_FACTURAS).getPublicUrl(ruta)
+    const publicUrl = urlData?.publicUrl || null
+    if (!publicUrl) throw new Error('PDF subido pero no se pudo obtener la URL pública.')
     return publicUrl
   }
 
   const handleSubmit = async (servicio) => {
     if (subiendoPdfCot) return
     if (!(await asegurarSesionAutenticada())) return
+
+    // ── Validaciones del formulario ───────────────────────────────────────────
     const expedienteUuid = normalizarUuidExpediente(expediente?.id)
     if (!expedienteUuid) { alert('Expediente inválido para guardar la factura.'); return }
-    if (!fInline.fecha_pago || !fInline.importe_pagado) { alert('Completa Fecha e Importe.'); return }
+    if (!fInline.fecha_pago)      { alert('Selecciona la Fecha de pago.'); return }
+    if (!fInline.importe_pagado)  { alert('Introduce el Importe real.'); return }
     const numeroFacturaLimpio = String(fInline.numero_factura || '').trim()
-    if (!numeroFacturaLimpio) { alert('Completa el Nº de factura.'); return }
+    if (!numeroFacturaLimpio)     { alert('Introduce el Nº de factura.'); return }
     const importe = parseFloat(String(fInline.importe_pagado).replace(',', '.'))
-    if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
+    if (isNaN(importe) || importe <= 0) { alert('Importe inválido: debe ser un número positivo.'); return }
+
     if (!window.confirm('¿Estás seguro de registrar esta factura?')) return
+
+    // ── Anti-duplicado ────────────────────────────────────────────────────────
     const firmaFactura = {
       expediente_id: expedienteUuid,
       servicio_id: String(servicio?.id ?? ''),
       fecha_pago: fInline.fecha_pago,
       importe: Number(importe.toFixed(2)),
       numero_factura: numeroFacturaLimpio,
-      pdf_nombre: pdfInline?.name || null,
     }
     if (esSubmitDuplicadoReciente('handleSubmitFacturaProveedor', firmaFactura)) return
+
     setSubiendoPdfCot(true)
     try {
-      const empresaIdPerfil = await resolverEmpresaIdPerfilActual()
-      const urlPdf = await handleFileUpload(pdfInline, empresaIdPerfil, expedienteUuid)
-      const conceptoTitulo = tituloServicioParaConcepto(servicio)
+      // ── 1. Obtener empresa_id del perfil (estado pre-cargado; fallback síncrono si aún no listo) ──
+      let eid = empresaIdPerfil
+      if (!eid) eid = await resolverEmpresaIdPerfilActual()
+      if (!eid) throw new Error('No se pudo determinar la empresa del usuario. Recarga la página.')
+
+      // ── 2. Subir PDF al bucket 'facturas' con ruta canónica ───────────────────
+      const urlPdf = pdfInline ? await handleFileUpload(pdfInline, eid, expedienteUuid) : null
+
+      // ── 3. Resolver servicio de la cotización ─────────────────────────────────
+      const conceptoServicio = String(fInline.concepto || '').trim() || tituloServicioParaConcepto(servicio)
       const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicio)
       const serviciosActuales = await fetchServiciosCotizacionActuales(expedienteUuid)
       const servicioIdFk = resolverServicioIdDesdeFila(servicio, servicio.id, serviciosActuales)
-      const servicioIdPayload = servicioIdFk || null
-      if (!servicioIdPayload) {
-        console.error('[pagos_proveedores][vinculacion] servicio_id no encontrado en servicios_cotizacion', {
+      if (!servicioIdFk) {
+        console.error('[pagos_proveedores][handleSubmit] servicio_id no encontrado', {
           expediente_id: expedienteUuid,
           servicioSeleccionado: servicio,
-          idsFila: idsServicioFilaPagos(servicio),
           serviciosActuales: (serviciosActuales || []).map((x) => x?.id),
         })
-        alert('Selecciona un servicio válido de la cotización para registrar la factura.')
+        alert('El servicio seleccionado ya no existe en la cotización. Refresca la lista y vuelve a intentarlo.')
         return
       }
+
+      // ── 4. Construir payload e insertar ──────────────────────────────────────
       const payloadInsert = filaPagosProveedores({
-        expediente_id: expedienteUuid,
-        empresa_id: empresaIdPerfil,
-        proveedor_id: proveedorId,
+        expediente_id:   expedienteUuid,
+        empresa_id:      eid,                                          // dinámico desde profiles
+        proveedor_id:    proveedorId,
         proveedor_nombre: proveedorNombre,
-        servicio_id: servicioIdPayload,
-        fecha_pago: fInline.fecha_pago,
-        importe_pagado: Number(importe.toFixed(2)),
-        numero_factura: numeroFacturaLimpio || null,
+        servicio_id:     servicioIdFk,
+        fecha_pago:      fInline.fecha_pago,                          // elegida por el usuario
+        importe_pagado:  Number(importe.toFixed(2)),                  // manual del input
+        numero_factura:  numeroFacturaLimpio,
         referencia_pago: String(fInline.referencia_pago || '').trim() || null,
-        metodo_pago: fInline.metodo_pago || 'Transferencia',
-        url_pdf: urlPdf,
-        concepto: conceptoTitulo,
-        es_extra: false,
-        es_gasto_extra: false,
+        metodo_pago:     fInline.metodo_pago || 'Transferencia',
+        url_pdf:         urlPdf,                                       // URL pública de 'facturas'
+        concepto:        conceptoServicio,
+        es_extra:        false,
+        es_gasto_extra:  false,
       })
+
       const { data, error } = await supabase
         .from('pagos_proveedores')
         .insert([payloadInsert])
         .select(PAGOS_PROVEEDORES_COLUMNAS)
+
       if (error) {
         console.error('[pagos_proveedores][handleSubmit] Error completo:', error)
         alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error, action: 'guardar la factura de proveedor' }))
         return
       }
 
+      // ── 5. Limpiar formulario y refrescar lista ───────────────────────────────
       setMensajeExitoFacturaProveedor('Factura registrada con éxito')
       window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
-
       setInlineId(null)
-      setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', metodo_pago: 'Transferencia', referencia_pago: '' })
+      setFInline(FINLINE_VACIO)
       setPdfInline(null)
-
       await cargarPagosProveedores()
       if (typeof onRefresh === 'function') onRefresh()
-    } catch (e) { alert(e.message || 'Error inesperado.')
-    } finally { setSubiendoPdfCot(false) }
+    } catch (e) {
+      console.error('[pagos_proveedores][handleSubmit] Excepción:', e)
+      alert(e.message || 'Error inesperado al guardar la factura.')
+    } finally {
+      setSubiendoPdfCot(false)
+    }
   }
 
   const abrirFormularioCambiarPdfServicio = (servicio, pagoRegistrado) => {
     setInlineId(servicio.id)
     setFInline({
-      numero_factura: pagoRegistrado?.numero_factura || '',
-      fecha_pago: pagoRegistrado?.fecha_pago || new Date().toISOString().split('T')[0],
-      importe_pagado: pagoRegistrado?.importe_pagado ?? servicio.total_servicio_manual ?? servicio.total_servicio ?? servicio.coste_unitario ?? '',
-      metodo_pago: pagoRegistrado?.metodo_pago || 'Transferencia',
+      numero_factura:  pagoRegistrado?.numero_factura  || '',
+      fecha_pago:      pagoRegistrado?.fecha_pago      || new Date().toISOString().split('T')[0],
+      importe_pagado:  pagoRegistrado?.importe_pagado  ?? servicio.total_servicio_manual ?? servicio.total_servicio ?? servicio.coste_unitario ?? '',
+      concepto:        pagoRegistrado?.concepto        || tituloServicioParaConcepto(servicio) || '',
+      metodo_pago:     pagoRegistrado?.metodo_pago     || 'Transferencia',
       referencia_pago: pagoRegistrado?.referencia_pago || '',
     })
     setPdfInline(null)
@@ -3374,8 +3425,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const guardarGastoExtra = async () => {
     if (subiendoPdfCot) return
     if (!(await asegurarSesionAutenticada())) return
-    const empresaIdPerfil = await resolverEmpresaIdPerfilActual()
-    if (!empresaIdPerfil) return
     if (!fExtra.concepto || !fExtra.importe_pagado || !fExtra.fecha_pago) { alert('Completa Concepto, Fecha e Importe.'); return }
     const importe = parseFloat(String(fExtra.importe_pagado).replace(',', '.'))
     if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
@@ -3386,30 +3435,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       fecha_pago: fExtra.fecha_pago,
       importe: Number(importe.toFixed(2)),
       numero_factura: String(fExtra.numero_factura || '').trim(),
-      pdf_nombre: pdfExtra?.name || null,
     }
     if (esSubmitDuplicadoReciente('guardarGastoExtra', firmaGastoExtra)) return
     setSubiendoPdfCot(true)
     try {
+      // empresa_id: preferir estado pre-cargado; resolver en tiempo real si no está listo
+      let eid = empresaIdPerfil
+      if (!eid) eid = await resolverEmpresaIdPerfilActual()
+      if (!eid) throw new Error('No se pudo determinar la empresa del usuario.')
+
       const expedienteUuid = normalizarUuidExpediente(expediente?.id)
-      const urlPdf = pdfExtra ? await handleFileUpload(pdfExtra, empresaIdPerfil, expedienteUuid) : null
+      const urlPdf = pdfExtra ? await handleFileUpload(pdfExtra, eid, expedienteUuid) : null
       const proveedorNombreExtra = String(fExtra.proveedor_nombre || '').trim() || null
       const { error } = await supabase.from('pagos_proveedores').insert([
         filaPagosProveedores({
-          expediente_id: expediente.id,
-          empresa_id: empresaIdPerfil,
-          proveedor_id: null,
+          expediente_id:   expediente.id,
+          empresa_id:      eid,
+          proveedor_id:    null,
           proveedor_nombre: proveedorNombreExtra,
-          servicio_id: null,
-          fecha_pago: fExtra.fecha_pago,
-          importe_pagado: importe,
-          numero_factura: fExtra.numero_factura || null,
+          servicio_id:     null,
+          fecha_pago:      fExtra.fecha_pago,
+          importe_pagado:  importe,
+          numero_factura:  fExtra.numero_factura || null,
           referencia_pago: String(fExtra.referencia_pago || '').trim() || null,
-          metodo_pago: fExtra.metodo_pago || 'Transferencia',
-          url_pdf: urlPdf,
-          concepto: String(fExtra.concepto || '').trim(),
-          es_extra: true,
-          es_gasto_extra: true,
+          metodo_pago:     fExtra.metodo_pago || 'Transferencia',
+          url_pdf:         urlPdf,
+          concepto:        String(fExtra.concepto || '').trim(),
+          es_extra:        true,
+          es_gasto_extra:  true,
         }),
       ])
       if (error) {
@@ -3421,10 +3474,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       setMensajeExitoFacturaProveedor('Factura guardada con éxito')
       window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
       setShowGastoExtra(false)
-      setFExtra({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '', metodo_pago: 'Transferencia', referencia_pago: '' })
+      setFExtra(FEXTRA_VACIO)
       setPdfExtra(null)
       if (typeof onRefresh === 'function') onRefresh()
-    } catch (e) { alert(e.message || 'Error inesperado.')
+    } catch (e) {
+      console.error('[pagos_proveedores][guardarGastoExtra] Excepción:', e)
+      alert(e.message || 'Error inesperado.')
     } finally { setSubiendoPdfCot(false) }
   }
 
@@ -6711,9 +6766,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           {/* Formulario inline */}
                           {abierto && (
                             <div className="px-4 pb-4 pt-1 border-t border-blue-200 mt-1">
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                              {errorPerfilPagos && (
+                                <div className="mb-3 rounded-lg bg-red-50 border border-red-300 px-3 py-2 text-xs text-red-700 font-semibold">
+                                  ⚠ No se pudo cargar el perfil del usuario: {errorPerfilPagos}
+                                </div>
+                              )}
+                              {empresaIdPerfil && (
+                                <p className="mb-2 text-xs text-emerald-700 font-medium">
+                                  Empresa activa: <span className="font-bold">#{empresaIdPerfil}</span>
+                                </p>
+                              )}
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-1">
                                 <div>
-                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Nº Factura</label>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Nº Factura *</label>
                                   <input type="text" placeholder="F2024-001"
                                     className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
                                     value={fInline.numero_factura}
@@ -6721,7 +6786,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fecha *</label>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fecha Pago *</label>
                                   <input type="date"
                                     className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
                                     value={fInline.fecha_pago}
@@ -6735,6 +6800,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                     value={fInline.importe_pagado}
                                     onChange={e => setFInline({ ...fInline, importe_pagado: e.target.value })}
                                     onWheel={e => e.target.blur()}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Concepto</label>
+                                  <input type="text" placeholder="Descripción del pago"
+                                    className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                                    value={fInline.concepto}
+                                    onChange={e => setFInline({ ...fInline, concepto: e.target.value })}
                                   />
                                 </div>
                                 <div>
@@ -6759,13 +6832,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                     onChange={e => setFInline({ ...fInline, referencia_pago: e.target.value })}
                                   />
                                 </div>
-                                <div>
+                                <div className="md:col-span-3">
                                   <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
                                     <Paperclip size={10} className="inline mr-1" />PDF Factura
+                                    <span className="ml-1 text-gray-400 font-normal normal-case">(se sube al bucket «facturas»)</span>
                                   </label>
                                   <label className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors">
                                     <Paperclip size={14} />
-                                    Seleccionar archivo
+                                    Seleccionar archivo PDF
                                     <input
                                       type="file"
                                       accept=".pdf,.PDF"
@@ -6773,16 +6847,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                       onChange={e => setPdfInline(e.target.files?.[0] || null)}
                                     />
                                   </label>
-                                  {pdfInline && <p className="text-xs text-green-600 mt-1">✓ {pdfInline.name}</p>}
+                                  {pdfInline && (
+                                    <span className="ml-3 text-xs text-green-700 font-semibold">✓ {pdfInline.name}</span>
+                                  )}
                                 </div>
                               </div>
-                              <div className="flex gap-3 mt-3">
-                                <button onClick={() => handleSubmit(s)} disabled={subiendoPdfCot}
+                              <div className="flex gap-3 mt-4">
+                                <button onClick={() => handleSubmit(s)} disabled={subiendoPdfCot || !!errorPerfilPagos}
                                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm disabled:opacity-50 transition-colors">
                                   <CreditCard size={14} />
-                                  {subiendoPdfCot ? 'GUARDANDO...' : 'REGISTRAR'}
+                                  {subiendoPdfCot ? 'GUARDANDO...' : 'REGISTRAR FACTURA'}
                                 </button>
-                                <button onClick={() => { setInlineId(null); setPdfInline(null) }}
+                                <button onClick={() => { setInlineId(null); setPdfInline(null); setFInline(FINLINE_VACIO) }}
                                   className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-100">
                                   Cancelar
                                 </button>
