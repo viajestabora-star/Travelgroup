@@ -1330,24 +1330,44 @@ const Expedientes = ({ user = null }) => {
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
 
-  // Convierte fecha a ms para comparación matemática (no alfabética) — acepta Date, ISO string, dd/mm/yyyy.
+  // Convierte fecha a ms para comparación matemática (no alfabética) — acepta Date/ISO.
   const toMs = (v) => {
     if (!v) return null
     const t = v instanceof Date ? v.getTime() : new Date(v).getTime()
     return Number.isFinite(t) ? t : null
   }
-  // Prioriza fecha_inicio; expedientes sin fecha quedan al final.
-  const msInicio = (exp) => toMs(exp?.fecha_inicio ?? exp?.fechaInicio) ?? -Infinity
+  // Prioriza fecha_inicio; expedientes sin fecha quedan al final (equivalente a nullsFirst: false).
+  const msInicio = (exp) => toMs(exp?.fecha_inicio ?? exp?.fechaInicio)
+  const compareInicioAscNullsLast = (a, b) => {
+    const am = msInicio(a)
+    const bm = msInicio(b)
+    const aNull = am == null
+    const bNull = bm == null
+    if (aNull && bNull) return 0
+    if (aNull) return 1
+    if (bNull) return -1
+    return am - bm
+  }
+  const compareInicioDescNullsLast = (a, b) => {
+    const am = msInicio(a)
+    const bm = msInicio(b)
+    const aNull = am == null
+    const bNull = bm == null
+    if (aNull && bNull) return 0
+    if (aNull) return 1
+    if (bNull) return -1
+    return bm - am
+  }
 
   const expedientesFinales = (() => {
     const copia = [...(expedientesFiltradosPorEjercicio || [])]
-    if (tabExpedientes === 'confirmados') {
-      // Ascendente: el próximo en salir aparece primero.
-      return copia.sort((a, b) => msInicio(a) - msInicio(b))
+    if (tabExpedientes === 'pendientes' || tabExpedientes === 'confirmados') {
+      // Petición + Confirmados: ascendente por fecha_inicio (próximos viajes primero).
+      return copia.sort(compareInicioAscNullsLast)
     }
     if (tabExpedientes === 'cerrado') {
-      // Descendente: el viaje más reciente aparece primero.
-      return copia.sort((a, b) => msInicio(b) - msInicio(a))
+      // Cerrados: descendente por fecha_inicio (último viaje realizado primero).
+      return copia.sort(compareInicioDescNullsLast)
     }
     // Resto de pestañas: sin modificar el orden de la BD.
     return copia
