@@ -733,6 +733,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [pdfExtra,         setPdfExtra]          = useState(null)
   const [mensajeExitoFacturaProveedor, setMensajeExitoFacturaProveedor] = useState(null)
 
+  // Formulario "Añadir Factura" directo (independiente de tarjetas de servicio)
+  const FNUEVA_VACIO = { numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', concepto: '', referencia_pago: '', metodo_pago: 'Transferencia', proveedor_nombre: '' }
+  const [showFacturaNueva,  setShowFacturaNueva]  = useState(false)
+  const [fNueva,            setFNueva]            = useState(FNUEVA_VACIO)
+  const [pdfNueva,          setPdfNueva]          = useState(null)
+  const [guardandoNueva,    setGuardandoNueva]    = useState(false)
+
   // empresa_id cargado desde profiles al abrir la pestaña de pagos (multi-tenant)
   const [empresaIdPerfil, setEmpresaIdPerfil] = useState(null)
   const [errorPerfilPagos, setErrorPerfilPagos] = useState(null)
@@ -3481,6 +3488,81 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       console.error('[pagos_proveedores][guardarGastoExtra] Excepción:', e)
       alert(e.message || 'Error inesperado.')
     } finally { setSubiendoPdfCot(false) }
+  }
+
+  // ── "Añadir Factura" directo (independiente de cotización) ────────────────
+  const guardarFacturaNueva = async () => {
+    if (guardandoNueva) return
+    if (!(await asegurarSesionAutenticada())) return
+    if (!fNueva.importe_pagado || !fNueva.fecha_pago) {
+      alert('Completa al menos Fecha e Importe.')
+      return
+    }
+    const importe = parseFloat(String(fNueva.importe_pagado).replace(',', '.'))
+    if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
+    if (!window.confirm('¿Confirmas el registro de esta factura?')) return
+
+    const firmaCheck = {
+      expediente_id: expediente?.id,
+      concepto: String(fNueva.concepto || '').trim(),
+      importe: Number(importe.toFixed(2)),
+      fecha_pago: fNueva.fecha_pago,
+    }
+    if (esSubmitDuplicadoReciente('guardarFacturaNueva', firmaCheck)) return
+    setGuardandoNueva(true)
+    try {
+      // 1. empresa_id desde profiles (estado pre-cargado o resolución síncrona)
+      let eid = empresaIdPerfil
+      if (!eid) eid = await resolverEmpresaIdPerfilActual()
+      if (!eid) throw new Error('No se pudo determinar la empresa del usuario.')
+
+      const expedienteUuid = normalizarUuidExpediente(expediente?.id)
+      if (!expedienteUuid) throw new Error('Expediente inválido.')
+
+      // 2. Subir PDF al bucket 'facturas' con ruta canónica
+      const urlPdf = pdfNueva ? await handleFileUpload(pdfNueva, eid, expedienteUuid) : null
+
+      // 3. Insertar en pagos_proveedores vinculando expediente_id actual
+      const { data, error } = await supabase
+        .from('pagos_proveedores')
+        .insert([filaPagosProveedores({
+          expediente_id:    expedienteUuid,
+          empresa_id:       eid,
+          proveedor_id:     null,
+          proveedor_nombre: String(fNueva.proveedor_nombre || '').trim() || null,
+          servicio_id:      null,
+          fecha_pago:       fNueva.fecha_pago,
+          importe_pagado:   Number(importe.toFixed(2)),
+          numero_factura:   String(fNueva.numero_factura || '').trim() || null,
+          referencia_pago:  String(fNueva.referencia_pago || '').trim() || null,
+          metodo_pago:      fNueva.metodo_pago || 'Transferencia',
+          url_pdf:          urlPdf,
+          concepto:         String(fNueva.concepto || '').trim() || 'Factura proveedor',
+          es_extra:         false,
+          es_gasto_extra:   false,
+        })])
+        .select(PAGOS_PROVEEDORES_COLUMNAS)
+
+      if (error) {
+        console.error('[pagos_proveedores][guardarFacturaNueva] Error:', error)
+        alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error, action: 'registrar la factura' }))
+        return
+      }
+
+      // 4. Limpiar formulario y refrescar lista
+      setMensajeExitoFacturaProveedor('Factura registrada con éxito')
+      window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
+      setShowFacturaNueva(false)
+      setFNueva(FNUEVA_VACIO)
+      setPdfNueva(null)
+      await cargarPagosProveedores()
+      if (typeof onRefresh === 'function') onRefresh()
+    } catch (e) {
+      console.error('[pagos_proveedores][guardarFacturaNueva] Excepción:', e)
+      alert(e.message || 'Error inesperado al registrar la factura.')
+    } finally {
+      setGuardandoNueva(false)
+    }
   }
 
   // Helper: noches del expediente (prioriza campo en BD, si no, calcula por fechas)
@@ -6663,9 +6745,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               if (documentado) return
                               setInlineId(s.id)
                               setFInline({
-                                numero_factura: pagoRegistrado?.numero_factura || '',
-                                fecha_pago: pagoRegistrado?.fecha_pago || new Date().toISOString().split('T')[0],
-                                importe_pagado: pagoRegistrado?.importe_pagado || s.total_servicio_manual || s.total_servicio || s.coste_unitario || '',
+                                numero_factura:  pagoRegistrado?.numero_factura  || '',
+                                fecha_pago:      pagoRegistrado?.fecha_pago      || new Date().toISOString().split('T')[0],
+                                importe_pagado:  pagoRegistrado?.importe_pagado  ?? s.total_servicio_manual ?? s.total_servicio ?? s.coste_unitario ?? '',
+                                concepto:        pagoRegistrado?.concepto        || tituloServicioParaConcepto(s) || '',
+                                metodo_pago:     pagoRegistrado?.metodo_pago     || 'Transferencia',
+                                referencia_pago: pagoRegistrado?.referencia_pago || '',
                               })
                               setPdfInline(null)
                             }}
@@ -6967,6 +7052,159 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       </button>
                       <button onClick={() => { setShowGastoExtra(false); setPdfExtra(null) }}
                         className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-100">
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Panel: Añadir Factura (directo, sin vinculación a servicio cotizado) ── */}
+              <div className="bg-white rounded-xl shadow-md border border-gray-200 transition-all duration-200 hover:shadow-md hover:border-indigo-300">
+                <div className="flex items-center justify-between px-6 py-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-navy-900">Añadir Factura</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">Registro directo de factura de proveedor (vinculada al expediente actual)</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setShowFacturaNueva(v => !v); setFNueva(FNUEVA_VACIO); setPdfNueva(null) }}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                      showFacturaNueva
+                        ? 'bg-gray-100 text-gray-700 border border-gray-300'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    }`}
+                  >
+                    <Plus size={15} />
+                    {showFacturaNueva ? 'Cerrar formulario' : 'Nueva Factura'}
+                  </button>
+                </div>
+
+                {showFacturaNueva && (
+                  <div className="px-6 pb-6 border-t border-gray-100">
+                    {errorPerfilPagos && (
+                      <div className="mt-4 rounded-lg bg-red-50 border border-red-300 px-3 py-2 text-xs text-red-700 font-semibold">
+                        ⚠ Perfil no cargado: {errorPerfilPagos}
+                      </div>
+                    )}
+                    {empresaIdPerfil && (
+                      <p className="mt-3 mb-1 text-xs text-emerald-700 font-medium">
+                        Empresa activa: <span className="font-bold">#{empresaIdPerfil}</span>
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                      {/* Fecha de Pago */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fecha de Pago *</label>
+                        <input
+                          type="date"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fNueva.fecha_pago}
+                          onChange={e => setFNueva({ ...fNueva, fecha_pago: e.target.value })}
+                        />
+                      </div>
+                      {/* Importe Manual */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Importe (€) *</label>
+                        <input
+                          type="number" step="0.01" min="0" placeholder="0.00"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fNueva.importe_pagado}
+                          onChange={e => setFNueva({ ...fNueva, importe_pagado: e.target.value })}
+                          onWheel={e => e.target.blur()}
+                        />
+                      </div>
+                      {/* Nº Factura */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Nº Factura</label>
+                        <input
+                          type="text" placeholder="F2024-001"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fNueva.numero_factura}
+                          onChange={e => setFNueva({ ...fNueva, numero_factura: e.target.value })}
+                        />
+                      </div>
+                      {/* Concepto */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Concepto</label>
+                        <input
+                          type="text" placeholder="Descripción del pago"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fNueva.concepto}
+                          onChange={e => setFNueva({ ...fNueva, concepto: e.target.value })}
+                        />
+                      </div>
+                      {/* Referencia */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Referencia / Nº Transferencia</label>
+                        <input
+                          type="text" placeholder="Ej: TRF-20240501-001"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fNueva.referencia_pago}
+                          onChange={e => setFNueva({ ...fNueva, referencia_pago: e.target.value })}
+                        />
+                      </div>
+                      {/* Método de pago */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Método de Pago</label>
+                        <select
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fNueva.metodo_pago}
+                          onChange={e => setFNueva({ ...fNueva, metodo_pago: e.target.value })}
+                        >
+                          <option value="Transferencia">Transferencia</option>
+                          <option value="Efectivo">Efectivo</option>
+                          <option value="Tarjeta">Tarjeta</option>
+                          <option value="Talon">Talón</option>
+                          <option value="Mixto">Mixto</option>
+                        </select>
+                      </div>
+                      {/* Proveedor */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Proveedor</label>
+                        <input
+                          type="text" placeholder="Nombre del proveedor"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fNueva.proveedor_nombre}
+                          onChange={e => setFNueva({ ...fNueva, proveedor_nombre: e.target.value })}
+                        />
+                      </div>
+                      {/* PDF — bucket 'facturas', ruta /{empresa_id}/{expediente_id}/{timestamp}_factura.pdf */}
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                          <Paperclip size={10} className="inline mr-1" />
+                          PDF Factura
+                          <span className="ml-1 font-normal text-gray-400 normal-case">(bucket «facturas»)</span>
+                        </label>
+                        <label className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition-colors">
+                          <Paperclip size={14} />
+                          Seleccionar PDF
+                          <input
+                            type="file"
+                            accept=".pdf,.PDF"
+                            className="hidden"
+                            onChange={e => setPdfNueva(e.target.files?.[0] || null)}
+                          />
+                        </label>
+                        {pdfNueva && (
+                          <span className="ml-3 text-xs text-green-700 font-semibold">✓ {pdfNueva.name}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 mt-5">
+                      <button
+                        onClick={guardarFacturaNueva}
+                        disabled={guardandoNueva || !!errorPerfilPagos}
+                        className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm disabled:opacity-50 transition-colors"
+                      >
+                        <Save size={15} />
+                        {guardandoNueva ? 'Guardando…' : 'Guardar Factura'}
+                      </button>
+                      <button
+                        onClick={() => { setShowFacturaNueva(false); setFNueva(FNUEVA_VACIO); setPdfNueva(null) }}
+                        className="px-5 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50"
+                      >
                         Cancelar
                       </button>
                     </div>
