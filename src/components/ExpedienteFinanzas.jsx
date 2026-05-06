@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown, Eye } from 'lucide-react'
+import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown, Eye, Paperclip } from 'lucide-react'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
@@ -15,6 +15,27 @@ import { DATOS_EMISOR } from '../config/empresa'
 import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmisorEmpresa'
 import { useEmpresa } from '../context/EmpresaContext'
 import VisualizadorPro from './VisualizadorPro'
+import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorStorage'
+
+/** Bucket unificado para facturas de cierre (alineado con ExpedienteDetalle / pagos_proveedores). */
+const BUCKET_FACTURAS_UNIFICADO = 'facturas'
+
+const UUID_SERVICIO_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+const esIdServicioUuid = (id) => UUID_SERVICIO_RE.test(String(id ?? ''))
+
+/** URL para abrir PDF: público https, ruta en bucket `facturas`, o legado `facturas_proveedores`. */
+const resolverHrefFacturaUnificado = (valorGuardado) => {
+  if (!valorGuardado || typeof valorGuardado !== 'string') return null
+  const t = valorGuardado.trim().replace(/^["']|["']$/g, '')
+  if (/^https?:\/\//i.test(t)) return t
+  const path = t.replace(/^\/+/, '')
+  const pub = supabase.storage.from(BUCKET_FACTURAS_UNIFICADO).getPublicUrl(path)?.data?.publicUrl
+  return pub || resolverUrlPublicaFacturaProveedor(valorGuardado)
+}
+
+const hrefFacturaDesdeFilaCierre = (c) =>
+  resolverHrefFacturaUnificado(String(c?.url_factura_pdf || c?._url_pdf_pago || c?.url_pdf || '').trim())
 
 /**
  * ============ DEFAULT_SERVICE_VALUES - DEFENSA CONTRA UNDEFINED ============
@@ -662,17 +683,45 @@ const ExpedienteFinanzas = ({
         .single()
       if (errExp) console.warn('[Cierre] No se pudo cargar expediente fresco:', errExp.message)
 
+      const tenantEidFetch = Number(user?.empresa_id || empresaId) || null
+      let mapPdfPorServicio = {}
+      try {
+        let pq = supabase
+          .from('pagos_proveedores')
+          .select('servicio_id, url_pdf, fecha_pago')
+          .eq('expediente_id', expediente.id)
+          .eq('es_extra', false)
+          .eq('es_gasto_extra', false)
+        if (tenantEidFetch) pq = pq.eq('empresa_id', tenantEidFetch)
+        const { data: pagosData } = await pq
+        const mejor = {}
+        for (const p of pagosData || []) {
+          const sid = p.servicio_id
+          if (sid == null || sid === '') continue
+          const u = String(p.url_pdf || '').trim()
+          if (!u) continue
+          const key = String(sid)
+          const fp = String(p.fecha_pago || '')
+          const prev = mejor[key]
+          if (!prev || (fp && (!prev.fecha || fp > prev.fecha))) mejor[key] = { url: u, fecha: fp }
+        }
+        mapPdfPorServicio = Object.fromEntries(Object.entries(mejor).map(([k, v]) => [k, v.url]))
+      } catch (e) {
+        console.warn('[Cierre] pagos_proveedores (PDF por servicio):', e)
+      }
+
       // ── 2. Resolve services — versiones_json is the primary store for new expedientes ──
       let serviciosActualizados = []
+      let sourceVersionIndex = null
 
       const vj = expFresco?.versiones_json ?? expediente?.versiones_json
       const versionesGuardadas = Array.isArray(vj?.versiones) ? vj.versiones : null
 
       if (versionesGuardadas && versionesGuardadas.length > 0) {
-        // Prefer confirmed version → versionActiva index → first version
         const confirmed = versionesGuardadas.find(v => v.confirmada)
         const targetIdx = versionActiva >= 0 && versionActiva < versionesGuardadas.length ? versionActiva : 0
         const target = confirmed || versionesGuardadas[targetIdx]
+        sourceVersionIndex = confirmed ? versionesGuardadas.indexOf(confirmed) : targetIdx
         const servs = target?.servicios
         if (Array.isArray(servs) && servs.length > 0) {
           serviciosActualizados = servs
@@ -707,6 +756,15 @@ const ExpedienteFinanzas = ({
         console.log('[Cierre] Servicios desde prop (fallback):', serviciosActualizados.length)
       }
 
+      if (serviciosActualizados.length > 0 && sourceVersionIndex == null) {
+        const vjs = expediente?.versiones_json?.versiones
+        if (Array.isArray(vjs) && vjs.length > 0) {
+          const confirmed = vjs.find(v => v.confirmada)
+          const targetIdx = versionActiva >= 0 && versionActiva < vjs.length ? versionActiva : 0
+          sourceVersionIndex = confirmed ? vjs.indexOf(confirmed) : targetIdx
+        }
+      }
+
       console.log('[Cierre] Total servicios a cargar en Cierre:', serviciosActualizados.length)
 
       // ── 5. Resolve provider names ─────────────────────────────────────────────────
@@ -736,14 +794,17 @@ const ExpedienteFinanzas = ({
       const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
       const descuentosVal = bonificacionFresco * paxPagoFresco
 
-      // ── 7. Build coste rows — preserve manually edited coste_real values ───────────
+      // ── 7. Build coste rows — coste_real, url_factura_pdf (servicio), pagos_proveedores, snapshot cierre ──
       const savedCostesReales = (informeLiquidacion.costesReales || []).reduce((acc, c) => {
-        acc[c.id_servicio] = c.coste_real
+        acc[c.id_servicio] = {
+          coste_real: c.coste_real,
+          url_pdf: c.url_pdf ?? null,
+          url_factura_pdf: c.url_factura_pdf ?? null,
+        }
         return acc
       }, {})
 
       const costesRealesIniciales = serviciosActualizados.map((s) => {
-        // versiones_json → proveedorId; servicios_cotizacion → proveedor_id_int
         const provId = s?.proveedor_id_int || s?.proveedorId || null
         const nombreComercialCache = obtenerProveedorPorId && provId != null
           ? obtenerProveedorPorId(provId)?.nombreComercial
@@ -751,19 +812,39 @@ const ExpedienteFinanzas = ({
         const proveedor = nombreComercialCache
           || (provId != null ? proveedoresMap[provId] : null)
           || s?.nombre_proveedor_texto
-          || s?.proveedorNombreTemporal  // versiones_json manual name
+          || s?.proveedorNombreTemporal
           || s?.nombre_proveedor_manual
           || 'Pendiente de asignar'
         const tipo = s?.tipo || s?.tipo_servicio || 'Servicio'
-        const nombre = s?.nombre_especifico ? `${tipo} – ${s.nombre_especifico}` : tipo
+        const nombreEsp = String(s?.nombre_especifico || s?.nombreEspecifico || '').trim()
+        const nombre = nombreEsp ? `${tipo} – ${nombreEsp}` : tipo
+        const sid = s?.id || generarUUID()
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
-        const costeReal = savedCostesReales[s?.id] ?? costeCotizado
+        const saved = savedCostesReales[sid]
+        let costeReal = saved?.coste_real
+        if (costeReal == null && s.coste_real_proveedor != null && !Number.isNaN(Number(s.coste_real_proveedor))) {
+          costeReal = toNum(s.coste_real_proveedor)
+        }
+        if (costeReal == null) costeReal = costeCotizado
+        const urlFacturaServicio = String(s.url_factura_pdf || '').trim() || null
+        const urlFacturaSaved = saved?.url_factura_pdf ?? null
+        const urlPdfCierre = saved?.url_pdf ?? null
+        const urlPago = mapPdfPorServicio[String(sid)] || null
+        const url_factura_pdf = urlFacturaServicio || urlFacturaSaved || null
+        const proveedor_id_int = provId != null && provId !== '' && !Number.isNaN(Number(provId))
+          ? Number(provId)
+          : null
         return {
-          id_servicio: s?.id || generarUUID(),
+          id_servicio: sid,
           concepto: nombre,
           proveedor,
+          proveedor_id_int,
+          version_index: sourceVersionIndex,
           coste_cotizado: costeCotizado,
           coste_real: costeReal,
+          url_factura_pdf,
+          _url_pdf_pago: urlPago,
+          url_pdf: urlPdfCierre,
         }
       })
 
@@ -813,6 +894,165 @@ const ExpedienteFinanzas = ({
         c.id_servicio === idServicio ? { ...c, coste_real: toNum(costeReal) } : c
       )
     }))
+  }
+
+  // Estado para subidas de PDF por fila (map idServicio → boolean)
+  const [subiendoPdfCierre, setSubiendoPdfCierre] = useState({})
+
+  // Persiste coste_real: cierre_grupo + coste_real_proveedor en cotización (tabla o versiones_json)
+  const guardarCosteRealEnBD = async (idServicio, valor) => {
+    if (!expediente?.id) return
+    const valorNum = toNum(valor)
+    const nuevosCostesReales = (informeLiquidacion.costesReales || []).map(c =>
+      c.id_servicio === idServicio ? { ...c, coste_real: valorNum } : c
+    )
+    const existente = expediente?.cierre_grupo || {}
+    const nuevoCierre = { ...existente, costesReales: nuevosCostesReales }
+    const { error } = await supabase
+      .from('expedientes')
+      .update({ cierre_grupo: nuevoCierre })
+      .eq('id', expediente.id)
+    if (error) console.error('[cierre] guardarCosteRealEnBD cierre_grupo:', error)
+
+    const fila = nuevosCostesReales.find(c => c.id_servicio === idServicio)
+    let expedienteParcial = { ...expediente, cierre_grupo: nuevoCierre }
+
+    try {
+      if (fila?.version_index != null && esIdServicioUuid(idServicio)) {
+        const { data: expRow } = await supabase.from('expedientes').select('versiones_json').eq('id', expediente.id).single()
+        const vers = Array.isArray(expRow?.versiones_json?.versiones) ? [...expRow.versiones_json.versiones] : null
+        if (vers && vers[fila.version_index]) {
+          const v = vers[fila.version_index]
+          const servs = (v.servicios || []).map(svc =>
+            String(svc.id) === String(idServicio) ? { ...svc, coste_real_proveedor: valorNum } : svc
+          )
+          vers[fila.version_index] = { ...v, servicios: servs }
+          const vjNext = { versiones: vers }
+          const { error: e2 } = await supabase.from('expedientes').update({ versiones_json: vjNext }).eq('id', expediente.id)
+          if (e2) console.error('[cierre] guardarCosteReal versiones_json:', e2)
+          else expedienteParcial = { ...expedienteParcial, versiones_json: vjNext }
+        }
+      } else if (!esIdServicioUuid(idServicio)) {
+        const { error: e3 } = await supabase
+          .from('servicios_cotizacion')
+          .update({ coste_real_proveedor: valorNum })
+          .eq('id', idServicio)
+        if (e3) console.error('[cierre] guardarCosteReal servicios_cotizacion:', e3)
+      }
+      if (onUpdate) onUpdate(expedienteParcial)
+    } catch (e) {
+      console.error('[cierre] guardarCosteRealEnBD excepción:', e)
+    }
+  }
+
+  // Sube PDF a `facturas`, actualiza servicio (url_factura_pdf), pagos_proveedores y snapshot cierre_grupo
+  const subirYVincularPdfCierre = async (idServicio, file) => {
+    if (!file || !expediente?.id) return
+    const tenantEid = Number(user?.empresa_id || empresaId) || null
+    if (!tenantEid) { alert('No hay empresa_id disponible para subir el PDF.'); return }
+    const fila = (informeLiquidacion.costesReales || []).find(c => c.id_servicio === idServicio)
+    if (!fila) return
+
+    setSubiendoPdfCierre(prev => ({ ...prev, [idServicio]: true }))
+    try {
+      const ruta = `${tenantEid}/${expediente.id}/${Date.now()}_cierre_${String(idServicio).slice(0, 8)}.pdf`
+      const { error: uploadErr } = await supabase.storage
+        .from(BUCKET_FACTURAS_UNIFICADO)
+        .upload(ruta, file, { upsert: false, contentType: 'application/pdf' })
+      if (uploadErr) throw new Error(`Error al subir el PDF: ${uploadErr.message}`)
+
+      const { data: urlData } = supabase.storage.from(BUCKET_FACTURAS_UNIFICADO).getPublicUrl(ruta)
+      const publicUrl = urlData?.publicUrl || null
+      if (!publicUrl) throw new Error('No se pudo obtener la URL pública del PDF.')
+
+      let vjParcial = null
+      if (fila.version_index != null && esIdServicioUuid(idServicio)) {
+        const { data: expRow } = await supabase.from('expedientes').select('versiones_json').eq('id', expediente.id).single()
+        const vers = Array.isArray(expRow?.versiones_json?.versiones) ? [...expRow.versiones_json.versiones] : null
+        if (vers && vers[fila.version_index]) {
+          const v = vers[fila.version_index]
+          const servs = (v.servicios || []).map(svc =>
+            String(svc.id) === String(idServicio) ? { ...svc, url_factura_pdf: publicUrl } : svc
+          )
+          vers[fila.version_index] = { ...v, servicios: servs }
+          vjParcial = { versiones: vers }
+          const { error: ev } = await supabase.from('expedientes').update({ versiones_json: vjParcial }).eq('id', expediente.id)
+          if (ev) console.error('[cierre] subir PDF versiones_json:', ev)
+        }
+      } else if (!esIdServicioUuid(idServicio)) {
+        const { error: scErr } = await supabase
+          .from('servicios_cotizacion')
+          .update({ url_factura_pdf: publicUrl })
+          .eq('id', idServicio)
+        if (scErr) console.error('[cierre] subir PDF servicios_cotizacion:', scErr)
+      }
+
+      const fechaHoy = new Date().toISOString().split('T')[0]
+      const payloadBase = {
+        url_pdf: publicUrl,
+        importe_pagado: toNum(fila.coste_real),
+        fecha_pago: fechaHoy,
+        proveedor_id: fila.proveedor_id_int,
+        proveedor_nombre: fila.proveedor,
+        concepto: fila.concepto,
+        metodo_pago: 'Transferencia',
+      }
+      let pq = supabase
+        .from('pagos_proveedores')
+        .select('id')
+        .eq('expediente_id', expediente.id)
+        .eq('servicio_id', String(idServicio))
+        .eq('es_extra', false)
+        .eq('es_gasto_extra', false)
+        .eq('empresa_id', tenantEid)
+      const { data: existentes } = await pq.limit(3)
+      const existentePagoId = existentes?.[0]?.id
+      if (existentePagoId) {
+        const { error: upErr } = await supabase.from('pagos_proveedores').update(payloadBase).eq('id', existentePagoId)
+        if (upErr) console.error('[cierre] subir PDF update pagos_proveedores:', upErr)
+      } else {
+        const { error: insErr } = await supabase.from('pagos_proveedores').insert([{
+          expediente_id: expediente.id,
+          empresa_id: tenantEid,
+          servicio_id: String(idServicio),
+          numero_factura: null,
+          referencia_pago: null,
+          es_extra: false,
+          es_gasto_extra: false,
+          ...payloadBase,
+        }])
+        if (insErr) console.error('[cierre] subir PDF insert pagos_proveedores:', insErr)
+      }
+
+      const nuevosCostesReales = (informeLiquidacion.costesReales || []).map(c =>
+        c.id_servicio === idServicio
+          ? { ...c, url_factura_pdf: publicUrl, _url_pdf_pago: publicUrl, url_pdf: publicUrl }
+          : c
+      )
+      setInformeLiquidacion(prev => ({ ...prev, costesReales: nuevosCostesReales }))
+      const existenteCg = expediente?.cierre_grupo || {}
+      const nuevoCierre = { ...existenteCg, costesReales: nuevosCostesReales }
+      const { error: dbErr } = await supabase
+        .from('expedientes')
+        .update({ cierre_grupo: nuevoCierre })
+        .eq('id', expediente.id)
+      if (dbErr) console.error('[cierre] subir PDF cierre_grupo:', dbErr)
+
+      if (onUpdate) {
+        const patch = { ...expediente, cierre_grupo: nuevoCierre }
+        if (vjParcial) patch.versiones_json = vjParcial
+        else if (fila.version_index != null && esIdServicioUuid(idServicio)) {
+          const { data: expFresh } = await supabase.from('expedientes').select('versiones_json').eq('id', expediente.id).single()
+          if (expFresh?.versiones_json) patch.versiones_json = expFresh.versiones_json
+        }
+        onUpdate(patch)
+      }
+    } catch (e) {
+      console.error('[cierre] subirYVincularPdfCierre excepción:', e)
+      alert(e.message || 'Error inesperado al subir el PDF.')
+    } finally {
+      setSubiendoPdfCierre(prev => ({ ...prev, [idServicio]: false }))
+    }
   }
 
   const agregarGastoImprevisto = () => {
@@ -914,6 +1154,8 @@ const ExpedienteFinanzas = ({
         proveedor: c.proveedor || '',
         coste_cotizado: n(c.coste_cotizado),
         coste_real: n(c.coste_real),
+        url_factura_pdf: c.url_factura_pdf ?? null,
+        url_pdf: c.url_pdf ?? null,
       }))
       const gastosImprevistosArr = (informeLiquidacion.gastosImprevistos || []).map((g) => ({
         id: g.id,
@@ -1565,6 +1807,7 @@ const ExpedienteFinanzas = ({
                         <th className="px-3 py-2 text-left font-bold text-slate-800 hidden sm:table-cell">Proveedor</th>
                         <th className="px-3 py-2 text-right font-bold text-slate-800">Cotizado</th>
                         <th className="px-3 py-2 text-right font-bold text-slate-800">Precio Coste Real</th>
+                        <th className="px-3 py-2 text-center font-bold text-slate-800 w-28">Factura</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1579,7 +1822,70 @@ const ExpedienteFinanzas = ({
                           </td>
                           <td className="px-3 py-2 text-right text-slate-500">{Number(c.coste_cotizado || 0).toFixed(2)} €</td>
                           <td className="px-3 py-2">
-                            <input type="number" step="0.01" value={c.coste_real ?? ''} onChange={(e) => actualizarCosteReal(c.id_servicio, e.target.value)} disabled={camposBloqueados} readOnly={camposBloqueados} className={`w-full min-w-[80px] border rounded-lg px-2 py-1 text-right font-medium ${camposBloqueados ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300 focus:ring-2 focus:ring-blue-500'}`} placeholder="0" />
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={c.coste_real ?? ''}
+                              onChange={(e) => actualizarCosteReal(c.id_servicio, e.target.value)}
+                              onBlur={(e) => guardarCosteRealEnBD(c.id_servicio, e.target.value)}
+                              disabled={camposBloqueados}
+                              readOnly={camposBloqueados}
+                              className={`w-full min-w-[80px] border rounded-lg px-2 py-1 text-right font-medium ${camposBloqueados ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300 focus:ring-2 focus:ring-blue-500'}`}
+                              placeholder="0"
+                            />
+                          </td>
+                          {/* ── Columna Factura ── */}
+                          <td className="px-3 py-2 text-center">
+                            {(() => {
+                              const pdfHref = hrefFacturaDesdeFilaCierre(c)
+                              return pdfHref ? (
+                              <div className="flex flex-col items-center gap-1">
+                                <a
+                                  href={pdfHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
+                                  title="Ver factura PDF"
+                                >
+                                  <Eye size={14} /> Ver PDF
+                                </a>
+                                {!camposBloqueados && (
+                                  <label className="inline-flex cursor-pointer items-center gap-1 text-xs text-slate-500 hover:text-blue-600">
+                                    <Paperclip size={11} /> Reemplazar
+                                    <input
+                                      type="file"
+                                      accept=".pdf,.PDF"
+                                      className="hidden"
+                                      disabled={subiendoPdfCierre[c.id_servicio]}
+                                      onChange={e => {
+                                        const f = e.target.files?.[0]
+                                        if (f) subirYVincularPdfCierre(c.id_servicio, f)
+                                        e.target.value = ''
+                                      }}
+                                    />
+                                  </label>
+                                )}
+                              </div>
+                            ) : (
+                              <label className={`inline-flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendoPdfCierre[c.id_servicio] ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}>
+                                {subiendoPdfCierre[c.id_servicio]
+                                  ? '…subiendo'
+                                  : <><Paperclip size={11} /> Adjuntar Factura</>
+                                }
+                                <input
+                                  type="file"
+                                  accept=".pdf,.PDF"
+                                  className="hidden"
+                                  disabled={camposBloqueados || subiendoPdfCierre[c.id_servicio]}
+                                  onChange={e => {
+                                    const f = e.target.files?.[0]
+                                    if (f) subirYVincularPdfCierre(c.id_servicio, f)
+                                    e.target.value = ''
+                                  }}
+                                />
+                              </label>
+                            )
+                            })()}
                           </td>
                         </tr>
                       ))}
