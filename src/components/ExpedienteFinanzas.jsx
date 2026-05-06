@@ -919,6 +919,7 @@ const ExpedienteFinanzas = ({
 
   // Estado para subidas de PDF por fila (map idServicio → boolean)
   const [subiendoPdfCierre, setSubiendoPdfCierre] = useState({})
+  const facturaFileInputsRef = useRef({})
 
   // Persiste coste_real: cierre_grupo + coste_real_proveedor en servicios_cotizacion
   const guardarCosteRealEnBD = async (idServicio, valor) => {
@@ -950,22 +951,24 @@ const ExpedienteFinanzas = ({
   }
 
   // Sube PDF a `facturas`, actualiza url_factura_pdf en servicios_cotizacion + snapshot cierre_grupo
-  const subirYVincularPdfCierre = async (idServicio, file) => {
+  const subirYVincularPdfCierre = async (eventOrFile, servicioIdParam) => {
+    const idServicio = servicioIdParam != null ? servicioIdParam : null
+    const file = eventOrFile?.target?.files?.[0] || eventOrFile
     if (!file || !expediente?.id) return
-    const tenantEid = Number(user?.empresa_id || empresaId) || null
+    const tenantEid = Number(expediente?.empresa_id || user?.empresa_id || empresaId) || null
     if (!tenantEid) { alert('No hay empresa_id disponible para subir el PDF.'); return }
     const fila = (informeLiquidacion.costesReales || []).find(c => c.id_servicio === idServicio)
     if (!fila) return
 
     setSubiendoPdfCierre(prev => ({ ...prev, [idServicio]: true }))
     try {
-      const ruta = `${tenantEid}/${expediente.id}/${Date.now()}_cierre_${String(idServicio).slice(0, 8)}.pdf`
+      const ruta = `${tenantEid}/${expediente.id}/${idServicio}.pdf`
       const { error: uploadErr } = await supabase.storage
-        .from(BUCKET_FACTURAS_UNIFICADO)
-        .upload(ruta, file, { upsert: false, contentType: 'application/pdf' })
+        .from('facturas')
+        .upload(ruta, file, { upsert: true, contentType: 'application/pdf' })
       if (uploadErr) throw new Error(`Error al subir el PDF: ${uploadErr.message}`)
 
-      const { data: urlData } = supabase.storage.from(BUCKET_FACTURAS_UNIFICADO).getPublicUrl(ruta)
+      const { data: urlData } = supabase.storage.from('facturas').getPublicUrl(ruta)
       const publicUrl = urlData?.publicUrl || null
       if (!publicUrl) throw new Error('No se pudo obtener la URL pública del PDF.')
 
@@ -1036,6 +1039,7 @@ const ExpedienteFinanzas = ({
       console.error('[cierre] subirYVincularPdfCierre excepción:', e)
       alert(e.message || 'Error inesperado al subir el PDF.')
     } finally {
+      if (eventOrFile?.target) eventOrFile.target.value = ''
       setSubiendoPdfCierre(prev => ({ ...prev, [idServicio]: false }))
     }
   }
@@ -1822,37 +1826,43 @@ const ExpedienteFinanzas = ({
                           {/* ── Columna Factura ── */}
                           <td className="px-3 py-2 text-center">
                             {(() => {
+                              const servicioId = c?.id_servicio
                               const pdfHref = c?.url_factura_pdf ? resolverHrefFacturaUnificado(c.url_factura_pdf) : null
                               return (c?.url_factura_pdf && pdfHref) ? (
                               <div className="flex flex-col items-center gap-1">
-                                <a
-                                  href={pdfHref}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
+                                <button
+                                  type="button"
+                                  onClick={() => window.open(c.url_factura_pdf, '_blank')}
                                   className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
                                   title="Ver factura PDF"
                                 >
                                   <FileText size={14} /> Ver PDF
-                                </a>
+                                </button>
                                 {!camposBloqueados && (
-                                  <label className="inline-flex cursor-pointer items-center gap-1 text-xs text-slate-500 hover:text-blue-600">
+                                  <button
+                                    type="button"
+                                    onClick={() => facturaFileInputsRef.current[String(servicioId)]?.click()}
+                                    className="inline-flex cursor-pointer items-center gap-1 text-xs text-slate-500 hover:text-blue-600"
+                                  >
                                     <Paperclip size={11} /> Reemplazar
                                     <input
                                       type="file"
                                       accept=".pdf,.PDF"
                                       className="hidden"
+                                      ref={(el) => { if (el) facturaFileInputsRef.current[String(servicioId)] = el }}
                                       disabled={subiendoPdfCierre[c.id_servicio]}
-                                      onChange={e => {
-                                        const f = e.target.files?.[0]
-                                        if (f) subirYVincularPdfCierre(c.id_servicio, f)
-                                        e.target.value = ''
-                                      }}
+                                      onChange={(e) => subirYVincularPdfCierre(e, servicioId)}
                                     />
-                                  </label>
+                                  </button>
                                 )}
                               </div>
                             ) : (
-                              <label className={`inline-flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendoPdfCierre[c.id_servicio] ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}>
+                              <button
+                                type="button"
+                                onClick={() => facturaFileInputsRef.current[String(servicioId)]?.click()}
+                                className={`inline-flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendoPdfCierre[c.id_servicio] ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}
+                                disabled={camposBloqueados || subiendoPdfCierre[c.id_servicio]}
+                              >
                                 {subiendoPdfCierre[c.id_servicio]
                                   ? '…subiendo'
                                   : <><Paperclip size={11} /> Añadir Factura</>
@@ -1861,14 +1871,11 @@ const ExpedienteFinanzas = ({
                                   type="file"
                                   accept=".pdf,.PDF"
                                   className="hidden"
+                                  ref={(el) => { if (el) facturaFileInputsRef.current[String(servicioId)] = el }}
                                   disabled={camposBloqueados || subiendoPdfCierre[c.id_servicio]}
-                                  onChange={e => {
-                                    const f = e.target.files?.[0]
-                                    if (f) subirYVincularPdfCierre(c.id_servicio, f)
-                                    e.target.value = ''
-                                  }}
+                                  onChange={(e) => subirYVincularPdfCierre(e, servicioId)}
                                 />
-                              </label>
+                              </button>
                             )
                             })()}
                           </td>
