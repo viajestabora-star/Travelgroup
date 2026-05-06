@@ -841,18 +841,23 @@ const ExpedienteFinanzas = ({
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
         const saved = savedCostesReales[sid]
         const filaServicioCot = serviciosCotizacionMap[String(sid)] || null
+        // FUENTE DE VERDAD: servicios_cotizacion SIEMPRE sobrescribe JSON/snapshot si existe fila SQL.
         let costeRealProveedor = saved?.coste_real_proveedor
-        if (costeRealProveedor == null && filaServicioCot?.coste_real_proveedor != null && !Number.isNaN(Number(filaServicioCot.coste_real_proveedor))) {
-          costeRealProveedor = toNum(filaServicioCot.coste_real_proveedor)
-        }
-        if (costeRealProveedor == null && s.coste_real_proveedor != null && !Number.isNaN(Number(s.coste_real_proveedor))) {
+        if (filaServicioCot) {
+          costeRealProveedor =
+            filaServicioCot.coste_real_proveedor != null && !Number.isNaN(Number(filaServicioCot.coste_real_proveedor))
+              ? toNum(filaServicioCot.coste_real_proveedor)
+              : null
+        } else if (costeRealProveedor == null && s.coste_real_proveedor != null && !Number.isNaN(Number(s.coste_real_proveedor))) {
           costeRealProveedor = toNum(s.coste_real_proveedor)
         }
         // coste_real se mantiene para cálculos internos; si no hay dato real, usa cotizado.
         const costeReal = (costeRealProveedor != null && !Number.isNaN(Number(costeRealProveedor)))
           ? toNum(costeRealProveedor)
           : (saved?.coste_real ?? costeCotizado)
-        const urlFacturaServicio = String(filaServicioCot?.url_factura_pdf || s.url_factura_pdf || '').trim() || null
+        const urlFacturaServicio = filaServicioCot
+          ? (String(filaServicioCot.url_factura_pdf || '').trim() || null)
+          : (String(s.url_factura_pdf || '').trim() || null)
         const urlFacturaSaved = saved?.url_factura_pdf ?? null
         const urlPdfCierre = saved?.url_pdf ?? null
         const urlPago = mapPdfPorServicio[String(sid)] || null
@@ -934,6 +939,16 @@ const ExpedienteFinanzas = ({
 
   // Estado para subidas de PDF por fila (map idServicio → boolean)
   const [subiendoPdfCierre, setSubiendoPdfCierre] = useState({})
+  const fileInputRefsByServicio = useRef({})
+
+  // Setter local explícito para servicios de cierre (costesReales) tras cambios en DB.
+  const setServiciosLocalCierre = (updater) => {
+    setInformeLiquidacion(prev => {
+      const base = Array.isArray(prev?.costesReales) ? prev.costesReales : []
+      const next = typeof updater === 'function' ? updater(base) : updater
+      return { ...prev, costesReales: Array.isArray(next) ? next : base }
+    })
+  }
 
   // Persiste coste_real: cierre_grupo + coste_real_proveedor en servicios_cotizacion
   const guardarCosteRealEnBD = async (idServicio, valor) => {
@@ -1042,7 +1057,7 @@ const ExpedienteFinanzas = ({
           ? { ...c, url_factura_pdf: publicUrl, _url_pdf_pago: publicUrl, url_pdf: publicUrl }
           : c
       )
-      setInformeLiquidacion(prev => ({ ...prev, costesReales: nuevosCostesReales }))
+      setServiciosLocalCierre(nuevosCostesReales)
       const existenteCg = expediente?.cierre_grupo || {}
       const nuevoCierre = { ...existenteCg, costesReales: nuevosCostesReales }
       const { error: dbErr } = await supabase
@@ -1861,7 +1876,7 @@ const ExpedienteFinanzas = ({
                                 {!camposBloqueados && (
                                   <button
                                     type="button"
-                                    onClick={() => document.getElementById(`file-${servicio.id}`)?.click()}
+                                    onClick={() => fileInputRefsByServicio.current[String(servicio.id)]?.click()}
                                     className="inline-flex cursor-pointer items-center gap-1 text-xs text-slate-500 hover:text-blue-600"
                                   >
                                     <Paperclip size={11} /> Reemplazar
@@ -1870,6 +1885,7 @@ const ExpedienteFinanzas = ({
                                       id={`file-${servicio.id}`}
                                       style={{ display: 'none' }}
                                       accept=".pdf,.PDF"
+                                      ref={(el) => { fileInputRefsByServicio.current[String(servicio.id)] = el }}
                                       disabled={subiendoPdfCierre[servicio.id]}
                                       onChange={(e) => subirYVincularPdfCierre(e, servicio.id)}
                                     />
@@ -1879,7 +1895,7 @@ const ExpedienteFinanzas = ({
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => document.getElementById(`file-${servicio.id}`)?.click()}
+                                onClick={() => fileInputRefsByServicio.current[String(servicio.id)]?.click()}
                                 className={`inline-flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendoPdfCierre[servicio.id] ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}
                                 disabled={camposBloqueados || subiendoPdfCierre[servicio.id]}
                               >
@@ -1892,6 +1908,7 @@ const ExpedienteFinanzas = ({
                                   id={`file-${servicio.id}`}
                                   style={{ display: 'none' }}
                                   accept=".pdf,.PDF"
+                                  ref={(el) => { fileInputRefsByServicio.current[String(servicio.id)] = el }}
                                   disabled={camposBloqueados || subiendoPdfCierre[servicio.id]}
                                   onChange={(e) => subirYVincularPdfCierre(e, servicio.id)}
                                 />
