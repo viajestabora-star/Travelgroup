@@ -177,45 +177,51 @@ const datosProveedorDesdeServicioCot = (servicio) => {
 
 /** Columnas de pagos_proveedores (information_schema). Solo lectura/respuesta API. */
 const PAGOS_PROVEEDORES_COLUMNAS =
-  'id, expediente_id, proveedor_id, proveedor_nombre, servicio_id, fecha_pago, importe_pagado, numero_factura, url_pdf, concepto'
+  'id, expediente_id, empresa_id, proveedor_id, proveedor_nombre, servicio_id, fecha_pago, importe_pagado, numero_factura, referencia_pago, metodo_pago, url_pdf, concepto, es_extra, es_gasto_extra'
 
 /**
  * Objeto insert/update: únicamente las columnas anteriores (sin id). Evita PGRST / schema cache.
  */
 const filaPagosProveedores = ({
   expediente_id,
+  empresa_id,
   proveedor_id,
   proveedor_nombre,
   servicio_id,
   fecha_pago,
   importe_pagado,
   numero_factura,
+  referencia_pago,
+  metodo_pago,
   url_pdf,
   concepto,
+  es_extra,
+  es_gasto_extra,
 }) => {
   const normalizarServicioIdOpcional = (raw) => {
-    // El selector debe enviar solo el ID. Si llega un objeto por error, intentar extraer .id.
     const rawId = (raw && typeof raw === 'object') ? raw.id : raw
     if (rawId == null) return null
     if (typeof rawId === 'number') return Number.isFinite(rawId) && rawId > 0 ? rawId : null
     const v = String(rawId).trim()
     if (!v || v === '0' || v.toLowerCase() === 'null' || v.toLowerCase() === 'undefined') return null
-    // No forzamos UUID: servicios_cotizacion.id puede ser bigint o uuid.
-    // Dejamos pasar el ID escalar saneado y validamos existencia real antes del INSERT.
     return v
   }
 
   return {
     expediente_id,
+    ...(empresa_id != null ? { empresa_id } : {}),
     proveedor_id: proveedor_id ?? null,
     proveedor_nombre: proveedor_nombre ?? null,
-    // FK opcional: si no es UUID válido, enviar null para no romper la inserción.
     servicio_id: normalizarServicioIdOpcional(servicio_id),
     fecha_pago,
     importe_pagado,
     numero_factura: numero_factura ?? null,
+    referencia_pago: referencia_pago ?? null,
+    metodo_pago: metodo_pago ?? 'Transferencia',
     url_pdf: url_pdf ?? null,
     concepto,
+    es_extra: es_extra ?? false,
+    es_gasto_extra: es_gasto_extra ?? false,
   }
 }
 
@@ -714,11 +720,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [cargandoCot,      setCargandoCot]       = useState(false)
   const [errorCot,         setErrorCot]          = useState(null)
   const [inlineId,         setInlineId]          = useState(null)   // ID del servicio con form abierto
-  const [fInline,          setFInline]           = useState({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '' })
+  const [fInline,          setFInline]           = useState({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', metodo_pago: 'Transferencia', referencia_pago: '' })
   const [pdfInline,        setPdfInline]         = useState(null)
   const [subiendoPdfCot,   setSubiendoPdfCot]    = useState(false)
   const [showGastoExtra,   setShowGastoExtra]    = useState(false)
-  const [fExtra,           setFExtra]            = useState({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '' })
+  const [fExtra,           setFExtra]            = useState({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '', metodo_pago: 'Transferencia', referencia_pago: '' })
   const [pdfExtra,         setPdfExtra]          = useState(null)
   const [mensajeExitoFacturaProveedor, setMensajeExitoFacturaProveedor] = useState(null)
   const lastSubmitRef = useRef({})
@@ -3180,14 +3186,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         .insert([
           filaPagosProveedores({
             expediente_id: expedienteUuid,
+            empresa_id: empresaIdRequerido ?? null,
             proveedor_id: proveedorId,
             proveedor_nombre: proveedorNombre,
             servicio_id: servicioIdValido,
             fecha_pago: formPago.fecha_pago,
             importe_pagado: importe,
             numero_factura: null,
+            referencia_pago: null,
+            metodo_pago: 'Transferencia',
             url_pdf: null,
             concepto,
+            es_extra: false,
+            es_gasto_extra: false,
           }),
         ])
       if (error) {
@@ -3262,10 +3273,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const conceptoTitulo = tituloServicioParaConcepto(servicio)
       const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicio)
       const urlPdfFinal = urlPdf != null && urlPdf !== '' ? urlPdf : (existente?.url_pdf ?? null)
-      if (!urlPdfFinal) {
-        alert('Adjunta un PDF de factura antes de registrar.')
-        return
-      }
       const servicioIdPersistencia =
         existente?.servicio_id != null && existente.servicio_id !== ''
           ? existente.servicio_id
@@ -3288,20 +3295,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (existente?.id) {
         const fila = filaPagosProveedores({
           expediente_id: expedienteUuid,
+          empresa_id: empresaIdRequerido ?? null,
           proveedor_id: proveedorId,
           proveedor_nombre: proveedorNombre,
           servicio_id: servicioIdPayload,
           fecha_pago: fInline.fecha_pago,
           importe_pagado: importe,
           numero_factura: numeroFacturaLimpio || existente.numero_factura || null,
+          referencia_pago: String(fInline.referencia_pago || '').trim() || null,
+          metodo_pago: fInline.metodo_pago || 'Transferencia',
           url_pdf: urlPdfFinal,
           concepto: conceptoTitulo,
-        })
-        console.log('[pagos_proveedores][payload][update]', {
-          expediente_id: expedienteUuid,
-          servicio_id: servicioIdPayload,
-          pago_id: existente.id,
-          fila,
+          es_extra: false,
+          es_gasto_extra: false,
         })
         const res = await supabase
           .from('pagos_proveedores')
@@ -3314,24 +3320,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       } else {
         const payloadInsert = filaPagosProveedores({
           expediente_id: expedienteUuid,
+          empresa_id: empresaIdRequerido ?? null,
           proveedor_id: proveedorId,
           proveedor_nombre: proveedorNombre,
           servicio_id: servicioIdPayload,
           fecha_pago: fInline.fecha_pago,
           importe_pagado: importe,
           numero_factura: numeroFacturaLimpio || null,
+          referencia_pago: String(fInline.referencia_pago || '').trim() || null,
+          metodo_pago: fInline.metodo_pago || 'Transferencia',
           url_pdf: urlPdfFinal,
           concepto: conceptoTitulo,
-        })
-        console.log('[pagos_proveedores][payload][insert]', {
-          expediente_id: expedienteUuid,
-          servicio_id: servicioIdPayload,
-          servicio: {
-            id: servicio?.id,
-            tipo_servicio: servicio?.tipo_servicio || servicio?.tipo,
-            nombre_especifico: servicio?.nombre_especifico || servicio?.nombreEspecifico || '',
-          },
-          fila: payloadInsert,
+          es_extra: false,
+          es_gasto_extra: false,
         })
         const res = await supabase
           .from('pagos_proveedores')
@@ -3359,9 +3360,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       setMensajeExitoFacturaProveedor('Factura registrada con éxito')
       window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
 
-      // Cerrar formulario y refrescar lista tras guardado correcto
       setInlineId(null)
-      setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '' })
+      setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', metodo_pago: 'Transferencia', referencia_pago: '' })
       setPdfInline(null)
       setSubiendoPdfCot(false)
 
@@ -3371,48 +3371,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     } finally { setSubiendoPdfCot(false) }
   }
 
-  const limpiarExtrasErroneosDePrueba = async () => {
-    if (!(await asegurarSesionAutenticada())) return
-    const expedienteUuid = normalizarUuidExpediente(expediente?.id)
-    if (!expedienteUuid) return
-    if (!window.confirm('Se eliminarán del expediente los registros "Extra" de prueba sin servicio vinculado. ¿Continuar?')) return
-
-    try {
-      const { error: errNull } = await supabase
-        .from('pagos_proveedores')
-        .delete()
-        .eq('expediente_id', expedienteUuid)
-        .is('servicio_id', null)
-      if (errNull) {
-        alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: errNull, action: 'limpiar extras de prueba' }))
-        return
-      }
-
-      const { error: errVacio } = await supabase
-        .from('pagos_proveedores')
-        .delete()
-        .eq('expediente_id', expedienteUuid)
-        .eq('servicio_id', '')
-      if (errVacio) {
-        alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: errVacio, action: 'limpiar extras de prueba' }))
-        return
-      }
-
-      setMensajeExitoFacturaProveedor('Registros "Extra" de prueba eliminados.')
-      window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
-      await cargarPagosProveedores()
-      if (typeof onRefresh === 'function') onRefresh()
-    } catch (e) {
-      alert('No se pudieron limpiar los registros extra de prueba.')
-    }
-  }
-
   const abrirFormularioCambiarPdfServicio = (servicio, pagoRegistrado) => {
     setInlineId(servicio.id)
     setFInline({
       numero_factura: pagoRegistrado?.numero_factura || '',
       fecha_pago: pagoRegistrado?.fecha_pago || new Date().toISOString().split('T')[0],
       importe_pagado: pagoRegistrado?.importe_pagado ?? servicio.total_servicio_manual ?? servicio.total_servicio ?? servicio.coste_unitario ?? '',
+      metodo_pago: pagoRegistrado?.metodo_pago || 'Transferencia',
+      referencia_pago: pagoRegistrado?.referencia_pago || '',
     })
     setPdfInline(null)
   }
@@ -3463,14 +3429,19 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const { error } = await supabase.from('pagos_proveedores').insert([
         filaPagosProveedores({
           expediente_id: expediente.id,
+          empresa_id: empresaIdRequerido ?? null,
           proveedor_id: null,
           proveedor_nombre: proveedorNombreExtra,
           servicio_id: null,
           fecha_pago: fExtra.fecha_pago,
           importe_pagado: importe,
           numero_factura: fExtra.numero_factura || null,
+          referencia_pago: String(fExtra.referencia_pago || '').trim() || null,
+          metodo_pago: fExtra.metodo_pago || 'Transferencia',
           url_pdf: urlPdf,
           concepto: String(fExtra.concepto || '').trim(),
+          es_extra: true,
+          es_gasto_extra: true,
         }),
       ])
       if (error) { alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error, action: 'guardar el gasto extra' })); return }
@@ -3478,7 +3449,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       setMensajeExitoFacturaProveedor('Factura guardada con éxito')
       window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
       setShowGastoExtra(false)
-      setFExtra({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '' })
+      setFExtra({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', proveedor_nombre: '', concepto: '', metodo_pago: 'Transferencia', referencia_pago: '' })
       setPdfExtra(null)
       if (typeof onRefresh === 'function') onRefresh()
     } catch (e) { alert(e.message || 'Error inesperado.')
@@ -6768,7 +6739,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           {/* Formulario inline */}
                           {abierto && (
                             <div className="px-4 pb-4 pt-1 border-t border-blue-200 mt-1">
-                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
                                 <div>
                                   <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Nº Factura</label>
                                   <input type="text" placeholder="F2024-001"
@@ -6786,7 +6757,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Importe Final (€) *</label>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Importe Real (€) *</label>
                                   <input type="number" step="0.01" min="0" placeholder="0.00"
                                     className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
                                     value={fInline.importe_pagado}
@@ -6795,10 +6766,32 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   />
                                 </div>
                                 <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Método de Pago</label>
+                                  <select
+                                    className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                                    value={fInline.metodo_pago}
+                                    onChange={e => setFInline({ ...fInline, metodo_pago: e.target.value })}
+                                  >
+                                    <option value="Transferencia">Transferencia</option>
+                                    <option value="Efectivo">Efectivo</option>
+                                    <option value="Tarjeta">Tarjeta</option>
+                                    <option value="Talon">Talón</option>
+                                    <option value="Mixto">Mixto</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Referencia / Nº Transferencia</label>
+                                  <input type="text" placeholder="Ej: TRF-20240501-001"
+                                    className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                                    value={fInline.referencia_pago}
+                                    onChange={e => setFInline({ ...fInline, referencia_pago: e.target.value })}
+                                  />
+                                </div>
+                                <div>
                                   <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
-                                    <Paperclip size={10} className="inline mr-1" />PDF Factura *
+                                    <Paperclip size={10} className="inline mr-1" />PDF Factura
                                   </label>
-                                  <label className="inline-flex cursor-pointer items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors">
+                                  <label className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors">
                                     <Paperclip size={14} />
                                     Seleccionar archivo
                                     <input
@@ -6887,6 +6880,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         />
                       </div>
                       <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Método de Pago</label>
+                        <select
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fExtra.metodo_pago}
+                          onChange={e => setFExtra({ ...fExtra, metodo_pago: e.target.value })}
+                        >
+                          <option value="Transferencia">Transferencia</option>
+                          <option value="Efectivo">Efectivo</option>
+                          <option value="Tarjeta">Tarjeta</option>
+                          <option value="Talon">Talón</option>
+                          <option value="Mixto">Mixto</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Referencia / Nº Transferencia</label>
+                        <input type="text" placeholder="Ej: TRF-20240501-001"
+                          className="w-full p-2.5 rounded-lg border border-gray-200 bg-white text-sm"
+                          value={fExtra.referencia_pago}
+                          onChange={e => setFExtra({ ...fExtra, referencia_pago: e.target.value })}
+                        />
+                      </div>
+                      <div>
                         <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
                           <Paperclip size={10} className="inline mr-1" />PDF Factura
                         </label>
@@ -6913,17 +6928,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
               {/* ── Facturas y pagos registrados ──────────────────────────── */}
               <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 transition-all duration-200 hover:shadow-md hover:border-blue-300">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <div className="mb-4">
                   <h3 className="text-xl font-bold text-navy-900">Facturas registradas</h3>
-                  <button
-                    type="button"
-                    onClick={limpiarExtrasErroneosDePrueba}
-                    className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
-                    title="Eliminar registros extra de pruebas"
-                  >
-                    <Trash2 size={14} />
-                    Limpiar Extras de Prueba
-                  </button>
                 </div>
                 {cargandoPagosProveedores ? (
                   <p className="text-gray-500">Cargando...</p>
