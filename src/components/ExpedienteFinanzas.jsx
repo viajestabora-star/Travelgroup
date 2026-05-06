@@ -922,7 +922,6 @@ const ExpedienteFinanzas = ({
 
   // Estado para subidas de PDF por fila (map idServicio → boolean)
   const [subiendoPdfCierre, setSubiendoPdfCierre] = useState({})
-  const fileInputRef = useRef({})
 
   // Persiste coste_real: cierre_grupo + coste_real_proveedor en servicios_cotizacion
   const guardarCosteRealEnBD = async (idServicio, valor) => {
@@ -1818,8 +1817,8 @@ const ExpedienteFinanzas = ({
                               type="number"
                               step="0.01"
                               value={servicio.coste_real_proveedor ?? servicio.coste_real ?? ''}
-                              onChange={(e) => actualizarCosteReal(servicio.id_servicio, e.target.value)}
-                              onBlur={(e) => guardarCosteRealEnBD(servicio.id_servicio, e.target.value)}
+                              onChange={(e) => actualizarCosteReal(servicio.id, e.target.value)}
+                              onBlur={(e) => guardarCosteRealEnBD(servicio.id, e.target.value)}
                               disabled={camposBloqueados}
                               readOnly={camposBloqueados}
                               className={`w-full min-w-[80px] border rounded-lg px-2 py-1 text-right font-medium ${camposBloqueados ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300 focus:ring-2 focus:ring-blue-500'}`}
@@ -1829,7 +1828,7 @@ const ExpedienteFinanzas = ({
                           {/* ── Columna Factura ── */}
                           <td className="px-3 py-2 text-center">
                             {(() => {
-                              const servicioId = servicio?.id || servicio?.id_servicio
+                              const servicioId = servicio?.id
                               const pdfHref = servicio?.url_factura_pdf ? resolverHrefFacturaUnificado(servicio.url_factura_pdf) : null
                               return (servicio?.url_factura_pdf && pdfHref) ? (
                               <div className="flex flex-col items-center gap-1">
@@ -1839,22 +1838,22 @@ const ExpedienteFinanzas = ({
                                   className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
                                   title="Ver factura PDF"
                                 >
-                                  <FileText size={14} /> Ver PDF
+                                  <FileText size={14} /> VER PDF
                                 </button>
                                 {!camposBloqueados && (
                                   <button
                                     type="button"
-                                    onClick={() => fileInputRef.current[servicioId]?.click()}
+                                    onClick={() => document.getElementById(`file-${servicio.id}`)?.click()}
                                     className="inline-flex cursor-pointer items-center gap-1 text-xs text-slate-500 hover:text-blue-600"
                                   >
                                     <Paperclip size={11} /> Reemplazar
                                     <input
                                       type="file"
+                                      id={`file-${servicio.id}`}
+                                      style={{ display: 'none' }}
                                       accept=".pdf,.PDF"
-                                      className="hidden"
-                                      ref={el => { fileInputRef.current[servicioId] = el }}
-                                      disabled={subiendoPdfCierre[servicio.id_servicio]}
-                                      onChange={(e) => subirYVincularPdfCierre(e, servicioId)}
+                                      disabled={subiendoPdfCierre[servicio.id]}
+                                      onChange={(e) => subirYVincularPdfCierre(e, servicio.id)}
                                     />
                                   </button>
                                 )}
@@ -1862,21 +1861,21 @@ const ExpedienteFinanzas = ({
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => fileInputRef.current[servicioId]?.click()}
-                                className={`inline-flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendoPdfCierre[servicio.id_servicio] ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}
-                                disabled={camposBloqueados || subiendoPdfCierre[servicio.id_servicio]}
+                                onClick={() => document.getElementById(`file-${servicio.id}`)?.click()}
+                                className={`inline-flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendoPdfCierre[servicio.id] ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}
+                                disabled={camposBloqueados || subiendoPdfCierre[servicio.id]}
                               >
-                                {subiendoPdfCierre[servicio.id_servicio]
+                                {subiendoPdfCierre[servicio.id]
                                   ? '…subiendo'
                                   : <><Paperclip size={11} /> Añadir Factura</>
                                 }
                                 <input
                                   type="file"
+                                  id={`file-${servicio.id}`}
+                                  style={{ display: 'none' }}
                                   accept=".pdf,.PDF"
-                                  className="hidden"
-                                  ref={el => { fileInputRef.current[servicioId] = el }}
-                                  disabled={camposBloqueados || subiendoPdfCierre[servicio.id_servicio]}
-                                  onChange={(e) => subirYVincularPdfCierre(e, servicioId)}
+                                  disabled={camposBloqueados || subiendoPdfCierre[servicio.id]}
+                                  onChange={(e) => subirYVincularPdfCierre(e, servicio.id)}
                                 />
                               </button>
                             )
