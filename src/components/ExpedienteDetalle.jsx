@@ -29,11 +29,12 @@ import {
   crearJsPdfInformeCierreFinanciero,
 } from '../utils/informeCierreHaciendaPdf'
 import { useEmpresa } from '../context/EmpresaContext'
-import { empresaIdSesionValido, obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
+import { empresaIdSesionValido } from '../utils/tenantEmpresa'
 import VisualizadorPro from './VisualizadorPro'
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
+const BUCKET_FACTURAS = 'facturas'
 const BUCKET_EXPEDIENTES = 'expedientes'
 const SUBMIT_DEDUPE_MS = 2000
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
@@ -3144,11 +3145,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   const resolverEmpresaIdPerfilActual = async () => {
-    const { empresaId: empresaIdPerfil, error } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
-    if (error || !empresaIdPerfil) {
-      console.error('[pagos_proveedores] No se pudo resolver empresa_id desde profile', { error, empresaIdPerfil })
-      alert(error || 'No se pudo resolver la empresa del usuario para guardar el pago.')
-      return null
+    const { data: authData, error: authErr } = await supabase.auth.getUser()
+    if (authErr || !authData?.user?.id) {
+      throw new Error(authErr?.message || 'No hay sesión activa para resolver el perfil del usuario.')
+    }
+    const userId = authData.user.id
+    const { data: profile, error: profileErr } = await supabase
+      .from('profiles')
+      .select('empresa_id')
+      .eq('id', userId)
+      .maybeSingle()
+    if (profileErr) {
+      throw new Error(`No se pudo leer el perfil del usuario actual: ${profileErr.message}`)
+    }
+    const empresaIdPerfil = Number(profile?.empresa_id)
+    if (!Number.isFinite(empresaIdPerfil) || empresaIdPerfil <= 0) {
+      throw new Error('Tu usuario no tiene perfil válido en profiles con empresa_id asignado.')
     }
     return empresaIdPerfil
   }
@@ -3230,29 +3242,25 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // ── Facturación documental ─────────────────────────────────────────────────
 
-  const subirPdfFacturaCot = async (file) => {
-    if (!file || !expediente?.id) return null
-    if (!empresaIdRequerido) {
-      throw new Error('No hay empresa en sesión (empresa_id). No se puede subir la factura.')
+  const handleFileUpload = async (file, empresaIdPerfil, expedienteUuid) => {
+    if (!file) return null
+    const nombreSeguro = String(file.name || 'factura.pdf').replace(/[^a-zA-Z0-9._-]/g, '_')
+    const ruta = `${empresaIdPerfil}/${expedienteUuid}/fac-${Date.now()}-${nombreSeguro}`
+    const { error: uploadErr } = await supabase.storage.from(BUCKET_FACTURAS).upload(ruta, file, { upsert: false })
+    if (uploadErr) {
+      throw new Error(`No se pudo subir el PDF: ${uploadErr.message}`)
     }
-    const nombreUnico = `${empresaIdRequerido}/fac-${Date.now()}.pdf`
-    const { error } = await supabase.storage.from('facturas_proveedores').upload(nombreUnico, file)
-    if (error) {
-      const hint =
-        /rls|row-level security|policy/i.test(String(error.message))
-          ? '\n\nSi el error menciona RLS, ejecuta en Supabase el script migrations/storage-rls-facturas-proveedores.sql'
-          : ''
-      throw new Error(String(error.message) + hint)
+    const { data } = supabase.storage.from(BUCKET_FACTURAS).getPublicUrl(ruta)
+    const publicUrl = data?.publicUrl || null
+    if (!publicUrl) {
+      throw new Error('No se pudo obtener la URL pública del PDF subido.')
     }
-    // Persistir en pagos_proveedores.url_pdf la ruta dentro del bucket (no metadatos ni URL completa obligatoria)
-    return nombreUnico
+    return publicUrl
   }
 
-  const guardarFacturaCot = async (servicio) => {
+  const handleSubmit = async (servicio) => {
     if (subiendoPdfCot) return
     if (!(await asegurarSesionAutenticada())) return
-    const empresaIdPerfil = await resolverEmpresaIdPerfilActual()
-    if (!empresaIdPerfil) return
     const expedienteUuid = normalizarUuidExpediente(expediente?.id)
     if (!expedienteUuid) { alert('Expediente inválido para guardar la factura.'); return }
     if (!fInline.fecha_pago || !fInline.importe_pagado) { alert('Completa Fecha e Importe.'); return }
@@ -3260,6 +3268,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (!numeroFacturaLimpio) { alert('Completa el Nº de factura.'); return }
     const importe = parseFloat(String(fInline.importe_pagado).replace(',', '.'))
     if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
+    if (!window.confirm('¿Estás seguro de registrar esta factura?')) return
     const firmaFactura = {
       expediente_id: expedienteUuid,
       servicio_id: String(servicio?.id ?? ''),
@@ -3268,32 +3277,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       numero_factura: numeroFacturaLimpio,
       pdf_nombre: pdfInline?.name || null,
     }
-    if (esSubmitDuplicadoReciente('guardarFacturaCot', firmaFactura)) return
+    if (esSubmitDuplicadoReciente('handleSubmitFacturaProveedor', firmaFactura)) return
     setSubiendoPdfCot(true)
     try {
-      const existente = pagosProveedores.find((p) => pagoProveedorCoincideFilaServiciosCot(p, servicio))
-      const urlAnterior = existente?.url_pdf?.trim() || ''
-
-      let urlPdf = null
-      if (pdfInline) {
-        urlPdf = await subirPdfFacturaCot(pdfInline)
-        if (urlAnterior && urlPdf && urlAnterior !== urlPdf) {
-          await eliminarObjetoStorageFacturaProveedor(urlAnterior)
-        }
-      }
-
-      let filaGuardada = null
-      let dbError = null
+      const empresaIdPerfil = await resolverEmpresaIdPerfilActual()
+      const urlPdf = await handleFileUpload(pdfInline, empresaIdPerfil, expedienteUuid)
       const conceptoTitulo = tituloServicioParaConcepto(servicio)
       const { proveedorId, proveedorNombre } = datosProveedorDesdeServicioCot(servicio)
-      const urlPdfFinal = urlPdf != null && urlPdf !== '' ? urlPdf : (existente?.url_pdf ?? null)
-      const servicioIdPersistencia =
-        existente?.servicio_id != null && existente.servicio_id !== ''
-          ? existente.servicio_id
-          : servicio.id
-      // Refetch obligatorio antes del insert/update para usar IDs actuales y evitar 23503.
       const serviciosActuales = await fetchServiciosCotizacionActuales(expedienteUuid)
-      const servicioIdFk = resolverServicioIdDesdeFila(servicio, servicioIdPersistencia, serviciosActuales)
+      const servicioIdFk = resolverServicioIdDesdeFila(servicio, servicio.id, serviciosActuales)
       const servicioIdPayload = servicioIdFk || null
       if (!servicioIdPayload) {
         console.error('[pagos_proveedores][vinculacion] servicio_id no encontrado en servicios_cotizacion', {
@@ -3305,68 +3297,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         alert('Selecciona un servicio válido de la cotización para registrar la factura.')
         return
       }
-
-      if (existente?.id) {
-        const fila = filaPagosProveedores({
-          expediente_id: expedienteUuid,
-          empresa_id: empresaIdPerfil,
-          proveedor_id: proveedorId,
-          proveedor_nombre: proveedorNombre,
-          servicio_id: servicioIdPayload,
-          fecha_pago: fInline.fecha_pago,
-          importe_pagado: importe,
-          numero_factura: numeroFacturaLimpio || existente.numero_factura || null,
-          referencia_pago: String(fInline.referencia_pago || '').trim() || null,
-          metodo_pago: fInline.metodo_pago || 'Transferencia',
-          url_pdf: urlPdfFinal,
-          concepto: conceptoTitulo,
-          es_extra: false,
-          es_gasto_extra: false,
-        })
-        const res = await supabase
-          .from('pagos_proveedores')
-          .update(fila)
-          .eq('id', existente.id)
-          .select(PAGOS_PROVEEDORES_COLUMNAS)
-          .single()
-        dbError = res.error
-        filaGuardada = res.data
-      } else {
-        const payloadInsert = filaPagosProveedores({
-          expediente_id: expedienteUuid,
-          empresa_id: empresaIdPerfil,
-          proveedor_id: proveedorId,
-          proveedor_nombre: proveedorNombre,
-          servicio_id: servicioIdPayload,
-          fecha_pago: fInline.fecha_pago,
-          importe_pagado: importe,
-          numero_factura: numeroFacturaLimpio || null,
-          referencia_pago: String(fInline.referencia_pago || '').trim() || null,
-          metodo_pago: fInline.metodo_pago || 'Transferencia',
-          url_pdf: urlPdfFinal,
-          concepto: conceptoTitulo,
-          es_extra: false,
-          es_gasto_extra: false,
-        })
-        const { data, error } = await supabase
-          .from('pagos_proveedores')
-          .insert([payloadInsert])
-          .select(PAGOS_PROVEEDORES_COLUMNAS)
-        dbError = error
-        filaGuardada = Array.isArray(data) ? data[0] : null
-      }
-
-      if (dbError) {
-        console.error('[pagos_proveedores][guardarFacturaCot] Error completo:', dbError)
-        if (String(dbError?.code || '') === '23503') {
-          alert('Integridad referencial: el servicio seleccionado ya no existe en servicios_cotizacion. Refresca la lista y vuelve a intentarlo.')
-          return
-        }
-        if (esErrorRls(dbError)) {
-          alert('RLS bloqueó el guardado en pagos_proveedores. Verifica sesión autenticada y políticas de la tabla.')
-          return
-        }
-        alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error: dbError, action: 'guardar la factura de proveedor' }))
+      const payloadInsert = filaPagosProveedores({
+        expediente_id: expedienteUuid,
+        empresa_id: empresaIdPerfil,
+        proveedor_id: proveedorId,
+        proveedor_nombre: proveedorNombre,
+        servicio_id: servicioIdPayload,
+        fecha_pago: fInline.fecha_pago,
+        importe_pagado: Number(importe.toFixed(2)),
+        numero_factura: numeroFacturaLimpio || null,
+        referencia_pago: String(fInline.referencia_pago || '').trim() || null,
+        metodo_pago: fInline.metodo_pago || 'Transferencia',
+        url_pdf: urlPdf,
+        concepto: conceptoTitulo,
+        es_extra: false,
+        es_gasto_extra: false,
+      })
+      const { data, error } = await supabase
+        .from('pagos_proveedores')
+        .insert([payloadInsert])
+        .select(PAGOS_PROVEEDORES_COLUMNAS)
+      if (error) {
+        console.error('[pagos_proveedores][handleSubmit] Error completo:', error)
+        alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error, action: 'guardar la factura de proveedor' }))
         return
       }
 
@@ -3376,7 +3329,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       setInlineId(null)
       setFInline({ numero_factura: '', fecha_pago: new Date().toISOString().split('T')[0], importe_pagado: '', metodo_pago: 'Transferencia', referencia_pago: '' })
       setPdfInline(null)
-      setSubiendoPdfCot(false)
 
       await cargarPagosProveedores()
       if (typeof onRefresh === 'function') onRefresh()
@@ -3439,7 +3391,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (esSubmitDuplicadoReciente('guardarGastoExtra', firmaGastoExtra)) return
     setSubiendoPdfCot(true)
     try {
-      const urlPdf = pdfExtra ? await subirPdfFacturaCot(pdfExtra) : null
+      const expedienteUuid = normalizarUuidExpediente(expediente?.id)
+      const urlPdf = pdfExtra ? await handleFileUpload(pdfExtra, empresaIdPerfil, expedienteUuid) : null
       const proveedorNombreExtra = String(fExtra.proveedor_nombre || '').trim() || null
       const { error } = await supabase.from('pagos_proveedores').insert([
         filaPagosProveedores({
@@ -4409,7 +4362,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   const extensionDescargableSinPreview = (ext) => ['xlsx', 'xls', 'csv'].includes(String(ext || '').toLowerCase())
 
-  const handleFileUpload = async (e) => {
+  const handleExpedienteFileUpload = async (e) => {
     const file = e.target.files?.[0]
     if (!file || !expediente?.id) return
 
@@ -6498,7 +6451,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       {subiendoRooming ? 'Subiendo...' : 'Subir Documento'}
                       <input
                         type="file"
-                        onChange={handleFileUpload}
+                        onChange={handleExpedienteFileUpload}
                         className="hidden"
                         accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,image/jpeg,image/png"
                       />
@@ -6824,7 +6777,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                 </div>
                               </div>
                               <div className="flex gap-3 mt-3">
-                                <button onClick={() => guardarFacturaCot(s)} disabled={subiendoPdfCot}
+                                <button onClick={() => handleSubmit(s)} disabled={subiendoPdfCot}
                                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm disabled:opacity-50 transition-colors">
                                   <CreditCard size={14} />
                                   {subiendoPdfCot ? 'GUARDANDO...' : 'REGISTRAR'}
