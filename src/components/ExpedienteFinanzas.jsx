@@ -104,9 +104,10 @@ const CierreServicioRow = ({
   onSubirFactura,
 }) => {
   const fileInputRef = useRef(null)
+  const conceptoVisible = String(servicio?.concepto || '').trim() || 'Cargando concepto...'
   return (
     <tr key={servicio.id_servicio || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
-      <td className="px-3 py-2 font-medium text-slate-800">{servicio.concepto || '—'}</td>
+      <td className="px-3 py-2 font-medium text-slate-800">{conceptoVisible}</td>
       <td className="px-3 py-2 hidden sm:table-cell">
         {servicio.proveedor && servicio.proveedor !== 'Pendiente de asignar'
           ? <span className="text-slate-600">{servicio.proveedor}</span>
@@ -815,6 +816,18 @@ const ExpedienteFinanzas = ({
         }
       }
 
+      const nombresServiciosDesdeVersiones = {}
+      for (const v of versionesGuardadas || []) {
+        for (const sv of v?.servicios || []) {
+          const sidv = String(sv?.id || '').trim()
+          if (!sidv) continue
+          const tipoSv = String(sv?.tipo_servicio || sv?.tipo || 'Servicio').trim() || 'Servicio'
+          const nomEspSv = String(sv?.nombre_especifico || sv?.nombreEspecifico || '').trim()
+          const compuesto = nomEspSv ? `${tipoSv} – ${nomEspSv}` : tipoSv
+          if (!nombresServiciosDesdeVersiones[sidv]) nombresServiciosDesdeVersiones[sidv] = compuesto
+        }
+      }
+
       // ── 3. Fallback/soporte: servicios_cotizacion table ─────────────────────────────
       if (serviciosActualizados.length === 0) {
         let sq = await supabase
@@ -857,7 +870,7 @@ const ExpedienteFinanzas = ({
       try {
         const { data: scRows, error: scErr } = await supabase
           .from('servicios_cotizacion')
-          .select('id, coste_real_proveedor, url_factura_pdf')
+          .select('id, nombre_servicio, coste_real_proveedor, url_factura_pdf')
           .eq('id_expediente', String(expediente.id).trim())
         if (scErr) {
           console.warn('[Cierre] servicios_cotizacion (coste/pdf):', scErr)
@@ -924,8 +937,9 @@ const ExpedienteFinanzas = ({
         const nombre = nombreEsp ? `${tipo} – ${nombreEsp}` : tipo
         const sid = s?.id || generarUUID()
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
-        const saved = savedCostesReales[sid]
+        const saved = savedCostesReales[sid] || savedCostesReales[String(filaServicioCot?.id || '')]
         const filaServicioCot = serviciosCotizacionMap[String(sid)] || null
+        const sidFinal = filaServicioCot?.id ? String(filaServicioCot.id) : String(sid)
         // FUENTE DE VERDAD: servicios_cotizacion SIEMPRE sobrescribe JSON/snapshot si existe fila SQL.
         let costeRealProveedor = saved?.coste_real_proveedor
         if (filaServicioCot) {
@@ -945,15 +959,18 @@ const ExpedienteFinanzas = ({
           : (String(s.url_factura_pdf || '').trim() || null)
         const urlFacturaSaved = saved?.url_factura_pdf ?? null
         const urlPdfCierre = saved?.url_pdf ?? null
-        const urlPago = mapPdfPorServicio[String(sid)] || null
+        const urlPago = mapPdfPorServicio[sidFinal] || mapPdfPorServicio[String(sid)] || null
         const url_factura_pdf = urlFacturaServicio || urlFacturaSaved || null
         const proveedor_id_int = provId != null && provId !== '' && !Number.isNaN(Number(provId))
           ? Number(provId)
           : null
+        const nombreSql = String(filaServicioCot?.nombre_servicio || '').trim()
+        const nombreRescatado = String(nombresServiciosDesdeVersiones[sidFinal] || nombresServiciosDesdeVersiones[String(sid)] || '').trim()
+        const conceptoFinal = nombreSql || nombreRescatado || nombre || 'Cargando concepto...'
         return {
-          id: sid,
-          id_servicio: sid,
-          concepto: nombre,
+          id: sidFinal,
+          id_servicio: sidFinal,
+          concepto: conceptoFinal,
           proveedor,
           proveedor_id_int,
           version_index: sourceVersionIndex,
@@ -1034,6 +1051,37 @@ const ExpedienteFinanzas = ({
     })
   }
 
+  // Construye payload de rescate para servicios_cotizacion (evita filas fragmentadas con nulls críticos).
+  const construirPayloadRescateServicioCot = (fila, overrides = {}) => {
+    const nombreServicio = String(
+      overrides.nombre_servicio
+      ?? fila?.nombre_servicio
+      ?? fila?.concepto
+      ?? ''
+    ).trim() || null
+
+    const payload = {
+      nombre_servicio: nombreServicio,
+      coste_real_proveedor: overrides.coste_real_proveedor ?? fila?.coste_real_proveedor ?? null,
+      url_factura_pdf: overrides.url_factura_pdf ?? fila?.url_factura_pdf ?? null,
+    }
+
+    return payload
+  }
+
+  // Persistencia obligatoria en primera interacción: rellena campos críticos de la fila.
+  const persistirRescateServicioCot = async (fila, overrides = {}) => {
+    const idServicio = fila?.id ?? fila?.id_servicio
+    if (!idServicio || !expediente?.id) return
+    const payload = construirPayloadRescateServicioCot(fila, overrides)
+    const { error } = await supabase
+      .from('servicios_cotizacion')
+      .update(payload)
+      .eq('id', idServicio)
+      .eq('id_expediente', String(expediente.id).trim())
+    if (error) console.error('[cierre] persistirRescateServicioCot:', error)
+  }
+
   // Persiste coste_real: cierre_grupo + coste_real_proveedor en servicios_cotizacion
   const guardarCosteRealEnBD = async (idServicio, valor) => {
     if (!expediente?.id) return
@@ -1057,12 +1105,8 @@ const ExpedienteFinanzas = ({
     if (error) console.error('[cierre] guardarCosteRealEnBD cierre_grupo:', error)
 
     try {
-      const { error: e3 } = await supabase
-        .from('servicios_cotizacion')
-        .update({ coste_real_proveedor: valorNum })
-        .eq('id', idServicio)
-        .eq('id_expediente', String(expediente.id).trim())
-      if (e3) console.error('[cierre] guardarCosteReal servicios_cotizacion:', e3)
+      const filaActual = nuevosCostesReales.find(c => c.id_servicio === idServicio) || null
+      await persistirRescateServicioCot(filaActual, { coste_real_proveedor: valorNum })
 
       if (onUpdate) onUpdate({ ...expediente, cierre_grupo: nuevoCierre })
     } catch (e) {
@@ -1092,12 +1136,7 @@ const ExpedienteFinanzas = ({
       const publicUrl = urlData?.publicUrl || null
       if (!publicUrl) throw new Error('No se pudo obtener la URL pública del PDF.')
 
-      const { error: scErr } = await supabase
-        .from('servicios_cotizacion')
-        .update({ url_factura_pdf: publicUrl })
-        .eq('id', idServicio)
-        .eq('id_expediente', String(expediente.id).trim())
-      if (scErr) console.error('[cierre] subir PDF servicios_cotizacion:', scErr)
+      await persistirRescateServicioCot(fila, { url_factura_pdf: publicUrl })
 
       const fechaHoy = new Date().toISOString().split('T')[0]
       const payloadBase = {
