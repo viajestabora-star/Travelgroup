@@ -118,6 +118,7 @@ const ExpedienteFinanzas = ({
   const { empresaId } = useEmpresa()
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
+  const onRefresh = onExpedienteRefresh
 
   // Datos fiscales del emisor dinámicos por tenant (para PDFs)
   const [emisorData, setEmisorData] = useState({ ...DATOS_EMISOR, logo_url: null })
@@ -856,6 +857,7 @@ const ExpedienteFinanzas = ({
           ? Number(provId)
           : null
         return {
+          id: sid,
           id_servicio: sid,
           concepto: nombre,
           proveedor,
@@ -863,6 +865,7 @@ const ExpedienteFinanzas = ({
           version_index: sourceVersionIndex,
           coste_cotizado: costeCotizado,
           coste_real: costeReal,
+          coste_real_proveedor: costeReal,
           url_factura_pdf,
           _url_pdf_pago: urlPago,
           url_pdf: urlPdfCierre,
@@ -912,14 +915,14 @@ const ExpedienteFinanzas = ({
     setInformeLiquidacion(prev => ({
       ...prev,
       costesReales: prev.costesReales.map(c =>
-        c.id_servicio === idServicio ? { ...c, coste_real: toNum(costeReal) } : c
+        c.id_servicio === idServicio ? { ...c, coste_real: toNum(costeReal), coste_real_proveedor: toNum(costeReal) } : c
       )
     }))
   }
 
   // Estado para subidas de PDF por fila (map idServicio → boolean)
   const [subiendoPdfCierre, setSubiendoPdfCierre] = useState({})
-  const facturaFileInputsRef = useRef({})
+  const fileInputRef = useRef({})
 
   // Persiste coste_real: cierre_grupo + coste_real_proveedor en servicios_cotizacion
   const guardarCosteRealEnBD = async (idServicio, valor) => {
@@ -1033,7 +1036,7 @@ const ExpedienteFinanzas = ({
       if (onUpdate) {
         onUpdate({ ...expediente, cierre_grupo: nuevoCierre })
       }
-      await onExpedienteRefresh?.()
+      await onRefresh?.()
       await recargarInformeDesdeCotizacion()
     } catch (e) {
       console.error('[cierre] subirYVincularPdfCierre excepción:', e)
@@ -1800,23 +1803,23 @@ const ExpedienteFinanzas = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {(informeLiquidacion.costesReales || []).map((c, idx) => (
-                        <tr key={c.id_servicio || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
-                          <td className="px-3 py-2 font-medium text-slate-800">{c.concepto || '—'}</td>
+                      {(informeLiquidacion.costesReales || []).map((servicio, idx) => (
+                        <tr key={servicio.id_servicio || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
+                          <td className="px-3 py-2 font-medium text-slate-800">{servicio.concepto || '—'}</td>
                           <td className="px-3 py-2 hidden sm:table-cell">
-                            {c.proveedor && c.proveedor !== 'Pendiente de asignar'
-                              ? <span className="text-slate-600">{c.proveedor}</span>
+                            {servicio.proveedor && servicio.proveedor !== 'Pendiente de asignar'
+                              ? <span className="text-slate-600">{servicio.proveedor}</span>
                               : <span className="text-slate-400 italic text-xs">Pendiente de asignar</span>
                             }
                           </td>
-                          <td className="px-3 py-2 text-right text-slate-500">{Number(c.coste_cotizado || 0).toFixed(2)} €</td>
+                          <td className="px-3 py-2 text-right text-slate-500">{Number(servicio.coste_cotizado || 0).toFixed(2)} €</td>
                           <td className="px-3 py-2">
                             <input
                               type="number"
                               step="0.01"
-                              value={c.coste_real ?? ''}
-                              onChange={(e) => actualizarCosteReal(c.id_servicio, e.target.value)}
-                              onBlur={(e) => guardarCosteRealEnBD(c.id_servicio, e.target.value)}
+                              value={servicio.coste_real_proveedor ?? servicio.coste_real ?? ''}
+                              onChange={(e) => actualizarCosteReal(servicio.id_servicio, e.target.value)}
+                              onBlur={(e) => guardarCosteRealEnBD(servicio.id_servicio, e.target.value)}
                               disabled={camposBloqueados}
                               readOnly={camposBloqueados}
                               className={`w-full min-w-[80px] border rounded-lg px-2 py-1 text-right font-medium ${camposBloqueados ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300 focus:ring-2 focus:ring-blue-500'}`}
@@ -1826,13 +1829,13 @@ const ExpedienteFinanzas = ({
                           {/* ── Columna Factura ── */}
                           <td className="px-3 py-2 text-center">
                             {(() => {
-                              const servicioId = c?.id_servicio
-                              const pdfHref = c?.url_factura_pdf ? resolverHrefFacturaUnificado(c.url_factura_pdf) : null
-                              return (c?.url_factura_pdf && pdfHref) ? (
+                              const servicioId = servicio?.id || servicio?.id_servicio
+                              const pdfHref = servicio?.url_factura_pdf ? resolverHrefFacturaUnificado(servicio.url_factura_pdf) : null
+                              return (servicio?.url_factura_pdf && pdfHref) ? (
                               <div className="flex flex-col items-center gap-1">
                                 <button
                                   type="button"
-                                  onClick={() => window.open(c.url_factura_pdf, '_blank')}
+                                  onClick={() => window.open(servicio.url_factura_pdf, '_blank')}
                                   className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
                                   title="Ver factura PDF"
                                 >
@@ -1841,7 +1844,7 @@ const ExpedienteFinanzas = ({
                                 {!camposBloqueados && (
                                   <button
                                     type="button"
-                                    onClick={() => facturaFileInputsRef.current[String(servicioId)]?.click()}
+                                    onClick={() => fileInputRef.current[servicioId]?.click()}
                                     className="inline-flex cursor-pointer items-center gap-1 text-xs text-slate-500 hover:text-blue-600"
                                   >
                                     <Paperclip size={11} /> Reemplazar
@@ -1849,8 +1852,8 @@ const ExpedienteFinanzas = ({
                                       type="file"
                                       accept=".pdf,.PDF"
                                       className="hidden"
-                                      ref={(el) => { if (el) facturaFileInputsRef.current[String(servicioId)] = el }}
-                                      disabled={subiendoPdfCierre[c.id_servicio]}
+                                      ref={el => { fileInputRef.current[servicioId] = el }}
+                                      disabled={subiendoPdfCierre[servicio.id_servicio]}
                                       onChange={(e) => subirYVincularPdfCierre(e, servicioId)}
                                     />
                                   </button>
@@ -1859,11 +1862,11 @@ const ExpedienteFinanzas = ({
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => facturaFileInputsRef.current[String(servicioId)]?.click()}
-                                className={`inline-flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendoPdfCierre[c.id_servicio] ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}
-                                disabled={camposBloqueados || subiendoPdfCierre[c.id_servicio]}
+                                onClick={() => fileInputRef.current[servicioId]?.click()}
+                                className={`inline-flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendoPdfCierre[servicio.id_servicio] ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}
+                                disabled={camposBloqueados || subiendoPdfCierre[servicio.id_servicio]}
                               >
-                                {subiendoPdfCierre[c.id_servicio]
+                                {subiendoPdfCierre[servicio.id_servicio]
                                   ? '…subiendo'
                                   : <><Paperclip size={11} /> Añadir Factura</>
                                 }
@@ -1871,8 +1874,8 @@ const ExpedienteFinanzas = ({
                                   type="file"
                                   accept=".pdf,.PDF"
                                   className="hidden"
-                                  ref={(el) => { if (el) facturaFileInputsRef.current[String(servicioId)] = el }}
-                                  disabled={camposBloqueados || subiendoPdfCierre[c.id_servicio]}
+                                  ref={el => { fileInputRef.current[servicioId] = el }}
+                                  disabled={camposBloqueados || subiendoPdfCierre[servicio.id_servicio]}
                                   onChange={(e) => subirYVincularPdfCierre(e, servicioId)}
                                 />
                               </button>
