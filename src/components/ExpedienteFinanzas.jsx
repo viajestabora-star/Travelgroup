@@ -20,10 +20,6 @@ import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorSto
 /** Bucket unificado para facturas de cierre (alineado con ExpedienteDetalle / pagos_proveedores). */
 const BUCKET_FACTURAS_UNIFICADO = 'facturas'
 
-const UUID_SERVICIO_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-const esIdServicioUuid = (id) => UUID_SERVICIO_RE.test(String(id ?? ''))
-
 /** URL para abrir PDF: público https, ruta en bucket `facturas`, o legado `facturas_proveedores`. */
 const resolverHrefFacturaUnificado = (valorGuardado) => {
   if (!valorGuardado || typeof valorGuardado !== 'string') return null
@@ -710,7 +706,7 @@ const ExpedienteFinanzas = ({
         console.warn('[Cierre] pagos_proveedores (PDF por servicio):', e)
       }
 
-      // ── 2. Resolve services — versiones_json is the primary store for new expedientes ──
+      // ── 2. Resolve services — mantener compatibilidad (versiones_json / prop) ──────────
       let serviciosActualizados = []
       let sourceVersionIndex = null
 
@@ -729,7 +725,7 @@ const ExpedienteFinanzas = ({
         }
       }
 
-      // ── 3. Legacy fallback: servicios_cotizacion table (for older expedientes) ─────
+      // ── 3. Fallback/soporte: servicios_cotizacion table ─────────────────────────────
       if (serviciosActualizados.length === 0) {
         let sq = await supabase
           .from('servicios_cotizacion')
@@ -763,6 +759,23 @@ const ExpedienteFinanzas = ({
           const targetIdx = versionActiva >= 0 && versionActiva < vjs.length ? versionActiva : 0
           sourceVersionIndex = confirmed ? vjs.indexOf(confirmed) : targetIdx
         }
+      }
+
+      // ── 4b. Fuente de verdad para facturas/coste real proveedor: servicios_cotizacion ──
+      // Se usa siempre que exista fila por id_servicio para mantener integridad al refrescar.
+      let serviciosCotizacionMap = {}
+      try {
+        const { data: scRows, error: scErr } = await supabase
+          .from('servicios_cotizacion')
+          .select('id, coste_real_proveedor, url_factura_pdf')
+          .eq('id_expediente', String(expediente.id).trim())
+        if (scErr) {
+          console.warn('[Cierre] servicios_cotizacion (coste/pdf):', scErr)
+        } else if (Array.isArray(scRows)) {
+          serviciosCotizacionMap = Object.fromEntries(scRows.map(r => [String(r.id), r]))
+        }
+      } catch (e) {
+        console.warn('[Cierre] servicios_cotizacion (coste/pdf) excepción:', e)
       }
 
       console.log('[Cierre] Total servicios a cargar en Cierre:', serviciosActualizados.length)
@@ -821,12 +834,16 @@ const ExpedienteFinanzas = ({
         const sid = s?.id || generarUUID()
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
         const saved = savedCostesReales[sid]
+        const filaServicioCot = serviciosCotizacionMap[String(sid)] || null
         let costeReal = saved?.coste_real
+        if (costeReal == null && filaServicioCot?.coste_real_proveedor != null && !Number.isNaN(Number(filaServicioCot.coste_real_proveedor))) {
+          costeReal = toNum(filaServicioCot.coste_real_proveedor)
+        }
         if (costeReal == null && s.coste_real_proveedor != null && !Number.isNaN(Number(s.coste_real_proveedor))) {
           costeReal = toNum(s.coste_real_proveedor)
         }
         if (costeReal == null) costeReal = costeCotizado
-        const urlFacturaServicio = String(s.url_factura_pdf || '').trim() || null
+        const urlFacturaServicio = String(filaServicioCot?.url_factura_pdf || s.url_factura_pdf || '').trim() || null
         const urlFacturaSaved = saved?.url_factura_pdf ?? null
         const urlPdfCierre = saved?.url_pdf ?? null
         const urlPago = mapPdfPorServicio[String(sid)] || null
@@ -899,7 +916,7 @@ const ExpedienteFinanzas = ({
   // Estado para subidas de PDF por fila (map idServicio → boolean)
   const [subiendoPdfCierre, setSubiendoPdfCierre] = useState({})
 
-  // Persiste coste_real: cierre_grupo + coste_real_proveedor en cotización (tabla o versiones_json)
+  // Persiste coste_real: cierre_grupo + coste_real_proveedor en servicios_cotizacion
   const guardarCosteRealEnBD = async (idServicio, valor) => {
     if (!expediente?.id) return
     const valorNum = toNum(valor)
@@ -914,38 +931,21 @@ const ExpedienteFinanzas = ({
       .eq('id', expediente.id)
     if (error) console.error('[cierre] guardarCosteRealEnBD cierre_grupo:', error)
 
-    const fila = nuevosCostesReales.find(c => c.id_servicio === idServicio)
-    let expedienteParcial = { ...expediente, cierre_grupo: nuevoCierre }
-
     try {
-      if (fila?.version_index != null && esIdServicioUuid(idServicio)) {
-        const { data: expRow } = await supabase.from('expedientes').select('versiones_json').eq('id', expediente.id).single()
-        const vers = Array.isArray(expRow?.versiones_json?.versiones) ? [...expRow.versiones_json.versiones] : null
-        if (vers && vers[fila.version_index]) {
-          const v = vers[fila.version_index]
-          const servs = (v.servicios || []).map(svc =>
-            String(svc.id) === String(idServicio) ? { ...svc, coste_real_proveedor: valorNum } : svc
-          )
-          vers[fila.version_index] = { ...v, servicios: servs }
-          const vjNext = { versiones: vers }
-          const { error: e2 } = await supabase.from('expedientes').update({ versiones_json: vjNext }).eq('id', expediente.id)
-          if (e2) console.error('[cierre] guardarCosteReal versiones_json:', e2)
-          else expedienteParcial = { ...expedienteParcial, versiones_json: vjNext }
-        }
-      } else if (!esIdServicioUuid(idServicio)) {
-        const { error: e3 } = await supabase
-          .from('servicios_cotizacion')
-          .update({ coste_real_proveedor: valorNum })
-          .eq('id', idServicio)
-        if (e3) console.error('[cierre] guardarCosteReal servicios_cotizacion:', e3)
-      }
-      if (onUpdate) onUpdate(expedienteParcial)
+      const { error: e3 } = await supabase
+        .from('servicios_cotizacion')
+        .update({ coste_real_proveedor: valorNum })
+        .eq('id', idServicio)
+        .eq('id_expediente', String(expediente.id).trim())
+      if (e3) console.error('[cierre] guardarCosteReal servicios_cotizacion:', e3)
+
+      if (onUpdate) onUpdate({ ...expediente, cierre_grupo: nuevoCierre })
     } catch (e) {
       console.error('[cierre] guardarCosteRealEnBD excepción:', e)
     }
   }
 
-  // Sube PDF a `facturas`, actualiza servicio (url_factura_pdf), pagos_proveedores y snapshot cierre_grupo
+  // Sube PDF a `facturas`, actualiza url_factura_pdf en servicios_cotizacion + snapshot cierre_grupo
   const subirYVincularPdfCierre = async (idServicio, file) => {
     if (!file || !expediente?.id) return
     const tenantEid = Number(user?.empresa_id || empresaId) || null
@@ -965,27 +965,12 @@ const ExpedienteFinanzas = ({
       const publicUrl = urlData?.publicUrl || null
       if (!publicUrl) throw new Error('No se pudo obtener la URL pública del PDF.')
 
-      let vjParcial = null
-      if (fila.version_index != null && esIdServicioUuid(idServicio)) {
-        const { data: expRow } = await supabase.from('expedientes').select('versiones_json').eq('id', expediente.id).single()
-        const vers = Array.isArray(expRow?.versiones_json?.versiones) ? [...expRow.versiones_json.versiones] : null
-        if (vers && vers[fila.version_index]) {
-          const v = vers[fila.version_index]
-          const servs = (v.servicios || []).map(svc =>
-            String(svc.id) === String(idServicio) ? { ...svc, url_factura_pdf: publicUrl } : svc
-          )
-          vers[fila.version_index] = { ...v, servicios: servs }
-          vjParcial = { versiones: vers }
-          const { error: ev } = await supabase.from('expedientes').update({ versiones_json: vjParcial }).eq('id', expediente.id)
-          if (ev) console.error('[cierre] subir PDF versiones_json:', ev)
-        }
-      } else if (!esIdServicioUuid(idServicio)) {
-        const { error: scErr } = await supabase
-          .from('servicios_cotizacion')
-          .update({ url_factura_pdf: publicUrl })
-          .eq('id', idServicio)
-        if (scErr) console.error('[cierre] subir PDF servicios_cotizacion:', scErr)
-      }
+      const { error: scErr } = await supabase
+        .from('servicios_cotizacion')
+        .update({ url_factura_pdf: publicUrl })
+        .eq('id', idServicio)
+        .eq('id_expediente', String(expediente.id).trim())
+      if (scErr) console.error('[cierre] subir PDF servicios_cotizacion:', scErr)
 
       const fechaHoy = new Date().toISOString().split('T')[0]
       const payloadBase = {
@@ -1039,13 +1024,7 @@ const ExpedienteFinanzas = ({
       if (dbErr) console.error('[cierre] subir PDF cierre_grupo:', dbErr)
 
       if (onUpdate) {
-        const patch = { ...expediente, cierre_grupo: nuevoCierre }
-        if (vjParcial) patch.versiones_json = vjParcial
-        else if (fila.version_index != null && esIdServicioUuid(idServicio)) {
-          const { data: expFresh } = await supabase.from('expedientes').select('versiones_json').eq('id', expediente.id).single()
-          if (expFresh?.versiones_json) patch.versiones_json = expFresh.versiones_json
-        }
-        onUpdate(patch)
+        onUpdate({ ...expediente, cierre_grupo: nuevoCierre })
       }
     } catch (e) {
       console.error('[cierre] subirYVincularPdfCierre excepción:', e)
@@ -1847,7 +1826,7 @@ const ExpedienteFinanzas = ({
                                   className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
                                   title="Ver factura PDF"
                                 >
-                                  <Eye size={14} /> Ver PDF
+                                  <FileText size={14} /> Ver PDF
                                 </a>
                                 {!camposBloqueados && (
                                   <label className="inline-flex cursor-pointer items-center gap-1 text-xs text-slate-500 hover:text-blue-600">
@@ -1870,7 +1849,7 @@ const ExpedienteFinanzas = ({
                               <label className={`inline-flex cursor-pointer items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendoPdfCierre[c.id_servicio] ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}>
                                 {subiendoPdfCierre[c.id_servicio]
                                   ? '…subiendo'
-                                  : <><Paperclip size={11} /> Adjuntar Factura</>
+                                  : <><Paperclip size={11} /> Añadir Factura</>
                                 }
                                 <input
                                   type="file"
