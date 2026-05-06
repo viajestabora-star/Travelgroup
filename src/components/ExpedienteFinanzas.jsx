@@ -812,10 +812,11 @@ const ExpedienteFinanzas = ({
       const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
       const descuentosVal = bonificacionFresco * paxPagoFresco
 
-      // ── 7. Build coste rows — coste_real, url_factura_pdf (servicio), pagos_proveedores, snapshot cierre ──
+      // ── 7. Build coste rows — fuente visual: coste_real_proveedor/url_factura_pdf ─────
       const savedCostesReales = (informeLiquidacion.costesReales || []).reduce((acc, c) => {
         acc[c.id_servicio] = {
           coste_real: c.coste_real,
+          coste_real_proveedor: c.coste_real_proveedor ?? null,
           url_pdf: c.url_pdf ?? null,
           url_factura_pdf: c.url_factura_pdf ?? null,
         }
@@ -840,14 +841,17 @@ const ExpedienteFinanzas = ({
         const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
         const saved = savedCostesReales[sid]
         const filaServicioCot = serviciosCotizacionMap[String(sid)] || null
-        let costeReal = saved?.coste_real
-        if (costeReal == null && filaServicioCot?.coste_real_proveedor != null && !Number.isNaN(Number(filaServicioCot.coste_real_proveedor))) {
-          costeReal = toNum(filaServicioCot.coste_real_proveedor)
+        let costeRealProveedor = saved?.coste_real_proveedor
+        if (costeRealProveedor == null && filaServicioCot?.coste_real_proveedor != null && !Number.isNaN(Number(filaServicioCot.coste_real_proveedor))) {
+          costeRealProveedor = toNum(filaServicioCot.coste_real_proveedor)
         }
-        if (costeReal == null && s.coste_real_proveedor != null && !Number.isNaN(Number(s.coste_real_proveedor))) {
-          costeReal = toNum(s.coste_real_proveedor)
+        if (costeRealProveedor == null && s.coste_real_proveedor != null && !Number.isNaN(Number(s.coste_real_proveedor))) {
+          costeRealProveedor = toNum(s.coste_real_proveedor)
         }
-        if (costeReal == null) costeReal = costeCotizado
+        // coste_real se mantiene para cálculos internos; si no hay dato real, usa cotizado.
+        const costeReal = (costeRealProveedor != null && !Number.isNaN(Number(costeRealProveedor)))
+          ? toNum(costeRealProveedor)
+          : (saved?.coste_real ?? costeCotizado)
         const urlFacturaServicio = String(filaServicioCot?.url_factura_pdf || s.url_factura_pdf || '').trim() || null
         const urlFacturaSaved = saved?.url_factura_pdf ?? null
         const urlPdfCierre = saved?.url_pdf ?? null
@@ -865,7 +869,7 @@ const ExpedienteFinanzas = ({
           version_index: sourceVersionIndex,
           coste_cotizado: costeCotizado,
           coste_real: costeReal,
-          coste_real_proveedor: costeReal,
+          coste_real_proveedor: (costeRealProveedor != null && !Number.isNaN(Number(costeRealProveedor))) ? toNum(costeRealProveedor) : null,
           url_factura_pdf,
           _url_pdf_pago: urlPago,
           url_pdf: urlPdfCierre,
@@ -912,10 +916,18 @@ const ExpedienteFinanzas = ({
   }
 
   const actualizarCosteReal = (idServicio, costeReal) => {
+    const raw = String(costeReal ?? '').trim()
+    const parsed = raw === '' ? null : toNum(costeReal)
     setInformeLiquidacion(prev => ({
       ...prev,
       costesReales: prev.costesReales.map(c =>
-        c.id_servicio === idServicio ? { ...c, coste_real: toNum(costeReal), coste_real_proveedor: toNum(costeReal) } : c
+        c.id_servicio === idServicio
+          ? {
+              ...c,
+              coste_real: parsed == null ? c.coste_real : parsed,
+              coste_real_proveedor: parsed,
+            }
+          : c
       )
     }))
   }
@@ -926,9 +938,16 @@ const ExpedienteFinanzas = ({
   // Persiste coste_real: cierre_grupo + coste_real_proveedor en servicios_cotizacion
   const guardarCosteRealEnBD = async (idServicio, valor) => {
     if (!expediente?.id) return
-    const valorNum = toNum(valor)
+    const valorRaw = String(valor ?? '').trim()
+    const valorNum = valorRaw === '' ? null : toNum(valor)
     const nuevosCostesReales = (informeLiquidacion.costesReales || []).map(c =>
-      c.id_servicio === idServicio ? { ...c, coste_real: valorNum } : c
+      c.id_servicio === idServicio
+        ? {
+            ...c,
+            coste_real_proveedor: valorNum,
+            coste_real: valorNum == null ? c.coste_real : valorNum,
+          }
+        : c
     )
     const existente = expediente?.cierre_grupo || {}
     const nuevoCierre = { ...existente, costesReales: nuevosCostesReales }
@@ -1816,7 +1835,7 @@ const ExpedienteFinanzas = ({
                             <input
                               type="number"
                               step="0.01"
-                              value={servicio.coste_real_proveedor ?? servicio.coste_real ?? ''}
+                              value={servicio.coste_real_proveedor ?? ''}
                               onChange={(e) => actualizarCosteReal(servicio.id, e.target.value)}
                               onBlur={(e) => guardarCosteRealEnBD(servicio.id, e.target.value)}
                               disabled={camposBloqueados}
@@ -1829,8 +1848,7 @@ const ExpedienteFinanzas = ({
                           <td className="px-3 py-2 text-center">
                             {(() => {
                               const servicioId = servicio?.id
-                              const pdfHref = servicio?.url_factura_pdf ? resolverHrefFacturaUnificado(servicio.url_factura_pdf) : null
-                              return (servicio?.url_factura_pdf && pdfHref) ? (
+                              return servicio?.url_factura_pdf ? (
                               <div className="flex flex-col items-center gap-1">
                                 <button
                                   type="button"
