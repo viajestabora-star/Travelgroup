@@ -29,7 +29,7 @@ import {
   crearJsPdfInformeCierreFinanciero,
 } from '../utils/informeCierreHaciendaPdf'
 import { useEmpresa } from '../context/EmpresaContext'
-import { empresaIdSesionValido } from '../utils/tenantEmpresa'
+import { empresaIdSesionValido, obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
 import VisualizadorPro from './VisualizadorPro'
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
@@ -3143,10 +3143,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return true
   }
 
+  const resolverEmpresaIdPerfilActual = async () => {
+    const { empresaId: empresaIdPerfil, error } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+    if (error || !empresaIdPerfil) {
+      console.error('[pagos_proveedores] No se pudo resolver empresa_id desde profile', { error, empresaIdPerfil })
+      alert(error || 'No se pudo resolver la empresa del usuario para guardar el pago.')
+      return null
+    }
+    return empresaIdPerfil
+  }
+
   // Registrar pago a proveedor (insert en pagos_proveedores)
   const registrarPagoProveedor = async () => {
     if (isSubmittingPagoProveedor) return
     if (!(await asegurarSesionAutenticada())) return
+    const empresaIdPerfil = await resolverEmpresaIdPerfilActual()
+    if (!empresaIdPerfil) return
     const expedienteUuid = normalizarUuidExpediente(expediente?.id)
     if (!expedienteUuid || !formPago.servicio_id || !formPago.fecha_pago || !formPago.importe_pagado) {
       alert('Completa Servicio, Fecha e Importe.')
@@ -3186,7 +3198,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         .insert([
           filaPagosProveedores({
             expediente_id: expedienteUuid,
-            empresa_id: empresaIdRequerido ?? null,
+            empresa_id: empresaIdPerfil,
             proveedor_id: proveedorId,
             proveedor_nombre: proveedorNombre,
             servicio_id: servicioIdValido,
@@ -3239,6 +3251,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const guardarFacturaCot = async (servicio) => {
     if (subiendoPdfCot) return
     if (!(await asegurarSesionAutenticada())) return
+    const empresaIdPerfil = await resolverEmpresaIdPerfilActual()
+    if (!empresaIdPerfil) return
     const expedienteUuid = normalizarUuidExpediente(expediente?.id)
     if (!expedienteUuid) { alert('Expediente inválido para guardar la factura.'); return }
     if (!fInline.fecha_pago || !fInline.importe_pagado) { alert('Completa Fecha e Importe.'); return }
@@ -3295,7 +3309,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (existente?.id) {
         const fila = filaPagosProveedores({
           expediente_id: expedienteUuid,
-          empresa_id: empresaIdRequerido ?? null,
+          empresa_id: empresaIdPerfil,
           proveedor_id: proveedorId,
           proveedor_nombre: proveedorNombre,
           servicio_id: servicioIdPayload,
@@ -3320,7 +3334,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       } else {
         const payloadInsert = filaPagosProveedores({
           expediente_id: expedienteUuid,
-          empresa_id: empresaIdRequerido ?? null,
+          empresa_id: empresaIdPerfil,
           proveedor_id: proveedorId,
           proveedor_nombre: proveedorNombre,
           servicio_id: servicioIdPayload,
@@ -3334,13 +3348,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           es_extra: false,
           es_gasto_extra: false,
         })
-        const res = await supabase
+        const { data, error } = await supabase
           .from('pagos_proveedores')
           .insert([payloadInsert])
           .select(PAGOS_PROVEEDORES_COLUMNAS)
-          .single()
-        dbError = res.error
-        filaGuardada = res.data
+        dbError = error
+        filaGuardada = Array.isArray(data) ? data[0] : null
       }
 
       if (dbError) {
@@ -3409,6 +3422,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const guardarGastoExtra = async () => {
     if (subiendoPdfCot) return
     if (!(await asegurarSesionAutenticada())) return
+    const empresaIdPerfil = await resolverEmpresaIdPerfilActual()
+    if (!empresaIdPerfil) return
     if (!fExtra.concepto || !fExtra.importe_pagado || !fExtra.fecha_pago) { alert('Completa Concepto, Fecha e Importe.'); return }
     const importe = parseFloat(String(fExtra.importe_pagado).replace(',', '.'))
     if (isNaN(importe) || importe <= 0) { alert('Importe inválido.'); return }
@@ -3429,7 +3444,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const { error } = await supabase.from('pagos_proveedores').insert([
         filaPagosProveedores({
           expediente_id: expediente.id,
-          empresa_id: empresaIdRequerido ?? null,
+          empresa_id: empresaIdPerfil,
           proveedor_id: null,
           proveedor_nombre: proveedorNombreExtra,
           servicio_id: null,
@@ -3444,7 +3459,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           es_gasto_extra: true,
         }),
       ])
-      if (error) { alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error, action: 'guardar el gasto extra' })); return }
+      if (error) {
+        console.error('[pagos_proveedores][guardarGastoExtra] Error completo:', error)
+        alert(buildWriteErrorMessage({ table: 'pagos_proveedores', error, action: 'guardar el gasto extra' }))
+        return
+      }
       await cargarPagosProveedores()
       setMensajeExitoFacturaProveedor('Factura guardada con éxito')
       window.setTimeout(() => setMensajeExitoFacturaProveedor(null), 4500)
