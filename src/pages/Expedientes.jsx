@@ -1329,23 +1329,29 @@ const Expedientes = ({ user = null }) => {
   }, {})
 
   const expedientesFiltradosPorEjercicio = expedientesPorTab[tabExpedientes] || []
-  // Solo pestaña "Cerrado": prioridad fecha_viaje DESC; fallback fecha_confirmacion DESC cuando fecha_viaje es nula.
+
+  // Convierte fecha a ms para comparación matemática (no alfabética) — acepta Date, ISO string, dd/mm/yyyy.
   const toMs = (v) => {
     if (!v) return null
-    const t = new Date(v).getTime()
+    const t = v instanceof Date ? v.getTime() : new Date(v).getTime()
     return Number.isFinite(t) ? t : null
   }
-  const msCerrado = (exp) => {
-    const byViaje = toMs(exp?.fecha_viaje)
-    if (byViaje != null) return byViaje
-    const byConfirmacion = toMs(exp?.fecha_confirmacion)
-    if (byConfirmacion != null) return byConfirmacion
-    return -Infinity
-  }
-  const expedientesFinales =
-    tabExpedientes === 'cerrado'
-      ? [...(expedientesFiltradosPorEjercicio || [])].sort((a, b) => msCerrado(b) - msCerrado(a))
-      : expedientesFiltradosPorEjercicio
+  // Prioriza fecha_inicio; expedientes sin fecha quedan al final.
+  const msInicio = (exp) => toMs(exp?.fecha_inicio ?? exp?.fechaInicio) ?? -Infinity
+
+  const expedientesFinales = (() => {
+    const copia = [...(expedientesFiltradosPorEjercicio || [])]
+    if (tabExpedientes === 'confirmados') {
+      // Ascendente: el próximo en salir aparece primero.
+      return copia.sort((a, b) => msInicio(a) - msInicio(b))
+    }
+    if (tabExpedientes === 'cerrado') {
+      // Descendente: el viaje más reciente aparece primero.
+      return copia.sort((a, b) => msInicio(b) - msInicio(a))
+    }
+    // Resto de pestañas: sin modificar el orden de la BD.
+    return copia
+  })()
 
   // No desmontar el modal de detalle durante el loading: preservar pestaña activa (ej. Cotización)
   if (isLoading && !showDetalleModal) {
