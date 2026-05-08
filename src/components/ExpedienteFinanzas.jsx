@@ -441,6 +441,12 @@ const ExpedienteFinanzas = ({
     recargarInformeDesdeCotizacion()
   }, [activeTab, expediente?.id])
 
+  // NUEVO: cuando el parent refresca expediente (onRefresh), forzar recarga SQL en Cierre.
+  useEffect(() => {
+    if (activeTab !== 'cierre' || !expediente?.id) return
+    recargarInformeDesdeCotizacion()
+  }, [activeTab, expediente?.id, expediente?.cierre_grupo, expediente?.versiones_json])
+
   // cargarCobros (internal, calls onCobrosReload)
   const cargarCobros = async () => {
     if (onCobrosReload) await onCobrosReload()
@@ -1172,7 +1178,7 @@ const ExpedienteFinanzas = ({
     setSincronizandoConBd(true)
     setErrorCargaCotizacion(null)
     try {
-      await sincronizarJsonConServiciosCotizacion({ forzarDesdeJson: true })
+      await sincronizarJsonConServiciosCotizacion({ forzarDesdeJson: false })
       await recargarInformeDesdeCotizacion()
     } catch (e) {
       console.error('[Cierre] Sincronizar BD:', e)
@@ -1384,6 +1390,7 @@ const ExpedienteFinanzas = ({
     })
   }
 
+  /** Total gastos reales: suma coste_real_proveedor en filas cargadas desde servicios_cotizacion (no JSON cierre). */
   const calcularTotalReal = () => {
     return (informeLiquidacion.costesReales || []).reduce((acc, servicio) => {
       return acc + toNum(servicio?.coste_real_proveedor)
@@ -2095,7 +2102,7 @@ const ExpedienteFinanzas = ({
                     type="button"
                     onClick={handleSincronizarConBaseDatos}
                     disabled={!expediente?.id || sincronizandoConBd || cargandoCotizacion}
-                    title="Graba en SQL costes y facturas desde versiones_json (rescate)"
+                    title="Rellena en SQL solo huecos de coste/factura desde versiones_json (no sobrescribe valores ya guardados)"
                     className={`text-sm border px-3 py-1.5 rounded-lg font-medium transition-colors ${sincronizandoConBd || cargandoCotizacion ? 'border-amber-200 bg-amber-50 text-amber-600 cursor-wait' : 'border-amber-600 text-amber-900 hover:bg-amber-50'}`}
                   >
                     {sincronizandoConBd ? '⏳ Sincronizando…' : 'Sincronizar con Base de Datos'}

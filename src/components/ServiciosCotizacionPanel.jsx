@@ -5,6 +5,11 @@ import ProveedorForm from './ProveedorForm'
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
+const esUuidServicioValido = (id) => {
+  if (id == null || typeof id !== 'string') return false
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id.trim())
+}
+
 /** Sanitización de números: cualquier valor no numérico → 0 (para cálculos financieros) */
 const toNum = (v) => {
   if (v === null || v === undefined) return 0
@@ -473,11 +478,27 @@ const ServiciosCotizacionPanel = ({
     const totalServicioFinal = (tipoNorm === 'guia' || tipoNorm === 'g')
       ? toNum(precioUnitario) * cantidadGuia
       : toNum(totalServicio)
+
+    const nombreDesdeCol = String(servicio?.nombre_servicio ?? '').trim()
+    const nombreDesdeEspecifico = String(servicio?.nombreEspecifico ?? servicio?.nombre_especifico ?? '').trim()
+    const nombreDesdeDescripcion = String(servicio?.descripcion ?? '').trim()
+    const tipoFallback = String(servicio?.tipo || servicio?.tipo_servicio || 'Hotel').trim()
+    const nombre_servicio = (
+      nombreDesdeCol
+      || nombreDesdeEspecifico
+      || nombreDesdeDescripcion
+      || tipoFallback
+      || 'Servicio'
+    )
+    const nombre_especifico = String(
+      servicio?.nombre_especifico ?? servicio?.nombreEspecifico ?? nombre_servicio
+    ).trim() || nombre_servicio
+
     return {
       id_expediente: String(expediente?.id ?? '').trim(),
       tipo_servicio: servicio?.tipo || 'Hotel',
-      nombre_servicio: servicio?.nombreEspecifico || '',
-      nombre_especifico: servicio?.nombreEspecifico || '',
+      nombre_servicio,
+      nombre_especifico,
       localizacion: servicio?.localizacion || '',
       especificacion_destino: (servicio?.especificacion_destino && String(servicio.especificacion_destino).trim()) || null,
       coste_unitario: toNum(precioUnitario),
@@ -499,14 +520,25 @@ const ServiciosCotizacionPanel = ({
         const esUuidValido = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
         return esUuidValido ? str : null
       })(),
+      ...(servicio?.nombre_proveedor_texto !== undefined && servicio?.nombre_proveedor_texto !== null && String(servicio.nombre_proveedor_texto).trim() !== ''
+        ? { nombre_proveedor_texto: String(servicio.nombre_proveedor_texto).trim() }
+        : {}),
+      ...(servicio?.coste_real_proveedor !== undefined && servicio?.coste_real_proveedor !== null && !Number.isNaN(Number(servicio.coste_real_proveedor))
+        ? { coste_real_proveedor: Number(servicio.coste_real_proveedor) }
+        : {}),
+      ...(servicio?.url_factura_pdf !== undefined && servicio?.url_factura_pdf !== null && String(servicio.url_factura_pdf).trim() !== ''
+        ? { url_factura_pdf: String(servicio.url_factura_pdf).trim() }
+        : {}),
+      ...(servicio?.pagado_a_proveedor !== undefined && servicio?.pagado_a_proveedor !== null
+        ? { pagado_a_proveedor: servicio.pagado_a_proveedor }
+        : {}),
     }
   }
 
-  /** Delete-then-insert for servicios_cotizacion to avoid 406 errors. Called only from manual Guardar. */
   const guardarTodosServiciosEnSupabase = async () => {
     const id = expedienteId || expediente?.id
     if (!id) {
-      console.error('[Guardar Servicios] ❌ Sin ID de expediente — imposible guardar.')
+      console.error('[Guardar Servicios] ❌ Sin ID de expediente')
       return { ok: false, error: 'Sin ID de expediente' }
     }
     if (!servicios?.length) {
@@ -515,18 +547,60 @@ const ServiciosCotizacionPanel = ({
     }
 
     const expIdStr = String(id).trim()
-    console.log('[Guardar Servicios] Iniciando guardado para expediente:', expIdStr, '| Servicios:', servicios.length)
 
     try {
-      const filasValidadas = servicios.map((s, index) => {
-        const datos = buildDatosParaSupabase(s)
-        return {
-          ...datos,
-          id_expediente: expIdStr,
-          id: s.id && typeof s.id === 'string' && s.id.length > 10 ? s.id : generarUUID(),
-          orden: index,
-        }
-      })
+      // 1. Cargar servicios EXISTENTES de SQL para preservar metadatos financieros
+      const { data: existentes } = await supabase
+        .from('servicios_cotizacion')
+        .select('id, coste_real_proveedor, url_factura_pdf, proveedor_id_int, nombre_proveedor_texto, nombre_proveedor_manual, pagado_a_proveedor')
+        .eq('id_expediente', expIdStr)
+
+      const existentesMap = new Map((existentes || []).map(e => [e.id, e]))
+
+      // 2. Preparar filas: merge datos UI + metadatos SQL (nunca machacar con null si ya existían)
+      const filasValidadas = servicios
+        .filter((s) => String(s?.id || '').trim() !== SERVICIO_ANOMALO_ID)
+        .map((s, index) => {
+          const datos = buildDatosParaSupabase(s)
+          const idFinal = esUuidServicioValido(s.id) ? s.id.trim() : generarUUID()
+          const existente = existentesMap.get(idFinal)
+
+          const nombreProveedorNuevo =
+            datos.nombre_proveedor_texto
+            ?? (datos.nombre_proveedor_manual != null && String(datos.nombre_proveedor_manual).trim() !== ''
+              ? String(datos.nombre_proveedor_manual).trim()
+              : undefined)
+
+          return {
+            ...datos,
+            id_expediente: expIdStr,
+            id: idFinal,
+            orden: index,
+            coste_real_proveedor:
+              datos.coste_real_proveedor !== undefined && datos.coste_real_proveedor !== null
+                ? datos.coste_real_proveedor
+                : (existente?.coste_real_proveedor ?? null),
+            url_factura_pdf:
+              datos.url_factura_pdf !== undefined && datos.url_factura_pdf !== null && String(datos.url_factura_pdf).trim() !== ''
+                ? String(datos.url_factura_pdf).trim()
+                : (existente?.url_factura_pdf ?? null),
+            proveedor_id_int:
+              datos.proveedor_id_int !== undefined && datos.proveedor_id_int !== null
+                ? datos.proveedor_id_int
+                : (existente?.proveedor_id_int ?? null),
+            nombre_proveedor_texto:
+              nombreProveedorNuevo !== undefined
+                ? nombreProveedorNuevo
+                : (existente?.nombre_proveedor_texto ?? existente?.nombre_proveedor_manual ?? null),
+            pagado_a_proveedor:
+              datos.pagado_a_proveedor !== undefined && datos.pagado_a_proveedor !== null
+                ? datos.pagado_a_proveedor
+                : (existente?.pagado_a_proveedor ?? null),
+            __esUpdate: Boolean(existente),
+          }
+        })
+
+      // 3. Validar
       const invalidas = filasValidadas.filter((r) => {
         const nombre = String(r.nombre_servicio || '').trim()
         const total = Number(r.total_servicio || 0)
@@ -538,57 +612,51 @@ const ServiciosCotizacionPanel = ({
         return { ok: false, error: 'Validación de servicios fallida' }
       }
 
-      if (!window.confirm('Se reemplazarán los servicios existentes del expediente. ¿Confirmas continuar?')) {
+      if (!window.confirm('Se guardarán los servicios del expediente. ¿Confirmas continuar?')) {
         return { ok: false, error: 'Operación cancelada por el usuario' }
       }
 
-      // 1. Borrar filas existentes
-      const { error: deleteError } = await supabase
-        .from('servicios_cotizacion')
-        .delete()
-        .eq('id_expediente', expIdStr)
-
-      if (deleteError) {
-        console.error('[Guardar Servicios] ❌ Error en DELETE:', deleteError.message, deleteError)
-        alert(`Error al limpiar servicios previos:\n${deleteError.message}`)
-        return { ok: false, error: deleteError.message }
-      }
-      console.log('[Guardar Servicios] DELETE OK')
-
-      // 2. Preparar filas — usar expIdStr para id_expediente (no expediente?.id que puede variar)
-      const rowsToInsert = filasValidadas.filter((r) => String(r.id || '').trim() !== SERVICIO_ANOMALO_ID)
-      console.log('[Guardar Servicios] Filas a insertar:', rowsToInsert.length, '| Primer id_expediente:', rowsToInsert[0]?.id_expediente)
-
-      // 3. Insertar
-      const { data, error: insertError } = await supabase
-        .from('servicios_cotizacion')
-        .insert(rowsToInsert)
-        .select('id')
-
-      if (insertError) {
-        console.error('[Guardar Servicios] ❌ Error en INSERT:', insertError.message, insertError)
-        alert(`Error al guardar los servicios:\n${insertError.message}\n\nCódigo: ${insertError.code || 'N/A'}`)
-        return { ok: false, error: insertError.message }
-      }
-
-      console.log('[Guardar Servicios] INSERT OK — filas confirmadas:', data?.length)
-
-      // 4. Verificar que Supabase devolvió el mismo número de filas
-      if (data && Array.isArray(data) && data.length !== servicios.length) {
-        console.warn(`[Guardar Servicios] ⚠ Discrepancia: se enviaron ${servicios.length} pero se confirmaron ${data.length}`)
+      // 4. UPDATE filas existentes / INSERT nuevas (sin upsert ni delete masivo)
+      const dataConfirmados = []
+      for (const row of filasValidadas) {
+        const { __esUpdate, id: rowId, ...payloadSinId } = row
+        if (__esUpdate) {
+          const { data: upd, error: errUp } = await supabase
+            .from('servicios_cotizacion')
+            .update(payloadSinId)
+            .eq('id', rowId)
+            .eq('id_expediente', expIdStr)
+            .select('id')
+            .maybeSingle()
+          if (errUp) {
+            console.error('[Guardar Servicios] ❌ Error en UPDATE:', errUp.message, errUp)
+            alert(`Error al actualizar servicio ${rowId}:\n${errUp.message}\n\nCódigo: ${errUp.code || 'N/A'}`)
+            return { ok: false, error: errUp.message }
+          }
+          if (upd?.id) dataConfirmados.push(upd)
+        } else {
+          const filaInsert = { id: rowId, ...payloadSinId }
+          const { data: ins, error: errIn } = await supabase
+            .from('servicios_cotizacion')
+            .insert(filaInsert)
+            .select('id')
+            .maybeSingle()
+          if (errIn) {
+            console.error('[Guardar Servicios] ❌ Error en INSERT:', errIn.message, errIn)
+            alert(`Error al insertar servicio:\n${errIn.message}\n\nCódigo: ${errIn.code || 'N/A'}`)
+            return { ok: false, error: errIn.message }
+          }
+          if (ins?.id) dataConfirmados.push(ins)
+        }
       }
 
-      if (data && Array.isArray(data) && data.length === servicios.length) {
-        setServicios((prev) =>
-          prev.map((s, i) => (data[i]?.id ? { ...s, id: data[i].id } : s))
-        )
-      }
-      if (typeof onRefresh === 'function') onRefresh()
-      return { ok: true }
+      console.log('[Guardar Servicios] UPDATE/INSERT OK — filas confirmadas:', dataConfirmados?.length)
+      await onRefresh?.()
+      return { ok: true, data: dataConfirmados }
+
     } catch (err) {
-      console.error('[Guardar Servicios] ❌ Excepción inesperada:', err)
-      alert(`Error inesperado al guardar:\n${err?.message || String(err)}`)
-      return { ok: false, error: err?.message || String(err) }
+      console.error('[Guardar Servicios] ❌ Error general:', err)
+      return { ok: false, error: err.message }
     }
   }
 
