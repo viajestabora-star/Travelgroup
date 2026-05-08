@@ -869,6 +869,7 @@ const ExpedienteFinanzas = ({
   const [cargandoCotizacion, setCargandoCotizacion] = React.useState(false)
   const [errorCargaCotizacion, setErrorCargaCotizacion] = React.useState(null)
   const [sincronizandoConBd, setSincronizandoConBd] = React.useState(false)
+  const [serviciosCotizacionSqlRows, setServiciosCotizacionSqlRows] = React.useState([])
 
   /** Insert minimizado desde JSON — mismo espíritu que ServiciosCotizacionPanel.buildDatosParaSupabase */
   const construirFilaInsertServiciosCotizacionDesdeJson = (sv, idExpediente, orden) => {
@@ -1063,6 +1064,7 @@ const ExpedienteFinanzas = ({
       } else if (Array.isArray(scRows)) {
         serviciosCotizacionRows = scRows
       }
+      setServiciosCotizacionSqlRows(serviciosCotizacionRows)
       if (serviciosCotizacionRows.length === 0) {
         console.error('ERROR: No se encuentran servicios en SQL')
       }
@@ -1188,6 +1190,52 @@ const ExpedienteFinanzas = ({
     }
   }
 
+  const costesRealesDerivadosDesdeSql = React.useMemo(() => {
+    const rows = Array.isArray(serviciosCotizacionSqlRows) ? serviciosCotizacionSqlRows : []
+    return rows.map((s) => {
+      const provId = s?.proveedor_id_int || null
+      const sid = String(s?.id ?? generarUUID())
+      const fallbackVisual = nombresDesdeVersiones[sid] || null
+      const nombreComercialCache = obtenerProveedorPorId && provId != null
+        ? obtenerProveedorPorId(provId)?.nombreComercial
+        : null
+      const proveedor = nombreComercialCache
+        || s?.nombre_proveedor_texto
+        || s?.nombre_proveedor_manual
+        || fallbackVisual?.proveedor
+        || 'Pendiente de asignar'
+      const concepto = String(
+        s?.nombre_servicio
+        || s?.nombre_especifico
+        || s?.concepto
+        || fallbackVisual?.concepto
+        || ''
+      ).trim() || 'Servicio'
+      const costeCotizado = toNum(s?.total_servicio)
+      const costeRealProveedor = s?.coste_real_proveedor != null && !Number.isNaN(Number(s?.coste_real_proveedor))
+        ? toNum(s.coste_real_proveedor)
+        : null
+      const costeReal = costeRealProveedor != null ? costeRealProveedor : costeCotizado
+      const urlFactura = String(s?.url_factura_pdf || '').trim() || null
+      return {
+        id: sid,
+        id_servicio: sid,
+        concepto,
+        proveedor,
+        proveedor_id_int: provId != null && !Number.isNaN(Number(provId)) ? Number(provId) : null,
+        coste_cotizado: costeCotizado,
+        coste_real_proveedor: costeRealProveedor,
+        coste_real: costeReal,
+        url_factura_pdf: urlFactura,
+        url_pdf: urlFactura,
+      }
+    })
+  }, [serviciosCotizacionSqlRows, nombresDesdeVersiones, obtenerProveedorPorId])
+
+  const costesRealesVista = costesRealesDerivadosDesdeSql.length > 0
+    ? costesRealesDerivadosDesdeSql
+    : (informeLiquidacion.costesReales || [])
+
   const actualizarCosteReal = (idServicio, costeReal) => {
     const raw = String(costeReal ?? '').trim()
     const parsed = raw === '' ? null : toNum(costeReal)
@@ -1251,6 +1299,9 @@ const ExpedienteFinanzas = ({
             : c
         ),
       }))
+      setServiciosCotizacionSqlRows(prev => (Array.isArray(prev) ? prev : []).map(r =>
+        String(r?.id) === String(idServicio) ? { ...r, coste_real_proveedor: confirmado } : r
+      ))
       await onRefresh?.()
     } catch (e) {
       console.error('[cierre] guardarCosteRealEnBD excepción:', e)
@@ -1336,6 +1387,9 @@ const ExpedienteFinanzas = ({
           ? { ...c, url_factura_pdf: urlConfirmada, _url_pdf_pago: urlConfirmada, url_pdf: urlConfirmada }
           : c
       )
+      setServiciosCotizacionSqlRows(prev => (Array.isArray(prev) ? prev : []).map(r =>
+        String(r?.id) === String(idServicio) ? { ...r, url_factura_pdf: urlConfirmada } : r
+      ))
       setServiciosLocalCierre(nuevosCostesReales)
       const existenteCg = expediente?.cierre_grupo || {}
       const nuevoCierre = { ...existenteCg, costesReales: nuevosCostesReales }
@@ -1392,7 +1446,7 @@ const ExpedienteFinanzas = ({
 
   /** Total gastos reales: suma coste_real_proveedor en filas cargadas desde servicios_cotizacion (no JSON cierre). */
   const calcularTotalReal = () => {
-    return (informeLiquidacion.costesReales || []).reduce((acc, servicio) => {
+    return (costesRealesVista || []).reduce((acc, servicio) => {
       return acc + toNum(servicio?.coste_real_proveedor)
     }, 0)
   }
@@ -1433,7 +1487,7 @@ const ExpedienteFinanzas = ({
     const firmaCierre = {
       expediente_id: expediente.id,
       estado_objetivo: 'Cerrado',
-      total_costes: (informeLiquidacion?.costesReales || []).length,
+      total_costes: (costesRealesVista || []).length,
       total_imprevistos: (informeLiquidacion?.gastosImprevistos || []).length,
     }
     if (esSubmitDuplicadoReciente('guardarCierre', firmaCierre)) return
@@ -1459,7 +1513,7 @@ const ExpedienteFinanzas = ({
       const ivaCalculado = n(ivaPagado)
       const beneficioCalculado = n(beneficioLimpio)
 
-      const costesRealesArr = (informeLiquidacion.costesReales || []).map((c) => ({
+      const costesRealesArr = (costesRealesVista || []).map((c) => ({
         id_servicio: c.id_servicio,
         concepto: c.concepto || '',
         proveedor: c.proveedor || '',
@@ -2116,7 +2170,7 @@ const ExpedienteFinanzas = ({
                   <button type="button" onClick={() => setErrorCargaCotizacion(null)} className="ml-auto text-red-400 hover:text-red-600 font-bold">✕</button>
                 </div>
               )}
-              {(informeLiquidacion.costesReales || []).length === 0 ? (
+              {(costesRealesVista || []).length === 0 ? (
                 <div className="py-6 text-center text-slate-500 text-sm border border-slate-200 rounded-lg bg-slate-50">
                   No hay servicios. Abre la pestaña Cotización, añade servicios y pulsa «Cargar desde Cotización».
                 </div>
@@ -2133,7 +2187,7 @@ const ExpedienteFinanzas = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {(informeLiquidacion.costesReales || []).map((servicio, idx) => (
+                      {(costesRealesVista || []).map((servicio, idx) => (
                         <CierreServicioRow
                           key={servicio.id_servicio || `cr-${idx}`}
                           servicio={servicio}
