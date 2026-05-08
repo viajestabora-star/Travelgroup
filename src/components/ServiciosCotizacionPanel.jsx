@@ -327,11 +327,12 @@ const ServiciosCotizacionPanel = ({
             return {
               ...DEFAULT_SERVICE_VALUES,
               id: row.id || generarUUID(),
+              nombre_servicio: row.nombre_servicio || row.nombre_especifico || '',
               proveedorId: proveedorIdInt,
               proveedorNombreTemporal: row.nombre_proveedor_manual || '',
               tipo: row.tipo_servicio || row.tipo || 'Hotel',
               tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
-              nombreEspecifico: row.nombre_especifico || '',
+              nombreEspecifico: row.nombre_servicio || row.nombre_especifico || '',
               localizacion: row.localizacion || '',
               especificacion_destino: row.especificacion_destino || '',
               coste_unitario: coste,
@@ -479,25 +480,23 @@ const ServiciosCotizacionPanel = ({
       ? toNum(precioUnitario) * cantidadGuia
       : toNum(totalServicio)
 
-    const nombreDesdeCol = String(servicio?.nombre_servicio ?? '').trim()
-    const nombreDesdeEspecifico = String(servicio?.nombreEspecifico ?? servicio?.nombre_especifico ?? '').trim()
-    const nombreDesdeDescripcion = String(servicio?.descripcion ?? '').trim()
-    const tipoFallback = String(servicio?.tipo || servicio?.tipo_servicio || 'Hotel').trim()
-    const nombre_servicio = (
-      nombreDesdeCol
-      || nombreDesdeEspecifico
-      || nombreDesdeDescripcion
-      || tipoFallback
-      || 'Servicio'
-    )
+    const conceptoPrincipal = String(
+      servicio?.nombre_servicio
+      ?? servicio?.nombreEspecifico
+      ?? servicio?.nombre_especifico
+      ?? servicio?.descripcion
+      ?? servicio?.tipo
+      ?? servicio?.tipo_servicio
+      ?? 'Servicio'
+    ).trim() || 'Servicio'
     const nombre_especifico = String(
-      servicio?.nombre_especifico ?? servicio?.nombreEspecifico ?? nombre_servicio
-    ).trim() || nombre_servicio
+      servicio?.nombreEspecifico ?? servicio?.nombre_especifico ?? conceptoPrincipal
+    ).trim() || conceptoPrincipal
 
     return {
       id_expediente: String(expediente?.id ?? '').trim(),
       tipo_servicio: servicio?.tipo || 'Hotel',
-      nombre_servicio,
+      nombre_servicio: conceptoPrincipal,
       nombre_especifico,
       localizacion: servicio?.localizacion || '',
       especificacion_destino: (servicio?.especificacion_destino && String(servicio.especificacion_destino).trim()) || null,
@@ -523,15 +522,6 @@ const ServiciosCotizacionPanel = ({
       ...(servicio?.nombre_proveedor_texto !== undefined && servicio?.nombre_proveedor_texto !== null && String(servicio.nombre_proveedor_texto).trim() !== ''
         ? { nombre_proveedor_texto: String(servicio.nombre_proveedor_texto).trim() }
         : {}),
-      ...(servicio?.coste_real_proveedor !== undefined && servicio?.coste_real_proveedor !== null && !Number.isNaN(Number(servicio.coste_real_proveedor))
-        ? { coste_real_proveedor: Number(servicio.coste_real_proveedor) }
-        : {}),
-      ...(servicio?.url_factura_pdf !== undefined && servicio?.url_factura_pdf !== null && String(servicio.url_factura_pdf).trim() !== ''
-        ? { url_factura_pdf: String(servicio.url_factura_pdf).trim() }
-        : {}),
-      ...(servicio?.pagado_a_proveedor !== undefined && servicio?.pagado_a_proveedor !== null
-        ? { pagado_a_proveedor: servicio.pagado_a_proveedor }
-        : {}),
     }
   }
 
@@ -549,15 +539,19 @@ const ServiciosCotizacionPanel = ({
     const expIdStr = String(id).trim()
 
     try {
-      // 1. Cargar registros EXISTENTES para merge seguro (preservar metadatos y columnas no gestionadas por cotización)
-      const { data: existentes } = await supabase
+      // 1. Fetch previo del estado real en DB (base obligatoria para merge no destructivo)
+      const { data: existentes, error: errorExistentes } = await supabase
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', expIdStr)
+      if (errorExistentes) {
+        console.error('[Guardar Servicios] ❌ Error al leer estado actual:', errorExistentes.message, errorExistentes)
+        return { ok: false, error: errorExistentes.message }
+      }
 
       const existentesMap = new Map((existentes || []).map(e => [e.id, e]))
 
-      // 2. Preparar filas: base SQL + overwrite SOLO campos gestionados por panel cotización.
+      // 2. Merge determinista: base SQL + overwrite SOLO campos gestionados por UI.
       const filasValidadas = servicios
         .filter((s) => String(s?.id || '').trim() !== SERVICIO_ANOMALO_ID)
         .map((s, index) => {
@@ -599,9 +593,17 @@ const ServiciosCotizacionPanel = ({
             id: idFinal,
           }
 
+          // Blindaje financiero: si ya existen en DB, estos metadatos NUNCA se pisan desde cotización.
+          const metadatosFinancierosBlindados = {
+            coste_real_proveedor: existente?.coste_real_proveedor ?? (datos?.coste_real_proveedor ?? null),
+            url_factura_pdf: existente?.url_factura_pdf ?? (datos?.url_factura_pdf ?? null),
+            pagado_a_proveedor: existente?.pagado_a_proveedor ?? (datos?.pagado_a_proveedor ?? null),
+          }
+
           return {
             ...existente,
             ...camposGestionadosCotizacion,
+            ...metadatosFinancierosBlindados,
             __esUpdate: Boolean(existentesMap.get(idFinal)),
           }
         })
