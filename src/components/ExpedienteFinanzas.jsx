@@ -1041,8 +1041,6 @@ const ExpedienteFinanzas = ({
     informeLiquidacionInicializadoRef.current = false
 
     try {
-      await sincronizarJsonConServiciosCotizacion({ forzarDesdeJson: false })
-
       // 1) Datos base de expediente para ingresos
       const { data: expFresco, error: errExp } = await supabase
         .from('expedientes')
@@ -1055,10 +1053,9 @@ const ExpedienteFinanzas = ({
       let serviciosCotizacionRows = []
       const { data: scRows, error: scErr } = await supabase
         .from('servicios_cotizacion')
-        .select('id, id_expediente, nombre_servicio, proveedor_id_int, nombre_proveedor_texto, total_servicio, coste_real_proveedor, url_factura_pdf')
+        .select('*')
         .eq('id_expediente', String(expediente.id).trim())
         .order('orden', { ascending: true })
-        .order('id', { ascending: true })
       if (scErr) {
         console.warn('[Cierre] servicios_cotizacion (load):', scErr)
       } else if (Array.isArray(scRows)) {
@@ -1069,22 +1066,7 @@ const ExpedienteFinanzas = ({
         console.error('ERROR: No se encuentran servicios en SQL')
       }
 
-      // 3) Nombre proveedor
-      const idsNecesarios = [...new Set(
-        serviciosCotizacionRows
-          .map(s => s?.proveedor_id_int)
-          .filter(id => id != null && id !== '')
-      )]
-      let proveedoresMap = {}
-      if (idsNecesarios.length > 0) {
-        const { data: provsDB } = await supabase
-          .from('proveedores')
-          .select('id, nombre_comercial')
-          .in('id', idsNecesarios)
-        if (Array.isArray(provsDB)) provsDB.forEach(p => { proveedoresMap[p.id] = p.nombre_comercial })
-      }
-
-      // 4) Ingresos
+      // 3) Ingresos
       const paxTotalFresco = toNum(expFresco?.total_pax) || toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0
       const gratuidadesFrescas = toNum(expFresco?.gratuidades) || toNum(expediente?.gratuidades) || toNum(formData?.gratuidades) || 0
       const paxPagoFresco = toNum(expFresco?.pax_pago) || Math.max(0, paxTotalFresco - gratuidadesFrescas) || paxPago
@@ -1095,56 +1077,14 @@ const ExpedienteFinanzas = ({
       const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
       const descuentosVal = bonificacionFresco * paxPagoFresco
 
-      // 5) Filas para render de cierre
-      const costesRealesIniciales = serviciosCotizacionRows.map((s) => {
-        const provId = s?.proveedor_id_int || null
-        const sidFinal = String(s?.id ?? generarUUID())
-        const fallbackVisual = nombresDesdeVersiones[sidFinal] || null
-        const nombreComercialCache = obtenerProveedorPorId && provId != null
-          ? obtenerProveedorPorId(provId)?.nombreComercial
-          : null
-        const proveedor = nombreComercialCache
-          || (provId != null ? proveedoresMap[provId] : null)
-          || s?.nombre_proveedor_texto
-          || fallbackVisual?.proveedor
-          || 'Pendiente de asignar'
-        const costeCotizado = toNum(s?.total_servicio) || calcularTotalFilaUI({ ...DEFAULT_SERVICE_VALUES, ...s })
-        const costeRealProveedor = s?.coste_real_proveedor != null && !Number.isNaN(Number(s?.coste_real_proveedor))
-          ? toNum(s.coste_real_proveedor)
-          : null
-        const costeReal = (costeRealProveedor != null && !Number.isNaN(Number(costeRealProveedor)))
-          ? toNum(costeRealProveedor)
-          : costeCotizado
-        const url_factura_pdf = String(s?.url_factura_pdf || '').trim() || null
-        const proveedor_id_int = provId != null && provId !== '' && !Number.isNaN(Number(provId))
-          ? Number(provId)
-          : null
-        const conceptoFinal = String(s?.nombre_servicio || s?.concepto || fallbackVisual?.concepto || '').trim() || 'Cargando concepto...'
-        return {
-          id: sidFinal,
-          id_servicio: sidFinal,
-          concepto: conceptoFinal,
-          proveedor,
-          proveedor_id_int,
-          version_index: null,
-          coste_cotizado: costeCotizado,
-          coste_real: costeReal,
-          coste_real_proveedor: (costeRealProveedor != null && !Number.isNaN(Number(costeRealProveedor))) ? toNum(costeRealProveedor) : null,
-          url_factura_pdf,
-          _url_pdf_pago: url_factura_pdf,
-          url_pdf: url_factura_pdf,
-        }
-      })
-
-      // 6) Commit state
+      // 4) Commit state
       setInformeLiquidacion(prev => ({
         ...prev,
         ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal },
-        costesReales: costesRealesIniciales,
         gastosImprevistos: prev.gastosImprevistos || [],
       }))
 
-      // 7) PAX por asociación
+      // 5) PAX por asociación
       const guardado = expediente?.cierre_grupo?.pax_por_asociacion
       if (!Array.isArray(guardado) || guardado.length === 0) {
         if (expedienteClientes.length > 0) {
@@ -1195,27 +1135,19 @@ const ExpedienteFinanzas = ({
     return rows.map((s) => {
       const provId = s?.proveedor_id_int || null
       const sid = String(s?.id ?? generarUUID())
-      const fallbackVisual = nombresDesdeVersiones[sid] || null
-      const nombreComercialCache = obtenerProveedorPorId && provId != null
-        ? obtenerProveedorPorId(provId)?.nombreComercial
-        : null
-      const proveedor = nombreComercialCache
-        || s?.nombre_proveedor_texto
+      const proveedor = String(
+        s?.nombre_proveedor_texto
         || s?.nombre_proveedor_manual
-        || fallbackVisual?.proveedor
-        || 'Pendiente de asignar'
-      const concepto = String(
-        s?.nombre_servicio
-        || s?.nombre_especifico
-        || s?.concepto
-        || fallbackVisual?.concepto
-        || ''
-      ).trim() || 'Servicio'
-      const costeCotizado = toNum(s?.total_servicio)
+        || (provId != null && provId !== '' ? provId : '')
+      ).trim() || 'Pendiente de asignar'
+      const concepto = String(s?.nombre_servicio || '').trim() || 'Servicio'
       const costeRealProveedor = s?.coste_real_proveedor != null && !Number.isNaN(Number(s?.coste_real_proveedor))
         ? toNum(s.coste_real_proveedor)
         : null
-      const costeReal = costeRealProveedor != null ? costeRealProveedor : costeCotizado
+      const costeCotizado = toNum(s?.coste_total_servicio ?? s?.total_servicio)
+      const costeReal = costeRealProveedor != null
+        ? costeRealProveedor
+        : costeCotizado
       const urlFactura = String(s?.url_factura_pdf || '').trim() || null
       return {
         id: sid,
@@ -1228,13 +1160,12 @@ const ExpedienteFinanzas = ({
         coste_real: costeReal,
         url_factura_pdf: urlFactura,
         url_pdf: urlFactura,
+        pagado: Boolean(s?.pagado_a_proveedor),
       }
     })
-  }, [serviciosCotizacionSqlRows, nombresDesdeVersiones, obtenerProveedorPorId])
+  }, [serviciosCotizacionSqlRows])
 
-  const costesRealesVista = costesRealesDerivadosDesdeSql.length > 0
-    ? costesRealesDerivadosDesdeSql
-    : (informeLiquidacion.costesReales || [])
+  const costesRealesVista = costesRealesDerivadosDesdeSql
 
   const actualizarCosteReal = (idServicio, costeReal) => {
     const raw = String(costeReal ?? '').trim()
@@ -1255,15 +1186,6 @@ const ExpedienteFinanzas = ({
 
   // Estado para subidas de PDF por fila (map idServicio → boolean)
   const [subiendoPdfCierre, setSubiendoPdfCierre] = useState({})
-
-  // Setter local explícito para servicios de cierre (costesReales) tras cambios en DB.
-  const setServiciosLocalCierre = (updater) => {
-    setInformeLiquidacion(prev => {
-      const base = Array.isArray(prev?.costesReales) ? prev.costesReales : []
-      const next = typeof updater === 'function' ? updater(base) : updater
-      return { ...prev, costesReales: Array.isArray(next) ? next : base }
-    })
-  }
 
   // Persiste precio real directamente en SQL (servicios_cotizacion.coste_real_proveedor)
   const guardarCosteRealEnBD = async (idServicio, valor) => {
@@ -1315,7 +1237,7 @@ const ExpedienteFinanzas = ({
     if (!file || !expediente?.id) return
     const tenantEid = Number(expediente?.empresa_id || user?.empresa_id || empresaId) || null
     if (!tenantEid) { alert('No hay empresa_id disponible para subir el PDF.'); return }
-    const fila = (informeLiquidacion.costesReales || []).find(c => c.id_servicio === idServicio)
+    const fila = (costesRealesVista || []).find(c => c.id_servicio === idServicio)
     if (!fila) return
 
     setSubiendoPdfCierre(prev => ({ ...prev, [idServicio]: true }))
@@ -1382,28 +1304,11 @@ const ExpedienteFinanzas = ({
         if (insErr) console.error('[cierre] subir PDF insert pagos_proveedores:', insErr)
       }
 
-      const nuevosCostesReales = (informeLiquidacion.costesReales || []).map(c =>
-        c.id_servicio === idServicio
-          ? { ...c, url_factura_pdf: urlConfirmada, _url_pdf_pago: urlConfirmada, url_pdf: urlConfirmada }
-          : c
-      )
       setServiciosCotizacionSqlRows(prev => (Array.isArray(prev) ? prev : []).map(r =>
         String(r?.id) === String(idServicio) ? { ...r, url_factura_pdf: urlConfirmada } : r
       ))
-      setServiciosLocalCierre(nuevosCostesReales)
-      const existenteCg = expediente?.cierre_grupo || {}
-      const nuevoCierre = { ...existenteCg, costesReales: nuevosCostesReales }
-      const { error: dbErr } = await supabase
-        .from('expedientes')
-        .update({ cierre_grupo: nuevoCierre })
-        .eq('id', expediente.id)
-      if (dbErr) console.error('[cierre] subir PDF cierre_grupo:', dbErr)
-
-      if (onUpdate) {
-        onUpdate({ ...expediente, cierre_grupo: nuevoCierre })
-      }
-      await onRefresh?.()
       await recargarInformeDesdeCotizacion()
+      await onRefresh?.()
     } catch (e) {
       console.error('[cierre] subirYVincularPdfCierre excepción:', e)
       alert(e.message || 'Error inesperado al subir el PDF.')
