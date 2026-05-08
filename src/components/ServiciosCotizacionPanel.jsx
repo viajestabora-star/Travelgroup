@@ -549,54 +549,60 @@ const ServiciosCotizacionPanel = ({
     const expIdStr = String(id).trim()
 
     try {
-      // 1. Cargar servicios EXISTENTES de SQL para preservar metadatos financieros
+      // 1. Cargar registros EXISTENTES para merge seguro (preservar metadatos y columnas no gestionadas por cotización)
       const { data: existentes } = await supabase
         .from('servicios_cotizacion')
-        .select('id, coste_real_proveedor, url_factura_pdf, proveedor_id_int, nombre_proveedor_texto, nombre_proveedor_manual, pagado_a_proveedor')
+        .select('*')
         .eq('id_expediente', expIdStr)
 
       const existentesMap = new Map((existentes || []).map(e => [e.id, e]))
 
-      // 2. Preparar filas: merge datos UI + metadatos SQL (nunca machacar con null si ya existían)
+      // 2. Preparar filas: base SQL + overwrite SOLO campos gestionados por panel cotización.
       const filasValidadas = servicios
         .filter((s) => String(s?.id || '').trim() !== SERVICIO_ANOMALO_ID)
         .map((s, index) => {
           const datos = buildDatosParaSupabase(s)
           const idFinal = esUuidServicioValido(s.id) ? s.id.trim() : generarUUID()
-          const existente = existentesMap.get(idFinal)
+          const existente = existentesMap.get(idFinal) || {}
 
-          const nombreProveedorNuevo =
-            datos.nombre_proveedor_texto
-            ?? (datos.nombre_proveedor_manual != null && String(datos.nombre_proveedor_manual).trim() !== ''
-              ? String(datos.nombre_proveedor_manual).trim()
-              : undefined)
+          const nombreProveedorTextoGestionado =
+            datos.nombre_proveedor_texto != null && String(datos.nombre_proveedor_texto).trim() !== ''
+              ? String(datos.nombre_proveedor_texto).trim()
+              : (
+                datos.nombre_proveedor_manual != null && String(datos.nombre_proveedor_manual).trim() !== ''
+                  ? String(datos.nombre_proveedor_manual).trim()
+                  : null
+              )
 
-          return {
-            ...datos,
+          const camposGestionadosCotizacion = {
+            tipo_servicio: datos.tipo_servicio,
+            nombre_servicio: datos.nombre_servicio,
+            nombre_especifico: datos.nombre_especifico,
+            localizacion: datos.localizacion,
+            especificacion_destino: datos.especificacion_destino,
+            coste_unitario: datos.coste_unitario,
+            total_servicio: datos.total_servicio,
+            precio_venta: datos.precio_venta,
+            margen_pax: datos.margen_pax,
+            noches: datos.noches,
+            dias_guia: datos.dias_guia,
+            cantidad: datos.cantidad,
+            fecha_release: datos.fecha_release,
+            release_pagado: datos.release_pagado,
+            tipo_calculo: datos.tipo_calculo,
+            proveedor_id_int: datos.proveedor_id_int,
+            nombre_proveedor_manual: datos.nombre_proveedor_manual,
+            nombre_proveedor_texto: nombreProveedorTextoGestionado,
+            mayorista_id: datos.mayorista_id,
+            orden: index,
             id_expediente: expIdStr,
             id: idFinal,
-            orden: index,
-            coste_real_proveedor:
-              datos.coste_real_proveedor !== undefined && datos.coste_real_proveedor !== null
-                ? datos.coste_real_proveedor
-                : (existente?.coste_real_proveedor ?? null),
-            url_factura_pdf:
-              datos.url_factura_pdf !== undefined && datos.url_factura_pdf !== null && String(datos.url_factura_pdf).trim() !== ''
-                ? String(datos.url_factura_pdf).trim()
-                : (existente?.url_factura_pdf ?? null),
-            proveedor_id_int:
-              datos.proveedor_id_int !== undefined && datos.proveedor_id_int !== null
-                ? datos.proveedor_id_int
-                : (existente?.proveedor_id_int ?? null),
-            nombre_proveedor_texto:
-              nombreProveedorNuevo !== undefined
-                ? nombreProveedorNuevo
-                : (existente?.nombre_proveedor_texto ?? existente?.nombre_proveedor_manual ?? null),
-            pagado_a_proveedor:
-              datos.pagado_a_proveedor !== undefined && datos.pagado_a_proveedor !== null
-                ? datos.pagado_a_proveedor
-                : (existente?.pagado_a_proveedor ?? null),
-            __esUpdate: Boolean(existente),
+          }
+
+          return {
+            ...existente,
+            ...camposGestionadosCotizacion,
+            __esUpdate: Boolean(existentesMap.get(idFinal)),
           }
         })
 
