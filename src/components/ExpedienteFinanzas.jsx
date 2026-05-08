@@ -94,69 +94,6 @@ const proveedorInformeTexto = (proveedor) => {
   return txt || 'Varios/Sin asignar'
 }
 
-/** Parse seguro de expedientes.versiones_json (objeto o string). */
-function parseVersionesJsonBruto(raw) {
-  if (raw == null) return null
-  if (typeof raw === 'string') {
-    try {
-      const p = JSON.parse(raw)
-      return p && typeof p === 'object' ? p : null
-    } catch {
-      return null
-    }
-  }
-  return typeof raw === 'object' ? raw : null
-}
-
-/**
- * Lista servicios para rescate: primero versiones_json.servicios (si existe),
- * luego cada versiones[].servicios — el último que aparezca por id gana.
- */
-function listarServiciosRescateVersionesJson(versionesJsonRaw) {
-  const map = new Map()
-  const setSv = (sv) => {
-    if (!sv || typeof sv !== 'object') return
-    const id = String(sv.id ?? '').trim()
-    if (!id) return
-    map.set(id, sv)
-  }
-  const root = parseVersionesJsonBruto(versionesJsonRaw)
-  if (!root) return []
-  if (Array.isArray(root.servicios)) root.servicios.forEach(setSv)
-  if (Array.isArray(root.versiones)) {
-    for (const v of root.versiones) {
-      (v?.servicios || []).forEach(setSv)
-    }
-  }
-  return [...map.values()]
-}
-
-function costeRealProveedorDesdeServicioJson(sv) {
-  const candidates = [sv?.coste_real_proveedor, sv?.coste_real]
-  for (const c of candidates) {
-    if (c == null || c === '') continue
-    const n = Number(c)
-    if (Number.isFinite(n)) return n
-  }
-  return null
-}
-
-function urlFacturaDesdeServicioJson(sv) {
-  const u = sv?.url_factura_pdf ?? sv?.url_factura ?? sv?.factura_pdf ?? ''
-  const t = String(u || '').trim()
-  return t || null
-}
-
-function sqlTieneCosteReal(row) {
-  if (!row) return false
-  const v = row.coste_real_proveedor
-  return v != null && v !== '' && Number.isFinite(Number(v))
-}
-
-function sqlTieneUrlFactura(row) {
-  return Boolean(row && String(row.url_factura_pdf || '').trim())
-}
-
 const CierreServicioRow = ({
   servicio,
   idx,
@@ -868,171 +805,7 @@ const ExpedienteFinanzas = ({
 
   const [cargandoCotizacion, setCargandoCotizacion] = React.useState(false)
   const [errorCargaCotizacion, setErrorCargaCotizacion] = React.useState(null)
-  const [sincronizandoConBd, setSincronizandoConBd] = React.useState(false)
   const [serviciosCotizacionSqlRows, setServiciosCotizacionSqlRows] = React.useState([])
-
-  /** Insert minimizado desde JSON — mismo espíritu que ServiciosCotizacionPanel.buildDatosParaSupabase */
-  const construirFilaInsertServiciosCotizacionDesdeJson = (sv, idExpediente, orden) => {
-    const merged = {
-      ...DEFAULT_SERVICE_VALUES,
-      ...sv,
-      tipo: sv?.tipo || sv?.tipo_servicio || DEFAULT_SERVICE_VALUES.tipo,
-      tipo_servicio: sv?.tipo_servicio || sv?.tipo || DEFAULT_SERVICE_VALUES.tipo_servicio,
-      nombreEspecifico: sv?.nombreEspecifico ?? sv?.nombre_especifico ?? '',
-      nombre_especifico: sv?.nombre_especifico ?? sv?.nombreEspecifico ?? '',
-      proveedorId: sv?.proveedorId ?? sv?.proveedor_id_int ?? null,
-      coste_unitario: toNum(sv?.coste_unitario),
-      noches: Math.max(1, toNum(sv?.noches)),
-      dias_guia: Math.max(1, toNum(sv?.dias_guia ?? sv?.noches)),
-      cantidad: Math.max(1, toNum(sv?.cantidad ?? sv?.noches ?? 1)),
-      total_servicio_manual: toNum(sv?.total_servicio_manual),
-      tipo_calculo: sv?.tipo_calculo === 'porGrupo' || sv?.tipo_calculo === 'Total a dividir' ? 'porGrupo' : 'porPersona',
-    }
-    const tipoNorm = normalizarTipo(merged.tipo || merged.tipo_servicio || '')
-    const tipoCalc = merged.tipo_calculo === 'porGrupo' ? 'porGrupo' : 'porPersona'
-    const precioUnitario = toNum(merged.coste_unitario)
-    const nochesFinal = merged.noches
-    const cantidadGuia = Math.max(1, toNum(sv?.cantidad ?? sv?.dias_guia ?? nochesFinal))
-    const filaCalc = {
-      ...merged,
-      tipo_calculo: tipoCalc,
-      coste_unitario: precioUnitario,
-      noches: nochesFinal,
-      dias_guia: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : nochesFinal,
-      total_servicio_manual: toNum(merged.total_servicio_manual),
-    }
-    const calculado = finalizarCalculoModulo(filaCalc, paxPago, totalPax)
-    let totalServicio = toNum(calculado?.total_servicio)
-    if (toNum(sv?.total_servicio) > 0) totalServicio = toNum(sv.total_servicio)
-    if (!(totalServicio > 0)) totalServicio = 0.01
-
-    let proveedorIdLimpio = null
-    const idRaw = merged.proveedorId
-    if (idRaw != null && idRaw !== '') {
-      const num = Number(typeof idRaw === 'object' ? idRaw?.id : idRaw)
-      proveedorIdLimpio = Number.isFinite(num) ? num : null
-    }
-
-    const nombreEsp = String(merged.nombreEspecifico || merged.nombre_especifico || '').trim()
-    const tipoServ = merged.tipo || merged.tipo_servicio || 'Hotel'
-    const nombreServicio = nombreEsp || String(sv?.nombre_servicio || '').trim() || tipoServ
-
-    const provNombre = String(
-      sv?.nombre_proveedor_texto || sv?.proveedorNombreTemporal || sv?.nombre_proveedor_manual || ''
-    ).trim()
-
-    const jCost = costeRealProveedorDesdeServicioJson(sv)
-    const jUrl = urlFacturaDesdeServicioJson(sv)
-
-    let mayoristaId = null
-    const mv = sv?.mayorista_id
-    if (mv != null && mv !== '') {
-      const str = String(mv)
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)) mayoristaId = str
-    }
-
-    return {
-      id: String(sv.id).trim(),
-      id_expediente: String(idExpediente).trim(),
-      orden,
-      tipo_servicio: tipoServ,
-      nombre_servicio: nombreServicio,
-      nombre_especifico: nombreEsp,
-      localizacion: sv?.localizacion || '',
-      especificacion_destino: (sv?.especificacion_destino && String(sv.especificacion_destino).trim()) || null,
-      coste_unitario: precioUnitario,
-      total_servicio: totalServicio,
-      precio_venta: precioUnitario,
-      margen_pax: toNum(sv?.margen),
-      noches: nochesFinal,
-      dias_guia: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : nochesFinal,
-      cantidad: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : Math.max(1, toNum(sv?.noches ?? 1)),
-      fecha_release: sv?.fechaRelease || sv?.fecha_release || null,
-      release_pagado: !!(sv?.releasePagado ?? sv?.release_pagado),
-      tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
-      proveedor_id_int: proveedorIdLimpio,
-      nombre_proveedor_manual: provNombre || null,
-      mayorista_id: mayoristaId,
-      coste_real_proveedor: jCost,
-      url_factura_pdf: jUrl,
-    }
-  }
-
-  /**
-   * Compara versiones_json con servicios_cotizacion y escribe huecos (o fuerza desde JSON si forzarDesdeJson).
-   * Todas las variables usadas están inicializadas en este closure para evitar ReferenceError en tiempo de ejecución.
-   */
-  const sincronizarJsonConServiciosCotizacion = async ({ forzarDesdeJson = false } = {}) => {
-    if (!expediente?.id) return { ok: false }
-    const expId = String(expediente.id).trim()
-    const jsonServicios = listarServiciosRescateVersionesJson(expediente.versiones_json)
-    if (jsonServicios.length === 0) return { ok: true, skipped: true }
-
-    let q = await supabase
-      .from('servicios_cotizacion')
-      .select('*')
-      .eq('id_expediente', expId)
-      .order('orden', { ascending: true })
-      .order('id', { ascending: true })
-    if (q.error) {
-      q = await supabase
-        .from('servicios_cotizacion')
-        .select('*')
-        .eq('id_expediente', expId)
-        .order('id', { ascending: true })
-    }
-    const sqlRows = Array.isArray(q.data) ? q.data : []
-    const sqlById = new Map(sqlRows.map(r => [String(r.id), r]))
-    let ordenNext = sqlRows.length
-
-    for (const sv of jsonServicios) {
-      const id = String(sv?.id ?? '').trim()
-      if (!id) continue
-      const sqlRow = sqlById.get(id)
-      const jCost = costeRealProveedorDesdeServicioJson(sv)
-      const jUrl = urlFacturaDesdeServicioJson(sv)
-
-      if (!sqlRow) {
-        try {
-          const row = construirFilaInsertServiciosCotizacionDesdeJson(sv, expId, ordenNext++)
-          const { data: ins, error: insErr } = await supabase
-            .from('servicios_cotizacion')
-            .insert(row)
-            .select('id, coste_real_proveedor, url_factura_pdf')
-            .maybeSingle()
-          if (insErr) {
-            console.error('[Cierre] sync INSERT desde versiones_json:', insErr)
-            continue
-          }
-          if (ins?.id) sqlById.set(String(ins.id), { ...row, ...ins })
-        } catch (e) {
-          console.error('[Cierre] sync INSERT excepción:', e)
-        }
-        continue
-      }
-
-      const patch = {}
-      const needCost = forzarDesdeJson ? jCost != null : (!sqlTieneCosteReal(sqlRow) && jCost != null)
-      const needUrl = forzarDesdeJson ? Boolean(jUrl) : (!sqlTieneUrlFactura(sqlRow) && Boolean(jUrl))
-      if (needCost) patch.coste_real_proveedor = jCost
-      if (needUrl) patch.url_factura_pdf = jUrl
-      if (Object.keys(patch).length === 0) continue
-
-      const { data: updated, error: upErr } = await supabase
-        .from('servicios_cotizacion')
-        .update(patch)
-        .eq('id', id)
-        .eq('id_expediente', expId)
-        .select('id, coste_real_proveedor, url_factura_pdf')
-        .maybeSingle()
-      if (upErr) {
-        console.error('[Cierre] sync UPDATE desde versiones_json:', upErr)
-        continue
-      }
-      if (updated?.id) sqlById.set(id, { ...sqlRow, ...patch, ...updated })
-    }
-    return { ok: true }
-  }
 
   const recargarInformeDesdeCotizacion = async () => {
     if (!expediente?.id) return
@@ -1112,21 +885,6 @@ const ExpedienteFinanzas = ({
       setErrorCargaCotizacion(err?.message || 'Error desconocido al cargar los datos')
     } finally {
       setCargandoCotizacion(false)
-    }
-  }
-
-  const handleSincronizarConBaseDatos = async () => {
-    if (!expediente?.id || sincronizandoConBd || cargandoCotizacion) return
-    setSincronizandoConBd(true)
-    setErrorCargaCotizacion(null)
-    try {
-      await sincronizarJsonConServiciosCotizacion({ forzarDesdeJson: false })
-      await recargarInformeDesdeCotizacion()
-    } catch (e) {
-      console.error('[Cierre] Sincronizar BD:', e)
-      setErrorCargaCotizacion(e?.message || 'Error al sincronizar con la base de datos')
-    } finally {
-      setSincronizandoConBd(false)
     }
   }
 
@@ -2057,15 +1815,6 @@ const ExpedienteFinanzas = ({
                       {cargandoCotizacion ? '⏳ Cargando…' : '↺ Cargar desde Cotización'}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={handleSincronizarConBaseDatos}
-                    disabled={!expediente?.id || sincronizandoConBd || cargandoCotizacion}
-                    title="Rellena en SQL solo huecos de coste/factura desde versiones_json (no sobrescribe valores ya guardados)"
-                    className={`text-sm border px-3 py-1.5 rounded-lg font-medium transition-colors ${sincronizandoConBd || cargandoCotizacion ? 'border-amber-200 bg-amber-50 text-amber-600 cursor-wait' : 'border-amber-600 text-amber-900 hover:bg-amber-50'}`}
-                  >
-                    {sincronizandoConBd ? '⏳ Sincronizando…' : 'Sincronizar con Base de Datos'}
-                  </button>
                 </div>
               </div>
               {errorCargaCotizacion && (
