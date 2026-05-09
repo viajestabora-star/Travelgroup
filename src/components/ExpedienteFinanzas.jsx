@@ -95,7 +95,12 @@ const proveedorInformeTexto = (proveedor) => {
 }
 
 const CierreServicioRow = ({
-  servicio,
+  servicioId,
+  conceptoVisible,
+  proveedorVisible,
+  costeCotizadoVisible,
+  costeRealProveedorVisible,
+  facturaUrl,
   idx,
   camposBloqueados,
   subiendo,
@@ -104,28 +109,27 @@ const CierreServicioRow = ({
   onSubirFactura,
 }) => {
   const fileInputRef = useRef(null)
-  const servicioId = servicio?.id ?? servicio?.id_servicio ?? null
-  const conceptoVisible = String(servicio?.concepto || '').trim() || 'Cargando concepto...'
-  const proveedorVisible = String(servicio?.proveedor || '').trim()
-  const costeCotizadoVisible = Number(servicio?.coste_cotizado || 0).toFixed(2)
-  const costeRealProveedorVisible = servicio?.coste_real_proveedor ?? ''
-  const facturaUrl = String(servicio?.url_factura_pdf || '').trim()
+  const conceptoTxt = String(conceptoVisible || '').trim() || 'Cargando concepto...'
+  const proveedorTxt = String(proveedorVisible || '').trim()
+  const costeCotizadoTxt = Number(costeCotizadoVisible || 0).toFixed(2)
+  const costeRealTxt = costeRealProveedorVisible ?? 0
+  const facturaUrlTxt = String(facturaUrl || '').trim()
 
   return (
-    <tr key={servicio?.id_servicio || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
-      <td className="px-3 py-2 font-medium text-slate-800">{conceptoVisible}</td>
+    <tr key={servicioId || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
+      <td className="px-3 py-2 font-medium text-slate-800">{conceptoTxt}</td>
       <td className="px-3 py-2 hidden sm:table-cell">
-        {proveedorVisible && proveedorVisible !== 'Pendiente de asignar'
-          ? <span className="text-slate-600">{proveedorVisible}</span>
-          : <span className="text-slate-400 italic text-xs">Pendiente de asignar</span>
+        {proveedorTxt && proveedorTxt !== 'Pendiente de asignar' && proveedorTxt !== 'Sin proveedor'
+          ? <span className="text-slate-600">{proveedorTxt}</span>
+          : <span className="text-slate-400 italic text-xs">Sin proveedor</span>
         }
       </td>
-      <td className="px-3 py-2 text-right text-slate-500">{costeCotizadoVisible} €</td>
+      <td className="px-3 py-2 text-right text-slate-500">{costeCotizadoTxt} €</td>
       <td className="px-3 py-2">
         <input
           type="number"
           step="0.01"
-          value={costeRealProveedorVisible}
+          value={costeRealTxt}
           onChange={(e) => onActualizarCoste(servicioId, e.target.value)}
           onBlur={(e) => onBlurCoste(servicioId, e.target.value)}
           disabled={camposBloqueados}
@@ -135,10 +139,10 @@ const CierreServicioRow = ({
         />
       </td>
       <td className="px-3 py-2 text-center">
-        {facturaUrl ? (
+        {facturaUrlTxt ? (
           <div className="flex flex-col items-center gap-1">
             <a
-              href={facturaUrl}
+              href={facturaUrlTxt}
               target="_blank"
               rel="noreferrer"
               className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
@@ -891,34 +895,19 @@ const ExpedienteFinanzas = ({
   const costesRealesDerivadosDesdeSql = React.useMemo(() => {
     const rows = Array.isArray(serviciosCotizacionSqlRows) ? serviciosCotizacionSqlRows : []
     return rows.map((s) => {
-      const provId = s?.proveedor_id_int || null
-      const sid = String(s?.id ?? generarUUID())
-      const proveedor = String(
-        s?.nombre_proveedor_texto
-        || s?.nombre_proveedor_manual
-        || (provId != null && provId !== '' ? provId : '')
-      ).trim() || 'Pendiente de asignar'
-      const concepto = String(s?.nombre_servicio || '').trim() || 'Servicio'
-      const costeRealProveedor = s?.coste_real_proveedor != null && !Number.isNaN(Number(s?.coste_real_proveedor))
-        ? toNum(s.coste_real_proveedor)
-        : null
-      const costeCotizado = toNum(s?.coste_total_servicio ?? s?.total_servicio)
-      const costeReal = costeRealProveedor != null
-        ? costeRealProveedor
-        : costeCotizado
-      const urlFactura = String(s?.url_factura_pdf || '').trim() || null
+      const servicioId = String(s?.id ?? generarUUID())
+      const conceptoVisible = String(s?.nombre_servicio || '').trim() || 'Servicio'
+      const proveedorVisible = String(s?.nombre_proveedor_texto || s?.nombre_proveedor_manual || '').trim() || 'Sin proveedor'
+      const costeCotizadoVisible = toNum(s?.coste_total_servicio)
+      const costeRealProveedorVisible = s?.coste_real_proveedor == null ? 0 : toNum(s?.coste_real_proveedor)
+      const facturaUrl = String(s?.url_factura_pdf || '').trim() || null
       return {
-        id: sid,
-        id_servicio: sid,
-        concepto,
-        proveedor,
-        proveedor_id_int: provId != null && !Number.isNaN(Number(provId)) ? Number(provId) : null,
-        coste_cotizado: costeCotizado,
-        coste_real_proveedor: costeRealProveedor,
-        coste_real: costeReal,
-        url_factura_pdf: urlFactura,
-        url_pdf: urlFactura,
-        pagado: Boolean(s?.pagado_a_proveedor),
+        servicioId,
+        conceptoVisible,
+        proveedorVisible,
+        costeCotizadoVisible,
+        costeRealProveedorVisible,
+        facturaUrl,
       }
     })
   }, [serviciosCotizacionSqlRows])
@@ -995,7 +984,7 @@ const ExpedienteFinanzas = ({
     if (!file || !expediente?.id) return
     const tenantEid = Number(expediente?.empresa_id || user?.empresa_id || empresaId) || null
     if (!tenantEid) { alert('No hay empresa_id disponible para subir el PDF.'); return }
-    const fila = (costesRealesVista || []).find(c => c.id_servicio === idServicio)
+    const fila = (costesRealesVista || []).find(c => c.servicioId === idServicio)
     if (!fila) return
 
     setSubiendoPdfCierre(prev => ({ ...prev, [idServicio]: true }))
@@ -1028,11 +1017,10 @@ const ExpedienteFinanzas = ({
       const fechaHoy = new Date().toISOString().split('T')[0]
       const payloadBase = {
         url_pdf: urlConfirmada,
-        importe_pagado: toNum(fila.coste_real),
+        importe_pagado: toNum(fila.costeRealProveedorVisible),
         fecha_pago: fechaHoy,
-        proveedor_id: fila.proveedor_id_int,
-        proveedor_nombre: fila.proveedor,
-        concepto: fila.concepto,
+        proveedor_nombre: fila.proveedorVisible,
+        concepto: fila.conceptoVisible,
         metodo_pago: 'Transferencia',
       }
       let pq = supabase
@@ -1109,9 +1097,7 @@ const ExpedienteFinanzas = ({
 
   /** Total gastos reales: suma coste_real_proveedor en filas cargadas desde servicios_cotizacion (no JSON cierre). */
   const calcularTotalReal = () => {
-    return (costesRealesVista || []).reduce((acc, servicio) => {
-      return acc + toNum(servicio?.coste_real_proveedor)
-    }, 0)
+    return (costesRealesVista || []).reduce((acc, servicio) => acc + toNum(servicio?.costeRealProveedorVisible), 0)
   }
 
   const calcularCierreFinanciero = () => {
@@ -1177,13 +1163,13 @@ const ExpedienteFinanzas = ({
       const beneficioCalculado = n(beneficioLimpio)
 
       const costesRealesArr = (costesRealesVista || []).map((c) => ({
-        id_servicio: c.id_servicio,
-        concepto: c.concepto || '',
-        proveedor: c.proveedor || '',
-        coste_cotizado: n(c.coste_cotizado),
-        coste_real: n(c.coste_real),
-        url_factura_pdf: c.url_factura_pdf ?? null,
-        url_pdf: c.url_pdf ?? null,
+        id_servicio: c.servicioId,
+        concepto: c.conceptoVisible || '',
+        proveedor: c.proveedorVisible || '',
+        coste_cotizado: n(c.costeCotizadoVisible),
+        coste_real: n(c.costeRealProveedorVisible),
+        url_factura_pdf: c.facturaUrl ?? null,
+        url_pdf: c.facturaUrl ?? null,
       }))
       const gastosImprevistosArr = (informeLiquidacion.gastosImprevistos || []).map((g) => ({
         id: g.id,
@@ -1824,7 +1810,7 @@ const ExpedienteFinanzas = ({
                   <button type="button" onClick={() => setErrorCargaCotizacion(null)} className="ml-auto text-red-400 hover:text-red-600 font-bold">✕</button>
                 </div>
               )}
-              {(costesRealesVista || []).length === 0 ? (
+              {(costesRealesDerivadosDesdeSql || []).length === 0 ? (
                 <div className="py-6 text-center text-slate-500 text-sm border border-slate-200 rounded-lg bg-slate-50">
                   No hay servicios. Abre la pestaña Cotización, añade servicios y pulsa «Cargar desde Cotización».
                 </div>
@@ -1841,13 +1827,18 @@ const ExpedienteFinanzas = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {(costesRealesVista || []).map((servicio, idx) => (
+                      {(costesRealesDerivadosDesdeSql || []).map((servicio, idx) => (
                         <CierreServicioRow
-                          key={servicio.id_servicio || `cr-${idx}`}
-                          servicio={servicio}
+                          key={servicio.servicioId || `cr-${idx}`}
+                          servicioId={servicio.servicioId}
+                          conceptoVisible={servicio.conceptoVisible}
+                          proveedorVisible={servicio.proveedorVisible}
+                          costeCotizadoVisible={servicio.costeCotizadoVisible}
+                          costeRealProveedorVisible={servicio.costeRealProveedorVisible}
+                          facturaUrl={servicio.facturaUrl}
                           idx={idx}
                           camposBloqueados={camposBloqueados}
-                          subiendo={Boolean(subiendoPdfCierre[servicio.id])}
+                          subiendo={Boolean(subiendoPdfCierre[servicio.servicioId])}
                           onActualizarCoste={actualizarCosteReal}
                           onBlurCoste={guardarCosteRealEnBD}
                           onSubirFactura={subirYVincularPdfCierre}
