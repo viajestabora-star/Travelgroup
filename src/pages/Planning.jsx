@@ -54,11 +54,11 @@ const Planning = ({ user = null }) => {
 
   useEffect(() => {
     loadExpedientes()
-    
+
     // Recargar cada 2 segundos para sincronización en tiempo real
     const interval = setInterval(loadExpedientes, 2000)
     return () => clearInterval(interval)
-  }, [ejercicioActual]) // Recargar cuando cambie el ejercicio
+  }, [ejercicioActual, user?.empresa_id])
 
   // ============ SINCRONIZACIÓN GLOBAL DEL EJERCICIO ============
   useEffect(() => {
@@ -73,12 +73,23 @@ const Planning = ({ user = null }) => {
   // Sincronización: Lee estado directamente de Supabase para reflejar cambios de Expedientes
   const loadExpedientes = async () => {
     try {
-      const { data: cloudData, error } = await supabase
+      const empresaIdNum = Number(user?.empresa_id)
+      const empresaIdFiltro =
+        Number.isFinite(empresaIdNum) && empresaIdNum > 0 ? Math.trunc(empresaIdNum) : null
+
+      let query = supabase
         .from('expedientes')
-        .select('id, numero_expediente, cliente_nombre, cliente_id, fecha_inicio, fecha_final, fecha_fin, destino, responsable, estado, observaciones, tipo_colectivo, duracion_viaje, itinerario, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, cierre_grupo, ejercicio')
-        .order('fecha_inicio', { ascending: true, nullsFirst: false })
+        .select('id, numero_expediente, nombre_grupo, fecha_inicio, fecha_final, estado, empresa_id, ejercicio')
+        .order('fecha_inicio', { ascending: true })
+
+      if (empresaIdFiltro != null) {
+        query = query.eq('empresa_id', empresaIdFiltro)
+      }
+
+      const { data: cloudData, error } = await query
 
       if (error) {
+        console.error('[Planning] Supabase expedientes:', error.message || String(error), error)
         // Fallback a localStorage si Supabase falla
         const allExpedientes = storage.get('expedientes') || []
         const expedientesNormalizados = normalizarExpedientes(allExpedientes)
@@ -95,37 +106,44 @@ const Planning = ({ user = null }) => {
         return
       }
 
-      const expedientesParseados = (cloudData || []).map(exp => ({
+      const expedientesParseados = (cloudData || []).map((exp) => {
+        const nombreSafe = String(exp?.nombre_grupo ?? '').trim()
+        return {
         id: exp.id,
         numero_expediente: exp.numero_expediente || '',
-        cliente_id: exp.cliente_id || '',
-        cliente_nombre: exp.cliente_nombre || exp.cliente_name || '',
-        clienteNombre: exp.cliente_nombre || exp.cliente_name || '',
-        nombre_grupo: exp.cliente_nombre || exp.nombre_grupo || '',
+        cliente_id: '',
+        cliente_nombre: nombreSafe,
+        clienteNombre: nombreSafe,
+        nombre_grupo: nombreSafe || 'GRUPO SIN NOMBRE',
         fecha_inicio: exp.fecha_inicio || '',
-        fecha_fin: exp.fecha_final || exp.fecha_fin || '',
+        fecha_fin: exp.fecha_final || '',
         fechaInicio: exp.fecha_inicio || '',
-        fechaFin: exp.fecha_final || exp.fecha_fin || '',
-        destino: exp.destino || '',
-        responsable: exp.responsable || '',
+        fechaFin: exp.fecha_final || '',
+        destino: '',
+        responsable: '',
         estado: (exp.estado || 'peticion').toString().trim(),
-        observaciones: exp.observaciones || '',
-        tipo_colectivo: exp?.tipo_colectivo || '',
-        duracion_viaje: exp?.duracion_viaje || '',
-        itinerario: exp.itinerario || '',
-        total_pax: exp.total_pax || null,
-        pax_pago: exp.pax_pago || null,
-        gratuidades: exp.gratuidades ?? 0,
-        precio_venta_cliente: exp.precio_venta_cliente ?? 0,
-        bonificacion_pax: exp.bonificacion_pax ?? 0,
-        cierre_grupo: exp?.cierre_grupo ?? null,
-        ejercicio: exp.ejercicio || extraerAño(exp.fecha_inicio || '') || getEjercicioActual(),
+        observaciones: '',
+        tipo_colectivo: '',
+        duracion_viaje: '',
+        itinerario: '',
+        total_pax: null,
+        pax_pago: null,
+        gratuidades: 0,
+        precio_venta_cliente: 0,
+        bonificacion_pax: 0,
+        cierre_grupo: null,
+        empresa_id: exp.empresa_id != null ? Number(exp.empresa_id) : null,
+        ejercicio:
+          exp.ejercicio != null && exp.ejercicio !== ''
+            ? exp.ejercicio
+            : extraerAño(exp.fecha_inicio || '') || getEjercicioActual(),
         pasajeros: [],
         cobros: [],
         pagos: [],
         documentos: [],
         cierre: null,
-      }))
+      }
+      })
 
       const expedientesNormalizados = normalizarExpedientes(expedientesParseados)
 
@@ -165,6 +183,7 @@ const Planning = ({ user = null }) => {
         } catch (_) { /* no bloquear por localStorage */ }
       }
     } catch (error) {
+      console.error('[Planning] loadExpedientes excepción:', error?.message || String(error), error)
       // Fallback a localStorage en caso de error
       try {
         const allExpedientes = storage.get('expedientes') || []
