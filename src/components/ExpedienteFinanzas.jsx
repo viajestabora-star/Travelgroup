@@ -810,6 +810,27 @@ const ExpedienteFinanzas = ({
   const [cargandoCotizacion, setCargandoCotizacion] = React.useState(false)
   const [errorCargaCotizacion, setErrorCargaCotizacion] = React.useState(null)
   const [serviciosCotizacionSqlRows, setServiciosCotizacionSqlRows] = React.useState([])
+  const [costesRealesTablaSql, setCostesRealesTablaSql] = React.useState([])
+
+  const mapearServiciosSqlATabla = React.useCallback((rows) => {
+    const safeRows = Array.isArray(rows) ? rows : []
+    return safeRows.map((s) => {
+      const servicioId = String(s?.id ?? generarUUID())
+      const conceptoVisible = String(s?.nombre_servicio || '').trim() || 'Servicio'
+      const proveedorVisible = String(s?.nombre_proveedor_texto || s?.nombre_proveedor_manual || '').trim() || 'Sin proveedor'
+      const costeCotizadoVisible = toNum(s?.coste_total_servicio)
+      const costeRealProveedorVisible = s?.coste_real_proveedor == null ? 0 : toNum(s?.coste_real_proveedor)
+      const facturaUrl = String(s?.url_factura_pdf || '').trim() || null
+      return {
+        servicioId,
+        conceptoVisible,
+        proveedorVisible,
+        costeCotizadoVisible,
+        costeRealProveedorVisible,
+        facturaUrl,
+      }
+    })
+  }, [])
 
   const recargarInformeDesdeCotizacion = async () => {
     if (!expediente?.id) return
@@ -839,6 +860,7 @@ const ExpedienteFinanzas = ({
         serviciosCotizacionRows = scRows
       }
       setServiciosCotizacionSqlRows(serviciosCotizacionRows)
+      setCostesRealesTablaSql(mapearServiciosSqlATabla(serviciosCotizacionRows))
       if (serviciosCotizacionRows.length === 0) {
         console.error('ERROR: No se encuentran servicios en SQL')
       }
@@ -892,43 +914,19 @@ const ExpedienteFinanzas = ({
     }
   }
 
-  const costesRealesDerivadosDesdeSql = React.useMemo(() => {
-    const rows = Array.isArray(serviciosCotizacionSqlRows) ? serviciosCotizacionSqlRows : []
-    return rows.map((s) => {
-      const servicioId = String(s?.id ?? generarUUID())
-      const conceptoVisible = String(s?.nombre_servicio || '').trim() || 'Servicio'
-      const proveedorVisible = String(s?.nombre_proveedor_texto || s?.nombre_proveedor_manual || '').trim() || 'Sin proveedor'
-      const costeCotizadoVisible = toNum(s?.coste_total_servicio)
-      const costeRealProveedorVisible = s?.coste_real_proveedor == null ? 0 : toNum(s?.coste_real_proveedor)
-      const facturaUrl = String(s?.url_factura_pdf || '').trim() || null
-      return {
-        servicioId,
-        conceptoVisible,
-        proveedorVisible,
-        costeCotizadoVisible,
-        costeRealProveedorVisible,
-        facturaUrl,
-      }
-    })
-  }, [serviciosCotizacionSqlRows])
-
-  const costesRealesVista = costesRealesDerivadosDesdeSql
+  const costesRealesVista = costesRealesTablaSql
 
   const actualizarCosteReal = (idServicio, costeReal) => {
     const raw = String(costeReal ?? '').trim()
     const parsed = raw === '' ? null : toNum(costeReal)
-    setInformeLiquidacion(prev => ({
-      ...prev,
-      costesReales: prev.costesReales.map(c =>
-        c.id_servicio === idServicio
-          ? {
-              ...c,
-              coste_real: parsed == null ? c.coste_real : parsed,
-              coste_real_proveedor: parsed,
-            }
-          : c
-      )
-    }))
+    setCostesRealesTablaSql(prev => (Array.isArray(prev) ? prev : []).map(c =>
+      c.servicioId === idServicio
+        ? {
+            ...c,
+            costeRealProveedorVisible: parsed == null ? c.costeRealProveedorVisible : parsed,
+          }
+        : c
+    ))
   }
 
   // Estado para subidas de PDF por fila (map idServicio → boolean)
@@ -970,6 +968,11 @@ const ExpedienteFinanzas = ({
       }))
       setServiciosCotizacionSqlRows(prev => (Array.isArray(prev) ? prev : []).map(r =>
         String(r?.id) === String(idServicio) ? { ...r, coste_real_proveedor: confirmado } : r
+      ))
+      setCostesRealesTablaSql(prev => (Array.isArray(prev) ? prev : []).map(c =>
+        String(c?.servicioId) === String(idServicio)
+          ? { ...c, costeRealProveedorVisible: confirmado == null ? 0 : confirmado }
+          : c
       ))
       await onRefresh?.()
     } catch (e) {
@@ -1810,7 +1813,7 @@ const ExpedienteFinanzas = ({
                   <button type="button" onClick={() => setErrorCargaCotizacion(null)} className="ml-auto text-red-400 hover:text-red-600 font-bold">✕</button>
                 </div>
               )}
-              {(costesRealesDerivadosDesdeSql || []).length === 0 ? (
+              {(costesRealesVista || []).length === 0 ? (
                 <div className="py-6 text-center text-slate-500 text-sm border border-slate-200 rounded-lg bg-slate-50">
                   No hay servicios. Abre la pestaña Cotización, añade servicios y pulsa «Cargar desde Cotización».
                 </div>
@@ -1827,7 +1830,7 @@ const ExpedienteFinanzas = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {(costesRealesDerivadosDesdeSql || []).map((servicio, idx) => (
+                      {(costesRealesVista || []).map((servicio, idx) => (
                         <CierreServicioRow
                           key={servicio.servicioId || `cr-${idx}`}
                           servicioId={servicio.servicioId}

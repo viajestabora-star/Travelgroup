@@ -549,15 +549,17 @@ const ServiciosCotizacionPanel = ({
         return { ok: false, error: errorExistentes.message }
       }
 
-      const existentesMap = new Map((existentes || []).map(e => [e.id, e]))
+      const existentesMap = new Map((existentes || []).map(e => [String(e.id), e]))
 
-      // 2. Merge determinista: base SQL + overwrite SOLO campos gestionados por UI.
+      // 2. Fetch-then-merge: por cada fila UI, { ...registroBD, ...payloadCotizacion }.
+      // buildDatosParaSupabase no incluye coste_real_proveedor / url_factura_pdf / pagado_a_proveedor:
+      // al hacer spread del registro BD primero, esos valores sobreviven salvo que la UI los envíe explícitamente.
       const filasValidadas = servicios
         .filter((s) => String(s?.id || '').trim() !== SERVICIO_ANOMALO_ID)
         .map((s, index) => {
           const datos = buildDatosParaSupabase(s)
-          const idFinal = esUuidServicioValido(s.id) ? s.id.trim() : generarUUID()
-          const existente = existentesMap.get(idFinal) || {}
+          const idFinal = esUuidServicioValido(s.id) ? String(s.id).trim() : generarUUID()
+          const dbService = existentesMap.get(idFinal) || {}
 
           const nombreProveedorTextoGestionado =
             datos.nombre_proveedor_texto != null && String(datos.nombre_proveedor_texto).trim() !== ''
@@ -568,7 +570,10 @@ const ServiciosCotizacionPanel = ({
                   : null
               )
 
-          const camposGestionadosCotizacion = {
+          const uiService = {
+            id: idFinal,
+            id_expediente: expIdStr,
+            orden: index,
             tipo_servicio: datos.tipo_servicio,
             nombre_servicio: datos.nombre_servicio,
             nombre_especifico: datos.nombre_especifico,
@@ -588,24 +593,33 @@ const ServiciosCotizacionPanel = ({
             nombre_proveedor_manual: datos.nombre_proveedor_manual,
             nombre_proveedor_texto: nombreProveedorTextoGestionado,
             mayorista_id: datos.mayorista_id,
-            orden: index,
-            id_expediente: expIdStr,
-            id: idFinal,
           }
 
-          // Blindaje financiero: si ya existen en DB, estos metadatos NUNCA se pisan desde cotización.
-          const metadatosFinancierosBlindados = {
-            coste_real_proveedor: existente?.coste_real_proveedor ?? (datos?.coste_real_proveedor ?? null),
-            url_factura_pdf: existente?.url_factura_pdf ?? (datos?.url_factura_pdf ?? null),
-            pagado_a_proveedor: existente?.pagado_a_proveedor ?? (datos?.pagado_a_proveedor ?? null),
+          const fusionado = { ...dbService, ...uiService }
+
+          const prevCoste = dbService?.coste_real_proveedor
+          const prevUrl = dbService?.url_factura_pdf
+          const prevPagado = dbService?.pagado_a_proveedor
+          if (
+            (fusionado.coste_real_proveedor == null || fusionado.coste_real_proveedor === '')
+            && prevCoste != null && prevCoste !== ''
+          ) {
+            fusionado.coste_real_proveedor = prevCoste
+          }
+          if (
+            (fusionado.url_factura_pdf == null || String(fusionado.url_factura_pdf).trim() === '')
+            && prevUrl != null && String(prevUrl).trim() !== ''
+          ) {
+            fusionado.url_factura_pdf = prevUrl
+          }
+          if (
+            (fusionado.pagado_a_proveedor === undefined || fusionado.pagado_a_proveedor === null)
+            && prevPagado !== undefined && prevPagado !== null
+          ) {
+            fusionado.pagado_a_proveedor = prevPagado
           }
 
-          return {
-            ...existente,
-            ...camposGestionadosCotizacion,
-            ...metadatosFinancierosBlindados,
-            __esUpdate: Boolean(existentesMap.get(idFinal)),
-          }
+          return fusionado
         })
 
       // 3. Validar
@@ -624,43 +638,21 @@ const ServiciosCotizacionPanel = ({
         return { ok: false, error: 'Operación cancelada por el usuario' }
       }
 
-      // 4. UPDATE filas existentes / INSERT nuevas (sin upsert ni delete masivo)
-      const dataConfirmados = []
-      for (const row of filasValidadas) {
-        const { __esUpdate, id: rowId, ...payloadSinId } = row
-        if (__esUpdate) {
-          const { data: upd, error: errUp } = await supabase
-            .from('servicios_cotizacion')
-            .update(payloadSinId)
-            .eq('id', rowId)
-            .eq('id_expediente', expIdStr)
-            .select('id')
-            .maybeSingle()
-          if (errUp) {
-            console.error('[Guardar Servicios] ❌ Error en UPDATE:', errUp.message, errUp)
-            alert(`Error al actualizar servicio ${rowId}:\n${errUp.message}\n\nCódigo: ${errUp.code || 'N/A'}`)
-            return { ok: false, error: errUp.message }
-          }
-          if (upd?.id) dataConfirmados.push(upd)
-        } else {
-          const filaInsert = { id: rowId, ...payloadSinId }
-          const { data: ins, error: errIn } = await supabase
-            .from('servicios_cotizacion')
-            .insert(filaInsert)
-            .select('id')
-            .maybeSingle()
-          if (errIn) {
-            console.error('[Guardar Servicios] ❌ Error en INSERT:', errIn.message, errIn)
-            alert(`Error al insertar servicio:\n${errIn.message}\n\nCódigo: ${errIn.code || 'N/A'}`)
-            return { ok: false, error: errIn.message }
-          }
-          if (ins?.id) dataConfirmados.push(ins)
-        }
+      // 4. Upsert atómico del array fusionado (una petición)
+      const { data: dataUpsert, error: errUpsert } = await supabase
+        .from('servicios_cotizacion')
+        .upsert(filasValidadas, { onConflict: 'id' })
+        .select('id')
+
+      if (errUpsert) {
+        console.error('[Guardar Servicios] ❌ Error en upsert:', errUpsert.message, errUpsert)
+        alert(`Error al guardar servicios:\n${errUpsert.message}\n\nCódigo: ${errUpsert.code || 'N/A'}`)
+        return { ok: false, error: errUpsert.message }
       }
 
-      console.log('[Guardar Servicios] UPDATE/INSERT OK — filas confirmadas:', dataConfirmados?.length)
+      console.log('[Guardar Servicios] upsert OK — filas:', dataUpsert?.length ?? filasValidadas.length)
       await onRefresh?.()
-      return { ok: true, data: dataConfirmados }
+      return { ok: true, data: dataUpsert || [] }
 
     } catch (err) {
       console.error('[Guardar Servicios] ❌ Error general:', err)
