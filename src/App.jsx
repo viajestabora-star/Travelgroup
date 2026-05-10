@@ -11,7 +11,7 @@ import Expedientes from './pages/Expedientes';
 import Proveedores from './pages/Proveedores';
 import Planning from './pages/Planning';
 import CRM from './pages/CRM';
-import Cierres from './pages/Cierres';
+import FacturasEmitidas from './pages/FacturasEmitidas';
 import CierresEconomicos from './pages/CierresEconomicos';
 import NotasTrabajo from './pages/NotasTrabajo';
 import Composer from './pages/Composer';
@@ -243,7 +243,7 @@ function App() {
 
             {/* ── Accesibles a todos ── */}
             <Route path="dashboard"         element={<Dashboard user={session} />} />
-            <Route path="cierres"           element={<ProtectedRoute user={session}><Cierres user={session} /></ProtectedRoute>} />
+            <Route path="cierres"           element={<ProtectedRoute user={session}><FacturasEmitidas /></ProtectedRoute>} />
             <Route
               path="historial-cierres"
               element={

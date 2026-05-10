@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 import {
-  LayoutDashboard, Users, Calculator, Calendar, Briefcase,
+  LayoutDashboard, Users, Receipt, Calendar, Briefcase,
   FileText, Menu, X, Plane, Truck, Edit3, History, LogOut, UserCog, Shield,
 } from 'lucide-react'
 import { getEjercicioActual, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
@@ -159,7 +159,7 @@ const Layout = ({ user, onLogout }) => {
       { path: 'planning',               icon: Calendar,        label: `PLANNING ${ejercicioActual}` },
       { path: 'crm',                    icon: Plane,           label: 'CRM / CAPTACIÓN' },
       { path: 'composer',               icon: Edit3,           label: 'COMPOSER' },
-      { path: 'cierres',                icon: Calculator,      label: 'CIERRES' },
+      { path: 'cierres',                icon: Receipt,        label: 'FACTURAS EMITIDAS' },
     ]
 
     if (puedeAccederCierresEconomicos(user)) {
