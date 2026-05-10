@@ -1493,7 +1493,7 @@ const ExpedienteFinanzas = ({
 
   const cobrosSeguros = Array.isArray(cobros) ? cobros : []
 
-  console.log('DEBUG RENDER: Datos que van a la tabla:', costesRealesVista)
+  console.log('DEBUG CONTENIDO TABLA:', JSON.stringify(costesRealesVista, null, 2))
 
   return (
     <>
