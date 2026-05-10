@@ -849,11 +849,13 @@ const ExpedienteFinanzas = ({
 
       // 2) Fuente SQL pura para la tabla de cierre
       let serviciosCotizacionRows = []
+      console.log('DEBUG CIERRE: Buscando servicios para ID:', expediente.id, 'Tipo de ID:', typeof expediente.id)
       const { data: scRows, error: scErr } = await supabase
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', String(expediente.id).trim())
         .order('orden', { ascending: true })
+      console.log('DEBUG CIERRE: Resultado SQL:', scRows, 'Error SQL:', scErr)
       if (scErr) {
         console.warn('[Cierre] servicios_cotizacion (load):', scErr)
       } else if (Array.isArray(scRows)) {
