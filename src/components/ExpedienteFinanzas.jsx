@@ -1027,19 +1027,27 @@ const ExpedienteFinanzas = ({
     }
   }
 
-  // Sube PDF a `facturas`, actualiza url_factura_pdf en servicios_cotizacion + snapshot cierre_grupo
+  // Sube PDF a bucket `facturas`, sincroniza servicios_cotizacion.url_factura_pdf y pagos_proveedores (INSERT/UPDATE por servicio_id).
   const subirYVincularPdfCierre = async (eventOrFile, servicioIdParam) => {
-    const idServicio = servicioIdParam != null ? servicioIdParam : null
     const file = eventOrFile?.target?.files?.[0] || eventOrFile
     if (!file || !expediente?.id) return
     const tenantEid = Number(expediente?.empresa_id || user?.empresa_id || empresaId) || null
     if (!tenantEid) { alert('No hay empresa_id disponible para subir el PDF.'); return }
-    const fila = (costesRealesVista || []).find(c => c.servicioId === idServicio)
-    if (!fila) return
 
-    setSubiendoPdfCierre(prev => ({ ...prev, [idServicio]: true }))
+    const fila = (costesRealesVista || []).find((c) => String(c.servicioId) === String(servicioIdParam))
+    if (!fila?.servicioId) return
+
+    const servicioIdCanonico = String(fila.servicioId).trim()
+    if (servicioIdCanonico !== String(servicioIdParam ?? '').trim()) {
+      console.error('[cierre] servicio_id inconsistente entre fila y handler:', fila.servicioId, servicioIdParam)
+      alert('Error interno: el servicio de la fila no coincide con la subida.')
+      return
+    }
+
+    const expIdStr = String(expediente.id).trim()
+    setSubiendoPdfCierre((prev) => ({ ...prev, [servicioIdCanonico]: true }))
     try {
-      const ruta = `facturas/${tenantEid}/${expediente.id}/${idServicio}.pdf`
+      const ruta = `facturas/${tenantEid}/${expIdStr}/${servicioIdCanonico}.pdf`
       const { error: uploadErr } = await supabase.storage
         .from('facturas')
         .upload(ruta, file, { upsert: true, contentType: 'application/pdf' })
@@ -1052,12 +1060,12 @@ const ExpedienteFinanzas = ({
       const { data: sqlConfirm, error: sqlPdfErr } = await supabase
         .from('servicios_cotizacion')
         .update({ url_factura_pdf: publicUrl })
-        .eq('id', idServicio)
-        .eq('id_expediente', String(expediente.id).trim())
+        .eq('id', servicioIdCanonico)
+        .eq('id_expediente', expIdStr)
         .select('id, url_factura_pdf')
         .maybeSingle()
       if (sqlPdfErr || !sqlConfirm?.id) {
-        throw new Error(sqlPdfErr?.message || 'No se confirmó la factura en base de datos.')
+        throw new Error(sqlPdfErr?.message || 'No se confirmó la factura en servicios_cotizacion.')
       }
       const urlConfirmada = String(sqlConfirm.url_factura_pdf || '').trim()
       if (!urlConfirmada) {
@@ -1065,44 +1073,73 @@ const ExpedienteFinanzas = ({
       }
 
       const fechaHoy = new Date().toISOString().split('T')[0]
-      const payloadBase = {
+      const payloadInsert = {
+        expediente_id: expIdStr,
+        empresa_id: tenantEid,
+        servicio_id: servicioIdCanonico,
         url_pdf: urlConfirmada,
         importe_pagado: toNum(fila.costeRealProveedorVisible),
         fecha_pago: fechaHoy,
         proveedor_nombre: fila.proveedorVisible,
         concepto: fila.conceptoVisible,
         metodo_pago: 'Transferencia',
-      }
-      let pq = supabase
-        .from('pagos_proveedores')
-        .select('id')
-        .eq('expediente_id', expediente.id)
-        .eq('servicio_id', String(idServicio))
-        .eq('es_extra', false)
-        .eq('es_gasto_extra', false)
-        .eq('empresa_id', tenantEid)
-      const { data: existentes } = await pq.limit(3)
-      const existentePagoId = existentes?.[0]?.id
-      if (existentePagoId) {
-        const { error: upErr } = await supabase.from('pagos_proveedores').update(payloadBase).eq('id', existentePagoId)
-        if (upErr) console.error('[cierre] subir PDF update pagos_proveedores:', upErr)
-      } else {
-        const { error: insErr } = await supabase.from('pagos_proveedores').insert([{
-          expediente_id: expediente.id,
-          empresa_id: tenantEid,
-          servicio_id: String(idServicio),
-          numero_factura: null,
-          referencia_pago: null,
-          es_extra: false,
-          es_gasto_extra: false,
-          ...payloadBase,
-        }])
-        if (insErr) console.error('[cierre] subir PDF insert pagos_proveedores:', insErr)
+        numero_factura: null,
+        referencia_pago: null,
+        es_extra: false,
+        es_gasto_extra: false,
       }
 
-      setServiciosCotizacionSqlRows(prev => (Array.isArray(prev) ? prev : []).map(r =>
-        String(r?.id) === String(idServicio) ? { ...r, url_factura_pdf: urlConfirmada } : r
+      const { data: filasPago, error: findPagoErr } = await supabase
+        .from('pagos_proveedores')
+        .select('id')
+        .eq('expediente_id', expIdStr)
+        .eq('servicio_id', servicioIdCanonico)
+        .order('id', { ascending: false })
+        .limit(1)
+
+      if (findPagoErr) {
+        throw new Error(findPagoErr.message || 'No se pudo comprobar pagos_proveedores.')
+      }
+
+      const existentePagoId = filasPago?.[0]?.id ?? null
+      let pagoProveedorId = existentePagoId
+
+      if (existentePagoId) {
+        const { data: upd, error: upErr } = await supabase
+          .from('pagos_proveedores')
+          .update({ url_pdf: urlConfirmada })
+          .eq('id', existentePagoId)
+          .select('id')
+          .single()
+        if (upErr) throw new Error(upErr.message || 'Error al actualizar pagos_proveedores.url_pdf')
+        pagoProveedorId = upd?.id ?? existentePagoId
+      } else {
+        const { data: ins, error: insErr } = await supabase
+          .from('pagos_proveedores')
+          .insert([payloadInsert])
+          .select('id')
+          .single()
+        if (insErr) throw new Error(insErr.message || 'Error al insertar pagos_proveedores.')
+        pagoProveedorId = ins?.id ?? null
+      }
+
+      if (pagoProveedorId == null) {
+        throw new Error('No se obtuvo id de pagos_proveedores tras INSERT/UPDATE.')
+      }
+
+      console.log('[cierre] Factura vinculada OK — pagos_proveedores.id:', pagoProveedorId, '| servicio_id:', servicioIdCanonico, '| expediente_id:', expIdStr)
+
+      setServiciosCotizacionSqlRows((prev) => (Array.isArray(prev) ? prev : []).map((r) =>
+        String(r?.id) === servicioIdCanonico ? { ...r, url_factura_pdf: urlConfirmada } : r
       ))
+      setCostesRealesTablaSql((prev) => (Array.isArray(prev) ? prev : []).map((c) =>
+        String(c.servicioId) === servicioIdCanonico ? { ...c, facturaUrl: urlConfirmada } : c
+      ))
+      setMapaUrlFacturaPorServicioDesdePagos((prev) => ({
+        ...(prev && typeof prev === 'object' ? prev : {}),
+        [servicioIdCanonico]: urlConfirmada,
+      }))
+
       await recargarInformeDesdeCotizacion()
       await onRefresh?.()
     } catch (e) {
@@ -1110,7 +1147,7 @@ const ExpedienteFinanzas = ({
       alert(e.message || 'Error inesperado al subir el PDF.')
     } finally {
       if (eventOrFile?.target) eventOrFile.target.value = ''
-      setSubiendoPdfCierre(prev => ({ ...prev, [idServicio]: false }))
+      setSubiendoPdfCierre((prev) => ({ ...prev, [servicioIdCanonico]: false }))
     }
   }
 
