@@ -162,7 +162,7 @@ const CierreServicioRow = ({
               title="Abrir factura PDF"
             >
               <FileText size={16} className="shrink-0" aria-hidden />
-              <span className="hidden sm:inline">PDF</span>
+              <span>Ver Factura</span>
             </button>
             {!camposBloqueados && (
               <button
@@ -211,6 +211,8 @@ const ExpedienteFinanzas = ({
   cobros = [],
   onCobrosReload,
   onExpedienteRefresh,
+  /** Tras mutaciones financieras / pagos_proveedores: refresca cache en padre (ej. ExpedienteDetalle.cargarPagosProveedores). */
+  onFinanzasRefresh,
   servicios = [],
   formData = {},
   suplementos = {},
@@ -819,39 +821,7 @@ const ExpedienteFinanzas = ({
   const [serviciosCotizacionSqlRows, setServiciosCotizacionSqlRows] = React.useState([])
   const [costesRealesTablaSql, setCostesRealesTablaSql] = React.useState([])
   const [mapaUrlFacturaPorServicioDesdePagos, setMapaUrlFacturaPorServicioDesdePagos] = useState({})
-
-  useEffect(() => {
-    if (activeTab !== 'cierre' || !expediente?.id) {
-      setMapaUrlFacturaPorServicioDesdePagos({})
-      return
-    }
-    let cancelled = false
-    const expId = String(expediente.id).trim()
-    ;(async () => {
-      const { data, error } = await supabase
-        .from('pagos_proveedores')
-        .select('servicio_id, url_pdf')
-        .eq('expediente_id', expId)
-      if (cancelled) return
-      if (error) {
-        console.warn('[Cierre] pagos_proveedores (PDF por servicio):', error.message)
-        setMapaUrlFacturaPorServicioDesdePagos({})
-        return
-      }
-      const dict = {}
-      for (const row of data || []) {
-        const sid = row?.servicio_id != null ? String(row.servicio_id).trim() : ''
-        const fname = row?.url_pdf != null ? String(row.url_pdf).trim() : ''
-        if (!sid || !fname) continue
-        const publicUrl = publicUrlDesdeUrlPdfPagosProveedor(fname)
-        if (publicUrl) dict[sid] = publicUrl
-      }
-      setMapaUrlFacturaPorServicioDesdePagos(dict)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [activeTab, expediente?.id])
+  const [documentosAdicionalesExpediente, setDocumentosAdicionalesExpediente] = useState([])
 
   const mapearServiciosSqlATabla = React.useCallback((rows, proveedoresDb) => {
     const safeRows = Array.isArray(rows) ? rows : []
@@ -876,6 +846,86 @@ const ExpedienteFinanzas = ({
       }
     })
   }, [])
+
+  /**
+   * Cruza pagos_proveedores con los servicios actuales de cotización (SQL).
+   * @param {Set<string>|undefined} idsServiciosOverride — IDs de servicios_cotizacion válidos; si se omite, se usa costesRealesTablaSql.
+   */
+  const recargarPagosProveedoresParaCierre = React.useCallback(async (idsServiciosOverride) => {
+    if (activeTab !== 'cierre' || !expediente?.id) {
+      setMapaUrlFacturaPorServicioDesdePagos({})
+      setDocumentosAdicionalesExpediente([])
+      return
+    }
+    const expId = String(expediente.id).trim()
+    const idsActuales =
+      idsServiciosOverride instanceof Set
+        ? idsServiciosOverride
+        : new Set(
+            (Array.isArray(costesRealesTablaSql) ? costesRealesTablaSql : [])
+              .map((c) => String(c?.servicioId ?? '').trim())
+              .filter(Boolean)
+          )
+
+    const { data, error } = await supabase
+      .from('pagos_proveedores')
+      .select('id, servicio_id, url_pdf, concepto, proveedor_nombre')
+      .eq('expediente_id', expId)
+
+    if (error) {
+      console.warn('[Cierre] pagos_proveedores (cruce facturas):', error.message)
+      setMapaUrlFacturaPorServicioDesdePagos({})
+      setDocumentosAdicionalesExpediente([])
+      return
+    }
+
+    const dict = {}
+    const huerfanos = []
+    const vistoHuerfano = new Set()
+
+    for (const row of data || []) {
+      const fname = row?.url_pdf != null ? String(row.url_pdf).trim() : ''
+      if (!fname) continue
+
+      const publicUrl = /^https?:\/\//i.test(fname)
+        ? fname
+        : (publicUrlDesdeUrlPdfPagosProveedor(fname) || resolverHrefFacturaUnificado(fname))
+      if (!publicUrl) continue
+
+      const sidRaw = row?.servicio_id
+      const sidNorm =
+        sidRaw == null || sidRaw === ''
+          ? ''
+          : String(sidRaw).trim()
+      const sidInvalido =
+        sidNorm === '' ||
+        sidNorm.toLowerCase() === 'null' ||
+        sidNorm.toLowerCase() === 'undefined'
+
+      const enlazaFilasCierre = !sidInvalido && idsActuales.has(sidNorm)
+
+      if (enlazaFilasCierre) {
+        dict[sidNorm] = publicUrl
+      } else {
+        const hid = row?.id != null ? String(row.id) : `${publicUrl}-${fname}`
+        if (vistoHuerfano.has(hid)) continue
+        vistoHuerfano.add(hid)
+        huerfanos.push({
+          id: hid,
+          publicUrl,
+          concepto: row?.concepto != null ? String(row.concepto).trim() : '',
+          proveedor_nombre: row?.proveedor_nombre != null ? String(row.proveedor_nombre).trim() : '',
+        })
+      }
+    }
+
+    setMapaUrlFacturaPorServicioDesdePagos(dict)
+    setDocumentosAdicionalesExpediente(huerfanos)
+  }, [activeTab, expediente?.id, costesRealesTablaSql])
+
+  useEffect(() => {
+    recargarPagosProveedoresParaCierre()
+  }, [recargarPagosProveedoresParaCierre])
 
   const recargarInformeDesdeCotizacion = async () => {
     if (!expediente?.id) return
@@ -911,6 +961,10 @@ const ExpedienteFinanzas = ({
           .select('id, nombre_comercial')
         setServiciosCotizacionSqlRows(serviciosCotizacionRows)
         setCostesRealesTablaSql(mapearServiciosSqlATabla(scRows, proveedoresDb))
+        const idsSet = new Set(
+          (scRows || []).map((s) => String(s?.id ?? '').trim()).filter(Boolean)
+        )
+        await recargarPagosProveedoresParaCierre(idsSet)
       }
       if (serviciosCotizacionRows.length === 0) {
         console.error('ERROR: No se encuentran servicios en SQL')
@@ -1034,10 +1088,23 @@ const ExpedienteFinanzas = ({
     const tenantEid = Number(expediente?.empresa_id || user?.empresa_id || empresaId) || null
     if (!tenantEid) { alert('No hay empresa_id disponible para subir el PDF.'); return }
 
+    if (servicioIdParam == null || servicioIdParam === '') {
+      alert('No se puede subir la factura: falta servicio_id válido.')
+      return
+    }
+
     const fila = (costesRealesVista || []).find((c) => String(c.servicioId) === String(servicioIdParam))
     if (!fila?.servicioId) return
 
     const servicioIdCanonico = String(fila.servicioId).trim()
+    if (
+      !servicioIdCanonico ||
+      servicioIdCanonico.toLowerCase() === 'null' ||
+      servicioIdCanonico.toLowerCase() === 'undefined'
+    ) {
+      alert('No se puede subir la factura: el servicio no tiene id válido en cotización.')
+      return
+    }
     if (servicioIdCanonico !== String(servicioIdParam ?? '').trim()) {
       console.error('[cierre] servicio_id inconsistente entre fila y handler:', fila.servicioId, servicioIdParam)
       alert('Error interno: el servicio de la fila no coincide con la subida.')
@@ -1135,12 +1202,9 @@ const ExpedienteFinanzas = ({
       setCostesRealesTablaSql((prev) => (Array.isArray(prev) ? prev : []).map((c) =>
         String(c.servicioId) === servicioIdCanonico ? { ...c, facturaUrl: urlConfirmada } : c
       ))
-      setMapaUrlFacturaPorServicioDesdePagos((prev) => ({
-        ...(prev && typeof prev === 'object' ? prev : {}),
-        [servicioIdCanonico]: urlConfirmada,
-      }))
 
       await recargarInformeDesdeCotizacion()
+      await onFinanzasRefresh?.()
       await onRefresh?.()
     } catch (e) {
       console.error('[cierre] subirYVincularPdfCierre excepción:', e)
@@ -1938,6 +2002,42 @@ const ExpedienteFinanzas = ({
                   <div className="px-3 py-2 bg-slate-50 text-right font-bold text-slate-800 text-sm">
                     Total Gastos Reales: {calcularTotalReal().toFixed(2)} €
                   </div>
+                </div>
+              )}
+              {documentosAdicionalesExpediente.length > 0 && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3">
+                  <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide mb-2">
+                    Documentos adicionales del expediente
+                  </h3>
+                  <p className="text-xs text-amber-800/90 mb-3">
+                    Facturas en pagos a proveedores sin servicio de cotización coincidente (por ejemplo servicio_id nulo u obsoleto). El enlace sigue siendo válido.
+                  </p>
+                  <ul className="space-y-2">
+                    {documentosAdicionalesExpediente.map((doc) => (
+                      <li
+                        key={doc.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-100 bg-white/90 px-3 py-2 text-sm"
+                      >
+                        <div className="min-w-0 flex-1">
+                          {(doc.concepto || doc.proveedor_nombre) ? (
+                            <span className="text-slate-700 font-medium">
+                              {[doc.concepto, doc.proveedor_nombre].filter(Boolean).join(' · ')}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 italic text-xs">Documento sin concepto</span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => window.open(doc.publicUrl, '_blank')}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+                        >
+                          <FileText size={14} aria-hidden />
+                          Ver Factura
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </section>

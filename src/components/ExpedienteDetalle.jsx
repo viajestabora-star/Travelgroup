@@ -6659,6 +6659,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 onUpdate={onUpdate}
                 cobros={cobros}
                 onCobrosReload={cargarCobros}
+                onFinanzasRefresh={cargarPagosProveedores}
                 onExpedienteRefresh={async () => {
                   if (!expediente?.id || !onUpdate) return
                   const { data } = await supabase
@@ -6699,6 +6700,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 onUpdate={onUpdate}
                 cobros={cobros}
                 onCobrosReload={cargarCobros}
+                onFinanzasRefresh={cargarPagosProveedores}
                 onExpedienteRefresh={async () => {
                   if (!expediente?.id || !onUpdate) return
                   const { data } = await supabase
