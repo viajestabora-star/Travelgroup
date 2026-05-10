@@ -932,51 +932,38 @@ const ExpedienteFinanzas = ({
   // Estado para subidas de PDF por fila (map idServicio → boolean)
   const [subiendoPdfCierre, setSubiendoPdfCierre] = useState({})
 
-  // Persiste precio real directamente en SQL (servicios_cotizacion.coste_real_proveedor)
-  const guardarCosteRealEnBD = async (idServicio, valor) => {
-    if (!expediente?.id) return
-    const valorRaw = String(valor ?? '').trim()
-    const valorNum = valorRaw === '' ? null : toNum(valor)
+  /** Solo UPDATE SQL en servicios_cotizacion; sin JSON legacy ni selects ambiguos. */
+  const guardarCosteRealEnBD = async (servicioId, valor) => {
+    if (!expediente?.id || servicioId == null || servicioId === '') return
+    const raw = String(valor ?? '').trim().replace(/\s/g, '').replace(',', '.')
+    let valorNumerico = null
+    if (raw === '') {
+      valorNumerico = null
+    } else {
+      const n = Number(raw)
+      if (!Number.isFinite(n)) {
+        valorNumerico = null
+      } else if (n === 0) {
+        valorNumerico = 0
+      } else {
+        valorNumerico = n
+      }
+    }
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('servicios_cotizacion')
-        .update({ coste_real_proveedor: valorNum })
-        .eq('id', idServicio)
-        .eq('id_expediente', String(expediente.id).trim())
-        .select('id, coste_real_proveedor')
-        .maybeSingle()
-      if (error || !data?.id) {
-        console.error('[cierre] guardarCosteRealEnBD SQL:', error)
+        .update({ coste_real_proveedor: valorNumerico })
+        .eq('id', servicioId)
+      if (error) {
+        console.error('[cierre] guardarCosteRealEnBD:', error)
+        alert(`Error al guardar el coste: ${error.message || String(error)}`)
         return
       }
-      const rawConfirmado = data.coste_real_proveedor
-      const confirmado =
-        rawConfirmado != null && rawConfirmado !== '' && !Number.isNaN(Number(rawConfirmado))
-          ? toNum(rawConfirmado)
-          : null
-      setInformeLiquidacion(prev => ({
-        ...prev,
-        costesReales: (prev.costesReales || []).map(c =>
-          c.id_servicio === idServicio
-            ? {
-                ...c,
-                coste_real_proveedor: confirmado,
-                coste_real: confirmado == null ? c.coste_cotizado : confirmado,
-              }
-            : c
-        ),
-      }))
-      setServiciosCotizacionSqlRows(prev => (Array.isArray(prev) ? prev : []).map(r =>
-        String(r?.id) === String(idServicio) ? { ...r, coste_real_proveedor: confirmado } : r
-      ))
-      setCostesRealesTablaSql(prev => (Array.isArray(prev) ? prev : []).map(c =>
-        String(c?.servicioId) === String(idServicio)
-          ? { ...c, costeRealProveedorVisible: confirmado == null ? 0 : confirmado }
-          : c
-      ))
+      await recargarInformeDesdeCotizacion()
       await onRefresh?.()
     } catch (e) {
       console.error('[cierre] guardarCosteRealEnBD excepción:', e)
+      alert(`Error al guardar el coste: ${e?.message || String(e)}`)
     }
   }
 
