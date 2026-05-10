@@ -1,57 +1,50 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { FileText, RefreshCw, Search } from 'lucide-react'
 import { supabase } from '../supabase'
-import { resolverUrlFacturaCliente } from '../utils/historialCierresShared'
 import { getEjercicioActual, getAñosDisponibles, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 
-/** Sin columnas opcionales no uniformes en todos los proyectos; fechas también vienen en `datos_factura`. */
-const SELECT_FACTURAS_EMBED =
-  'id, expediente_id, cliente_nombre, importe_total, numero_factura, url_pdf, datos_factura, created_at, expedientes(nombre_grupo)'
+const SELECT_FACTURAS =
+  'id, numero_factura, fecha_emision, cliente_nombre, importe_total, url_pdf, expediente_id, tipo_factura, expedientes(nombre_grupo)'
 
-const SELECT_FACTURAS_PLANO =
-  'id, expediente_id, cliente_nombre, importe_total, numero_factura, url_pdf, datos_factura, created_at'
+const REF_FACTURA_DIRECTA = 'Factura Directa / Pasajero'
 
-/** Fecha de emisión efectiva (columna o JSON o alta). */
+const formatEuro = (value) =>
+  new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(
+    Number.isFinite(Number(value)) ? Number(value) : 0,
+  )
+
+/** Fecha de emisión (columna `fecha_emision`). */
 const fechaReferenciaFactura = (row) => {
-  const datos = row?.datos_factura && typeof row.datos_factura === 'object' ? row.datos_factura : {}
-  const raw = row?.fecha_emision ?? datos.fecha_emision ?? row?.created_at ?? null
+  const raw = row?.fecha_emision ?? null
   if (!raw) return null
   const d = new Date(raw)
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+/** Base e IVA a partir de `importe_total` (21 % por defecto si no hay desglose en BD). */
 const baseIvaTotalDesdeFila = (row) => {
-  const datos = row?.datos_factura && typeof row.datos_factura === 'object' ? row.datos_factura : {}
-  const calc = datos.calcularBaseFactura && typeof datos.calcularBaseFactura === 'object' ? datos.calcularBaseFactura : {}
-  let total = Number(row?.importe_total ?? calc.totalFactura ?? datos.importe_total ?? 0)
+  let total = Number(row?.importe_total ?? 0)
   if (!Number.isFinite(total)) total = 0
-  let base = Number(calc.baseImponible ?? 0)
-  let iva = Number(calc.iva ?? 0)
-  if (total > 0 && base === 0 && iva === 0) {
-    const tipoIVA = Number(calc.tipoIVA ?? datos.tipoIVA ?? 21)
-    const t = Number.isFinite(tipoIVA) && tipoIVA > 0 ? tipoIVA : 21
-    base = Math.round((total / (1 + t / 100)) * 100) / 100
-    iva = Math.round((total - base) * 100) / 100
-  }
+  const tipoIVA = 21
+  const base = Math.round((total / (1 + tipoIVA / 100)) * 100) / 100
+  const iva = Math.round((total - base) * 100) / 100
   return { base, iva, total }
 }
 
-const textoReferencia = (row, nombreGrupoJoin) => {
-  if (row?.expediente_id == null || row?.expediente_id === '') {
-    return 'Venta Directa / Cliente Final'
+const nombreGrupoDesdeFila = (row) => {
+  const ex = row?.expedientes
+  if (ex && typeof ex === 'object' && !Array.isArray(ex)) {
+    const ng = ex.nombre_grupo
+    if (ng != null && String(ng).trim()) return String(ng).trim()
   }
-  const nombre =
-    nombreGrupoJoin ||
-    (row.expedientes && typeof row.expedientes === 'object' && !Array.isArray(row.expedientes)
-      ? row.expedientes.nombre_grupo
-      : null) ||
-    datosNombreGrupo(row?.datos_factura)
-  return nombre && String(nombre).trim() ? String(nombre).trim() : '—'
+  return null
 }
 
-const datosNombreGrupo = (datos) => {
-  if (!datos || typeof datos !== 'object') return null
-  return datos.expediente?.nombre_grupo ?? datos.expediente?.nombreGrupo ?? null
+const textoReferencia = (row, nombreGrupoResolved) => {
+  const sinExpediente = row?.expediente_id == null || row?.expediente_id === ''
+  const nombre = nombreGrupoResolved
+  if (sinExpediente || nombre == null) return REF_FACTURA_DIRECTA
+  return nombre
 }
 
 /**
@@ -76,55 +69,21 @@ const FacturasEmitidas = () => {
     setCargando(true)
     setError(null)
     try {
-      let res = await supabase
+      const res = await supabase
         .from('facturas_emitidas')
-        .select(SELECT_FACTURAS_EMBED)
-        .order('created_at', { ascending: false })
+        .select(SELECT_FACTURAS)
+        .order('fecha_emision', { ascending: false })
 
-      let lista = []
-
-      if (!res.error) {
-        lista = Array.isArray(res.data) ? res.data : []
-      } else {
-        const msg = String(res.error.message || '')
-        const esCol = /column|schema|42703|does not exist|relationship/i.test(msg)
-        if (!esCol) {
-          console.error('[FacturasEmitidas] Supabase:', res.error.message, res.error)
-          setError(res.error.message || 'No se pudieron cargar las facturas.')
-          setFilas([])
-          return
-        }
-        console.warn('[FacturasEmitidas] Reintento lectura plana + LEFT JOIN manual (expedientes):', msg)
-        res = await supabase
-          .from('facturas_emitidas')
-          .select(SELECT_FACTURAS_PLANO)
-          .order('created_at', { ascending: false })
-        if (res.error) {
-          console.error('[FacturasEmitidas] Supabase:', res.error.message, res.error)
-          setError(res.error.message || 'No se pudieron cargar las facturas.')
-          setFilas([])
-          return
-        }
-        lista = Array.isArray(res.data) ? res.data : []
-        const ids = [...new Set(lista.map((r) => r.expediente_id).filter(Boolean))]
-        const mapaGrupo = {}
-        if (ids.length > 0) {
-          const ex = await supabase.from('expedientes').select('id, nombre_grupo').in('id', ids)
-          if (!ex.error && Array.isArray(ex.data)) {
-            for (const e of ex.data) {
-              mapaGrupo[String(e.id)] = e.nombre_grupo ?? ''
-            }
-          }
-        }
-        lista = lista.map((r) => ({
-          ...r,
-          _nombre_grupo_lookup: r.expediente_id != null ? mapaGrupo[String(r.expediente_id)] : null,
-        }))
+      if (res.error) {
+        console.error('[FacturasEmitidas]', res.error.message, res.error)
+        setError(res.error.message || 'No se pudieron cargar las facturas.')
+        setFilas([])
+        return
       }
 
-      setFilas(lista)
+      setFilas(Array.isArray(res.data) ? res.data : [])
     } catch (e) {
-      console.error('[FacturasEmitidas] Excepción:', e)
+      console.error('[FacturasEmitidas]', e)
       setError(String(e?.message || e) || 'Error inesperado.')
       setFilas([])
     } finally {
@@ -156,9 +115,7 @@ const FacturasEmitidas = () => {
       window.alert('Esta factura no tiene PDF asociado en la base de datos.')
       return
     }
-    const url = resolverUrlFacturaCliente(String(raw).trim())
-    if (url) window.open(url, '_blank', 'noopener,noreferrer')
-    else window.alert('No se pudo resolver la URL del PDF.')
+    window.open(String(raw).trim(), '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -253,13 +210,7 @@ const FacturasEmitidas = () => {
                     ? fd.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
                     : '—'
                   const { base, iva, total } = baseIvaTotalDesdeFila(row)
-                  const nombreJoin =
-                    row._nombre_grupo_lookup != null
-                      ? row._nombre_grupo_lookup
-                      : row.expedientes && typeof row.expedientes === 'object' && !Array.isArray(row.expedientes)
-                        ? row.expedientes.nombre_grupo
-                        : null
-                  const referencia = textoReferencia(row, nombreJoin)
+                  const referencia = textoReferencia(row, nombreGrupoDesdeFila(row))
 
                   return (
                     <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/80">
@@ -271,9 +222,11 @@ const FacturasEmitidas = () => {
                       <td className="px-4 py-3 text-slate-600 max-w-[220px]" title={referencia}>
                         {referencia}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">{base.toFixed(2)} €</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">{iva.toFixed(2)} €</td>
-                      <td className="px-4 py-3 text-right font-semibold tabular-nums text-navy-900">{total.toFixed(2)} €</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">{formatEuro(base)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">{formatEuro(iva)}</td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums text-navy-900">
+                        {formatEuro(row.importe_total ?? total)}
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <button
                           type="button"
