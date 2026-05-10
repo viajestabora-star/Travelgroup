@@ -17,11 +17,6 @@ import {
   normalizarProveedorEstructura,
   importeIvaNumericoParaSupabase,
 } from './historialCierresFormat'
-import {
-  leerFinanzasCierreDesdeSoloCierreGrupo,
-  cierreGrupoTieneFinanzasVerificadas,
-} from './cierreGrupoFuenteVerdad'
-
 // ─── Helpers dominio (tras números / moneda / fechas de fila) ─────────────────
 
 /** Convierte fecha_inicio (texto/ISO) a Date; sin valor válido → null. */
@@ -50,8 +45,6 @@ const fechaReferenciaTrimestreDesdeExp = (exp) => {
   if (dIni && !isNaN(dIni.getTime())) return dIni
   const dCre = fechaInicioADate(exp?.created_at)
   if (dCre && !isNaN(dCre.getTime())) return dCre
-  const dFc = fechaInicioADate(exp?.fecha_creacion)
-  if (dFc && !isNaN(dFc.getTime())) return dFc
   return new Date()
 }
 
@@ -70,37 +63,25 @@ const clasificarPorFechaInicio = (exp) => {
 }
 
 /**
- * Extrae finanzas canónicas de un expediente.
- * Si existe cierre verificado (`cierre_grupo` con datos), solo se usa ese JSON (`totales` o legacy dentro del JSON).
- * Sin cierre: columnas planas del expediente.
+ * Finanzas desde columnas planas en `expedientes` (fuente de verdad para Dashboard / historial).
+ * No se parsea `cierre_grupo`: total_gastos_reales equivale al coste real consolidado en BD.
  */
 const extraerFinanzas = (exp) => {
-  const cg = exp?.cierre_grupo
-  const tieneCierre = cierreGrupoTieneFinanzasVerificadas(cg)
-
-  const fechaCierre = cg?.fecha
-    ? new Date(cg.fecha)
-    : exp?.fecha_inicio ? new Date(exp.fecha_inicio) : null
-
-  if (tieneCierre) {
-    const f = leerFinanzasCierreDesdeSoloCierreGrupo(cg)
-    return {
-      ingresoTotal: f.ingresos_totales,
-      gastoTotal: f.gastos_totales,
-      ivaPagado: f.iva_pagado,
-      beneficioBruto: f.beneficio_bruto,
-      beneficioNeto: f.beneficio_limpio,
-      fechaCierre,
-      costesReales: f.costesReales,
-      gastosImprevistos: f.gastosImprevistos,
-    }
-  }
-
-  const ingresoTotal = n(exp?.total_ingresos)
-  const gastoTotal = n(exp?.total_gastos_reales)
-  const ivaPagado = n(exp?.cuota_iva)
-  const beneficioNeto = n(exp?.beneficio_neto_real ?? exp?.liquidacion_final_beneficio)
+  const ingresoTotal = n(exp?.total_ingresos ?? 0)
+  const gastoTotal = n(exp?.total_gastos_reales ?? 0)
+  const ivaPagado = n(exp?.cuota_iva ?? 0)
+  const beneficioNeto = n(exp?.beneficio_neto_real ?? exp?.liquidacion_final_beneficio ?? 0)
   const beneficioBruto = ingresoTotal - gastoTotal
+
+  let fechaCierre = null
+  if (exp?.fecha_inicio) {
+    const d = fechaInicioADate(exp.fecha_inicio)
+    fechaCierre = d && !isNaN(d.getTime()) ? d : null
+  }
+  if (!fechaCierre && exp?.created_at) {
+    const d2 = fechaInicioADate(exp.created_at)
+    fechaCierre = d2 && !isNaN(d2.getTime()) ? d2 : null
+  }
 
   return {
     ingresoTotal,
@@ -141,17 +122,18 @@ const badgeEstadoProps = (exp) => {
   return { className: 'bg-slate-300', label: s || '—' }
 }
 
-/** Valores de fila alineados con `extraerFinanzas` (cierre_grupo) para que sumas coincidan con la vista. */
-const ingresoMostradoHistorial = (c) => n(c.ingresoTotal ?? c.total_ingresos)
-const beneficioMostradoHistorial = (c) => n(c.beneficioNeto ?? c.beneficio_neto_real)
+/** Valores de fila alineados con columnas planas + `extraerFinanzas`. */
+const ingresoMostradoHistorial = (c) => n(c.ingresoTotal ?? c.total_ingresos ?? 0)
+const beneficioMostradoHistorial = (c) => n(c.beneficioNeto ?? c.beneficio_neto_real ?? 0)
 
 /** Referencia verificación T1: deben listarse cuando el año del filtro coincide con su año contable/referencia. */
 const NUMEROS_DIAGNOSTICO_HISTORIAL = ['2026-011', '2026-012', '2026-002', '2026-015']
 
 const SELECT_EXPEDIENTES_HISTORIAL_MIN =
-  'id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio, cierre_grupo, informe_gastos_hacienda'
+  'id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio, ejercicio, created_at, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio'
 
-const SELECT_EXPEDIENTES_HISTORIAL_EXT = `${SELECT_EXPEDIENTES_HISTORIAL_MIN}, created_at, fecha_creacion`
+/** Alias histórico: mismo conjunto de columnas confirmadas (sin JSON ni fecha_creacion obsoleto). */
+const SELECT_EXPEDIENTES_HISTORIAL_EXT = SELECT_EXPEDIENTES_HISTORIAL_MIN
 
 /** Orden: primero la tabla que pidas en Supabase; si no existe la relación, se usa `expedientes`. Sin `.limit()` ni `.range()`. */
 const TABLAS_EXPEDIENTES_HISTORIAL = ['expedientes_nuevos', 'expedientes']
@@ -210,7 +192,7 @@ const fetchExpedientesCierrePorRango = async (supabaseClient, columnasSelect, an
         .from(nombreTabla)
         .select(columnasSelect)
         .or('estado.ilike.cerrado,estado.ilike.liquidado')
-        .order('created_at', { ascending: false, nullsFirst: false })
+        .order('fecha_inicio', { ascending: true })
 
     const resConFecha = await base().gte('fecha_inicio', rango.inicio).lte('fecha_inicio', rango.fin)
     if (resConFecha.error) {

@@ -27,10 +27,17 @@ import {
 /** Solo tabla `expedientes`; nombres de cliente desde `cliente_nombre`; año fiscal vía `ejercicio`. */
 const TABLA_EXPEDIENTES_CIERRE = 'expedientes'
 
-const SELECT_EXPEDIENTES_CIERRE_MIN =
-  'id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio, ejercicio, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio, cierre_grupo, informe_gastos_hacienda'
+/** Columnas confirmadas en `expedientes` (sin JSON cierre_grupo ni fecha_creacion obsoleto). */
+const SELECT_EXPEDIENTES_CIERRE =
+  'id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio, ejercicio, created_at, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio'
 
-const SELECT_EXPEDIENTES_CIERRE_EXT = `${SELECT_EXPEDIENTES_CIERRE_MIN}, created_at, fecha_creacion`
+/** Reintento si `created_at` no existe en el proyecto. */
+const SELECT_EXPEDIENTES_CIERRE_SIN_CREATED_AT =
+  'id, estado, numero_expediente, nombre_grupo, cliente_nombre, destino, fecha_inicio, ejercicio, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio'
+
+/** Último recurso: núcleo mínimo para evitar 400 por columnas opcionales. */
+const SELECT_EXPEDIENTES_CIERRE_NUCLEO =
+  'id, estado, numero_expediente, nombre_grupo, fecha_inicio, ejercicio, total_ingresos, total_gastos_reales, beneficio_neto_real, liquidacion_final_beneficio'
 
 /** Estados admitidos en la carga (solo Cerrado / Finalizado), alineado con el filtro de la consulta. */
 const esEstadoCierreCargaHistorial = (estadoRaw) => {
@@ -227,7 +234,7 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
           .select(columnas)
           .eq('ejercicio', anioNum)
           .or('estado.ilike.Cerrado,estado.ilike.Finalizado')
-          .order('created_at', { ascending: false, nullsFirst: false })
+          .order('fecha_inicio', { ascending: true })
 
         if (trimestreVal !== 'all') {
           const rango = rangoFechasConsultaExpedientes(anioStr, trimestreVal)
@@ -241,26 +248,18 @@ export function useCierresLogic(año, trimestreFiltro, setAbiertoTrim) {
 
       const esErrorColumna = (err) => /column|schema|does not exist|42703/i.test(String(err?.message || ''))
 
-      let { data, error } = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_CIERRE_EXT)
+      let { data, error } = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_CIERRE)
 
       if (error && esErrorColumna(error)) {
-        const msg = String(error.message || '')
-        if (/fecha_creacion/i.test(msg)) {
-          console.warn('[HistorialCierres] fecha_creacion ausente en esquema, reintento con created_at:', msg)
-          const rMid = await ejecutarFetchExpedientes(`${SELECT_EXPEDIENTES_CIERRE_MIN}, created_at`)
-          data = rMid.data
-          error = rMid.error
-        } else {
-          console.warn('[HistorialCierres] Select extendido rechazado, reintento columnas mínimas:', msg)
-          const r2 = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_CIERRE_MIN)
-          data = r2.data
-          error = r2.error
-        }
+        console.warn('[HistorialCierres] Select expedientes cierre: reintento sin created_at:', error.message)
+        const r2 = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_CIERRE_SIN_CREATED_AT)
+        data = r2.data
+        error = r2.error
       }
 
       if (error && esErrorColumna(error)) {
-        console.warn('[HistorialCierres] Último reintento solo columnas mínimas:', error.message)
-        const r3 = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_CIERRE_MIN)
+        console.warn('[HistorialCierres] Último reintento núcleo (ej. cliente_nombre/destino ausentes):', error.message)
+        const r3 = await ejecutarFetchExpedientes(SELECT_EXPEDIENTES_CIERRE_NUCLEO)
         data = r3.data
         error = r3.error
       }
