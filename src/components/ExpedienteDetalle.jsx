@@ -5,7 +5,7 @@ import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol,
 import { supabase } from '../supabase'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
 import { getNextInvoiceNumber } from '../utils/facturaNumeracion'
-import { getEjercicioActual } from '../utils/ejercicioGlobal'
+import { solicitarRefrescoFacturasEmitidas } from '../utils/facturaEmitidaPdf'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { detectarCamposPendientes } from '../utils/constraintValidator'
@@ -4031,7 +4031,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       }
       
       // Numeración correlativa fiscal (YYYY-XXX): releer tras 1 ms antes del INSERT en `facturas`.
-      const añoEjercicio = getEjercicioActual()
+      const añoNumeracionFactura = new Date().getFullYear()
       const datosFacturaSinNumero = {
         expediente_id: expediente.id,
         cliente_id: expediente.cliente_id || expediente.clienteId || null,
@@ -4046,9 +4046,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       let datosFactura = null
 
       for (let intento = 0; intento < MAX_INTENTOS_NUMERO; intento++) {
-        let n = await getNextInvoiceNumber(supabase, añoEjercicio)
+        let n = await getNextInvoiceNumber(supabase, añoNumeracionFactura)
         await new Promise((r) => setTimeout(r, 1))
-        n = await getNextInvoiceNumber(supabase, añoEjercicio)
+        n = await getNextInvoiceNumber(supabase, añoNumeracionFactura)
         const nt = String(n || '').trim()
         if (!nt) {
           alert('❌ Error: numero_factura vacío. No se puede guardar una factura sin número.')
@@ -4214,6 +4214,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       } catch (err) {
         // No bloqueamos el flujo si falla
       }
+
+      solicitarRefrescoFacturasEmitidas()
 
       alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente.`)
 

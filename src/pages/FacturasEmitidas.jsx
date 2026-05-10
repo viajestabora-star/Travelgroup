@@ -1,12 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { FileText, RefreshCw, Search } from 'lucide-react'
+import { FileText, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { supabase } from '../supabase'
 import { getEjercicioActual, getAñosDisponibles, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
+import {
+  abrirPdfFacturaEmitida,
+  EVENTO_REFRESCO_FACTURAS_EMITIDAS,
+} from '../utils/facturaEmitidaPdf'
 
 const SELECT_FACTURAS =
-  'id, numero_factura, fecha_emision, cliente_nombre, importe_total, url_pdf, expediente_id, tipo_factura, expedientes(nombre_grupo)'
+  'id, numero_factura, fecha_emision, cliente_nombre, importe_total, url_pdf, expediente_id, tipo_factura, datos_factura, expedientes(nombre_grupo)'
 
 const REF_FACTURA_DIRECTA = 'Factura Directa / Pasajero'
+
+const MSJ_BORRADO_CORRELATIVIDAD =
+  'Atención: Al borrar esta factura, el sistema podrá reutilizar este número en la próxima emisión para mantener la correlatividad fiscal (huecos).'
 
 const formatEuro = (value) =>
   new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(
@@ -49,7 +56,7 @@ const textoReferencia = (row, nombreGrupoResolved) => {
 
 /**
  * Ventana maestra: todas las facturas de venta en `facturas_emitidas`.
- * No altera el flujo de emisión desde expedientes.
+ * Ruta activa: `/:slug/cierres` (véase App.jsx).
  */
 const FacturasEmitidas = () => {
   const [filas, setFilas] = useState([])
@@ -57,6 +64,7 @@ const FacturasEmitidas = () => {
   const [error, setError] = useState(null)
   const [busquedaNumero, setBusquedaNumero] = useState('')
   const [añoEjercicio, setAñoEjercicio] = useState(() => getEjercicioActual())
+  const [borrandoId, setBorrandoId] = useState(null)
 
   useEffect(() => {
     const unsub = subscribeToEjercicioChanges((y) => {
@@ -65,7 +73,7 @@ const FacturasEmitidas = () => {
     return unsub
   }, [])
 
-  const cargar = useCallback(async () => {
+  const fetchFacturas = useCallback(async () => {
     setCargando(true)
     setError(null)
     try {
@@ -92,8 +100,16 @@ const FacturasEmitidas = () => {
   }, [])
 
   useEffect(() => {
-    cargar()
-  }, [cargar])
+    fetchFacturas()
+  }, [fetchFacturas])
+
+  useEffect(() => {
+    const handler = () => {
+      fetchFacturas()
+    }
+    window.addEventListener(EVENTO_REFRESCO_FACTURAS_EMITIDAS, handler)
+    return () => window.removeEventListener(EVENTO_REFRESCO_FACTURAS_EMITIDAS, handler)
+  }, [fetchFacturas])
 
   const añosOpciones = useMemo(() => getAñosDisponibles(), [])
 
@@ -109,13 +125,37 @@ const FacturasEmitidas = () => {
     })
   }, [filas, busquedaNumero, añoEjercicio])
 
-  const abrirPdf = (row) => {
-    const raw = row?.url_pdf
-    if (raw == null || String(raw).trim() === '') {
-      window.alert('Esta factura no tiene PDF asociado en la base de datos.')
+  const handleVerPdf = async (row) => {
+    await abrirPdfFacturaEmitida(supabase, row)
+  }
+
+  const handleBorrarFactura = async (row) => {
+    const id = row?.id
+    if (id == null || id === '') return
+
+    const refNum =
+      row.numero_factura != null && String(row.numero_factura).trim() !== ''
+        ? String(row.numero_factura).trim()
+        : '—'
+
+    if (!window.confirm(`¿Eliminar la factura ${refNum} del listado? Esta acción no se puede deshacer.`)) {
       return
     }
-    window.open(String(raw).trim(), '_blank', 'noopener,noreferrer')
+    if (!window.confirm(MSJ_BORRADO_CORRELATIVIDAD)) {
+      return
+    }
+
+    setBorrandoId(id)
+    try {
+      const { error: delErr } = await supabase.from('facturas_emitidas').delete().eq('id', id)
+      if (delErr) {
+        window.alert(delErr.message || 'No se pudo borrar la factura.')
+        return
+      }
+      await fetchFacturas()
+    } finally {
+      setBorrandoId(null)
+    }
   }
 
   return (
@@ -131,7 +171,7 @@ const FacturasEmitidas = () => {
         </div>
         <button
           type="button"
-          onClick={() => cargar()}
+          onClick={() => fetchFacturas()}
           disabled={cargando}
           className="inline-flex items-center gap-2 self-start px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
@@ -187,18 +227,19 @@ const FacturasEmitidas = () => {
                 <th className="px-4 py-3 font-semibold text-slate-700 text-right">IVA</th>
                 <th className="px-4 py-3 font-semibold text-slate-700 text-right">Total</th>
                 <th className="px-4 py-3 font-semibold text-slate-700 text-center">PDF</th>
+                <th className="px-4 py-3 font-semibold text-slate-700 text-center">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {cargando ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-500">
                     Cargando facturas…
                   </td>
                 </tr>
               ) : filasFiltradas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-500">
                     No hay facturas para este ejercicio
                     {busquedaNumero.trim() ? ' o para el filtro indicado' : ''}.
                   </td>
@@ -211,6 +252,7 @@ const FacturasEmitidas = () => {
                     : '—'
                   const { base, iva, total } = baseIvaTotalDesdeFila(row)
                   const referencia = textoReferencia(row, nombreGrupoDesdeFila(row))
+                  const busy = borrandoId === row.id
 
                   return (
                     <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/80">
@@ -230,12 +272,24 @@ const FacturasEmitidas = () => {
                       <td className="px-4 py-3 text-center">
                         <button
                           type="button"
-                          onClick={() => abrirPdf(row)}
+                          onClick={() => handleVerPdf(row)}
                           className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
                           title="Ver factura PDF"
                         >
                           <FileText size={14} />
                           Ver PDF
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleBorrarFactura(row)}
+                          disabled={busy}
+                          className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 hover:bg-red-100 disabled:opacity-40 disabled:pointer-events-none"
+                          title="Eliminar factura del registro"
+                          aria-label="Eliminar factura"
+                        >
+                          <Trash2 size={16} />
                         </button>
                       </td>
                     </tr>

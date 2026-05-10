@@ -1,5 +1,3 @@
-import { getEjercicioActual } from './ejercicioGlobal'
-
 /** Número fiscal ventas: `YYYY-XXX` (tres dígitos correlativos, ceros a la izquierda). */
 const REGEX_NUMERO_FACTURA = /^(\d{4})-(\d+)$/
 
@@ -44,6 +42,10 @@ export function siguienteCorrelativoDesdeSecuencias(sequences) {
   return k
 }
 
+/**
+ * Lee todos los `numero_factura` con prefijo del ejercicio (p. ej. `2026-%`) en las tablas de venta.
+ * El correlativo siguiente es el **primer hueco libre** en 1…n (sin saltos deliberados).
+ */
 async function coleccionarNumerosEjercicio(supabase, year) {
   const prefijo = `${year}-`
   const peticiones = TABLAS_NUMERACION.map((tabla) =>
@@ -70,9 +72,9 @@ async function coleccionarNumerosEjercicio(supabase, year) {
 /**
  * Siguiente número de factura de venta para el ejercicio (huecos primero, luego max+1 implícito).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {number} [year] - Por defecto ejercicio global de la app (`getEjercicioActual`).
+ * @param {number} [year] - Año del serie fiscal (prefijo `YYYY-`); por defecto año calendario actual.
  */
-export async function getNextInvoiceNumber(supabase, year = getEjercicioActual()) {
+export async function getNextInvoiceNumber(supabase, year = new Date().getFullYear()) {
   const y = Number(year)
   if (!Number.isFinite(y)) throw new Error('Ejercicio inválido para numeración')
   const seqs = await coleccionarNumerosEjercicio(supabase, y)

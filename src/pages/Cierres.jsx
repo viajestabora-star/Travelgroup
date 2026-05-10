@@ -25,7 +25,7 @@ import { obtenerLineasInformeComoCierres } from '../utils/lineasInformeCierres'
 import { finanzasExpedienteParaInformes } from '../utils/cierreGrupoFuenteVerdad'
 import VisualizadorPro from '../components/VisualizadorPro'
 import { getNextInvoiceNumber } from '../utils/facturaNumeracion'
-import { getEjercicioActual } from '../utils/ejercicioGlobal'
+import { solicitarRefrescoFacturasEmitidas } from '../utils/facturaEmitidaPdf'
 
 // ===================== FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF =====================
 // Función compartida para generar PDFs de facturas con diseño profesional unificado
@@ -596,14 +596,14 @@ const Cierres = ({ user, onClose }) => {
         clienteSeleccionado.cif_nif || clienteSeleccionado.cif || ''
       ).trim()
 
-      const añoEjercicio = getEjercicioActual()
+      const añoNumeracionFactura = new Date().getFullYear()
       const MAX_INTENTOS_NUMERO = 5
       let numeroFactura = ''
 
       for (let intento = 0; intento < MAX_INTENTOS_NUMERO; intento++) {
-        let n = await getNextInvoiceNumber(supabase, añoEjercicio)
+        let n = await getNextInvoiceNumber(supabase, añoNumeracionFactura)
         await new Promise((r) => setTimeout(r, 1))
-        n = await getNextInvoiceNumber(supabase, añoEjercicio)
+        n = await getNextInvoiceNumber(supabase, añoNumeracionFactura)
         numeroFactura = String(n || '').trim()
         if (!numeroFactura) {
           alert('No se pudo obtener un número de factura válido.')
@@ -653,6 +653,7 @@ const Cierres = ({ user, onClose }) => {
           if (errorEmitidas) {
             // No bloquear: la factura ya está en global; emitidas puede fallar por schema
           }
+          solicitarRefrescoFacturasEmitidas()
           break
         }
 

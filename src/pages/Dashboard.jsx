@@ -20,7 +20,7 @@ const Dashboard = ({ user = null }) => {
   const [showIntelligenceHub, setShowIntelligenceHub] = useState(false)
   const [showIntegrityPanel, setShowIntegrityPanel]   = useState(false)
   const esAdmin = esUsuarioAdmin(user)
-  const { empresaId } = useEmpresa()
+  const { empresaId, empresaSlug } = useEmpresa()
   const empresaIdNotas = empresaIdSesionValido(user, empresaId)
 
   // Corrección silenciosa en segundo plano: al cargar el dashboard,
@@ -491,7 +491,7 @@ const Dashboard = ({ user = null }) => {
                 Últimas Facturas Emitidas
               </h2>
               <button
-                onClick={() => navigate('/cierres')}
+                onClick={() => navigate(empresaSlug ? `/${empresaSlug}/cierres` : '/cierres')}
                 className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
               >
                 Ver todas <ChevronRight size={16} />
@@ -526,7 +526,7 @@ const Dashboard = ({ user = null }) => {
                       return (
                         <tr
                           key={f.id}
-                          onClick={() => navigate('/cierres')}
+                          onClick={() => navigate(empresaSlug ? `/${empresaSlug}/cierres` : '/cierres')}
                           className="hover:bg-blue-50 cursor-pointer transition-colors"
                         >
                           <td className="py-2 pr-3 font-mono font-semibold text-blue-700 text-xs">{f.numero_factura || '—'}</td>
