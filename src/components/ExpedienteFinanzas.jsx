@@ -809,9 +809,9 @@ const ExpedienteFinanzas = ({
     const safeRows = Array.isArray(rows) ? rows : []
     return safeRows.map((s) => {
       const servicioId = String(s?.id ?? generarUUID())
-      const conceptoVisible = String(s?.nombre_servicio || '').trim() || 'Servicio'
+      const conceptoVisible = String(s?.nombre_servicio || s?.tipo_servicio || s?.nombre_especifico || '').trim() || 'Servicio'
       const proveedorVisible = String(s?.nombre_proveedor_texto || s?.nombre_proveedor_manual || '').trim() || 'Sin proveedor'
-      const costeCotizadoVisible = toNum(s?.coste_total_servicio ?? s?.total_servicio)
+      const costeCotizadoVisible = toNum(s?.coste_total_servicio) || toNum(s?.total_servicio) || toNum(s?.coste_unitario) || 0
       const costeRealProveedorVisible = s?.coste_real_proveedor == null ? 0 : toNum(s?.coste_real_proveedor)
       const facturaUrl = String(s?.url_factura_pdf || '').trim() || null
       return {
