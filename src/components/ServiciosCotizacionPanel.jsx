@@ -36,6 +36,27 @@ const generarUUID = () => {
   })
 }
 
+/** Cruza proveedor_id_int con la lista en memoria (objeto UI o filas crudas de Supabase). */
+const resolverNombreProveedorDesdeLista = (proveedoresList, proveedorIdInt) => {
+  const listaProv = Array.isArray(proveedoresList) ? proveedoresList : []
+  if (proveedorIdInt == null || proveedorIdInt === '') return ''
+  const strId = String(proveedorIdInt).trim()
+  if (!strId) return ''
+  const numId = Number(strId)
+  const numOk = !isNaN(numId)
+
+  const pr = listaProv.find((p) => {
+    const pid = p?.id
+    if (pid == null || pid === '') return false
+    const pn = Number(pid)
+    if (numOk && !isNaN(pn) && pn === numId) return true
+    return String(pid).trim() === strId
+  })
+  if (!pr) return ''
+  const nombre = pr.nombreComercial ?? pr.nombre_comercial ?? pr.nombre ?? pr.nombre_fiscal ?? ''
+  return String(nombre).trim()
+}
+
 const DEFAULT_SERVICE_VALUES = {
   id: null,
   proveedorId: null,
@@ -475,13 +496,6 @@ const ServiciosCotizacionPanel = ({
       proveedorIdLimpio = !isNaN(num) ? num : null
     }
 
-    const listaProv = Array.isArray(proveedores) ? proveedores : []
-    const proveedorEnLista = proveedorIdLimpio != null
-      ? listaProv.find((p) => {
-          const proveedorIdLista = Number(p.id)
-          return !isNaN(proveedorIdLista) && proveedorIdLista === proveedorIdLimpio
-        })
-      : null
     const textoBusquedaProveedor = servicio?.id != null && busquedaProveedor[servicio.id] !== undefined
       ? String(busquedaProveedor[servicio.id]).trim()
       : ''
@@ -490,7 +504,7 @@ const ServiciosCotizacionPanel = ({
     let nombreProveedorTextoPayload = null
     let nombreProveedorManualPayload = null
     if (proveedorIdLimpio != null) {
-      const desdeLista = proveedorEnLista?.nombreComercial ? String(proveedorEnLista.nombreComercial).trim() : ''
+      const desdeLista = resolverNombreProveedorDesdeLista(proveedores, proveedorIdLimpio)
       const desdeServicio = servicio?.nombre_proveedor_texto != null && String(servicio.nombre_proveedor_texto).trim() !== ''
         ? String(servicio.nombre_proveedor_texto).trim()
         : ''
@@ -637,6 +651,12 @@ const ServiciosCotizacionPanel = ({
             && prevPagado !== undefined && prevPagado !== null
           ) {
             fusionado.pagado_a_proveedor = prevPagado
+          }
+
+          const nombrePorCruceLista = resolverNombreProveedorDesdeLista(proveedores, fusionado.proveedor_id_int)
+          if (nombrePorCruceLista) {
+            fusionado.nombre_proveedor_texto = nombrePorCruceLista
+            fusionado.nombre_proveedor_manual = null
           }
 
           return fusionado
