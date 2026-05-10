@@ -474,6 +474,34 @@ const ServiciosCotizacionPanel = ({
       const num = idRaw != null ? Number(idRaw) : NaN
       proveedorIdLimpio = !isNaN(num) ? num : null
     }
+
+    const listaProv = Array.isArray(proveedores) ? proveedores : []
+    const proveedorEnLista = proveedorIdLimpio != null
+      ? listaProv.find((p) => {
+          const proveedorIdLista = Number(p.id)
+          return !isNaN(proveedorIdLista) && proveedorIdLista === proveedorIdLimpio
+        })
+      : null
+    const textoBusquedaProveedor = servicio?.id != null && busquedaProveedor[servicio.id] !== undefined
+      ? String(busquedaProveedor[servicio.id]).trim()
+      : ''
+    const nombreTemporalTrim = (servicio?.proveedorNombreTemporal && String(servicio.proveedorNombreTemporal).trim()) || ''
+
+    let nombreProveedorTextoPayload = null
+    let nombreProveedorManualPayload = null
+    if (proveedorIdLimpio != null) {
+      const desdeLista = proveedorEnLista?.nombreComercial ? String(proveedorEnLista.nombreComercial).trim() : ''
+      const desdeServicio = servicio?.nombre_proveedor_texto != null && String(servicio.nombre_proveedor_texto).trim() !== ''
+        ? String(servicio.nombre_proveedor_texto).trim()
+        : ''
+      const combinado = desdeLista || desdeServicio || textoBusquedaProveedor
+      nombreProveedorTextoPayload = combinado ? combinado : null
+      nombreProveedorManualPayload = null
+    } else {
+      nombreProveedorManualPayload = nombreTemporalTrim || textoBusquedaProveedor || null
+      nombreProveedorTextoPayload = null
+    }
+
     const tipoNorm = normalizarTipo(servicio?.tipo || '')
     const cantidadGuia = Math.max(1, toNum(servicio?.cantidad ?? servicio?.dias_guia ?? nochesFinal))
     const totalServicioFinal = (tipoNorm === 'guia' || tipoNorm === 'g')
@@ -511,7 +539,8 @@ const ServiciosCotizacionPanel = ({
       release_pagado: !!servicio?.releasePagado,
       tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
       proveedor_id_int: proveedorIdLimpio,
-      nombre_proveedor_manual: (servicio?.proveedorNombreTemporal && String(servicio.proveedorNombreTemporal).trim()) || null,
+      nombre_proveedor_manual: nombreProveedorManualPayload,
+      nombre_proveedor_texto: nombreProveedorTextoPayload,
       mayorista_id: (() => {
         const v = servicio?.mayorista_id
         if (v == null || v === '' || v === undefined) return null
@@ -519,9 +548,6 @@ const ServiciosCotizacionPanel = ({
         const esUuidValido = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
         return esUuidValido ? str : null
       })(),
-      ...(servicio?.nombre_proveedor_texto !== undefined && servicio?.nombre_proveedor_texto !== null && String(servicio.nombre_proveedor_texto).trim() !== ''
-        ? { nombre_proveedor_texto: String(servicio.nombre_proveedor_texto).trim() }
-        : {}),
     }
   }
 
@@ -561,15 +587,6 @@ const ServiciosCotizacionPanel = ({
           const idFinal = esUuidServicioValido(s.id) ? String(s.id).trim() : generarUUID()
           const dbService = existentesMap.get(idFinal) || {}
 
-          const nombreProveedorTextoGestionado =
-            datos.nombre_proveedor_texto != null && String(datos.nombre_proveedor_texto).trim() !== ''
-              ? String(datos.nombre_proveedor_texto).trim()
-              : (
-                datos.nombre_proveedor_manual != null && String(datos.nombre_proveedor_manual).trim() !== ''
-                  ? String(datos.nombre_proveedor_manual).trim()
-                  : null
-              )
-
           const uiService = {
             id: idFinal,
             id_expediente: expIdStr,
@@ -591,7 +608,10 @@ const ServiciosCotizacionPanel = ({
             tipo_calculo: datos.tipo_calculo,
             proveedor_id_int: datos.proveedor_id_int,
             nombre_proveedor_manual: datos.nombre_proveedor_manual,
-            nombre_proveedor_texto: nombreProveedorTextoGestionado,
+            nombre_proveedor_texto:
+              datos.nombre_proveedor_texto != null && String(datos.nombre_proveedor_texto).trim() !== ''
+                ? String(datos.nombre_proveedor_texto).trim()
+                : null,
             mayorista_id: datos.mayorista_id,
           }
 
