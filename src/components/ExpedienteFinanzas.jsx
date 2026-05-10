@@ -805,12 +805,22 @@ const ExpedienteFinanzas = ({
   const [serviciosCotizacionSqlRows, setServiciosCotizacionSqlRows] = React.useState([])
   const [costesRealesTablaSql, setCostesRealesTablaSql] = React.useState([])
 
-  const mapearServiciosSqlATabla = React.useCallback((rows) => {
+  const mapearServiciosSqlATabla = React.useCallback((rows, proveedoresLista) => {
     const safeRows = Array.isArray(rows) ? rows : []
+    const listaProv = Array.isArray(proveedoresLista) ? proveedoresLista : []
     return safeRows.map((s) => {
       const servicioId = String(s?.id ?? generarUUID())
       const conceptoVisible = String(s?.nombre_servicio || s?.tipo_servicio || s?.nombre_especifico || '').trim() || 'Servicio'
-      const proveedorVisible = String(s?.nombre_proveedor_texto || s?.nombre_proveedor_manual || '').trim() || 'Sin proveedor'
+      const provOficial = listaProv?.find(
+        (p) => String(p.id) === String(s.proveedor_id_int) || String(p.id) === String(s.proveedor_id)
+      )
+      const proveedorVisible =
+        provOficial?.nombre ||
+        provOficial?.nombre_comercial ||
+        provOficial?.razon_social ||
+        s?.nombre_proveedor_manual ||
+        s?.nombre_proveedor_texto ||
+        'Sin proveedor'
       const costeCotizadoVisible = toNum(s?.coste_total_servicio) || toNum(s?.total_servicio) || toNum(s?.coste_unitario) || 0
       const costeRealProveedorVisible = s?.coste_real_proveedor == null ? 0 : toNum(s?.coste_real_proveedor)
       const facturaUrl = String(s?.url_factura_pdf || '').trim() || null
@@ -854,8 +864,11 @@ const ExpedienteFinanzas = ({
         setErrorCargaCotizacion(scErr.message || 'Error al cargar servicios desde SQL')
       } else if (Array.isArray(scRows)) {
         serviciosCotizacionRows = scRows
+        const { data: proveedoresDb } = await supabase
+          .from('proveedores')
+          .select('id, nombre, nombre_comercial, razon_social')
         setServiciosCotizacionSqlRows(serviciosCotizacionRows)
-        setCostesRealesTablaSql(mapearServiciosSqlATabla(serviciosCotizacionRows))
+        setCostesRealesTablaSql(mapearServiciosSqlATabla(serviciosCotizacionRows, proveedoresDb || []))
       }
       if (serviciosCotizacionRows.length === 0) {
         console.error('ERROR: No se encuentran servicios en SQL')
