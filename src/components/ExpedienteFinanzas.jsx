@@ -375,14 +375,7 @@ const ExpedienteFinanzas = ({
     }
   }, [activeTab, expediente?.id])
 
-  // Effect: al abrir "cierre", recargar siempre desde servicios_cotizacion/versiones_json.
-  // Esto garantiza que url_factura_pdf y coste_real_proveedor se reflejen sin recargar la página.
-  useEffect(() => {
-    if (activeTab !== 'cierre' || !expediente?.id) return
-    recargarInformeDesdeCotizacion()
-  }, [activeTab, expediente?.id])
-
-  // NUEVO: cuando el parent refresca expediente (onRefresh), forzar recarga SQL en Cierre.
+  // Un solo efecto: evita dos fetch concurrentes que pueden pisarse (respuesta con error → tabla vacía).
   useEffect(() => {
     if (activeTab !== 'cierre' || !expediente?.id) return
     recargarInformeDesdeCotizacion()
@@ -818,7 +811,7 @@ const ExpedienteFinanzas = ({
       const servicioId = String(s?.id ?? generarUUID())
       const conceptoVisible = String(s?.nombre_servicio || '').trim() || 'Servicio'
       const proveedorVisible = String(s?.nombre_proveedor_texto || s?.nombre_proveedor_manual || '').trim() || 'Sin proveedor'
-      const costeCotizadoVisible = toNum(s?.coste_total_servicio)
+      const costeCotizadoVisible = toNum(s?.coste_total_servicio ?? s?.total_servicio)
       const costeRealProveedorVisible = s?.coste_real_proveedor == null ? 0 : toNum(s?.coste_real_proveedor)
       const facturaUrl = String(s?.url_factura_pdf || '').trim() || null
       return {
@@ -858,11 +851,12 @@ const ExpedienteFinanzas = ({
       console.log('DEBUG CIERRE: Resultado SQL:', scRows, 'Error SQL:', scErr)
       if (scErr) {
         console.warn('[Cierre] servicios_cotizacion (load):', scErr)
+        setErrorCargaCotizacion(scErr.message || 'Error al cargar servicios desde SQL')
       } else if (Array.isArray(scRows)) {
         serviciosCotizacionRows = scRows
+        setServiciosCotizacionSqlRows(serviciosCotizacionRows)
+        setCostesRealesTablaSql(mapearServiciosSqlATabla(serviciosCotizacionRows))
       }
-      setServiciosCotizacionSqlRows(serviciosCotizacionRows)
-      setCostesRealesTablaSql(mapearServiciosSqlATabla(serviciosCotizacionRows))
       if (serviciosCotizacionRows.length === 0) {
         console.error('ERROR: No se encuentran servicios en SQL')
       }
@@ -1498,6 +1492,8 @@ const ExpedienteFinanzas = ({
   }
 
   const cobrosSeguros = Array.isArray(cobros) ? cobros : []
+
+  console.log('DEBUG RENDER: Datos que van a la tabla:', costesRealesVista)
 
   return (
     <>
