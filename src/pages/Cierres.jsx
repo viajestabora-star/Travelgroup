@@ -24,6 +24,8 @@ import {
 import { obtenerLineasInformeComoCierres } from '../utils/lineasInformeCierres'
 import { finanzasExpedienteParaInformes } from '../utils/cierreGrupoFuenteVerdad'
 import VisualizadorPro from '../components/VisualizadorPro'
+import { getNextInvoiceNumber } from '../utils/facturaNumeracion'
+import { getEjercicioActual } from '../utils/ejercicioGlobal'
 
 // ===================== FUNCIÓN UNIFICADA DE GENERACIÓN DE PDF =====================
 // Función compartida para generar PDFs de facturas con diseño profesional unificado
@@ -555,66 +557,6 @@ const Cierres = ({ user, onClose }) => {
     )
   }
 
-  // ===================== GENERACIÓN NÚMERO DE FACTURA (ÚNICO Y GLOBAL) =====================
-  // SIEMPRE consulta AMBAS tablas (facturas_emitidas_global Y facturas) para garantizar numeración única
-  const obtenerSiguienteNumeroFactura = async () => {
-    const año = new Date().getFullYear()
-
-    try {
-      // 1) Consultar ambas tablas en paralelo (Promise.all)
-      const [globalRes, expedientesRes] = await Promise.all([
-        supabase
-          .from('facturas_emitidas_global')
-          .select('numero_factura'),
-        supabase
-          .from('facturas')
-          .select('numero_factura'),
-      ])
-
-      const { data: dataGlobal, error: errorGlobal } = globalRes || {}
-      const { data: dataExpedientes, error: errorExpedientes } = expedientesRes || {}
-
-      if (errorGlobal) {
-      }
-      if (errorExpedientes) {
-      }
-
-      // 2) Unificar y encontrar el máximo número entre ambas tablas
-      const todasLasFacturas = [
-        ...(Array.isArray(dataGlobal) ? dataGlobal : []),
-        ...(Array.isArray(dataExpedientes) ? dataExpedientes : []),
-      ]
-
-      const regexFactura = /^(\d{4})-(\d{1,4})$/ // AÑO-#### (4 dígitos, sin TEST)
-      let maxNumero = 0
-
-      todasLasFacturas.forEach((f) => {
-        const raw = f?.numero_factura ? String(f.numero_factura).trim() : ''
-        if (!raw) return
-
-        const match = raw.match(regexFactura)
-        if (!match) return
-
-        const numero = parseInt(match[2], 10)
-        if (!isNaN(numero) && numero > maxNumero) {
-          maxNumero = numero
-        }
-      })
-
-      // 3) Si no hay facturas, iniciar numeración en AÑO-0001
-      if (maxNumero === 0) {
-        return `${año}-0001`
-      }
-
-      // 4) Devolver el siguiente número
-      const siguienteNum = maxNumero + 1
-      return `${año}-${String(siguienteNum).padStart(4, '0')}`
-    } catch (err) {
-      // Fallback seguro: devolver el primer número del año actual
-      return `${año}-0001`
-    }
-  }
-
   // ===================== FACTURACIÓN DIRECTA (CLIENTE SIN EXPEDIENTE) =====================
   const handleApplyFacturacionDirecta = async () => {
     if (!clienteSeleccionado) {
@@ -635,34 +577,9 @@ const Cierres = ({ user, onClose }) => {
 
     setAplicandoFacturaDirecta(true)
     try {
-      const numeroFactura = await obtenerSiguienteNumeroFactura()
-
-      // El usuario introduce el TOTAL (IVA incluido). Sin desglose: estructura unificada como expedientes.
       const totalFactura = +totalInput.toFixed(2)
-
       const fechaEmisionISO = new Date().toISOString()
 
-      const datos_json = {
-        numero_factura: numeroFactura,
-        tipo_factura: 'DIRECTA',
-        fecha_emision: fechaEmisionISO,
-        receptor: {
-          nombre: clienteSeleccionado.nombre || '',
-          cif_nif: clienteSeleccionado.cif_nif || clienteSeleccionado.cif || '',
-          direccion: clienteSeleccionado.direccion || '',
-          poblacion: clienteSeleccionado.poblacion || '',
-          provincia: clienteSeleccionado.provincia || '',
-          cp: clienteSeleccionado.codigo_postal || clienteSeleccionado.cp || '',
-          telefono: clienteSeleccionado.movil || clienteSeleccionado.telefono || '',
-          email: clienteSeleccionado.email || ''
-        },
-        concepto: concepto.trim(),
-        calcularBaseFactura: {
-          totalFactura: totalFactura.toFixed(2)
-        }
-      }
-
-      // Validación robusta: asegurar que los campos críticos nunca estén vacíos
       const nombreCliente = String(clienteSeleccionado.nombre || '').trim()
       if (!nombreCliente) {
         alert('Error: El nombre del cliente no puede estar vacío.')
@@ -679,33 +596,73 @@ const Cierres = ({ user, onClose }) => {
         clienteSeleccionado.cif_nif || clienteSeleccionado.cif || ''
       ).trim()
 
-      // Sincronización: escribir en AMBAS tablas (facturas_emitidas y facturas)
-      const registroGlobal = {
-        numero_factura: numeroFactura,
-        cliente_nombre: nombreCliente,
-        cliente_documento: documentoCliente || '',
-        importe_total: importeFinal,
-        fecha_emision: fechaEmisionISO,
-        datos_json
-      }
-      const registroEmitidas = {
-        expediente_id: null,
-        numero_factura: numeroFactura,
-        cliente_nombre: nombreCliente,
-        importe_total: importeFinal,
-        datos_factura: datos_json,
-        url_pdf: null
-      }
+      const añoEjercicio = getEjercicioActual()
+      const MAX_INTENTOS_NUMERO = 5
+      let numeroFactura = ''
 
-      const { error: errorGlobal } = await supabase.from('facturas_emitidas_global').insert([registroGlobal])
-      const { error: errorEmitidas } = await supabase.from('facturas_emitidas').insert([registroEmitidas])
+      for (let intento = 0; intento < MAX_INTENTOS_NUMERO; intento++) {
+        let n = await getNextInvoiceNumber(supabase, añoEjercicio)
+        await new Promise((r) => setTimeout(r, 1))
+        n = await getNextInvoiceNumber(supabase, añoEjercicio)
+        numeroFactura = String(n || '').trim()
+        if (!numeroFactura) {
+          alert('No se pudo obtener un número de factura válido.')
+          return
+        }
 
-      if (errorGlobal) {
+        const datos_json = {
+          numero_factura: numeroFactura,
+          tipo_factura: 'DIRECTA',
+          fecha_emision: fechaEmisionISO,
+          receptor: {
+            nombre: clienteSeleccionado.nombre || '',
+            cif_nif: clienteSeleccionado.cif_nif || clienteSeleccionado.cif || '',
+            direccion: clienteSeleccionado.direccion || '',
+            poblacion: clienteSeleccionado.poblacion || '',
+            provincia: clienteSeleccionado.provincia || '',
+            cp: clienteSeleccionado.codigo_postal || clienteSeleccionado.cp || '',
+            telefono: clienteSeleccionado.movil || clienteSeleccionado.telefono || '',
+            email: clienteSeleccionado.email || '',
+          },
+          concepto: concepto.trim(),
+          calcularBaseFactura: {
+            totalFactura: totalFactura.toFixed(2),
+          },
+        }
+
+        const registroGlobal = {
+          numero_factura: numeroFactura,
+          cliente_nombre: nombreCliente,
+          cliente_documento: documentoCliente || '',
+          importe_total: importeFinal,
+          fecha_emision: fechaEmisionISO,
+          datos_json,
+        }
+
+        const { error: errorGlobal } = await supabase.from('facturas_emitidas_global').insert([registroGlobal])
+        if (!errorGlobal) {
+          const registroEmitidas = {
+            expediente_id: null,
+            numero_factura: numeroFactura,
+            cliente_nombre: nombreCliente,
+            importe_total: importeFinal,
+            datos_factura: datos_json,
+            url_pdf: null,
+          }
+          const { error: errorEmitidas } = await supabase.from('facturas_emitidas').insert([registroEmitidas])
+          if (errorEmitidas) {
+            // No bloquear: la factura ya está en global; emitidas puede fallar por schema
+          }
+          break
+        }
+
+        if (errorGlobal.code === '23505' && intento < MAX_INTENTOS_NUMERO - 1) continue
         alert(`Error guardando factura directa: ${errorGlobal.message}`)
         return
       }
-      if (errorEmitidas) {
-        // No bloquear: la factura ya está en global; emitidas puede fallar por schema
+
+      if (!numeroFactura) {
+        return
       }
 
       // Generar PDF básico inmediatamente (opcional pero profesional)

@@ -4,6 +4,8 @@ import { storage } from '../utils/storage'
 import { normalizarFechaEspañola, convertirEspañolAISO, convertirISOAEspañol, parsearFechaADate } from '../utils/dateNormalizer'
 import { supabase } from '../supabase'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
+import { getNextInvoiceNumber } from '../utils/facturaNumeracion'
+import { getEjercicioActual } from '../utils/ejercicioGlobal'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { detectarCamposPendientes } from '../utils/constraintValidator'
@@ -2301,6 +2303,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (!window.confirm('¿Estás seguro de que quieres borrar este documento oficial definitivamente?')) {
       return
     }
+    const refNum = numeroFactura != null && String(numeroFactura).trim() !== '' ? String(numeroFactura).trim() : '—'
+    const avisoCorrelativo =
+      'Atención: Al borrar esta factura, el sistema asignará este número a la próxima factura que generes para mantener la correlatividad fiscal.\n\n' +
+      `Número de factura: ${refNum}`
+    if (!window.confirm(avisoCorrelativo)) {
+      return
+    }
     
     try {
       const { error } = await supabase
@@ -3721,61 +3730,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [formDataParaVariante?.precio_venta_cliente, formDataParaVariante?.bonificacion_pax, formData, paxPago, suplementos.totalSuplementos])
 
-  // ============ OBTENER SIGUIENTE NÚMERO DE FACTURA (NUMERACIÓN GLOBAL ÚNICA) ============
-  // SIEMPRE consulta AMBAS tablas (facturas_emitidas_global Y facturas) para garantizar numeración única
-  const obtenerSiguienteNumeroFactura = async () => {
-    const año = new Date().getFullYear()
-
-    try {
-      // 1) Consultar ambas tablas en paralelo (Promise.all)
-      const [globalRes, expedientesRes] = await Promise.all([
-        supabase
-          .from('facturas_emitidas_global')
-          .select('numero_factura'),
-        supabase
-          .from('facturas')
-          .select('numero_factura'),
-      ])
-
-      const { data: dataGlobal, error: errorGlobal } = globalRes || {}
-      const { data: dataExpedientes, error: errorExpedientes } = expedientesRes || {}
-
-      // 2) Unificar y encontrar el máximo número entre ambas tablas
-      const todasLasFacturas = [
-        ...(Array.isArray(dataGlobal) ? dataGlobal : []),
-        ...(Array.isArray(dataExpedientes) ? dataExpedientes : []),
-      ]
-
-      const regexFactura = /^(\d{4})-(\d{1,4})$/ // AÑO-#### (4 dígitos)
-      let maxNumero = 0
-
-      todasLasFacturas.forEach((f) => {
-        const raw = f?.numero_factura ? String(f.numero_factura).trim() : ''
-        if (!raw) return
-
-        const match = raw.match(regexFactura)
-        if (!match) return
-
-        const numero = parseInt(match[2], 10)
-        if (!isNaN(numero) && numero > maxNumero) {
-          maxNumero = numero
-        }
-      })
-
-      // 3) Si no hay facturas (maxNumero === 0), devolver AÑO-0001
-      if (maxNumero === 0) {
-        return `${año}-0001`
-      }
-
-      // 4) Devolver el siguiente número
-      const siguienteNum = maxNumero + 1
-      return `${año}-${String(siguienteNum).padStart(4, '0')}`
-    } catch (err) {
-      // Fallback seguro: devolver el primer número del año actual
-      return `${año}-0001`
-    }
-  }
-
   // ============ GENERAR PDF DE FACTURA ============
   const generarFacturaPDF = async (numeroFactura, datosFactura) => {
     const crearDocumento = (logoImg) => {
@@ -4037,83 +3991,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
 
     try {
-      // Obtener número de factura
-      const numeroFactura = String(await obtenerSiguienteNumeroFactura() || '').trim()
-      if (!numeroFactura) {
-        alert('❌ Error: numero_factura vacío. No se puede guardar una factura sin número.')
-        setIsSubmittingFactura(false)
-        return
-      }
-
-      // INSERT EN facturas_versiones INMEDIATAMENTE DESPUÉS DE GENERAR EL NÚMERO
-      try {
-        // Obtener versiones existentes para calcular el número de versión correcto
-        const { data: versionesExistentes } = await supabase
-          .from('facturas_versiones')
-          .select('version_numero')
-          .eq('expediente_id', expediente.id)
-          .order('version_numero', { ascending: false })
-          .limit(1)
-        
-        // Calcular número de versión: usar el máximo + 1, o 1 si no hay versiones
-        let versionNumero = 1
-        if (versionesExistentes && versionesExistentes.length > 0 && versionesExistentes[0]?.version_numero) {
-          versionNumero = versionesExistentes[0].version_numero + 1
-        }
-        
-        // Preparar datos completos de la factura para el JSON
-        const concepts = {
-          concepto: expediente?.destino ? `Viaje a ${expediente.destino}` : 'Servicios de viaje',
-          fecha_inicio: expediente?.fecha_inicio || expediente?.fechaInicio || '',
-          fecha_final: expediente?.fecha_final || expediente?.fechaFin || ''
-        }
-        
-        const totals = {
-          base_imponible: calcularBaseFactura.baseImponible,
-          iva: calcularBaseFactura.iva,
-          total_factura: calcularBaseFactura.totalFactura,
-          precio_venta_pax: calcularBaseFactura.precioVentaPax,
-          precio_neto_pax: calcularBaseFactura.precioNetoPax,
-          total_servicios_con_iva: calcularBaseFactura.totalServiciosConIVA,
-          total_suplementos: calcularBaseFactura.totalSuplementos,
-          pax_pago: calcularBaseFactura.paxPago
-        }
-        
-        const clientData = {
-          nombre: formFactura.receptorNombre,
-          cif: formFactura.receptorCIF,
-          direccion: formFactura.receptorDireccion,
-          poblacion: formFactura.receptorPoblacion,
-          provincia: formFactura.receptorProvincia,
-          cp: formFactura.receptorCP
-        }
-        
-        // INSERT limpio: solo los 4 campos requeridos
-        const datosVersion = {
-          expediente_id: expediente.id,
-          numero_factura: numeroFactura,
-          datos_json: {
-            concepts,
-            totals,
-            clientData,
-            fecha: new Date().toISOString()
-          },
-          version_numero: versionNumero
-        }
-        
-        const { error: versionError } = await supabase
-          .from('facturas_versiones')
-          .insert([datosVersion])
-        
-        if (versionError) {
-        } else {
-          // Recargar versiones para actualizar la vista
-          await cargarVersionesFactura()
-        }
-      } catch (err) {
-        // No bloqueamos el flujo si falla el versionado
-      }
-
       // Preparar datos para guardar según esquema real de la DB
       // El total_factura ya incluye la bonificación (precio - bonificación) calculado implícitamente
       // NO se envía el campo bonificacion a Supabase
@@ -4153,27 +4030,103 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         conceptoFactura = `Viaje a ${destinoFactura} del ${fechaInicioFormateada} al ${fechaFinalFormateada}`
       }
       
-      // Payload alineado con el contrato solicitado para public.facturas.
-      // `empresa_id` NO se calcula ni se envía desde frontend: lo asigna el trigger en BD.
-      const datosFactura = {
+      // Numeración correlativa fiscal (YYYY-XXX): releer tras 1 ms antes del INSERT en `facturas`.
+      const añoEjercicio = getEjercicioActual()
+      const datosFacturaSinNumero = {
         expediente_id: expediente.id,
         cliente_id: expediente.cliente_id || expediente.clienteId || null,
-        numero_factura: numeroFactura,
         nombre_receptor: formFactura.receptorNombre.trim(),
         cif_receptor: formFactura.receptorCIF.trim() || null,
         total_factura: parseFloat(calcularBaseFactura.totalFactura),
         concepto: conceptoFactura,
       }
 
-      // Guardar en Supabase - SOLO INSERT, NO UPDATE del expediente
-      const { error } = await supabase
-        .from('facturas')
-        .insert([datosFactura])
+      const MAX_INTENTOS_NUMERO = 5
+      let numeroFactura = ''
+      let datosFactura = null
 
-      if (error) {
-        // Log completo del objeto Supabase para diagnóstico (NOT NULL numero_factura vs RLS)
-        console.error('[facturas.insert] error completo:', error)
-        throw error
+      for (let intento = 0; intento < MAX_INTENTOS_NUMERO; intento++) {
+        let n = await getNextInvoiceNumber(supabase, añoEjercicio)
+        await new Promise((r) => setTimeout(r, 1))
+        n = await getNextInvoiceNumber(supabase, añoEjercicio)
+        const nt = String(n || '').trim()
+        if (!nt) {
+          alert('❌ Error: numero_factura vacío. No se puede guardar una factura sin número.')
+          setIsSubmittingFactura(false)
+          return
+        }
+        numeroFactura = nt
+        datosFactura = { ...datosFacturaSinNumero, numero_factura: numeroFactura }
+
+        const { error: insertErr } = await supabase.from('facturas').insert([datosFactura])
+        if (!insertErr) break
+
+        if (insertErr.code === '23505' && intento < MAX_INTENTOS_NUMERO - 1) continue
+        console.error('[facturas.insert] error completo:', insertErr)
+        throw insertErr
+      }
+
+      if (!datosFactura || !numeroFactura) {
+        setIsSubmittingFactura(false)
+        return
+      }
+
+      // Versión histórica alineada con el correlativo ya persistido en `facturas`
+      try {
+        const { data: versionesExistentes } = await supabase
+          .from('facturas_versiones')
+          .select('version_numero')
+          .eq('expediente_id', expediente.id)
+          .order('version_numero', { ascending: false })
+          .limit(1)
+
+        let versionNumero = 1
+        if (versionesExistentes && versionesExistentes.length > 0 && versionesExistentes[0]?.version_numero) {
+          versionNumero = versionesExistentes[0].version_numero + 1
+        }
+
+        const concepts = {
+          concepto: expediente?.destino ? `Viaje a ${expediente.destino}` : 'Servicios de viaje',
+          fecha_inicio: expediente?.fecha_inicio || expediente?.fechaInicio || '',
+          fecha_final: expediente?.fecha_final || expediente?.fechaFin || '',
+        }
+
+        const totals = {
+          base_imponible: calcularBaseFactura.baseImponible,
+          iva: calcularBaseFactura.iva,
+          total_factura: calcularBaseFactura.totalFactura,
+          precio_venta_pax: calcularBaseFactura.precioVentaPax,
+          precio_neto_pax: calcularBaseFactura.precioNetoPax,
+          total_servicios_con_iva: calcularBaseFactura.totalServiciosConIVA,
+          total_suplementos: calcularBaseFactura.totalSuplementos,
+          pax_pago: calcularBaseFactura.paxPago,
+        }
+
+        const clientData = {
+          nombre: formFactura.receptorNombre,
+          cif: formFactura.receptorCIF,
+          direccion: formFactura.receptorDireccion,
+          poblacion: formFactura.receptorPoblacion,
+          provincia: formFactura.receptorProvincia,
+          cp: formFactura.receptorCP,
+        }
+
+        const datosVersion = {
+          expediente_id: expediente.id,
+          numero_factura: numeroFactura,
+          datos_json: {
+            concepts,
+            totals,
+            clientData,
+            fecha: new Date().toISOString(),
+          },
+          version_numero: versionNumero,
+        }
+
+        const { error: versionError } = await supabase.from('facturas_versiones').insert([datosVersion])
+        if (!versionError) await cargarVersionesFactura()
+      } catch (err) {
+        // No bloqueamos el flujo si falla el versionado
       }
 
       // Generar PDF
@@ -4280,7 +4233,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       setIsSubmittingFactura(false)
     } catch (error) {
       if (error?.code === '23505') {
-        alert('ESTA FACTURA YA FUE REGISTRADA. El sistema ha bloqueado el duplicado por seguridad.')
+        alert(
+          'ESTA FACTURA YA FUE REGISTRADA. El correlativo se probó varias veces; revise duplicados o vuelva a intentar.',
+        )
       } else {
         alert(buildWriteErrorMessage({ table: 'facturas', error, action: 'emitir la factura' }))
       }
