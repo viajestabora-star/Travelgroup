@@ -20,6 +20,20 @@ import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorSto
 /** Bucket unificado para facturas de cierre (alineado con ExpedienteDetalle / pagos_proveedores). */
 const BUCKET_FACTURAS_UNIFICADO = 'facturas'
 
+/** Bucket de PDFs registrados en `pagos_proveedores.url_pdf` (mismo que ExpedienteDetalle / storage RLS). */
+const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
+
+/** `pagos_proveedores.url_pdf`: nombre de objeto, ruta relativa o URL ya absoluta. */
+const publicUrlDesdeUrlPdfPagosProveedor = (urlPdf) => {
+  if (!urlPdf || typeof urlPdf !== 'string') return null
+  const t = urlPdf.trim().replace(/^["']|["']$/g, '')
+  if (!t) return null
+  if (/^https?:\/\//i.test(t)) return t
+  const path = t.replace(/^\/+/, '')
+  const { data } = supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).getPublicUrl(path)
+  return data?.publicUrl || null
+}
+
 /** URL para abrir PDF: público https, ruta en bucket `facturas`, o legado `facturas_proveedores`. */
 const resolverHrefFacturaUnificado = (valorGuardado) => {
   if (!valorGuardado || typeof valorGuardado !== 'string') return null
@@ -141,15 +155,15 @@ const CierreServicioRow = ({
       <td className="px-3 py-2 text-center">
         {facturaUrlTxt ? (
           <div className="flex flex-col items-center gap-1">
-            <a
-              href={facturaUrlTxt}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-              title="Ver factura"
+            <button
+              type="button"
+              onClick={() => window.open(facturaUrlTxt, '_blank')}
+              className="inline-flex items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+              title="Abrir factura PDF"
             >
-              VER FACTURA
-            </a>
+              <FileText size={16} className="shrink-0" aria-hidden />
+              <span className="hidden sm:inline">PDF</span>
+            </button>
             {!camposBloqueados && (
               <button
                 type="button"
@@ -804,6 +818,40 @@ const ExpedienteFinanzas = ({
   const [errorCargaCotizacion, setErrorCargaCotizacion] = React.useState(null)
   const [serviciosCotizacionSqlRows, setServiciosCotizacionSqlRows] = React.useState([])
   const [costesRealesTablaSql, setCostesRealesTablaSql] = React.useState([])
+  const [mapaUrlFacturaPorServicioDesdePagos, setMapaUrlFacturaPorServicioDesdePagos] = useState({})
+
+  useEffect(() => {
+    if (activeTab !== 'cierre' || !expediente?.id) {
+      setMapaUrlFacturaPorServicioDesdePagos({})
+      return
+    }
+    let cancelled = false
+    const expId = String(expediente.id).trim()
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('pagos_proveedores')
+        .select('servicio_id, url_pdf')
+        .eq('expediente_id', expId)
+      if (cancelled) return
+      if (error) {
+        console.warn('[Cierre] pagos_proveedores (PDF por servicio):', error.message)
+        setMapaUrlFacturaPorServicioDesdePagos({})
+        return
+      }
+      const dict = {}
+      for (const row of data || []) {
+        const sid = row?.servicio_id != null ? String(row.servicio_id).trim() : ''
+        const fname = row?.url_pdf != null ? String(row.url_pdf).trim() : ''
+        if (!sid || !fname) continue
+        const publicUrl = publicUrlDesdeUrlPdfPagosProveedor(fname)
+        if (publicUrl) dict[sid] = publicUrl
+      }
+      setMapaUrlFacturaPorServicioDesdePagos(dict)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, expediente?.id])
 
   const mapearServiciosSqlATabla = React.useCallback((rows, proveedoresDb) => {
     const safeRows = Array.isArray(rows) ? rows : []
@@ -917,7 +965,16 @@ const ExpedienteFinanzas = ({
     }
   }
 
-  const costesRealesVista = costesRealesTablaSql
+  const costesRealesVista = React.useMemo(() => {
+    const rows = Array.isArray(costesRealesTablaSql) ? costesRealesTablaSql : []
+    return rows.map((row) => {
+      const sid = String(row?.servicioId ?? '').trim()
+      const desdePagos = sid && mapaUrlFacturaPorServicioDesdePagos[sid] ? mapaUrlFacturaPorServicioDesdePagos[sid] : null
+      const sqlUrl = row?.facturaUrl != null && String(row.facturaUrl).trim() !== '' ? String(row.facturaUrl).trim() : null
+      const facturaUrl = sqlUrl || desdePagos || null
+      return { ...row, facturaUrl }
+    })
+  }, [costesRealesTablaSql, mapaUrlFacturaPorServicioDesdePagos])
 
   const actualizarCosteReal = (idServicio, costeReal) => {
     const raw = String(costeReal ?? '').trim()
