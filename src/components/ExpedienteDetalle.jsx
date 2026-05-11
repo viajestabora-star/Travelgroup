@@ -507,7 +507,8 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
     const paxDePago = paxPago;
     const precioBase = Math.max(0, toNum(formData?.precio_venta_cliente));
     const bonificacionTotal = bonif * paxDePago;
-    const totalSupHabitacion = toNum(formData?.sup_individual_pax) * toNum(formData?.sup_individual_precio_dia) * nochesExpediente;
+    // Suplemento Habitación Individual: no depende de noches.
+    const totalSupHabitacion = toNum(formData?.sup_individual_pax) * toNum(formData?.sup_individual_precio_dia);
     const totalSupSeguro = toNum(formData?.sup_seguro_pax) * toNum(formData?.sup_seguro_precio_total);
     const suplementosTotal = totalSupHabitacion + totalSupSeguro;
     const totalVenta = (paxDePago * precioBase) - bonificacionTotal + suplementosTotal;
@@ -3634,24 +3635,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         totalSupSeguro: 0
       }
     }
-    const noches = calcularNochesExpediente()
-
     const paxIndividual = toNum(fd?.sup_individual_pax)
     const precioIndividualDia = toNum(fd?.sup_individual_precio_dia)
     const paxSeguro = toNum(fd?.sup_seguro_pax)
     const precioSeguroTotal = toNum(fd?.sup_seguro_precio_total)
 
-    const totalSupHabitacion = paxIndividual * precioIndividualDia * noches
+    const totalSupHabitacion = paxIndividual * precioIndividualDia
     const totalSupSeguro = paxSeguro * precioSeguroTotal
     const totalSuplementos = totalSupHabitacion + totalSupSeguro
 
     return {
-      noches,
       totalSupHabitacion: totalSupHabitacion.toFixed(2),
       totalSupSeguro: totalSupSeguro.toFixed(2),
       totalSuplementos: totalSuplementos.toFixed(2),
     }
-  }, [formDataParaVariante?.sup_individual_pax, formDataParaVariante?.sup_individual_precio_dia, formDataParaVariante?.sup_seguro_pax, formDataParaVariante?.sup_seguro_precio_total, expediente?.noches, expediente?.fecha_inicio, expediente?.fechaInicio, expediente?.fecha_final, expediente?.fecha_fin, expediente?.fechaFin])
+  }, [formDataParaVariante?.sup_individual_pax, formDataParaVariante?.sup_individual_precio_dia, formDataParaVariante?.sup_seguro_pax, formDataParaVariante?.sup_seguro_precio_total])
 
   // ============ INICIALIZAR DATOS DEL RECEPTOR DE FACTURA ============
   // Dependencias estables (primitivas) para evitar bucle infinito con objeto grupo
@@ -5593,8 +5591,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0' }}
                         min="1"
                         tabIndex="1"
-                      />
-                    </div>
+                          />
+                        </div>
+                        <div>
+                          <label
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              color: '#64748b',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              display: 'block',
+                              marginBottom: '4px',
+                            }}
+                          >
+                            Noches
+                          </label>
+                          <input
+                            type="text"
+                            value="No aplicable"
+                            disabled
+                            className="w-full p-3 text-sm transition-all"
+                            style={{
+                              backgroundColor: '#f1f5f9',
+                              color: '#64748b',
+                              borderRadius: '12px',
+                              border: '1px solid #cbd5e1',
+                              cursor: 'not-allowed',
+                            }}
+                          />
+                        </div>
                     <div>
                       <label className="label">Gratuidades</label>
                       <EditableInput
@@ -5906,7 +5932,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.2em] mb-2">
                         Habitación Individual
                       </h4>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                           <label
                             style={{
@@ -5964,7 +5990,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                               marginBottom: '4px',
                             }}
                           >
-                            Total Estancia (€)
+                            Precio Unidad (€)
                             {(!formDataParaVariante?.sup_individual_precio_dia || Number(formDataParaVariante?.sup_individual_precio_dia) === 0) && (
                               <span className="ml-2 text-xs font-normal text-amber-600">(pendiente)</span>
                             )}
@@ -6002,7 +6028,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     </div>
                       </div>
                       <p className="mt-2 text-xs text-slate-500">
-                        Total estancia: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
+                        Total suplemento: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
                         <span className="text-slate-400">
                           ({formDataParaVariante?.sup_individual_pax || 0} pax × {(parseFloat(suplementos.totalSupHabitacion) / Math.max(1, parseFloat(formDataParaVariante?.sup_individual_pax || 0))).toFixed(2)}€)
                         </span>
