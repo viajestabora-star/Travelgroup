@@ -33,11 +33,13 @@ import {
 import { useEmpresa } from '../context/EmpresaContext'
 import { empresaIdSesionValido } from '../utils/tenantEmpresa'
 import VisualizadorPro from './VisualizadorPro'
+import ProgramaPreview from './ProgramaPreview'
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
 const BUCKET_FACTURAS = 'facturas'
 const BUCKET_EXPEDIENTES = 'expedientes'
+const BUCKET_PROGRAMAS_VIAJE = 'programas'
 const SUBMIT_DEDUPE_MS = 2000
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -604,6 +606,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     setErrorNumeroExpediente(null)
   }, [expediente?.id])
 
+  useEffect(() => {
+    setUrlProgramaPdf(String(expediente?.url_programa_pdf ?? '').trim())
+  }, [expediente?.id, expediente?.url_programa_pdf])
+
   // Restaurar cierre_grupo guardado (JSONB: total_ingresos, total_gastos, beneficio, fecha + detalle)
   useEffect(() => {
     const cg = expediente?.cierre_grupo
@@ -624,6 +630,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const lastSavedFormDataRef = useRef(null)
   const lastSavedVersionesRef = useRef(null)
   const [guardadoExitoCotizacion, setGuardadoExitoCotizacion] = useState(false)
+  const [urlProgramaPdf, setUrlProgramaPdf] = useState(() =>
+    String(expediente?.url_programa_pdf ?? '').trim(),
+  )
+  const [subiendoProgramaPdf, setSubiendoProgramaPdf] = useState(false)
+  const programaPdfInputRef = useRef(null)
 
   // Estado local del Cierre de Grupo (editable, NO machaca cotización)
   // costesReales: desde servicios cotización, con coste_real editable (factura proveedor)
@@ -3218,6 +3229,63 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return empresaIdPerfil
   }
 
+  const aplicarUrlProgramaPdf = (publicUrl) => {
+    const u = String(publicUrl || '').trim()
+    setUrlProgramaPdf(u)
+    if (typeof onUpdate === 'function' && expediente?.id) {
+      onUpdate({ ...expediente, url_programa_pdf: u })
+    }
+  }
+
+  const subirProgramaViajePdf = async (file) => {
+    if (!file || subiendoProgramaPdf) return
+    const lower = String(file.name || '').toLowerCase()
+    if (file.type && file.type !== 'application/pdf' && !lower.endsWith('.pdf')) {
+      alert('Solo se admiten archivos PDF.')
+      return
+    }
+    if (!(await asegurarSesionAutenticada())) return
+    const expId = String(expediente?.id || '').trim()
+    if (!expId) {
+      alert('Expediente inválido.')
+      return
+    }
+    let eid = Number(empresaIdRequerido)
+    if (!Number.isFinite(eid) || eid <= 0) {
+      try {
+        eid = await resolverEmpresaIdPerfilActual()
+      } catch (err) {
+        alert(err?.message || 'No se pudo resolver empresa_id.')
+        return
+      }
+    }
+    setSubiendoProgramaPdf(true)
+    try {
+      const ruta = `${eid}/${expId}/programa_${Date.now()}.pdf`
+      const { error: uploadErr } = await supabase.storage
+        .from(BUCKET_PROGRAMAS_VIAJE)
+        .upload(ruta, file, { upsert: true, contentType: 'application/pdf' })
+      if (uploadErr) throw new Error(uploadErr.message || 'Error al subir el PDF al bucket «programas».')
+      const { data: urlData } = supabase.storage.from(BUCKET_PROGRAMAS_VIAJE).getPublicUrl(ruta)
+      const publicUrl = String(urlData?.publicUrl || '').trim()
+      if (!publicUrl) throw new Error('No se pudo obtener la URL pública del archivo.')
+
+      const { data: saved, error: dbErr } = await supabase
+        .from('expedientes')
+        .update({ url_programa_pdf: publicUrl })
+        .eq('id', expId)
+        .select('url_programa_pdf')
+        .maybeSingle()
+      if (dbErr) throw new Error(dbErr.message || 'Error al guardar url_programa_pdf en el expediente.')
+      aplicarUrlProgramaPdf(String(saved?.url_programa_pdf || publicUrl).trim())
+    } catch (err) {
+      alert(err?.message || String(err))
+    } finally {
+      setSubiendoProgramaPdf(false)
+      if (programaPdfInputRef.current) programaPdfInputRef.current.value = ''
+    }
+  }
+
   // Registrar pago a proveedor (insert en pagos_proveedores)
   const registrarPagoProveedor = async () => {
     if (isSubmittingPagoProveedor) return
@@ -4628,9 +4696,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 {/* Número de expediente (EXP-XXXX) y Badge de Estado */}
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   {expediente.numero_expediente && (
-                    <p className="text-sm font-bold font-mono text-blue-700">
-                      EXP-{expediente.numero_expediente}
-                    </p>
+                    <>
+                      <p className="text-sm font-bold font-mono text-blue-700">
+                        EXP-{expediente.numero_expediente}
+                      </p>
+                      <button
+                        type="button"
+                        title={urlProgramaPdf ? 'Abrir programa de viaje (PDF)' : 'Sin programa de viaje — súbelo debajo'}
+                        onClick={() => {
+                          if (urlProgramaPdf) {
+                            window.open(urlProgramaPdf, '_blank', 'noopener,noreferrer')
+                          } else {
+                            window.alert('Aún no hay programa de viaje. Usa el área «PDF del programa» justo debajo para subirlo.')
+                          }
+                        }}
+                        className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
+                          urlProgramaPdf
+                            ? 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'
+                            : 'border-slate-200 bg-slate-100 text-slate-400 cursor-default'
+                        }`}
+                      >
+                        <FileText size={18} />
+                      </button>
+                    </>
                   )}
                   <span
                     className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
@@ -4687,6 +4775,45 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       {extensionDescargableSinPreview(obtenerExtensionArchivo(expediente.rooming_list_url)) ? 'Descargar Rooming' : 'Ver Rooming'}
                     </button>
                   )}
+                  <input
+                    ref={programaPdfInputRef}
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) subirProgramaViajePdf(f)
+                    }}
+                  />
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        programaPdfInputRef.current?.click()
+                      }
+                    }}
+                    onClick={() => programaPdfInputRef.current?.click()}
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      const f = e.dataTransfer.files?.[0]
+                      if (f) subirProgramaViajePdf(f)
+                    }}
+                    className={`cursor-pointer rounded-lg border border-dashed px-2.5 py-1.5 text-xs transition-colors ${
+                      subiendoProgramaPdf
+                        ? 'border-amber-300 bg-amber-50 text-amber-800'
+                        : 'border-slate-300 bg-white/80 text-slate-600 hover:border-blue-300 hover:bg-blue-50/60'
+                    }`}
+                    title="Clic o arrastra un PDF — se guarda en el expediente"
+                  >
+                    {subiendoProgramaPdf ? 'Subiendo…' : 'PDF del programa'}
+                  </div>
                 </div>
           </div>
               <button 
@@ -5543,6 +5670,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             {/* TAB: Cotización */}
           {tab === 'cotizacion' && formData && (
               <div className="w-full space-y-6 relative">
+                <div className="flex flex-col xl:flex-row xl:items-start xl:gap-6">
+                  <div className="flex-1 min-w-0 space-y-6 relative">
                 {/* Botón Guardar Cotización + feedback éxito */}
                 {hasCotizacionSinGuardar && (
                   <div className="sticky top-0 z-10 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 bg-amber-50/95 backdrop-blur border-b border-amber-200 flex items-center justify-between gap-4">
@@ -5609,15 +5738,16 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           </label>
                           <input
                             type="text"
-                            value="No aplicable"
+                            value={String(calcularNochesExpediente())}
+                            readOnly
                             disabled
                             className="w-full p-3 text-sm transition-all"
                             style={{
-                              backgroundColor: '#f1f5f9',
-                              color: '#64748b',
+                              backgroundColor: '#f8fafc',
+                              color: '#0f172a',
                               borderRadius: '12px',
-                              border: '1px solid #cbd5e1',
-                              cursor: 'not-allowed',
+                              border: '1px solid #e2e8f0',
+                              cursor: 'default',
                             }}
                           />
                         </div>
@@ -6024,8 +6154,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                                   : '#e2e8f0'
                               e.target.style.boxShadow = 'none'
                             }}
-                      />
-                    </div>
+                          />
+                        </div>
+                        <div>
+                          <label
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              color: '#64748b',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              display: 'block',
+                              marginBottom: '4px',
+                            }}
+                          >
+                            Noches
+                          </label>
+                          <input
+                            type="text"
+                            value="No aplicable"
+                            disabled
+                            className="w-full p-3 text-sm transition-all"
+                            style={{
+                              backgroundColor: '#f1f5f9',
+                              color: '#64748b',
+                              borderRadius: '12px',
+                              border: '1px solid #cbd5e1',
+                              cursor: 'not-allowed',
+                            }}
+                          />
+                        </div>
                       </div>
                       <p className="mt-2 text-xs text-slate-500">
                         Total suplemento: <span className="font-semibold text-slate-900">{suplementos.totalSupHabitacion}€</span>{' '}
@@ -6513,6 +6671,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       {isSaving ? 'Guardando...' : 'Guardar Cotización'}
                     </button>
                   </div>
+                </div>
+                  </div>
+                  <aside className="xl:w-[min(100%,400px)] shrink-0 xl:sticky xl:self-start xl:top-2 space-y-3">
+                    <ProgramaPreview pdfUrl={urlProgramaPdf} />
+                  </aside>
                 </div>
               </div>
             )}
