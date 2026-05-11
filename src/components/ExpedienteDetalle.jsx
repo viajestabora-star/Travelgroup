@@ -3234,7 +3234,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return empresaIdPerfil
   }
 
-  /** Guarda ruta canónica en BD (`{empresa_id}/{expediente_id}/programa.pdf`), no URL pública. */
+  /** Guarda ruta relativa en BD: `{empresa_id}/{expediente_id}/itinerario.pdf` (bucket `Programas`), sin URL pública. */
   const aplicarUrlProgramaPdf = (storagePath) => {
     const u = String(storagePath || '').trim()
     setUrlProgramaPdf(u)
@@ -3256,17 +3256,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       alert('Expediente inválido.')
       return
     }
-    let eid = Number(expediente?.empresa_id)
+    const eid = Number(expediente?.empresa_id)
     if (!Number.isFinite(eid) || eid <= 0) {
-      eid = Number(empresaIdRequerido)
-    }
-    if (!Number.isFinite(eid) || eid <= 0) {
-      try {
-        eid = await resolverEmpresaIdPerfilActual()
-      } catch (err) {
-        alert(err?.message || 'No se pudo resolver empresa_id.')
-        return
-      }
+      alert('Este expediente no tiene empresa asignada (empresa_id). Asígnala antes de subir el programa.')
+      return
     }
     setSubiendoProgramaPdf(true)
     try {
@@ -3275,7 +3268,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const { error: uploadErr } = await supabase.storage
         .from(BUCKET_PROGRAMAS_VIAJE)
         .upload(ruta, file, { upsert: true, contentType: 'application/pdf' })
-      if (uploadErr) throw new Error(uploadErr.message || 'Error al subir el PDF al bucket «programas».')
+      if (uploadErr) throw new Error(uploadErr.message || 'Error al subir el PDF al bucket «Programas».')
 
       const { data: saved, error: dbErr } = await supabase
         .from('expedientes')
@@ -4716,13 +4709,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             urlProgramaPdf,
                           )
                             ? 'Abrir programa de viaje (PDF)'
-                            : 'Sin programa de viaje — súbelo debajo'
+                            : 'Sin programa — usa Subir Programa arriba'
                         }
                         onClick={async () => {
                           const eEmp = Number(expediente?.empresa_id || empresaIdRequerido)
                           const path = resolverRutaProgramaSeguraParaLectura(eEmp, expediente?.id, urlProgramaPdf)
                           if (!path) {
-                            window.alert('Aún no hay programa de viaje. Usa el área «PDF del programa» justo debajo para subirlo.')
+                            window.alert('Aún no hay programa. Usa el botón «Subir Programa» en la parte superior del expediente.')
                             return
                           }
                           const { url, error } = await crearSignedUrlProgramaViaje(supabase, path)
@@ -4801,45 +4794,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       {extensionDescargableSinPreview(obtenerExtensionArchivo(expediente.rooming_list_url)) ? 'Descargar Rooming' : 'Ver Rooming'}
                     </button>
                   )}
-                  <input
-                    ref={programaPdfInputRef}
-                    type="file"
-                    accept="application/pdf,.pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      if (f) subirProgramaViajePdf(f)
-                    }}
-                  />
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        programaPdfInputRef.current?.click()
-                      }
-                    }}
-                    onClick={() => programaPdfInputRef.current?.click()}
-                    onDragOver={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      const f = e.dataTransfer.files?.[0]
-                      if (f) subirProgramaViajePdf(f)
-                    }}
-                    className={`cursor-pointer rounded-lg border border-dashed px-2.5 py-1.5 text-xs transition-colors ${
-                      subiendoProgramaPdf
-                        ? 'border-amber-300 bg-amber-50 text-amber-800'
-                        : 'border-slate-300 bg-white/80 text-slate-600 hover:border-blue-300 hover:bg-blue-50/60'
-                    }`}
-                    title="Clic o arrastra un PDF — se guarda en el expediente"
-                  >
-                    {subiendoProgramaPdf ? 'Subiendo…' : 'PDF del programa'}
-                  </div>
                 </div>
           </div>
               <button 
@@ -4887,7 +4841,27 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
           {/* CONTENIDO - Padding inferior safe-area para iPhone */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-8 pb-[max(1rem,env(safe-area-inset-bottom))]" style={{ backgroundColor: 'white', color: 'black' }}>
-            
+            <input
+              ref={programaPdfInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) subirProgramaViajePdf(f)
+              }}
+            />
+            <div className="mb-4 sm:mb-6">
+              <ProgramaPreview
+                supabase={supabase}
+                empresaId={Number(expediente?.empresa_id || empresaIdRequerido)}
+                expedienteId={expediente?.id}
+                valorAlmacenadoBd={urlProgramaPdf}
+                onSolicitarSubida={() => programaPdfInputRef.current?.click()}
+                subiendoProgramaPdf={subiendoProgramaPdf}
+              />
+            </div>
+
             {/* TAB: Ficha del Grupo */}
             {tab === 'grupo' && (
               <div className="w-full space-y-6">
@@ -5696,8 +5670,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             {/* TAB: Cotización */}
           {tab === 'cotizacion' && formData && (
               <div className="w-full space-y-6 relative">
-                <div className="flex flex-col xl:flex-row xl:items-start xl:gap-6">
-                  <div className="flex-1 min-w-0 space-y-6 relative">
                 {/* Botón Guardar Cotización + feedback éxito */}
                 {hasCotizacionSinGuardar && (
                   <div className="sticky top-0 z-10 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 bg-amber-50/95 backdrop-blur border-b border-amber-200 flex items-center justify-between gap-4">
@@ -6697,16 +6669,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       {isSaving ? 'Guardando...' : 'Guardar Cotización'}
                     </button>
                   </div>
-                </div>
-                  </div>
-                  <aside className="xl:w-[min(100%,400px)] shrink-0 xl:sticky xl:self-start xl:top-2 space-y-3">
-                    <ProgramaPreview
-                      supabase={supabase}
-                      empresaId={Number(expediente?.empresa_id || empresaIdRequerido)}
-                      expedienteId={expediente?.id}
-                      valorAlmacenadoBd={urlProgramaPdf}
-                    />
-                  </aside>
                 </div>
               </div>
             )}

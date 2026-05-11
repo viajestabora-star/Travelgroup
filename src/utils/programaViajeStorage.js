@@ -1,10 +1,14 @@
-/** Bucket privado: rutas aisladas por tenant `{empresa_id}/{expediente_id}/programa.pdf`. */
-export const BUCKET_PROGRAMAS_VIAJE = 'programas'
+/** Bucket privado Supabase: nombre exacto `Programas`. Rutas `{empresa_id}/{expediente_id}/itinerario.pdf`. */
+export const BUCKET_PROGRAMAS_VIAJE = 'Programas'
 
 const SIGNED_URL_TTL_SEG = 3600 // 1 h
 
+const NOMBRE_ARCHIVO = 'itinerario.pdf'
+/** Compatibilidad con subidas anteriores al mismo prefijo de carpeta. */
+const NOMBRE_ARCHIVO_LEGACY = 'programa.pdf'
+
 /**
- * Ruta canónica del objeto dentro del bucket (sin prefijo de bucket).
+ * Ruta canónica del itinerario dentro del bucket (sin barra inicial).
  * @param {number|string} empresaId
  * @param {string} expedienteId UUID o id del expediente
  */
@@ -12,20 +16,28 @@ export function rutaStorageProgramaViaje(empresaId, expedienteId) {
   const e = Number(empresaId)
   const x = String(expedienteId ?? '').trim()
   if (!Number.isFinite(e) || e <= 0 || !x) return null
-  return `${e}/${x}/programa.pdf`
+  return `${e}/${x}/${NOMBRE_ARCHIVO}`
+}
+
+export function rutaStorageProgramaLegacy(empresaId, expedienteId) {
+  const e = Number(empresaId)
+  const x = String(expedienteId ?? '').trim()
+  if (!Number.isFinite(e) || e <= 0 || !x) return null
+  return `${e}/${x}/${NOMBRE_ARCHIVO_LEGACY}`
 }
 
 /**
  * Comprueba que la ruta pertenezca al tenant y expediente indicados (evita path traversal).
  */
 export function rutaProgramaValidaParaTenant(storagePath, empresaId, expedienteId) {
-  const esperada = rutaStorageProgramaViaje(empresaId, expedienteId)
   const p = String(storagePath || '').trim().replace(/^\/+/, '')
-  return esperada != null && p === esperada
+  const okItin = rutaStorageProgramaViaje(empresaId, expedienteId)
+  const okLeg = rutaStorageProgramaLegacy(empresaId, expedienteId)
+  return (okItin != null && p === okItin) || (okLeg != null && p === okLeg)
 }
 
 /**
- * Si en BD hay una URL pública antigua, extrae la ruta relativa al bucket `programas`.
+ * Si en BD hay una URL antigua, extrae la ruta relativa al bucket `Programas` (mayúscula) o `programas`.
  * @returns {string|null}
  */
 export function resolverRutaProgramaDesdeValorAlmacenado(valor) {
@@ -34,11 +46,21 @@ export function resolverRutaProgramaDesdeValorAlmacenado(valor) {
   if (!/^https?:\/\//i.test(raw)) {
     return raw.replace(/^\/+/, '')
   }
-  const m = raw.match(/\/storage\/v1\/object\/(?:public|sign)\/programas\/(.+?)(?:\?|$)/i)
-  if (m && m[1]) return decodeURIComponent(m[1].replace(/^\/+/, ''))
-  const idx = raw.indexOf('/programas/')
+  const m = raw.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+?)(?:\?|$)/i)
+  if (m && m[1] && m[2] && String(m[1]).toLowerCase() === 'programas') {
+    return decodeURIComponent(String(m[2]).replace(/^\/+/, ''))
+  }
+  const lower = raw.toLowerCase()
+  const needlePub = '/object/public/programas/'
+  const needleSign = '/object/sign/programas/'
+  let idx = lower.indexOf(needlePub)
+  let prefixLen = needlePub.length
+  if (idx < 0) {
+    idx = lower.indexOf(needleSign)
+    prefixLen = needleSign.length
+  }
   if (idx >= 0) {
-    const rest = raw.slice(idx + '/programas/'.length)
+    const rest = raw.slice(idx + prefixLen)
     return rest.split('?')[0].replace(/^\/+/, '')
   }
   return null
@@ -61,14 +83,16 @@ export async function crearSignedUrlProgramaViaje(supabase, storagePath) {
 }
 
 /**
- * Ruta segura para leer el PDF: solo la canónica `{empresa_id}/{expediente_id}/programa.pdf`
- * si el valor en BD indica que existe programa (no vacío) y coincide con la canónica o resuelve a ella.
+ * Ruta segura para leer: solo `{empresa_id}/{expediente_id}/itinerario.pdf` o legacy `programa.pdf` en esa carpeta.
  */
 export function resolverRutaProgramaSeguraParaLectura(empresaId, expedienteId, valorBd) {
-  const canon = rutaStorageProgramaViaje(empresaId, expedienteId)
+  const canonItin = rutaStorageProgramaViaje(empresaId, expedienteId)
+  const canonLeg = rutaStorageProgramaLegacy(empresaId, expedienteId)
   const raw = String(valorBd ?? '').trim()
-  if (!raw || !canon) return null
-  const resolved = resolverRutaProgramaDesdeValorAlmacenado(raw) || (!/^https?:\/\//i.test(raw) ? raw.replace(/^\/+/, '') : null)
-  if (resolved === canon || raw === canon) return canon
+  if (!raw || !canonItin) return null
+  const normalized = raw.replace(/^\/+/, '')
+  if (normalized === canonItin || normalized === canonLeg) return normalized
+  const resolved = resolverRutaProgramaDesdeValorAlmacenado(raw) || (!/^https?:\/\//i.test(raw) ? normalized : null)
+  if (resolved === canonItin || resolved === canonLeg) return resolved
   return null
 }

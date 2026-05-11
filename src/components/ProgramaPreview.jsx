@@ -1,16 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronUp, Download, Map, Maximize2, X } from 'lucide-react'
+import { Download, Map, Maximize2, RefreshCw, Upload, X } from 'lucide-react'
 import {
   BUCKET_PROGRAMAS_VIAJE,
   crearSignedUrlProgramaViaje,
   resolverRutaProgramaSeguraParaLectura,
 } from '../utils/programaViajeStorage'
 
+const BANNER_H = 220
+
 /**
- * Banner del programa de viaje (bucket privado): URL firmada ~1 h, descarga directa, modal pantalla completa.
+ * Banner del itinerario (bucket `Programas`, privado): signed URL 3600 s, modal a pantalla completa.
+ * Sin PDF: solo botón «Subir Programa». Con PDF: banner + «Cambiar Programa» (no insiste en subir otra vez).
  */
-const ProgramaPreview = ({ supabase, empresaId, expedienteId, valorAlmacenadoBd }) => {
-  const [open, setOpen] = useState(true)
+const ProgramaPreview = ({
+  supabase,
+  empresaId,
+  expedienteId,
+  valorAlmacenadoBd,
+  onSolicitarSubida,
+  subiendoProgramaPdf = false,
+}) => {
   const [signedUrl, setSignedUrl] = useState(null)
   const [cargandoUrl, setCargandoUrl] = useState(false)
   const [errorUrl, setErrorUrl] = useState(null)
@@ -46,6 +55,12 @@ const ProgramaPreview = ({ supabase, empresaId, expedienteId, valorAlmacenadoBd 
     refrescarSignedUrl()
   }, [refrescarSignedUrl])
 
+  const nombreDescarga = useMemo(() => {
+    if (!storagePath) return 'itinerario.pdf'
+    const base = storagePath.split('/').pop()
+    return base && base.endsWith('.pdf') ? base : 'itinerario.pdf'
+  }, [storagePath])
+
   const descargarOriginal = async () => {
     if (!storagePath || !supabase) return
     setDescargando(true)
@@ -57,7 +72,7 @@ const ProgramaPreview = ({ supabase, empresaId, expedienteId, valorAlmacenadoBd 
       const href = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = href
-      a.download = 'programa.pdf'
+      a.download = nombreDescarga
       a.rel = 'noopener'
       document.body.appendChild(a)
       a.click()
@@ -74,80 +89,105 @@ const ProgramaPreview = ({ supabase, empresaId, expedienteId, valorAlmacenadoBd 
     if (signedUrl) setModalFullscreen(true)
   }
 
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/80 shadow-sm overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left bg-white border-b border-slate-200 hover:bg-slate-50 transition-colors"
-      >
-        <span className="flex items-center gap-2 text-sm font-bold text-navy-900">
-          <Map size={18} className="text-blue-600 shrink-0" />
-          Consultar Itinerario
-        </span>
-        {open ? <ChevronUp size={18} className="text-slate-500" /> : <ChevronDown size={18} className="text-slate-500" />}
-      </button>
-      {open && (
-        <div className="p-3 bg-white space-y-2">
-          {!storagePath ? (
-            <p className="text-xs text-slate-500 text-center py-8 px-2">
-              No hay programa de viaje cargado. Sube un PDF desde la cabecera del expediente.
-            </p>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => descargarOriginal()}
-                  disabled={descargando}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  <Download size={14} />
-                  {descargando ? 'Descargando…' : 'Descargar Programa'}
-                </button>
-                {cargandoUrl && <span className="text-[11px] text-slate-500">Preparando vista…</span>}
-                {errorUrl && <span className="text-[11px] text-red-600">{errorUrl}</span>}
-              </div>
-              <button
-                type="button"
-                onClick={abrirFullscreen}
-                disabled={!signedUrl}
-                className="relative w-full rounded-lg border border-slate-200 overflow-hidden bg-slate-100 text-left group disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ height: 200 }}
-                title={signedUrl ? 'Ver a pantalla completa' : 'Esperando URL firmada'}
-              >
-                {signedUrl ? (
-                  <>
-                    <iframe
-                      key={signedUrl}
-                      title="Programa de viaje (vista previa)"
-                      src={signedUrl}
-                      className="w-full h-[200px] border-0 pointer-events-none bg-white"
-                    />
-                    <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-md bg-navy-900/85 text-white text-[10px] font-semibold px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Maximize2 size={12} />
-                      Pantalla completa
-                    </span>
-                  </>
-                ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-slate-500 px-2">
-                    {cargandoUrl ? 'Cargando vista del PDF…' : 'No se pudo mostrar el PDF.'}
-                  </div>
-                )}
-              </button>
-            </>
-          )}
+  const solicitarSubida = () => {
+    if (typeof onSolicitarSubida === 'function') onSolicitarSubida()
+  }
+
+  if (!storagePath) {
+    return (
+      <div className="w-full rounded-xl border-2 border-dashed border-blue-200 bg-gradient-to-br from-blue-50/90 to-white p-6 sm:p-8 text-center shadow-sm">
+        <div className="mx-auto flex max-w-md flex-col items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+            <Map size={28} />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-navy-900">Programa de viaje (PDF)</p>
+            <p className="mt-1 text-xs text-slate-600">Aún no hay itinerario. Sube un PDF para que aparezca aquí como banner en todo el expediente.</p>
+          </div>
+          <button
+            type="button"
+            onClick={solicitarSubida}
+            disabled={subiendoProgramaPdf}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white shadow-md transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Upload size={18} />
+            {subiendoProgramaPdf ? 'Subiendo…' : 'Subir Programa'}
+          </button>
         </div>
-      )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2 sm:px-4">
+        <span className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-navy-900 sm:text-sm">
+          <Map size={16} className="shrink-0 text-blue-600" />
+          Itinerario
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => descargarOriginal()}
+            disabled={descargando}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Download size={14} />
+            {descargando ? 'Descargando…' : 'Descargar'}
+          </button>
+          <button
+            type="button"
+            onClick={solicitarSubida}
+            disabled={subiendoProgramaPdf}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={subiendoProgramaPdf ? 'animate-spin' : ''} />
+            {subiendoProgramaPdf ? 'Subiendo…' : 'Cambiar Programa'}
+          </button>
+          {cargandoUrl && <span className="text-[11px] text-slate-500">Preparando vista…</span>}
+          {errorUrl && <span className="max-w-[200px] truncate text-[11px] text-red-600" title={errorUrl}>{errorUrl}</span>}
+        </div>
+      </div>
+
+      <div className="p-2 sm:p-3">
+        <button
+          type="button"
+          onClick={abrirFullscreen}
+          disabled={!signedUrl}
+          className="relative w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100 text-left outline-none ring-offset-2 transition-shadow hover:ring-2 hover:ring-blue-400/40 disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ height: BANNER_H }}
+          title={signedUrl ? 'Pantalla completa' : 'Esperando URL firmada'}
+        >
+          {signedUrl ? (
+            <>
+              <iframe
+                key={signedUrl}
+                title="Itinerario (vista previa)"
+                src={signedUrl}
+                className="pointer-events-none w-full border-0 bg-white"
+                style={{ height: BANNER_H }}
+              />
+              <span className="pointer-events-none absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-md bg-navy-900/85 px-2 py-1 text-[10px] font-semibold text-white">
+                <Maximize2 size={12} />
+                Ampliar
+              </span>
+            </>
+          ) : (
+            <div className="flex h-full items-center justify-center px-2 text-xs text-slate-500">
+              {cargandoUrl ? 'Cargando PDF…' : 'No se pudo mostrar el PDF.'}
+            </div>
+          )}
+        </button>
+      </div>
 
       {modalFullscreen && signedUrl && (
         <div
           className="fixed inset-0 z-[120] flex flex-col bg-black/90 p-3 sm:p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="Programa de viaje"
+          aria-label="Itinerario"
         >
-          <div className="flex shrink-0 items-center justify-between gap-2 pb-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-3">
             <button
               type="button"
               onClick={() => descargarOriginal()}
@@ -155,7 +195,7 @@ const ProgramaPreview = ({ supabase, empresaId, expedienteId, valorAlmacenadoBd 
               className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm font-semibold text-white hover:bg-white/20 disabled:opacity-50"
             >
               <Download size={18} />
-              Descargar Programa
+              Descargar
             </button>
             <button
               type="button"
@@ -166,7 +206,7 @@ const ProgramaPreview = ({ supabase, empresaId, expedienteId, valorAlmacenadoBd 
               Cerrar
             </button>
           </div>
-          <iframe title="Programa de viaje" src={signedUrl} className="min-h-0 flex-1 w-full rounded-lg border-0 bg-white" />
+          <iframe title="Itinerario" src={signedUrl} className="min-h-0 w-full flex-1 rounded-lg border-0 bg-white" />
         </div>
       )}
     </div>
