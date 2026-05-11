@@ -100,3 +100,45 @@ export async function resolverEmpresaIdDesdeSesionSupabase(supabase) {
   }
   return n
 }
+
+/** Tabora (ID 1): fallback de emergencia si la sesión no trae `empresa_id` en metadatos. */
+export const EMPRESA_ID_TABORA_EMERGENCIA = 1
+
+/**
+ * Integridad escritura Storage / expedientes: lee SOLO de la sesión Supabase activa
+ * (`getSession` → `user.user_metadata.empresa_id`, luego `app_metadata.empresa_id`).
+ * Nunca devuelve null ni ≤0: si falta o es inválido → {@link EMPRESA_ID_TABORA_EMERGENCIA}.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @returns {Promise<number>}
+ */
+export async function resolverEmpresaIdEscrituraObligatorio(supabase) {
+  try {
+    const { data: bundle, error } = await supabase.auth.getSession()
+    if (error || !bundle?.session?.user) {
+      return EMPRESA_ID_TABORA_EMERGENCIA
+    }
+    const u = bundle.session.user
+    const raw = u.user_metadata?.empresa_id ?? u.app_metadata?.empresa_id
+    const n = Number(raw)
+    if (Number.isFinite(n) && n > 0) {
+      return Math.trunc(n)
+    }
+  } catch (_) {
+    /* misma política que sesión ausente */
+  }
+  return EMPRESA_ID_TABORA_EMERGENCIA
+}
+
+/**
+ * Misma regla que {@link resolverEmpresaIdEscrituraObligatorio} para UI síncrona (objeto `user` de la app).
+ * Nunca null: mínimo {@link EMPRESA_ID_TABORA_EMERGENCIA}.
+ */
+export function empresaIdDesdeUserMetadataOUno(user) {
+  const raw = user?.user_metadata?.empresa_id ?? user?.app_metadata?.empresa_id ?? user?.empresa_id
+  const n = Number(raw)
+  if (Number.isFinite(n) && n > 0) {
+    return Math.trunc(n)
+  }
+  return EMPRESA_ID_TABORA_EMERGENCIA
+}

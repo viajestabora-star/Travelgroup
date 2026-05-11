@@ -20,7 +20,7 @@ import { useEmpresa } from '../context/EmpresaContext'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
 import {
   empresaIdSesionValido,
-  resolverEmpresaIdDesdeSesionSupabase,
+  resolverEmpresaIdEscrituraObligatorio,
   assertEmpresaIdOperacion,
 } from '../utils/tenantEmpresa'
 import { assertFilaPersistida, empresaIdNumericoOThrow } from '../utils/supabasePersistenciaCerteza'
@@ -481,7 +481,7 @@ const Expedientes = ({ user = null }) => {
 
   const saveExpedientes = async (data) => {
     try {
-      const empresaIdOperacion = await resolverEmpresaIdDesdeSesionSupabase(supabase)
+      const empresaIdOperacion = await resolverEmpresaIdEscrituraObligatorio(supabase)
       assertEmpresaIdOperacion(empresaIdOperacion)
       const dataToSave = Array.isArray(data) ? data : [];
 
@@ -596,7 +596,7 @@ const Expedientes = ({ user = null }) => {
     setIsSubmittingExpediente(true);
     
     try {
-      const empresaIdOperacion = await resolverEmpresaIdDesdeSesionSupabase(supabase)
+      const empresaIdOperacion = await resolverEmpresaIdEscrituraObligatorio(supabase)
       assertEmpresaIdOperacion(empresaIdOperacion)
 
       // CORRECCIÓN OBLIGATORIA: Sanitización Pre-Envío - Redefinir cliente_id ANTES de cualquier otra operación
@@ -862,7 +862,7 @@ const Expedientes = ({ user = null }) => {
     }
 
     try {
-      const empresaIdOperacion = await resolverEmpresaIdDesdeSesionSupabase(supabase)
+      const empresaIdOperacion = await resolverEmpresaIdEscrituraObligatorio(supabase)
       assertEmpresaIdOperacion(empresaIdOperacion)
       newCliente.empresa_id = empresaIdOperacion
 

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useMemo } from 'react'
 import { toSlug } from '../utils/slugify'
 
 const EmpresaContext = createContext({
-  /** Replica el `empresa_id` de la sesión ERP (App: JWT + profiles); no sustituye `resolverEmpresaIdDesdeSesionSupabase` en escrituras críticas. */
+  /** UI: `empresa_id` de la sesión ERP. Escrituras críticas (expedientes, Storage) usan `resolverEmpresaIdEscrituraObligatorio` + metadatos de sesión. */
   empresaId: null,   // null hasta que el Provider reciba un user con empresa_id válido
   empresaSlug: '',
   withEmpresaId: (payload) => payload,

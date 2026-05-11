@@ -33,8 +33,9 @@ import {
 import { useEmpresa } from '../context/EmpresaContext'
 import {
   empresaIdSesionValido,
-  resolverEmpresaIdDesdeSesionSupabase,
+  resolverEmpresaIdEscrituraObligatorio,
   assertEmpresaIdOperacion,
+  empresaIdDesdeUserMetadataOUno,
 } from '../utils/tenantEmpresa'
 import { empresaIdNumericoOThrow } from '../utils/supabasePersistenciaCerteza'
 import VisualizadorPro from './VisualizadorPro'
@@ -3260,14 +3261,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       return
     }
     if (!(await asegurarSesionAutenticada())) return
-    let empresaIdOperacion
-    try {
-      empresaIdOperacion = await resolverEmpresaIdDesdeSesionSupabase(supabase)
-      assertEmpresaIdOperacion(empresaIdOperacion)
-    } catch (err) {
-      alert(err?.message || 'Fallo crítico: Intento de operación sin identidad de empresa')
-      return
-    }
+    const empresaIdOperacion = await resolverEmpresaIdEscrituraObligatorio(supabase)
+    assertEmpresaIdOperacion(empresaIdOperacion)
+
     const expId = String(expediente?.id || '').trim()
     if (!expId) {
       alert('Expediente inválido.')
@@ -3278,14 +3274,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       alert('Este expediente no pertenece a tu empresa. No se puede subir el programa.')
       return
     }
-    /** Carpeta en Storage: empresa del expediente si ya está sellada y coincide con sesión; si no, sesión (nunca huérfano). */
-    const eidCarpeta = Number.isFinite(empRow) && empRow > 0 ? empRow : empresaIdOperacion
-    empresaIdNumericoOThrow(eidCarpeta, 'No hay empresa válida para la ruta del programa en Storage.')
+    empresaIdNumericoOThrow(empresaIdOperacion, 'No hay empresa válida para la ruta del programa en Storage.')
 
     setSubiendoProgramaPdf(true)
     try {
       assertEmpresaIdOperacion(empresaIdOperacion)
-      const ruta = rutaStorageProgramaViaje(eidCarpeta, expId)
+      const ruta = rutaStorageProgramaViaje(empresaIdOperacion, expId)
       if (!ruta) throw new Error('No se pudo determinar la ruta de almacenamiento (empresa / expediente).')
       const { error: uploadErr } = await supabase.storage
         .from(BUCKET_PROGRAMAS_VIAJE)
@@ -4732,7 +4726,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         type="button"
                         title={
                           resolverRutaProgramaSeguraParaLectura(
-                            empresaIdRequerido,
+                            empresaIdDesdeUserMetadataOUno(user),
                             expediente?.id,
                             urlProgramaPdf,
                           )
@@ -4740,7 +4734,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             : 'Sin programa — usa Subir Programa arriba'
                         }
                         onClick={async () => {
-                          const eEmp = empresaIdRequerido
+                          const eEmp = empresaIdDesdeUserMetadataOUno(user)
                           const path = resolverRutaProgramaSeguraParaLectura(eEmp, expediente?.id, urlProgramaPdf)
                           if (!path) {
                             window.alert('Aún no hay programa. Usa el botón «Subir Programa» en la parte superior del expediente.')
@@ -4755,7 +4749,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         }}
                         className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
                           resolverRutaProgramaSeguraParaLectura(
-                            empresaIdRequerido,
+                            empresaIdDesdeUserMetadataOUno(user),
                             expediente?.id,
                             urlProgramaPdf,
                           )
@@ -4882,7 +4876,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             <div className="mb-4 sm:mb-6">
               <ProgramaPreview
                 supabase={supabase}
-                empresaId={empresaIdRequerido}
+                empresaId={empresaIdDesdeUserMetadataOUno(user)}
                 expedienteId={expediente?.id}
                 valorAlmacenadoBd={urlProgramaPdf}
                 onSolicitarSubida={() => programaPdfInputRef.current?.click()}
