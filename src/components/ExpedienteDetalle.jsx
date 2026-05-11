@@ -36,6 +36,7 @@ import {
   resolverEmpresaIdDesdeSesionSupabase,
   assertEmpresaIdOperacion,
 } from '../utils/tenantEmpresa'
+import { empresaIdNumericoOThrow } from '../utils/supabasePersistenciaCerteza'
 import VisualizadorPro from './VisualizadorPro'
 import ProgramaPreview from './ProgramaPreview'
 import {
@@ -3239,11 +3240,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   /** Guarda ruta relativa en BD: `{empresa_id}/{expediente_id}/itinerario.pdf` (bucket `Programas`), sin URL pública. */
-  const aplicarUrlProgramaPdf = (storagePath) => {
+  const aplicarUrlProgramaPdf = (storagePath, empresaIdPersistir = null) => {
     const u = String(storagePath || '').trim()
     setUrlProgramaPdf(u)
     if (typeof onUpdate === 'function' && expediente?.id) {
-      onUpdate({ ...expediente, url_programa_pdf: u })
+      const patch = { ...expediente, url_programa_pdf: u }
+      if (empresaIdPersistir != null && Number.isFinite(Number(empresaIdPersistir)) && Number(empresaIdPersistir) > 0) {
+        patch.empresa_id = Number(empresaIdPersistir)
+      }
+      onUpdate(patch)
     }
   }
 
@@ -3273,10 +3278,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       alert('Este expediente no pertenece a tu empresa. No se puede subir el programa.')
       return
     }
+    /** Carpeta en Storage: empresa del expediente si ya está sellada y coincide con sesión; si no, sesión (nunca huérfano). */
+    const eidCarpeta = Number.isFinite(empRow) && empRow > 0 ? empRow : empresaIdOperacion
+    empresaIdNumericoOThrow(eidCarpeta, 'No hay empresa válida para la ruta del programa en Storage.')
+
     setSubiendoProgramaPdf(true)
     try {
       assertEmpresaIdOperacion(empresaIdOperacion)
-      const ruta = rutaStorageProgramaViaje(empresaIdOperacion, expId)
+      const ruta = rutaStorageProgramaViaje(eidCarpeta, expId)
       if (!ruta) throw new Error('No se pudo determinar la ruta de almacenamiento (empresa / expediente).')
       const { error: uploadErr } = await supabase.storage
         .from(BUCKET_PROGRAMAS_VIAJE)
@@ -3285,13 +3294,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
       const { data: saved, error: dbErr } = await supabase
         .from('expedientes')
-        .update({ url_programa_pdf: ruta })
+        .update({ url_programa_pdf: ruta, empresa_id: empresaIdOperacion })
         .eq('id', expId)
-        .eq('empresa_id', empresaIdOperacion)
-        .select('url_programa_pdf')
+        .select('url_programa_pdf, empresa_id')
         .maybeSingle()
       if (dbErr) throw new Error(dbErr.message || 'Error al guardar url_programa_pdf en el expediente.')
-      aplicarUrlProgramaPdf(String(saved?.url_programa_pdf || ruta).trim())
+      if (!saved) {
+        throw new Error('No se actualizó el expediente (¿RLS o expediente inexistente?).')
+      }
+      if (saved.empresa_id != null && Number(saved.empresa_id) !== empresaIdOperacion) {
+        throw new Error('Integridad: empresa_id del expediente no coincide con la sesión tras guardar el programa.')
+      }
+      aplicarUrlProgramaPdf(String(saved?.url_programa_pdf || ruta).trim(), empresaIdOperacion)
     } catch (err) {
       alert(err?.message || String(err))
     } finally {

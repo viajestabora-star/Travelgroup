@@ -23,7 +23,7 @@ import {
   resolverEmpresaIdDesdeSesionSupabase,
   assertEmpresaIdOperacion,
 } from '../utils/tenantEmpresa'
-import { assertFilaPersistida } from '../utils/supabasePersistenciaCerteza'
+import { assertFilaPersistida, empresaIdNumericoOThrow } from '../utils/supabasePersistenciaCerteza'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
 // Esta función se usa SOLO al guardar datos en Supabase
@@ -546,25 +546,35 @@ const Expedientes = ({ user = null }) => {
           pax_pago: paxPagoNum,
           precio_venta_cliente: expediente.precio_venta_cliente != null ? Number(expediente.precio_venta_cliente) : 0,
           bonificacion_pax: expediente.bonificacion_pax != null ? Number(expediente.bonificacion_pax) : 0,
-          empresa_id: empresaIdOperacion,
-        };
+        }
 
-        const idExpediente = expediente.id;
+        const idExpediente = expediente.id
+        const empresaIdInyectado = empresaIdNumericoOThrow(
+          empresaIdOperacion,
+          'No hay empresa en sesión. No se guardará un expediente huérfano.',
+        )
+        const filaConTenant = { ...datosParaSupabase, empresa_id: empresaIdInyectado }
 
         if (idExpediente) {
           const result = await supabase
             .from('expedientes')
-            .upsert({ ...datosParaSupabase, id: idExpediente }, { onConflict: 'id' })
+            .upsert({ ...filaConTenant, id: idExpediente }, { onConflict: 'id' })
             .select()
             .single()
-          assertFilaPersistida(result)
+          const dataIns = assertFilaPersistida(result)
+          if (dataIns?.empresa_id == null || Number(dataIns.empresa_id) !== empresaIdInyectado) {
+            throw new Error('Integridad: el expediente no se guardó con empresa_id correcto. Revisa RLS o el esquema en Supabase.')
+          }
         } else {
           const result = await supabase
             .from('expedientes')
-            .insert([datosParaSupabase])
+            .insert([filaConTenant])
             .select()
             .single()
-          assertFilaPersistida(result)
+          const dataIns = assertFilaPersistida(result)
+          if (dataIns?.empresa_id == null || Number(dataIns.empresa_id) !== empresaIdInyectado) {
+            throw new Error('Integridad: el expediente no se guardó con empresa_id correcto. Revisa RLS o el esquema en Supabase.')
+          }
         }
       }
 
@@ -721,14 +731,18 @@ const Expedientes = ({ user = null }) => {
       const { datosSanitizados: insertSanitizado } = sanitizarExpedienteParaDB(datosInsertar);
       Object.assign(datosInsertar, insertSanitizado);
       delete datosInsertar.empresa_id
-      datosInsertar.empresa_id = empresaIdOperacion
+      const empresaIdInyectado = empresaIdNumericoOThrow(
+        empresaIdOperacion,
+        'No hay empresa en sesión. No se creará un expediente huérfano.',
+      )
+      datosInsertar.empresa_id = empresaIdInyectado
 
       const { exists: hayDuplicado, error: errorConsultaDuplicado } =
         await consultarExpedienteDuplicadoSupabase({
           cliente_id: datosInsertar.cliente_id,
           fecha_inicio: datosInsertar.fecha_inicio,
           destino: datosInsertar.destino,
-          empresa_id: empresaIdOperacion,
+          empresa_id: empresaIdInyectado,
         });
       if (errorConsultaDuplicado) {
         const errorInfo = manejarErrorSupabase(errorConsultaDuplicado, 'comprobar duplicado de expediente');
@@ -755,15 +769,28 @@ const Expedientes = ({ user = null }) => {
         datosInsertar.numero_expediente = numeroExp
         assertEmpresaIdOperacion(empresaIdOperacion)
 
+        const filaInsertFinal = {
+          ...datosInsertar,
+          empresa_id: empresaIdNumericoOThrow(empresaIdInyectado, 'No hay empresa en sesión. No se creará un expediente huérfano.'),
+        }
+
         const result = await supabase
           .from('expedientes')
-          .insert([datosInsertar])
+          .insert([filaInsertFinal])
           .select()
           .single()
         const error = result.error
 
         if (!error) {
           data = result.data
+          if (data?.empresa_id == null || Number(data.empresa_id) !== empresaIdInyectado) {
+            const errorInfo = manejarErrorSupabase(
+              { message: 'Integridad: el expediente se insertó sin empresa_id válido.' },
+              'crear expediente',
+            )
+            alert(errorInfo ? errorInfo.mensaje : 'Integridad: empresa_id ausente tras insertar.')
+            throw new Error('expediente sin empresa_id')
+          }
           break
         }
 
