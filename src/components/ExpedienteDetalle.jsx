@@ -34,12 +34,17 @@ import { useEmpresa } from '../context/EmpresaContext'
 import { empresaIdSesionValido } from '../utils/tenantEmpresa'
 import VisualizadorPro from './VisualizadorPro'
 import ProgramaPreview from './ProgramaPreview'
+import {
+  BUCKET_PROGRAMAS_VIAJE,
+  rutaStorageProgramaViaje,
+  crearSignedUrlProgramaViaje,
+  resolverRutaProgramaSeguraParaLectura,
+} from '../utils/programaViajeStorage'
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
 const BUCKET_FACTURAS = 'facturas'
 const BUCKET_EXPEDIENTES = 'expedientes'
-const BUCKET_PROGRAMAS_VIAJE = 'programas'
 const SUBMIT_DEDUPE_MS = 2000
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -3229,8 +3234,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return empresaIdPerfil
   }
 
-  const aplicarUrlProgramaPdf = (publicUrl) => {
-    const u = String(publicUrl || '').trim()
+  /** Guarda ruta canónica en BD (`{empresa_id}/{expediente_id}/programa.pdf`), no URL pública. */
+  const aplicarUrlProgramaPdf = (storagePath) => {
+    const u = String(storagePath || '').trim()
     setUrlProgramaPdf(u)
     if (typeof onUpdate === 'function' && expediente?.id) {
       onUpdate({ ...expediente, url_programa_pdf: u })
@@ -3250,7 +3256,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       alert('Expediente inválido.')
       return
     }
-    let eid = Number(empresaIdRequerido)
+    let eid = Number(expediente?.empresa_id)
+    if (!Number.isFinite(eid) || eid <= 0) {
+      eid = Number(empresaIdRequerido)
+    }
     if (!Number.isFinite(eid) || eid <= 0) {
       try {
         eid = await resolverEmpresaIdPerfilActual()
@@ -3261,23 +3270,21 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
     setSubiendoProgramaPdf(true)
     try {
-      const ruta = `${eid}/${expId}/programa_${Date.now()}.pdf`
+      const ruta = rutaStorageProgramaViaje(eid, expId)
+      if (!ruta) throw new Error('No se pudo determinar la ruta de almacenamiento (empresa / expediente).')
       const { error: uploadErr } = await supabase.storage
         .from(BUCKET_PROGRAMAS_VIAJE)
         .upload(ruta, file, { upsert: true, contentType: 'application/pdf' })
       if (uploadErr) throw new Error(uploadErr.message || 'Error al subir el PDF al bucket «programas».')
-      const { data: urlData } = supabase.storage.from(BUCKET_PROGRAMAS_VIAJE).getPublicUrl(ruta)
-      const publicUrl = String(urlData?.publicUrl || '').trim()
-      if (!publicUrl) throw new Error('No se pudo obtener la URL pública del archivo.')
 
       const { data: saved, error: dbErr } = await supabase
         .from('expedientes')
-        .update({ url_programa_pdf: publicUrl })
+        .update({ url_programa_pdf: ruta })
         .eq('id', expId)
         .select('url_programa_pdf')
         .maybeSingle()
       if (dbErr) throw new Error(dbErr.message || 'Error al guardar url_programa_pdf en el expediente.')
-      aplicarUrlProgramaPdf(String(saved?.url_programa_pdf || publicUrl).trim())
+      aplicarUrlProgramaPdf(String(saved?.url_programa_pdf || ruta).trim())
     } catch (err) {
       alert(err?.message || String(err))
     } finally {
@@ -4702,16 +4709,35 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       </p>
                       <button
                         type="button"
-                        title={urlProgramaPdf ? 'Abrir programa de viaje (PDF)' : 'Sin programa de viaje — súbelo debajo'}
-                        onClick={() => {
-                          if (urlProgramaPdf) {
-                            window.open(urlProgramaPdf, '_blank', 'noopener,noreferrer')
-                          } else {
+                        title={
+                          resolverRutaProgramaSeguraParaLectura(
+                            Number(expediente?.empresa_id || empresaIdRequerido),
+                            expediente?.id,
+                            urlProgramaPdf,
+                          )
+                            ? 'Abrir programa de viaje (PDF)'
+                            : 'Sin programa de viaje — súbelo debajo'
+                        }
+                        onClick={async () => {
+                          const eEmp = Number(expediente?.empresa_id || empresaIdRequerido)
+                          const path = resolverRutaProgramaSeguraParaLectura(eEmp, expediente?.id, urlProgramaPdf)
+                          if (!path) {
                             window.alert('Aún no hay programa de viaje. Usa el área «PDF del programa» justo debajo para subirlo.')
+                            return
                           }
+                          const { url, error } = await crearSignedUrlProgramaViaje(supabase, path)
+                          if (error || !url) {
+                            window.alert(error?.message || 'No se pudo generar el enlace seguro del programa.')
+                            return
+                          }
+                          window.open(url, '_blank', 'noopener,noreferrer')
                         }}
                         className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
-                          urlProgramaPdf
+                          resolverRutaProgramaSeguraParaLectura(
+                            Number(expediente?.empresa_id || empresaIdRequerido),
+                            expediente?.id,
+                            urlProgramaPdf,
+                          )
                             ? 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'
                             : 'border-slate-200 bg-slate-100 text-slate-400 cursor-default'
                         }`}
@@ -6674,7 +6700,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 </div>
                   </div>
                   <aside className="xl:w-[min(100%,400px)] shrink-0 xl:sticky xl:self-start xl:top-2 space-y-3">
-                    <ProgramaPreview pdfUrl={urlProgramaPdf} />
+                    <ProgramaPreview
+                      supabase={supabase}
+                      empresaId={Number(expediente?.empresa_id || empresaIdRequerido)}
+                      expedienteId={expediente?.id}
+                      valorAlmacenadoBd={urlProgramaPdf}
+                    />
                   </aside>
                 </div>
               </div>
