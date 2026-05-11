@@ -18,7 +18,11 @@ import { sanitizarExpedienteParaDB } from '../utils/constraintValidator'
 import { DestinoExpedienteEditable } from '../components/expedientes/FichaDelGrupo'
 import { useEmpresa } from '../context/EmpresaContext'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
-import { empresaIdSesionValido } from '../utils/tenantEmpresa'
+import {
+  empresaIdSesionValido,
+  resolverEmpresaIdDesdeSesionSupabase,
+  assertEmpresaIdOperacion,
+} from '../utils/tenantEmpresa'
 import { assertFilaPersistida } from '../utils/supabasePersistenciaCerteza'
 
 // Función helper para convertir fechas a formato ISO (YYYY-MM-DD) para Supabase
@@ -477,13 +481,12 @@ const Expedientes = ({ user = null }) => {
 
   const saveExpedientes = async (data) => {
     try {
-      if (!empresaIdRequerido) {
-        alert('No hay empresa en sesión (empresa_id). No se puede guardar en Supabase.')
-        return
-      }
+      const empresaIdOperacion = await resolverEmpresaIdDesdeSesionSupabase(supabase)
+      assertEmpresaIdOperacion(empresaIdOperacion)
       const dataToSave = Array.isArray(data) ? data : [];
 
       for (const expediente of dataToSave) {
+        assertEmpresaIdOperacion(empresaIdOperacion)
         // ARQUITECTURA UUID: cliente_id es UUID (string)
         const clienteIdParaSync = expediente.cliente_id || expediente.clienteId;
         const clienteIdUUID = clienteIdParaSync ? String(clienteIdParaSync).trim() : null;
@@ -543,7 +546,7 @@ const Expedientes = ({ user = null }) => {
           pax_pago: paxPagoNum,
           precio_venta_cliente: expediente.precio_venta_cliente != null ? Number(expediente.precio_venta_cliente) : 0,
           bonificacion_pax: expediente.bonificacion_pax != null ? Number(expediente.bonificacion_pax) : 0,
-          empresa_id: empresaIdRequerido,
+          empresa_id: empresaIdOperacion,
         };
 
         const idExpediente = expediente.id;
@@ -579,15 +582,13 @@ const Expedientes = ({ user = null }) => {
   const handleExpedienteSubmit = async (e) => {
     e.preventDefault();
 
-    if (!empresaIdRequerido) {
-      alert('No hay empresa en sesión (empresa_id). No se puede crear el expediente. Vuelve a iniciar sesión.')
-      return
-    }
-
     // CORRECCIÓN: Activar loading al inicio
     setIsSubmittingExpediente(true);
     
     try {
+      const empresaIdOperacion = await resolverEmpresaIdDesdeSesionSupabase(supabase)
+      assertEmpresaIdOperacion(empresaIdOperacion)
+
       // CORRECCIÓN OBLIGATORIA: Sanitización Pre-Envío - Redefinir cliente_id ANTES de cualquier otra operación
       // Obtener el ID del formulario
       let selectedClientId = expedienteForm.clienteId;
@@ -625,7 +626,7 @@ const Expedientes = ({ user = null }) => {
           .insert([{
             nombre: finalNombre,
             responsable: expedienteForm.responsable || '',
-            empresa_id: empresaIdRequerido,
+            empresa_id: empresaIdOperacion,
           }])
           .select()
           .single()
@@ -703,7 +704,6 @@ const Expedientes = ({ user = null }) => {
         total_pax: totalPaxSanitizado || null,
         pax_pago: paxPagoNum,
         precio_venta_cliente: 0, // Valor por defecto para evitar NOT NULL
-        empresa_id: empresaIdRequerido,
       };
 
       // VERIFICACIÓN EXPLÍCITA: Asegurar que id NO esté en el objeto
@@ -720,13 +720,15 @@ const Expedientes = ({ user = null }) => {
       // ESCÁNER ELÁSTICO: sanitiza silenciosamente sin bloquear al usuario
       const { datosSanitizados: insertSanitizado } = sanitizarExpedienteParaDB(datosInsertar);
       Object.assign(datosInsertar, insertSanitizado);
+      delete datosInsertar.empresa_id
+      datosInsertar.empresa_id = empresaIdOperacion
 
       const { exists: hayDuplicado, error: errorConsultaDuplicado } =
         await consultarExpedienteDuplicadoSupabase({
           cliente_id: datosInsertar.cliente_id,
           fecha_inicio: datosInsertar.fecha_inicio,
           destino: datosInsertar.destino,
-          empresa_id: empresaIdRequerido,
+          empresa_id: empresaIdOperacion,
         });
       if (errorConsultaDuplicado) {
         const errorInfo = manejarErrorSupabase(errorConsultaDuplicado, 'comprobar duplicado de expediente');
@@ -751,6 +753,7 @@ const Expedientes = ({ user = null }) => {
           numeroExp = `${añoNumeracion}-001`;
         }
         datosInsertar.numero_expediente = numeroExp
+        assertEmpresaIdOperacion(empresaIdOperacion)
 
         const result = await supabase
           .from('expedientes')
@@ -832,11 +835,9 @@ const Expedientes = ({ user = null }) => {
     }
 
     try {
-      if (!empresaIdRequerido) {
-        alert('No hay empresa en sesión (empresa_id). No se puede crear el cliente.')
-        return
-      }
-      newCliente.empresa_id = empresaIdRequerido
+      const empresaIdOperacion = await resolverEmpresaIdDesdeSesionSupabase(supabase)
+      assertEmpresaIdOperacion(empresaIdOperacion)
+      newCliente.empresa_id = empresaIdOperacion
 
       const sessionCheck = await ensureAuthenticatedSession(supabase)
       if (!sessionCheck.ok) {

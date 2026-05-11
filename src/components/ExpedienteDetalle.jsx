@@ -31,7 +31,11 @@ import {
   crearJsPdfInformeCierreFinanciero,
 } from '../utils/informeCierreHaciendaPdf'
 import { useEmpresa } from '../context/EmpresaContext'
-import { empresaIdSesionValido } from '../utils/tenantEmpresa'
+import {
+  empresaIdSesionValido,
+  resolverEmpresaIdDesdeSesionSupabase,
+  assertEmpresaIdOperacion,
+} from '../utils/tenantEmpresa'
 import VisualizadorPro from './VisualizadorPro'
 import ProgramaPreview from './ProgramaPreview'
 import {
@@ -3251,19 +3255,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       return
     }
     if (!(await asegurarSesionAutenticada())) return
+    let empresaIdOperacion
+    try {
+      empresaIdOperacion = await resolverEmpresaIdDesdeSesionSupabase(supabase)
+      assertEmpresaIdOperacion(empresaIdOperacion)
+    } catch (err) {
+      alert(err?.message || 'Fallo crítico: Intento de operación sin identidad de empresa')
+      return
+    }
     const expId = String(expediente?.id || '').trim()
     if (!expId) {
       alert('Expediente inválido.')
       return
     }
-    const eid = Number(expediente?.empresa_id)
-    if (!Number.isFinite(eid) || eid <= 0) {
-      alert('Este expediente no tiene empresa asignada (empresa_id). Asígnala antes de subir el programa.')
+    const empRow = Number(expediente?.empresa_id)
+    if (Number.isFinite(empRow) && empRow > 0 && empRow !== empresaIdOperacion) {
+      alert('Este expediente no pertenece a tu empresa. No se puede subir el programa.')
       return
     }
     setSubiendoProgramaPdf(true)
     try {
-      const ruta = rutaStorageProgramaViaje(eid, expId)
+      assertEmpresaIdOperacion(empresaIdOperacion)
+      const ruta = rutaStorageProgramaViaje(empresaIdOperacion, expId)
       if (!ruta) throw new Error('No se pudo determinar la ruta de almacenamiento (empresa / expediente).')
       const { error: uploadErr } = await supabase.storage
         .from(BUCKET_PROGRAMAS_VIAJE)
@@ -3274,6 +3287,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         .from('expedientes')
         .update({ url_programa_pdf: ruta })
         .eq('id', expId)
+        .eq('empresa_id', empresaIdOperacion)
         .select('url_programa_pdf')
         .maybeSingle()
       if (dbErr) throw new Error(dbErr.message || 'Error al guardar url_programa_pdf en el expediente.')
@@ -4704,7 +4718,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         type="button"
                         title={
                           resolverRutaProgramaSeguraParaLectura(
-                            Number(expediente?.empresa_id || empresaIdRequerido),
+                            empresaIdRequerido,
                             expediente?.id,
                             urlProgramaPdf,
                           )
@@ -4712,7 +4726,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             : 'Sin programa — usa Subir Programa arriba'
                         }
                         onClick={async () => {
-                          const eEmp = Number(expediente?.empresa_id || empresaIdRequerido)
+                          const eEmp = empresaIdRequerido
                           const path = resolverRutaProgramaSeguraParaLectura(eEmp, expediente?.id, urlProgramaPdf)
                           if (!path) {
                             window.alert('Aún no hay programa. Usa el botón «Subir Programa» en la parte superior del expediente.')
@@ -4727,7 +4741,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         }}
                         className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
                           resolverRutaProgramaSeguraParaLectura(
-                            Number(expediente?.empresa_id || empresaIdRequerido),
+                            empresaIdRequerido,
                             expediente?.id,
                             urlProgramaPdf,
                           )
@@ -4854,7 +4868,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             <div className="mb-4 sm:mb-6">
               <ProgramaPreview
                 supabase={supabase}
-                empresaId={Number(expediente?.empresa_id || empresaIdRequerido)}
+                empresaId={empresaIdRequerido}
                 expedienteId={expediente?.id}
                 valorAlmacenadoBd={urlProgramaPdf}
                 onSolicitarSubida={() => programaPdfInputRef.current?.click()}

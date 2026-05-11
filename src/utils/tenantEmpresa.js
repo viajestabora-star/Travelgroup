@@ -69,3 +69,34 @@ export function empresaIdSesionValido(user, empresaIdContext = null) {
   if (!Number.isFinite(n) || n <= 0) return null
   return n
 }
+
+/** Mensaje único para guardas de escritura sin tenant. */
+export const MSJ_OPERACION_SIN_EMPRESA_ID = 'Fallo crítico: Intento de operación sin identidad de empresa'
+
+/**
+ * Guarda síncrona antes de insert/upload: exige empresa_id numérico válido.
+ * @param {unknown} empresaId
+ * @returns {number}
+ */
+export function assertEmpresaIdOperacion(empresaId) {
+  const n = Number(empresaId)
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(MSJ_OPERACION_SIN_EMPRESA_ID)
+  }
+  return n
+}
+
+/**
+ * Fuente de verdad para escritura: sesión Supabase (JWT + coherencia con `profiles`).
+ * No usar campos del formulario ni estado local del expediente como origen de empresa_id.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @returns {Promise<number>}
+ */
+export async function resolverEmpresaIdDesdeSesionSupabase(supabase) {
+  const { empresaId } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+  const n = Number(empresaId)
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(MSJ_OPERACION_SIN_EMPRESA_ID)
+  }
+  return n
+}
