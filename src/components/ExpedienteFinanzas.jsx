@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown, Eye, Paperclip } from 'lucide-react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
@@ -18,7 +18,7 @@ import { useEmpresa } from '../context/EmpresaContext'
 import VisualizadorPro from './VisualizadorPro'
 import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorStorage'
 import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
-import { esUuidExpedienteId, leerIdExpedienteDesdeParametrosUrl } from '../utils/expedienteCotizacionId'
+import { esUuidExpedienteId, leerIdExpedienteSoloUseParams } from '../utils/expedienteCotizacionId'
 
 /** Integridad: filas de servicios_cotizacion deben traer id (UUID) y empresa_id acorde al tenant. Sin datos inventados. */
 function validarFilasServiciosCotizacionCierre(rows, empresaIdEsperado) {
@@ -253,49 +253,11 @@ const ExpedienteFinanzas = ({
 }) => {
   const { empresaId } = useEmpresa()
   const params = useParams()
-  const [searchParams] = useSearchParams()
   const paramsRef = useRef(params)
   paramsRef.current = params
-  const searchParamsRef = useRef(searchParams)
-  searchParamsRef.current = searchParams
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
   const onRefresh = onExpedienteRefresh
-  const versionesJsonSeguro = React.useMemo(() => {
-    const raw = expediente?.versiones_json
-    if (!raw) return {}
-    if (typeof raw === 'string') {
-      try {
-        const parsed = JSON.parse(raw)
-        return parsed && typeof parsed === 'object' ? parsed : {}
-      } catch {
-        return {}
-      }
-    }
-    return typeof raw === 'object' ? raw : {}
-  }, [expediente?.versiones_json])
-  const nombresDesdeVersiones = React.useMemo(() => {
-    const mapa = {}
-    const versionesArr = Array.isArray(versionesJsonSeguro?.versiones) ? versionesJsonSeguro.versiones : []
-    for (const v of versionesArr) {
-      for (const sv of v?.servicios || []) {
-        const sid = String(sv?.id ?? '').trim()
-        if (!sid) continue
-        const tipoSv = String(sv?.tipo_servicio || sv?.tipo || 'Servicio').trim()
-        const nombreEspSv = String(sv?.nombre_especifico || sv?.nombreEspecifico || '').trim()
-        const nombreServicio = String(sv?.nombre_servicio || '').trim()
-        const proveedorSv = String(sv?.nombre_proveedor_texto || sv?.proveedorNombreTemporal || sv?.nombre_proveedor_manual || '').trim()
-        const concepto = nombreServicio || (nombreEspSv ? `${tipoSv || 'Servicio'} – ${nombreEspSv}` : (tipoSv || 'Servicio'))
-        if (!mapa[sid]) {
-          mapa[sid] = {
-            concepto,
-            proveedor: proveedorSv || null,
-          }
-        }
-      }
-    }
-    return mapa
-  }, [versionesJsonSeguro])
 
   // Datos fiscales del emisor dinámicos por tenant (para PDFs)
   const [emisorData, setEmisorData] = useState({ ...DATOS_EMISOR, logo_url: null })
@@ -362,22 +324,17 @@ const ExpedienteFinanzas = ({
     return false
   }
 
-  // Effect: restore informeLiquidacion from expediente.cierre_grupo when modal opens or cierre_grupo loads
+  // Effect: restaurar desde cierre_grupo solo ingresos e imprevistos; servicios cotización solo en servicios_cotizacion.
   useEffect(() => {
     const cg = expediente?.cierre_grupo
     if (typeof cg !== 'object' || cg === null) return
-    if (cg.ingresos || Array.isArray(cg.costesReales) || Array.isArray(cg.gastosImprevistos)) {
-      setInformeLiquidacion(prev => ({
-        ...prev,
-        ingresos: cg.ingresos || prev.ingresos,
-        // En pestaña Cierre, la fuente de verdad de costes es SQL (servicios_cotizacion).
-        costesReales: activeTab === 'cierre'
-          ? (prev.costesReales || [])
-          : (Array.isArray(cg.costesReales) ? cg.costesReales : (prev.costesReales || [])),
-        gastosImprevistos: Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : (prev.gastosImprevistos || []),
-      }))
-    }
-  }, [expediente?.id, expediente?.cierre_grupo, activeTab])
+    if (!cg.ingresos && !Array.isArray(cg.gastosImprevistos)) return
+    setInformeLiquidacion(prev => ({
+      ...prev,
+      ingresos: cg.ingresos || prev.ingresos,
+      gastosImprevistos: Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : (prev.gastosImprevistos || []),
+    }))
+  }, [expediente?.id, expediente?.cierre_grupo])
 
   // Effect: paxPorAsociacion init — si hay guardado en cierre_grupo, usarlo; si no, distribuir total_pax
   useEffect(() => {
@@ -424,7 +381,8 @@ const ExpedienteFinanzas = ({
   useEffect(() => {
     if (activeTab !== 'cierre' || !expediente?.id) return
     recargarInformeDesdeCotizacion()
-  }, [activeTab, expediente?.id, expediente?.cierre_grupo, expediente?.versiones_json])
+    // Solo expediente.id y ruta; servicios cotización no se leen desde JSON del expediente.
+  }, [activeTab, expediente?.id, params.expedienteId, params.expedienteUUID])
 
   // cargarCobros (internal, calls onCobrosReload)
   const cargarCobros = async () => {
@@ -957,10 +915,7 @@ const ExpedienteFinanzas = ({
   }, [recargarPagosProveedoresParaCierre])
 
   const recargarInformeDesdeCotizacion = async () => {
-    const { idExpediente: expedienteId, error: errResolucionExp } = leerIdExpedienteDesdeParametrosUrl(
-      paramsRef.current,
-      searchParamsRef.current,
-    )
+    const { idExpediente: expedienteId, error: errResolucionExp } = leerIdExpedienteSoloUseParams(paramsRef.current)
     if (!expedienteId) {
       setErrorCargaCotizacion(errResolucionExp || 'No hay id de expediente en la URL para cargar el cierre de grupo.')
       return
@@ -1010,6 +965,14 @@ const ExpedienteFinanzas = ({
         if (scRows.length === 0) {
           console.error('[Cierre] servicios_cotizacion 0 filas — error Supabase:', serviciosRes.error)
           console.error('[Cierre] servicios_cotizacion 0 filas — respuesta completa:', serviciosRes)
+        }
+        try {
+          validarFilasServiciosCotizacionCierre(scRows, 1)
+        } catch (valErr) {
+          setErrorCargaCotizacion(valErr?.message || 'Datos de servicios_cotizacion inconsistentes.')
+          setServiciosCotizacionSqlRows([])
+          setCostesRealesTablaSql([])
+          return
         }
         const serviciosCotizacionRows = scRows
         const { data: proveedoresDb } = await supabase
@@ -1083,6 +1046,15 @@ const ExpedienteFinanzas = ({
     })
   }, [costesRealesTablaSql, mapaUrlFacturaPorServicioDesdePagos])
 
+  /** Informes imprimibles: mismas líneas que la tabla (servicios_cotizacion), no arrays en expediente.cierre_grupo. */
+  const costesRealesLineasParaInformes = React.useMemo(() => (
+    (costesRealesVista || []).map((c) => ({
+      concepto: c.conceptoVisible || '',
+      proveedor: c.proveedorVisible || '',
+      coste_real: toNum(c.costeRealProveedorVisible),
+    }))
+  ), [costesRealesVista])
+
   const actualizarCosteReal = (idServicio, costeReal) => {
     const raw = String(costeReal ?? '').trim()
     const parsed = raw === '' ? null : toNum(costeReal)
@@ -1101,10 +1073,7 @@ const ExpedienteFinanzas = ({
 
   /** Solo UPDATE SQL en servicios_cotizacion; sin JSON legacy ni selects ambiguos. */
   const guardarCosteRealEnBD = async (servicioId, valor) => {
-    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteDesdeParametrosUrl(
-      paramsRef.current,
-      searchParamsRef.current,
-    )
+    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsRef.current)
     if (!expIdUrl) {
       alert(errUrl || 'No hay id de expediente en la URL.')
       return
@@ -1164,10 +1133,7 @@ const ExpedienteFinanzas = ({
   const subirYVincularPdfCierre = async (eventOrFile, servicioIdParam) => {
     const file = eventOrFile?.target?.files?.[0] || eventOrFile
     if (!file) return
-    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteDesdeParametrosUrl(
-      paramsRef.current,
-      searchParamsRef.current,
-    )
+    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsRef.current)
     if (!expIdUrl) {
       alert(errUrl || 'No hay id de expediente en la URL.')
       return
@@ -1397,7 +1363,7 @@ const ExpedienteFinanzas = ({
     try {
       const { data: expDataRaw } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json').eq('id', expediente.id).single()
       const expData = expDataRaw || expediente
-      const validacion = await validarProveedoresServicios(expediente.id, expData?.versiones_json)
+      const validacion = await validarProveedoresServicios(expediente.id, { versiones: [] })
       if (!validacion.ok) {
         const confirmarSinProveedor = window.confirm(
           validacion.warning || 'Falta proveedor por asignar. ¿Deseas consolidar de todas formas?'
@@ -1473,7 +1439,11 @@ const ExpedienteFinanzas = ({
         return
       }
 
-      const cons = await consolidarGastosExpediente(expediente.id, expData, true)
+      const cons = await consolidarGastosExpediente(
+        expediente.id,
+        { ...expData, versiones_json: { versiones: [] } },
+        true,
+      )
       if (!cons.ok) {
         alert(cons.error || 'Error al consolidar gastos. El cierre se guardó pero revisa los proveedores.')
       }
@@ -1502,8 +1472,10 @@ const ExpedienteFinanzas = ({
     const beneficioBruto = Number(cg.beneficio_bruto ?? (cg.beneficio_limpio ?? cg.beneficio ?? 0) + (cg.iva_pagado ?? 0))
     const ivaPagado = Number(cg.iva_pagado ?? 0)
     const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? beneficioBruto - ivaPagado)
-    const costesReales = Array.isArray(cg.costesReales) ? cg.costesReales : []
-    const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
+    const costesReales = costesRealesLineasParaInformes
+    const gastosImprevistos = (informeLiquidacion?.gastosImprevistos?.length
+      ? informeLiquidacion.gastosImprevistos
+      : (Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []))
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
     const viaje = expediente?.destino || 'Sin destino'
 
@@ -1588,8 +1560,10 @@ const ExpedienteFinanzas = ({
     const beneficioBruto = Number(cg.beneficio_bruto ?? (cg.beneficio_limpio ?? cg.beneficio ?? 0) + (cg.iva_pagado ?? 0))
     const ivaPagado = Number(cg.iva_pagado ?? 0)
     const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? beneficioBruto - ivaPagado)
-    const costesReales = Array.isArray(cg.costesReales) ? cg.costesReales : []
-    const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
+    const costesReales = costesRealesLineasParaInformes
+    const gastosImprevistos = (informeLiquidacion?.gastosImprevistos?.length
+      ? informeLiquidacion.gastosImprevistos
+      : (Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []))
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
     const viaje = expediente?.destino || 'Sin destino'
 
@@ -1714,8 +1688,10 @@ const ExpedienteFinanzas = ({
     const beneficioBruto = Number(cg.beneficio_bruto ?? (cg.beneficio_limpio ?? cg.beneficio ?? 0) + (cg.iva_pagado ?? 0))
     const ivaPagado = Number(cg.iva_pagado ?? 0)
     const beneficioLimpio = Number(cg.beneficio_limpio ?? cg.beneficio ?? beneficioBruto - ivaPagado)
-    const costesReales = Array.isArray(cg.costesReales) ? cg.costesReales : []
-    const gastosImprevistos = Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []
+    const costesReales = costesRealesLineasParaInformes
+    const gastosImprevistos = (informeLiquidacion?.gastosImprevistos?.length
+      ? informeLiquidacion.gastosImprevistos
+      : (Array.isArray(cg.gastosImprevistos) ? cg.gastosImprevistos : []))
     const grupo = expediente?.nombre_grupo || expediente?.cliente_nombre || 'Sin grupo'
     const viaje = expediente?.destino || 'Sin destino'
     const lineas = [
@@ -1759,8 +1735,6 @@ const ExpedienteFinanzas = ({
   }
 
   const cobrosSeguros = Array.isArray(cobros) ? cobros : []
-
-  console.log('DEBUG CONTENIDO TABLA:', JSON.stringify(costesRealesVista, null, 2))
 
   return (
     <>
