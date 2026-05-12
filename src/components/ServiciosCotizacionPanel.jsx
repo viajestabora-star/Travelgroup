@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Save, Plus, Trash2, CheckCircle } from 'lucide-react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
+import { resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -247,6 +249,23 @@ const ServiciosCotizacionPanel = ({
   setIsSaving,
   multicotizacionMode = false,
 }) => {
+  const params = useParams()
+  const [searchParams] = useSearchParams()
+  const idDesdeRuta = useMemo(() => {
+    const q = searchParams.get('expediente')
+    if (q != null && String(q).trim() !== '') return String(q).trim()
+    const p = params?.expedienteId ?? params?.expedienteUUID
+    if (p != null && String(p).trim() !== '') return String(p).trim()
+    return ''
+  }, [searchParams, params?.expedienteId, params?.expedienteUUID])
+
+  const resolucionExpediente = useMemo(
+    () => resolverIdExpedienteFuenteVerdad({ expediente, expedienteIdProp: expedienteId, idDesdeRuta }),
+    [expediente?.id, expedienteId, idDesdeRuta],
+  )
+  const idExpedienteCotizacion = resolucionExpediente.idExpediente
+  const errorVinculacionExpediente = resolucionExpediente.error
+
   const [busquedaProveedor, setBusquedaProveedor] = useState({})
   const [mostrarSugerencias, setMostrarSugerencias] = useState({})
   const [showModal, setShowModal] = useState(false)
@@ -305,8 +324,7 @@ const ServiciosCotizacionPanel = ({
   }, [])
 
   useEffect(() => {
-    const id = expedienteId || expediente?.id
-    if (!id) return
+    if (!idExpedienteCotizacion) return
     if (multicotizacionMode) return
 
     const cargarServicios = async () => {
@@ -314,7 +332,7 @@ const ServiciosCotizacionPanel = ({
         let serviciosResponse = await supabase
           .from('servicios_cotizacion')
           .select('*')
-          .eq('id_expediente', String(id).trim())
+          .eq('id_expediente', idExpedienteCotizacion)
           .order('orden', { ascending: true })
           .order('created_at', { ascending: true, nullsFirst: false })
           .order('id', { ascending: true })
@@ -323,7 +341,7 @@ const ServiciosCotizacionPanel = ({
           serviciosResponse = await supabase
             .from('servicios_cotizacion')
             .select('*')
-            .eq('id_expediente', String(id).trim())
+            .eq('id_expediente', idExpedienteCotizacion)
             .order('orden', { ascending: true })
             .order('id', { ascending: true })
         }
@@ -392,7 +410,7 @@ const ServiciosCotizacionPanel = ({
     }
 
     cargarServicios()
-  }, [expedienteId || expediente?.id, proveedores, multicotizacionMode])
+  }, [idExpedienteCotizacion, proveedores, multicotizacionMode])
 
   const añadirServicio = () => {
     const nuevoServicio = {
@@ -474,7 +492,7 @@ const ServiciosCotizacionPanel = ({
     /* No auto-save on blur: all persistence via manual Guardar button to avoid focus loss and save loops */
   }
 
-  const buildDatosParaSupabase = (servicio) => {
+  const buildDatosParaSupabase = (servicio, idExpedienteCanonico) => {
     const nochesFinal = Math.max(1, toNum(servicio?.noches))
     const tipoCalc = servicio?.tipo_calculo === 'porGrupo' || servicio?.tipo_calculo === 'Total a dividir' ? 'porGrupo' : 'porPersona'
     const precioUnitario = toNum(servicio?.coste_unitario)
@@ -536,7 +554,7 @@ const ServiciosCotizacionPanel = ({
     ).trim() || conceptoPrincipal
 
     return {
-      id_expediente: String(expediente?.id ?? '').trim(),
+      id_expediente: String(idExpedienteCanonico ?? '').trim(),
       tipo_servicio: servicio?.tipo || 'Hotel',
       nombre_servicio: conceptoPrincipal,
       nombre_especifico,
@@ -566,17 +584,23 @@ const ServiciosCotizacionPanel = ({
   }
 
   const guardarTodosServiciosEnSupabase = async () => {
-    const id = expedienteId || expediente?.id
-    if (!id) {
-      console.error('[Guardar Servicios] ❌ Sin ID de expediente')
-      return { ok: false, error: 'Sin ID de expediente' }
+    const { idExpediente, error: errResolucion } = resolverIdExpedienteFuenteVerdad({
+      expediente,
+      expedienteIdProp: expedienteId,
+      idDesdeRuta,
+    })
+    if (!idExpediente) {
+      const msg = errResolucion || 'No se puede guardar: expediente no válido.'
+      console.error('[Guardar Servicios]', msg)
+      alert(msg)
+      return { ok: false, error: msg }
     }
     if (!servicios?.length) {
       console.warn('[Guardar Servicios] Lista vacía — nada que guardar.')
       return { ok: true }
     }
 
-    const expIdStr = String(id).trim()
+    const expIdStr = idExpediente
 
     try {
       // 1. Fetch previo del estado real en DB (base obligatoria para merge no destructivo)
@@ -597,7 +621,7 @@ const ServiciosCotizacionPanel = ({
       const filasValidadas = servicios
         .filter((s) => String(s?.id || '').trim() !== SERVICIO_ANOMALO_ID)
         .map((s, index) => {
-          const datos = buildDatosParaSupabase(s)
+          const datos = buildDatosParaSupabase(s, expIdStr)
           const idFinal = esUuidServicioValido(s.id) ? String(s.id).trim() : generarUUID()
           const dbService = existentesMap.get(idFinal) || {}
 
@@ -662,6 +686,10 @@ const ServiciosCotizacionPanel = ({
           return fusionado
         })
 
+      for (const fila of filasValidadas) {
+        fila.id_expediente = expIdStr
+      }
+
       // 3. Validar
       const invalidas = filasValidadas.filter((r) => {
         const nombre = String(r.nombre_servicio || '').trim()
@@ -709,6 +737,15 @@ const ServiciosCotizacionPanel = ({
 
   const handleGuardar = async () => {
     if (isSaving) return
+    const { idExpediente: idOk, error: errVin } = resolverIdExpedienteFuenteVerdad({
+      expediente,
+      expedienteIdProp: expedienteId,
+      idDesdeRuta,
+    })
+    if (!idOk) {
+      alert(errVin || 'No se puede guardar: el expediente no está vinculado correctamente.')
+      return
+    }
     setIsSaving(true)
     try {
       const resultadoForm      = await persistirCambios()
@@ -746,13 +783,22 @@ const ServiciosCotizacionPanel = ({
 
   return (
     <>
+      {errorVinculacionExpediente ? (
+        <div
+          className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900"
+          role="alert"
+        >
+          <strong className="font-semibold">Error de vinculación del expediente.</strong>{' '}
+          {errorVinculacionExpediente}
+        </div>
+      ) : null}
       <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 border border-gray-200">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
           <h3 className="text-xl font-bold text-navy-900">Servicios del Viaje</h3>
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleGuardar}
-              disabled={isSaving}
+              disabled={isSaving || !idExpedienteCotizacion || !!errorVinculacionExpediente}
               className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60"
             >
               <Save size={16} />

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown, Eye, Paperclip } from 'lucide-react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
@@ -17,11 +18,7 @@ import { useEmpresa } from '../context/EmpresaContext'
 import VisualizadorPro from './VisualizadorPro'
 import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorStorage'
 import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
-
-/** UUID v1–v5 (Postgres expediente.id) */
-const esUuidExpediente = (s) =>
-  typeof s === 'string' &&
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim())
+import { esUuidExpedienteId, resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
 
 /** Bucket unificado para facturas de cierre (alineado con ExpedienteDetalle / pagos_proveedores). */
 const BUCKET_FACTURAS_UNIFICADO = 'facturas'
@@ -235,6 +232,15 @@ const ExpedienteFinanzas = ({
   user = null,
 }) => {
   const { empresaId } = useEmpresa()
+  const params = useParams()
+  const [searchParams] = useSearchParams()
+  const idDesdeRutaCierre = useMemo(() => {
+    const q = searchParams.get('expediente')
+    if (q != null && String(q).trim() !== '') return String(q).trim()
+    const p = params?.expedienteId ?? params?.expedienteUUID
+    if (p != null && String(p).trim() !== '') return String(p).trim()
+    return ''
+  }, [searchParams, params?.expedienteId, params?.expedienteUUID])
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
   const onRefresh = onExpedienteRefresh
@@ -934,11 +940,17 @@ const ExpedienteFinanzas = ({
   }, [recargarPagosProveedoresParaCierre])
 
   const recargarInformeDesdeCotizacion = async () => {
-    if (!expediente?.id) return
-    const expedienteId = String(expediente.id).trim()
-    if (!expedienteId) return
-    if (!esUuidExpediente(expedienteId)) {
-      console.warn('[Cierre] id expediente con formato no UUID esperado; se consulta igual:', expediente.id)
+    const { idExpediente: expedienteId, error: errResolucionExp } = resolverIdExpedienteFuenteVerdad({
+      expediente,
+      expedienteIdProp: expediente?.id,
+      idDesdeRuta: idDesdeRutaCierre,
+    })
+    if (!expedienteId) {
+      setErrorCargaCotizacion(errResolucionExp || 'No hay expediente válido para cargar el cierre de grupo.')
+      return
+    }
+    if (!esUuidExpedienteId(expedienteId)) {
+      console.warn('[Cierre] id expediente con formato no UUID esperado; se consulta igual:', expedienteId)
     }
 
     setCargandoCotizacion(true)
