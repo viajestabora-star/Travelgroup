@@ -17,7 +17,28 @@ import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmiso
 import { useEmpresa } from '../context/EmpresaContext'
 import VisualizadorPro from './VisualizadorPro'
 import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorStorage'
+import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
 import { esUuidExpedienteId, leerIdExpedienteDesdeParametrosUrl } from '../utils/expedienteCotizacionId'
+
+/** Integridad: filas de servicios_cotizacion deben traer id (UUID) y empresa_id acorde al tenant. Sin datos inventados. */
+function validarFilasServiciosCotizacionCierre(rows, empresaIdEsperado) {
+  const list = Array.isArray(rows) ? rows : []
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i]
+    const sid = s?.id != null ? String(s.id).trim() : ''
+    if (!sid || !esUuidExpedienteId(sid)) {
+      throw new Error(`servicios_cotizacion: fila ${i + 1} sin id (UUID) válido.`)
+    }
+    const eNum = s?.empresa_id != null ? Number(s.empresa_id) : NaN
+    if (!Number.isFinite(eNum) || Math.trunc(eNum) !== empresaIdEsperado) {
+      throw new Error(`servicios_cotizacion: fila ${i + 1} con empresa_id ausente o incompatible con la sesión.`)
+    }
+    const concepto = String(s?.nombre_servicio || s?.tipo_servicio || s?.nombre_especifico || '').trim()
+    if (!concepto) {
+      throw new Error(`servicios_cotizacion: fila ${i + 1} sin nombre_servicio ni datos de concepto.`)
+    }
+  }
+}
 
 /** Bucket unificado para facturas de cierre (alineado con ExpedienteDetalle / pagos_proveedores). */
 const BUCKET_FACTURAS_UNIFICADO = 'facturas'
@@ -834,8 +855,8 @@ const ExpedienteFinanzas = ({
   const mapearServiciosSqlATabla = React.useCallback((rows, proveedoresDb) => {
     const safeRows = Array.isArray(rows) ? rows : []
     return safeRows.map((s) => {
-      const servicioId = String(s?.id ?? generarUUID())
-      const conceptoVisible = String(s?.nombre_servicio || s?.tipo_servicio || s?.nombre_especifico || '').trim() || 'Servicio'
+      const servicioId = String(s.id).trim()
+      const conceptoVisible = String(s?.nombre_servicio || s?.tipo_servicio || s?.nombre_especifico || '').trim()
       const provOficial = proveedoresDb?.find(
         (p) => String(p.id) === String(s.proveedor_id_int) || String(p.id) === String(s.proveedor_id)
       )
@@ -950,7 +971,8 @@ const ExpedienteFinanzas = ({
       return
     }
     if (!esUuidExpedienteId(expedienteId)) {
-      console.warn('[Cierre] id expediente con formato no UUID esperado; se consulta igual:', expedienteId)
+      setErrorCargaCotizacion('El id de expediente en la URL no es un UUID válido.')
+      return
     }
 
     setCargandoCotizacion(true)
@@ -958,23 +980,51 @@ const ExpedienteFinanzas = ({
     informeLiquidacionInicializadoRef.current = false
 
     try {
-      // 1) Datos base de expediente para ingresos
+      const { empresaId: empresaSesion, error: errEmpresaSesion } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+      const empresaIdNum =
+        empresaSesion != null && Number.isFinite(Number(empresaSesion)) && Number(empresaSesion) > 0
+          ? Math.trunc(Number(empresaSesion))
+          : null
+      if (empresaIdNum == null) {
+        const msg = errEmpresaSesion || 'No se pudo resolver empresa_id de la sesión.'
+        setErrorCargaCotizacion(msg)
+        setServiciosCotizacionSqlRows([])
+        setCostesRealesTablaSql([])
+        return
+      }
+
+      // 1) Expediente: ingresos + empresa_id (integridad con tenant)
       const { data: expFresco, error: errExp } = await supabase
         .from('expedientes')
-        .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
+        .select('id, empresa_id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
         .eq('id', expedienteId)
         .single()
-      if (errExp) console.warn('[Cierre] No se pudo cargar expediente fresco:', errExp.message)
+      if (errExp || !expFresco) {
+        setErrorCargaCotizacion(errExp?.message || 'No se pudo cargar el expediente.')
+        setServiciosCotizacionSqlRows([])
+        setCostesRealesTablaSql([])
+        return
+      }
+      const expEmp = expFresco.empresa_id != null ? Number(expFresco.empresa_id) : NaN
+      if (!Number.isFinite(expEmp) || Math.trunc(expEmp) !== empresaIdNum) {
+        setErrorCargaCotizacion(
+          'Integridad: el expediente no tiene empresa_id válido o no coincide con tu sesión.',
+        )
+        setServiciosCotizacionSqlRows([])
+        setCostesRealesTablaSql([])
+        return
+      }
 
-      // 2) servicios_cotizacion: columna real del expediente es id_expediente (sin filtrar por empresa_id: evita 0 filas si empresa_id en fila no coincide con sesión).
+      // 2) Única fuente de verdad: servicios_cotizacion — siempre id_expediente + empresa_id (entero).
       const SERVICIOS_CIERRE_SELECT =
-        'id, nombre_servicio, total_servicio, coste_total_servicio, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
+        'id, empresa_id, nombre_servicio, total_servicio, coste_total_servicio, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
 
       let serviciosCotizacionRows = []
       let { data: scRows, error: scErr } = await supabase
         .from('servicios_cotizacion')
         .select(SERVICIOS_CIERRE_SELECT)
         .eq('id_expediente', expedienteId)
+        .eq('empresa_id', empresaIdNum)
         .order('orden', { ascending: true })
 
       if (scErr) {
@@ -983,11 +1033,12 @@ const ExpedienteFinanzas = ({
           scErr.code === 'PGRST204' || msg.includes('coste_total_servicio') || msg.includes('does not exist')
         if (faltaColumna) {
           const SELECT_SIN_COSTE_TOTAL =
-            'id, nombre_servicio, total_servicio, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
+            'id, empresa_id, nombre_servicio, total_servicio, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
           const retry = await supabase
             .from('servicios_cotizacion')
             .select(SELECT_SIN_COSTE_TOTAL)
             .eq('id_expediente', expedienteId)
+            .eq('empresa_id', empresaIdNum)
             .order('orden', { ascending: true })
           if (!retry.error && Array.isArray(retry.data)) {
             scRows = retry.data
@@ -999,7 +1050,17 @@ const ExpedienteFinanzas = ({
       if (scErr) {
         console.warn('[Cierre] servicios_cotizacion (load):', scErr)
         setErrorCargaCotizacion(scErr.message || 'Error al cargar servicios desde SQL')
+        setServiciosCotizacionSqlRows([])
+        setCostesRealesTablaSql([])
       } else if (Array.isArray(scRows)) {
+        try {
+          validarFilasServiciosCotizacionCierre(scRows, empresaIdNum)
+        } catch (valErr) {
+          setErrorCargaCotizacion(valErr?.message || String(valErr))
+          setServiciosCotizacionSqlRows([])
+          setCostesRealesTablaSql([])
+          return
+        }
         serviciosCotizacionRows = scRows
         const { data: proveedoresDb } = await supabase
           .from('proveedores')
@@ -1010,9 +1071,6 @@ const ExpedienteFinanzas = ({
           (scRows || []).map((s) => String(s?.id ?? '').trim()).filter(Boolean)
         )
         await recargarPagosProveedoresParaCierre(idsSet)
-      }
-      if (serviciosCotizacionRows.length === 0) {
-        console.warn('[Cierre] 0 filas en servicios_cotizacion para id_expediente=', expedienteId)
       }
 
       // 3) Ingresos
@@ -1105,6 +1163,18 @@ const ExpedienteFinanzas = ({
       alert('El expediente abierto no coincide con el id en la URL.')
       return
     }
+    const { empresaId: empSes, error: errEmp } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+    const empresaIdNum =
+      empSes != null && Number.isFinite(Number(empSes)) && Number(empSes) > 0 ? Math.trunc(Number(empSes)) : null
+    if (empresaIdNum == null) {
+      alert(errEmp || 'No se pudo resolver empresa_id de la sesión.')
+      return
+    }
+    const expEmpProp = expediente?.empresa_id != null ? Number(expediente.empresa_id) : NaN
+    if (Number.isFinite(expEmpProp) && Math.trunc(expEmpProp) !== empresaIdNum) {
+      alert('Integridad: empresa del expediente no coincide con tu sesión.')
+      return
+    }
     if (servicioId == null || servicioId === '') return
     const raw = String(valor ?? '').trim().replace(/\s/g, '').replace(',', '.')
     let valorNumerico = null
@@ -1126,6 +1196,7 @@ const ExpedienteFinanzas = ({
         .update({ coste_real_proveedor: valorNumerico })
         .eq('id', servicioId)
         .eq('id_expediente', expIdUrl)
+        .eq('empresa_id', empresaIdNum)
       if (error) {
         console.error('[cierre] guardarCosteRealEnBD:', error)
         alert(`Error al guardar el coste: ${error.message || String(error)}`)
@@ -1155,8 +1226,18 @@ const ExpedienteFinanzas = ({
       alert('El expediente abierto no coincide con el id en la URL.')
       return
     }
-    const tenantEid = Number(expediente?.empresa_id || user?.empresa_id || empresaId) || null
-    if (!tenantEid) { alert('No hay empresa_id disponible para subir el PDF.'); return }
+    const { empresaId: empPdf, error: errEmpPdf } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+    const tenantEid =
+      empPdf != null && Number.isFinite(Number(empPdf)) && Number(empPdf) > 0 ? Math.trunc(Number(empPdf)) : null
+    if (tenantEid == null) {
+      alert(errEmpPdf || 'No se pudo resolver empresa_id de la sesión para subir el PDF.')
+      return
+    }
+    const expEmpProp = expediente?.empresa_id != null ? Number(expediente.empresa_id) : NaN
+    if (Number.isFinite(expEmpProp) && Math.trunc(expEmpProp) !== tenantEid) {
+      alert('Integridad: empresa del expediente no coincide con tu sesión.')
+      return
+    }
 
     if (servicioIdParam == null || servicioIdParam === '') {
       alert('No se puede subir la factura: falta servicio_id válido.')
@@ -1199,6 +1280,7 @@ const ExpedienteFinanzas = ({
         .update({ url_factura_pdf: publicUrl })
         .eq('id', servicioIdCanonico)
         .eq('id_expediente', expIdStr)
+        .eq('empresa_id', tenantEid)
         .select('id, url_factura_pdf')
         .maybeSingle()
       if (sqlPdfErr || !sqlConfirm?.id) {
