@@ -341,11 +341,14 @@ const Expedientes = ({ user = null }) => {
         setIsLoading(false)
         return
       }
-      // Lee expedientes de Supabase - usar select('*') para evitar errores de columnas
+      // Lista explícita: el .map() siguiente solo conserva lo que copiamos; url_programa_pdf y empresa_id deben estar aquí y en el objeto parseado.
+      const EXPEDIENTES_LISTADO_COLUMNS =
+        'id, numero_expediente, empresa_id, cliente_id, cliente_nombre, nombre_grupo, fecha_inicio, fecha_final, created_at, destino, telefono, email, responsable, estado, tipo_colectivo, duracion_viaje, observaciones, itinerario, ejercicio, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, total_ingresos, total_cobrado, presupuesto_total, cierre_grupo, desglose_grupos, url_programa_pdf, versiones_json'
+
       const { data: cloudData, error } = await Promise.resolve(
         supabase
           .from('expedientes')
-          .select('*')
+          .select(EXPEDIENTES_LISTADO_COLUMNS)
         .eq('empresa_id', empresaIdRequerido) // AISLAMIENTO: solo expedientes de esta empresa
       ).finally(() => setIsLoading(false))
 
@@ -403,6 +406,14 @@ const Expedientes = ({ user = null }) => {
 
           // Configuración de Grupos Compartidos - pasar tal cual (JSONB array en Supabase)
           desglose_grupos: Array.isArray(exp?.desglose_grupos) ? exp.desglose_grupos : (exp?.desglose_grupos ?? null),
+
+          empresa_id: exp.empresa_id != null ? Number(exp.empresa_id) : null,
+          nombre_grupo: exp.nombre_grupo != null ? String(exp.nombre_grupo).trim() : '',
+          url_programa_pdf:
+            exp.url_programa_pdf != null && String(exp.url_programa_pdf).trim() !== ''
+              ? String(exp.url_programa_pdf).trim()
+              : null,
+          versiones_json: exp.versiones_json ?? null,
 
           // Campos por defecto para compatibilidad
           pasajeros: [],
