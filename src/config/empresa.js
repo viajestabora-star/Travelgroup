@@ -1,6 +1,3 @@
-/** Identificador de empresa por defecto (ERP Tabora / JWT app_metadata). */
-export const DEFAULT_EMPRESA_ID = 1
-
 /**
  * Datos fiscales y de contacto de Valservice Incoming S.L.
  * Usado en cabeceras y pies de facturas (PDF y vista web).

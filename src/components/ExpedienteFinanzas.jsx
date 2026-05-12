@@ -16,7 +16,7 @@ import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmiso
 import { useEmpresa } from '../context/EmpresaContext'
 import VisualizadorPro from './VisualizadorPro'
 import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorStorage'
-import { EMPRESA_ID_TABORA_EMERGENCIA } from '../utils/tenantEmpresa'
+import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
 
 /** UUID v1–v5 (Postgres expediente.id) */
 const esUuidExpediente = (s) =>
@@ -936,26 +936,28 @@ const ExpedienteFinanzas = ({
   const recargarInformeDesdeCotizacion = async () => {
     if (!expediente?.id) return
     const expedienteId = String(expediente.id).trim()
+    if (!expedienteId) return
     if (!esUuidExpediente(expedienteId)) {
-      console.warn('[Cierre] id expediente no es un UUID limpio:', expediente.id)
-      setErrorCargaCotizacion('El expediente no tiene un id (UUID) válido para cargar servicios de cotización.')
-      return
+      console.warn('[Cierre] id expediente con formato no UUID esperado; se consulta igual:', expediente.id)
     }
-
-    const empresaDesdeExp = Math.trunc(Number(expediente?.empresa_id))
-    const empresaDesdeSesion = Math.trunc(Number(user?.empresa_id ?? empresaId))
-    const empresaIdNum =
-      Number.isFinite(empresaDesdeExp) && empresaDesdeExp > 0
-        ? empresaDesdeExp
-        : Number.isFinite(empresaDesdeSesion) && empresaDesdeSesion > 0
-          ? empresaDesdeSesion
-          : EMPRESA_ID_TABORA_EMERGENCIA
 
     setCargandoCotizacion(true)
     setErrorCargaCotizacion(null)
     informeLiquidacionInicializadoRef.current = false
 
     try {
+      const { empresaId: tenantSesion, error: errTenant } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+      const empresaIdNum =
+        tenantSesion != null && Number.isFinite(Number(tenantSesion)) && Number(tenantSesion) > 0
+          ? Math.trunc(Number(tenantSesion))
+          : null
+      if (empresaIdNum == null) {
+        console.warn(
+          '[Cierre] Sin empresa_id resoluble desde la sesión activa; se filtra solo por id_expediente (RLS sigue aplicando).',
+          errTenant || '',
+        )
+      }
+
       // 1) Datos base de expediente para ingresos
       const { data: expFresco, error: errExp } = await supabase
         .from('expedientes')
@@ -974,16 +976,20 @@ const ExpedienteFinanzas = ({
           .select(SERVICIOS_CIERRE_SELECT)
           .eq('id_expediente', expedienteId)
           .order('orden', { ascending: true })
-        if (conFiltroEmpresa) {
+        if (conFiltroEmpresa && empresaIdNum != null) {
           q = q.eq('empresa_id', empresaIdNum)
         }
         return q
       }
 
       let serviciosCotizacionRows = []
-      let { data: scRows, error: scErr } = await cargarServiciosCotizacion(true)
+      let { data: scRows, error: scErr } = await cargarServiciosCotizacion(empresaIdNum != null)
 
-      if (!scErr && (!Array.isArray(scRows) || scRows.length === 0)) {
+      if (
+        empresaIdNum != null &&
+        !scErr &&
+        (!Array.isArray(scRows) || scRows.length === 0)
+      ) {
         const sinEmpresa = await cargarServiciosCotizacion(false)
         if (!sinEmpresa.error && Array.isArray(sinEmpresa.data) && sinEmpresa.data.length > 0) {
           console.log(
@@ -1002,16 +1008,23 @@ const ExpedienteFinanzas = ({
         if (faltaColumna) {
           const SELECT_SIN_COSTE_TOTAL =
             'id, nombre_servicio, total_servicio, empresa_id, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
-          const retry = await supabase
-            .from('servicios_cotizacion')
-            .select(SELECT_SIN_COSTE_TOTAL)
-            .eq('id_expediente', expedienteId)
-            .eq('empresa_id', empresaIdNum)
-            .order('orden', { ascending: true })
+          let retry =
+            empresaIdNum != null
+              ? await supabase
+                  .from('servicios_cotizacion')
+                  .select(SELECT_SIN_COSTE_TOTAL)
+                  .eq('id_expediente', expedienteId)
+                  .eq('empresa_id', empresaIdNum)
+                  .order('orden', { ascending: true })
+              : await supabase
+                  .from('servicios_cotizacion')
+                  .select(SELECT_SIN_COSTE_TOTAL)
+                  .eq('id_expediente', expedienteId)
+                  .order('orden', { ascending: true })
           if (!retry.error && Array.isArray(retry.data) && retry.data.length > 0) {
             scRows = retry.data
             scErr = null
-          } else if (!retry.error && (!retry.data || retry.data.length === 0)) {
+          } else if (!retry.error && empresaIdNum != null && (!retry.data || retry.data.length === 0)) {
             const retry2 = await supabase
               .from('servicios_cotizacion')
               .select(SELECT_SIN_COSTE_TOTAL)

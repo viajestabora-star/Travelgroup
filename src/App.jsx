@@ -53,7 +53,7 @@ function App() {
       if (!stored) return null;
       const parsed = JSON.parse(stored);
       if (!parsed || !parsed.email) return null;
-      // Sin empresa_id válido → sesión inválida (no usar DEFAULT_EMPRESA_ID como fallback)
+      // Sin empresa_id válido → sesión inválida (el tenant debe venir solo de datos de sesión reales)
       if (!(Number(parsed.empresa_id) > 0)) return null;
       // empresa_id se normaliza siempre como Number (Integer) para que las comparaciones
       // === 1 (empresa raíz) y === empresaIdReal funcionen sin coerciones inesperadas.

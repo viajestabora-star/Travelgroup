@@ -35,7 +35,6 @@ import {
   empresaIdSesionValido,
   resolverEmpresaIdEscrituraObligatorio,
   assertEmpresaIdOperacion,
-  empresaIdDesdeUserMetadataOUno,
 } from '../utils/tenantEmpresa'
 import { empresaIdNumericoOThrow } from '../utils/supabasePersistenciaCerteza'
 import VisualizadorPro from './VisualizadorPro'
@@ -4734,7 +4733,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         type="button"
                         title={
                           resolverRutaProgramaDesdeBdFlexible(
-                            empresaIdDesdeUserMetadataOUno(user),
+                            empresaIdSesionValido(user, empresaId),
                             expediente?.id,
                             urlProgramaPdf,
                             Number(expediente?.empresa_id) > 0 ? Number(expediente.empresa_id) : undefined,
@@ -4743,7 +4742,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             : 'Sin programa — usa Subir Programa arriba'
                         }
                         onClick={async () => {
-                          const eEmp = empresaIdDesdeUserMetadataOUno(user)
+                          const eEmp = empresaIdSesionValido(user, empresaId)
                           const path = resolverRutaProgramaDesdeBdFlexible(
                             eEmp,
                             expediente?.id,
@@ -4763,7 +4762,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         }}
                         className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
                           resolverRutaProgramaDesdeBdFlexible(
-                            empresaIdDesdeUserMetadataOUno(user),
+                            empresaIdSesionValido(user, empresaId),
                             expediente?.id,
                             urlProgramaPdf,
                             Number(expediente?.empresa_id) > 0 ? Number(expediente.empresa_id) : undefined,
@@ -4892,7 +4891,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
               <ProgramaPreview
                 key={`programa-${expediente?.id}-${urlProgramaPdf || ''}`}
                 supabase={supabase}
-                empresaId={empresaIdDesdeUserMetadataOUno(user)}
+                empresaId={empresaIdSesionValido(user, empresaId)}
                 empresaIdCarpetaEnBd={Number(expediente?.empresa_id) > 0 ? Number(expediente.empresa_id) : undefined}
                 expedienteId={expediente?.id}
                 valorAlmacenadoBd={urlProgramaPdf}
