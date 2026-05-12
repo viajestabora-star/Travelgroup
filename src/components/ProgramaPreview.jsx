@@ -1,64 +1,118 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Download, Map, Maximize2, RefreshCw, Upload, X } from 'lucide-react'
 import {
   BUCKET_PROGRAMAS_VIAJE,
   crearSignedUrlProgramaViaje,
-  resolverRutaProgramaSeguraParaLectura,
+  resolverRutaProgramaDesdeBdFlexible,
 } from '../utils/programaViajeStorage'
 
 const BANNER_H = 220
+const SIGNED_TTL = 3600
+
+function esErrorObjetoAusenteStorage(err) {
+  const m = String(err?.message ?? err ?? '').toLowerCase()
+  return (
+    m.includes('not found') ||
+    m.includes('does not exist') ||
+    m.includes('object not found') ||
+    m.includes('no such file') ||
+    m.includes('404')
+  )
+}
 
 /**
- * Banner del itinerario (bucket `Programas`, privado): signed URL 3600 s, modal a pantalla completa.
- * Sin PDF: solo botón «Subir Programa». Con PDF: banner + «Cambiar Programa» (no insiste en subir otra vez).
+ * Banner del itinerario (bucket `Programas`, privado): URL firmada 3600 s al cargar y al cambiar `url_programa_pdf`.
+ * Estado `pdfUrl` alimenta el iframe. Sin PDF: «Subir Programa». Con PDF: banner + «Cambiar Programa».
  */
 const ProgramaPreview = ({
   supabase,
   empresaId,
+  empresaIdCarpetaEnBd,
   expedienteId,
   valorAlmacenadoBd,
   onSolicitarSubida,
   subiendoProgramaPdf = false,
 }) => {
-  const [signedUrl, setSignedUrl] = useState(null)
+  const [pdfUrl, setPdfUrl] = useState(null)
   const [cargandoUrl, setCargandoUrl] = useState(false)
   const [errorUrl, setErrorUrl] = useState(null)
   const [modalFullscreen, setModalFullscreen] = useState(false)
   const [descargando, setDescargando] = useState(false)
 
   const storagePath = useMemo(
-    () => resolverRutaProgramaSeguraParaLectura(empresaId, expedienteId, valorAlmacenadoBd),
-    [empresaId, expedienteId, valorAlmacenadoBd],
+    () => resolverRutaProgramaDesdeBdFlexible(empresaId, expedienteId, valorAlmacenadoBd, empresaIdCarpetaEnBd),
+    [empresaId, empresaIdCarpetaEnBd, expedienteId, valorAlmacenadoBd],
   )
 
-  const refrescarSignedUrl = useCallback(async () => {
-    if (!storagePath || !supabase) {
-      setSignedUrl(null)
-      setErrorUrl(null)
-      return
-    }
-    setCargandoUrl(true)
-    setErrorUrl(null)
-    try {
-      const { url, error } = await crearSignedUrlProgramaViaje(supabase, storagePath)
-      if (error) throw error
-      setSignedUrl(url)
-    } catch (e) {
-      setSignedUrl(null)
-      setErrorUrl(e?.message || String(e))
-    } finally {
-      setCargandoUrl(false)
-    }
-  }, [supabase, storagePath])
-
   useEffect(() => {
-    refrescarSignedUrl()
-  }, [refrescarSignedUrl])
+    let cancelado = false
+
+    const cargarUrlFirmada = async () => {
+      if (!storagePath || !supabase) {
+        setPdfUrl(null)
+        setErrorUrl(null)
+        setCargandoUrl(false)
+        return
+      }
+
+      setCargandoUrl(true)
+      setErrorUrl(null)
+      setPdfUrl(null)
+
+      try {
+        const { data, error } = await supabase.storage
+          .from(BUCKET_PROGRAMAS_VIAJE)
+          .createSignedUrl(storagePath, SIGNED_TTL)
+
+        if (cancelado) return
+
+        if (error) {
+          if (esErrorObjetoAusenteStorage(error)) {
+            console.warn(
+              '[ProgramaBanner] La ruta existe en url_programa_pdf pero el objeto no está en Storage (posible borrado).',
+              { rutaResuelta: storagePath, valorBd: valorAlmacenadoBd, expedienteId },
+            )
+          } else {
+            console.warn('[ProgramaBanner] createSignedUrl falló.', { rutaResuelta: storagePath, error })
+          }
+          setPdfUrl(null)
+          setErrorUrl(error.message || String(error))
+          return
+        }
+
+        const url = data?.signedUrl ? String(data.signedUrl).trim() : null
+        if (!url) {
+          setErrorUrl('No se obtuvo signedUrl')
+          return
+        }
+        setPdfUrl(url)
+      } catch (e) {
+        if (cancelado) return
+        if (esErrorObjetoAusenteStorage(e)) {
+          console.warn(
+            '[ProgramaBanner] La ruta existe en url_programa_pdf pero el objeto no está en Storage (posible borrado).',
+            { rutaResuelta: storagePath, valorBd: valorAlmacenadoBd, expedienteId },
+          )
+        } else {
+          console.warn('[ProgramaBanner] Error al generar URL firmada.', { rutaResuelta: storagePath, error: e })
+        }
+        setPdfUrl(null)
+        setErrorUrl(e?.message || String(e))
+      } finally {
+        if (!cancelado) setCargandoUrl(false)
+      }
+    }
+
+    void cargarUrlFirmada()
+    return () => {
+      cancelado = true
+    }
+  }, [supabase, storagePath, valorAlmacenadoBd, expedienteId])
 
   const nombreDescarga = useMemo(() => {
-    if (!storagePath) return 'itinerario.pdf'
+    if (!storagePath) return 'programa.pdf'
     const base = storagePath.split('/').pop()
-    return base && base.endsWith('.pdf') ? base : 'itinerario.pdf'
+    return base && base.endsWith('.pdf') ? base : 'programa.pdf'
   }, [storagePath])
 
   const descargarOriginal = async () => {
@@ -79,6 +133,12 @@ const ProgramaPreview = ({
       a.remove()
       window.setTimeout(() => URL.revokeObjectURL(href), 60_000)
     } catch (e) {
+      if (esErrorObjetoAusenteStorage(e)) {
+        console.warn(
+          '[ProgramaBanner] Descarga: archivo ausente en Storage pero la ruta sigue en BD.',
+          { rutaResuelta: storagePath, valorBd: valorAlmacenadoBd },
+        )
+      }
       window.alert(e?.message || 'No se pudo descargar el programa.')
     } finally {
       setDescargando(false)
@@ -86,7 +146,7 @@ const ProgramaPreview = ({
   }
 
   const abrirFullscreen = () => {
-    if (signedUrl) setModalFullscreen(true)
+    if (pdfUrl) setModalFullscreen(true)
   }
 
   const solicitarSubida = () => {
@@ -153,17 +213,17 @@ const ProgramaPreview = ({
         <button
           type="button"
           onClick={abrirFullscreen}
-          disabled={!signedUrl}
+          disabled={!pdfUrl}
           className="relative w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100 text-left outline-none ring-offset-2 transition-shadow hover:ring-2 hover:ring-blue-400/40 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ height: BANNER_H }}
-          title={signedUrl ? 'Pantalla completa' : 'Esperando URL firmada'}
+          title={pdfUrl ? 'Pantalla completa' : 'Esperando URL firmada'}
         >
-          {signedUrl ? (
+          {pdfUrl ? (
             <>
               <iframe
-                key={signedUrl}
+                key={pdfUrl}
                 title="Itinerario (vista previa)"
-                src={signedUrl}
+                src={pdfUrl}
                 className="pointer-events-none w-full border-0 bg-white"
                 style={{ height: BANNER_H }}
               />
@@ -180,7 +240,7 @@ const ProgramaPreview = ({
         </button>
       </div>
 
-      {modalFullscreen && signedUrl && (
+      {modalFullscreen && pdfUrl && (
         <div
           className="fixed inset-0 z-[120] flex flex-col bg-black/90 p-3 sm:p-4"
           role="dialog"
@@ -206,7 +266,7 @@ const ProgramaPreview = ({
               Cerrar
             </button>
           </div>
-          <iframe title="Itinerario" src={signedUrl} className="min-h-0 w-full flex-1 rounded-lg border-0 bg-white" />
+          <iframe title="Itinerario" src={pdfUrl} className="min-h-0 w-full flex-1 rounded-lg border-0 bg-white" />
         </div>
       )}
     </div>

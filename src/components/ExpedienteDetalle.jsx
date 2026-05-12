@@ -44,7 +44,7 @@ import {
   BUCKET_PROGRAMAS_VIAJE,
   rutaStorageProgramaViaje,
   crearSignedUrlProgramaViaje,
-  resolverRutaProgramaSeguraParaLectura,
+  resolverRutaProgramaDesdeBdFlexible,
 } from '../utils/programaViajeStorage'
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
@@ -617,6 +617,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     setErrorNumeroExpediente(null)
   }, [expediente?.id])
 
+  // Sincronizar banner del programa con la fila del expediente (recarga / refetch desde padre)
   useEffect(() => {
     setUrlProgramaPdf(String(expediente?.url_programa_pdf ?? '').trim())
   }, [expediente?.id, expediente?.url_programa_pdf])
@@ -4725,17 +4726,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                       <button
                         type="button"
                         title={
-                          resolverRutaProgramaSeguraParaLectura(
+                          resolverRutaProgramaDesdeBdFlexible(
                             empresaIdDesdeUserMetadataOUno(user),
                             expediente?.id,
                             urlProgramaPdf,
+                            Number(expediente?.empresa_id) > 0 ? Number(expediente.empresa_id) : undefined,
                           )
                             ? 'Abrir programa de viaje (PDF)'
                             : 'Sin programa — usa Subir Programa arriba'
                         }
                         onClick={async () => {
                           const eEmp = empresaIdDesdeUserMetadataOUno(user)
-                          const path = resolverRutaProgramaSeguraParaLectura(eEmp, expediente?.id, urlProgramaPdf)
+                          const path = resolverRutaProgramaDesdeBdFlexible(
+                            eEmp,
+                            expediente?.id,
+                            urlProgramaPdf,
+                            Number(expediente?.empresa_id) > 0 ? Number(expediente.empresa_id) : undefined,
+                          )
                           if (!path) {
                             window.alert('Aún no hay programa. Usa el botón «Subir Programa» en la parte superior del expediente.')
                             return
@@ -4748,10 +4755,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           window.open(url, '_blank', 'noopener,noreferrer')
                         }}
                         className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
-                          resolverRutaProgramaSeguraParaLectura(
+                          resolverRutaProgramaDesdeBdFlexible(
                             empresaIdDesdeUserMetadataOUno(user),
                             expediente?.id,
                             urlProgramaPdf,
+                            Number(expediente?.empresa_id) > 0 ? Number(expediente.empresa_id) : undefined,
                           )
                             ? 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'
                             : 'border-slate-200 bg-slate-100 text-slate-400 cursor-default'
@@ -4875,8 +4883,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
             />
             <div className="mb-4 sm:mb-6">
               <ProgramaPreview
+                key={`programa-${expediente?.id}-${urlProgramaPdf || ''}`}
                 supabase={supabase}
                 empresaId={empresaIdDesdeUserMetadataOUno(user)}
+                empresaIdCarpetaEnBd={Number(expediente?.empresa_id) > 0 ? Number(expediente.empresa_id) : undefined}
                 expedienteId={expediente?.id}
                 valorAlmacenadoBd={urlProgramaPdf}
                 onSolicitarSubida={() => programaPdfInputRef.current?.click()}

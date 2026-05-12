@@ -97,3 +97,46 @@ export function resolverRutaProgramaSeguraParaLectura(empresaId, expedienteId, v
   if (resolved === canon || resolved === canonLeg) return resolved
   return null
 }
+
+/**
+ * Resuelve la ruta en Storage para `createSignedUrl`: primero la regla estricta; si falla (p. ej. empresa en BD ≠ metadata UI),
+ * acepta rutas relativas `empresa_id/expediente_id/archivo.pdf` si el segmento del expediente coincide (anti path traversal básico).
+ * @param {number|string} empresaIdUi empresa usada en la regla estricta (p. ej. sesión UI)
+ * @param {string} expedienteId
+ * @param {unknown} valorBd url_programa_pdf
+ * @param {number|string|null|undefined} empresaIdCarpeta opcional: `expediente.empresa_id` de la fila; si difiere de UI, desbloquea lectura tras recarga
+ */
+export function resolverRutaProgramaDesdeBdFlexible(empresaIdUi, expedienteId, valorBd, empresaIdCarpeta = null) {
+  const strictUi = resolverRutaProgramaSeguraParaLectura(empresaIdUi, expedienteId, valorBd)
+  if (strictUi) return strictUi
+  const empC = Number(empresaIdCarpeta)
+  if (Number.isFinite(empC) && empC > 0 && Number(empresaIdUi) !== empC) {
+    const strictRow = resolverRutaProgramaSeguraParaLectura(empC, expedienteId, valorBd)
+    if (strictRow) return strictRow
+  }
+
+  const raw = String(valorBd ?? '').trim()
+  if (!raw) return null
+  const exp = String(expedienteId ?? '').trim()
+  if (!exp) return null
+
+  let path = raw.replace(/^\/+/, '')
+  if (/^https?:\/\//i.test(path)) {
+    path = resolverRutaProgramaDesdeValorAlmacenado(raw) || ''
+  }
+  path = String(path || '').trim().replace(/^\/+/, '')
+  if (!path || !path.toLowerCase().endsWith('.pdf')) return null
+
+  const parts = path.split('/').filter(Boolean)
+  if (parts.length < 3) return null
+  const segEmp = Number(parts[0])
+  const segExp = parts[1]
+  if (!Number.isFinite(segEmp) || segEmp <= 0) return null
+  if (String(segExp) !== String(exp)) return null
+
+  const empPermitida = Number.isFinite(empC) && empC > 0 ? empC : Number(empresaIdUi)
+  if (!Number.isFinite(empPermitida) || empPermitida <= 0) return null
+  if (segEmp !== empPermitida) return null
+
+  return path
+}
