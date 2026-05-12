@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { FileText, Plus, Trash2, X, Search, UserPlus, Download, Calendar } from 'lucide-react'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams, useParams } from 'react-router-dom'
 import { storage } from '../utils/storage'
 import ExpedienteDetalle from '../components/ExpedienteDetalle'
 import { normalizarExpedientes, formatearFechaVisual, parsearFechaADate, extraerAño, convertirEspañolAISO, convertirISOAEspañol } from '../utils/dateNormalizer'
@@ -191,6 +191,7 @@ const formatearFecha = formatearFechaVisual  // Devuelve DD/MM/AAAA para mostrar
 
 const Expedientes = ({ user = null }) => {
   const { empresaId } = useEmpresa()
+  const { slug, expedienteId: expedienteIdRuta } = useParams()
   const empresaIdRequerido = empresaIdSesionValido(user, empresaId)
   const location = useLocation()
   const navigate = useNavigate()
@@ -315,10 +316,30 @@ const Expedientes = ({ user = null }) => {
   // Tab inicial al abrir desde Historial de Cierres (Ver Detalle)
   const [tabInicialParaDetalle, setTabInicialParaDetalle] = useState(null)
 
+  // Sincronizar ficha con :expedienteId en la URL (fuente de verdad para cotización / cierre)
+  useEffect(() => {
+    const idRuta = expedienteIdRuta != null ? String(expedienteIdRuta).trim() : ''
+    if (!idRuta) {
+      setShowDetalleModal(false)
+      return
+    }
+    if (!slug) return
+    if (!expedientes.length) return
+    const found = expedientes.find((e) => String(e.id) === idRuta)
+    if (found) {
+      setExpedienteActual(found)
+      setShowDetalleModal(true)
+    } else {
+      window.alert(`ERROR CRÍTICO: No se encontró el expediente ${idRuta} en la lista cargada.`)
+      const q = searchParams.toString()
+      navigate(`/${slug}/expedientes${q ? `?${q}` : ''}`, { replace: true })
+    }
+  }, [expedienteIdRuta, expedientes, navigate, searchParams, slug])
+
   // ============ DETECCIÓN DE NAVEGACIÓN DESDE DASHBOARD O HISTORIAL ============
   // Abrir expediente automáticamente si se navega con un ID (y opcionalmente tab inicial)
   useEffect(() => {
-    if (location.state?.abrirExpedienteId && expedientes.length > 0) {
+    if (location.state?.abrirExpedienteId && expedientes.length > 0 && slug) {
       const expedienteId = location.state.abrirExpedienteId
       const tabInicial = location.state?.tabInicial
       const expedienteEncontrado = expedientes.find(exp => exp.id === expedienteId)
@@ -327,10 +348,13 @@ const Expedientes = ({ user = null }) => {
         setExpedienteActual(expedienteEncontrado)
         setTabInicialParaDetalle(tabInicial || null)
         setShowDetalleModal(true)
-        navigate(location.pathname, { replace: true, state: {} })
+        const qs = new URLSearchParams()
+        if (tabInicial) qs.set('tab', String(tabInicial))
+        const qstr = qs.toString()
+        navigate(`/${slug}/expedientes/${expedienteEncontrado.id}${qstr ? `?${qstr}` : ''}`, { replace: true, state: {} })
       }
     }
-  }, [location.state, expedientes, navigate])
+  }, [location.state, expedientes, navigate, slug])
 
   // Función maestra de refresco: obtiene expedientes desde Supabase y actualiza el estado
   const fetchExpedientesData = async () => {
@@ -1250,8 +1274,11 @@ const Expedientes = ({ user = null }) => {
   }
 
   const abrirDetalle = (expediente) => {
+    if (!slug) return
     setExpedienteActual(expediente)
     setShowDetalleModal(true)
+    const q = searchParams.toString()
+    navigate(`/${slug}/expedientes/${expediente.id}${q ? `?${q}` : ''}`)
   }
 
   // PROTECCIÓN: Obtener nombre de cliente de forma segura
@@ -2142,6 +2169,12 @@ const Expedientes = ({ user = null }) => {
           onClose={() => {
             setShowDetalleModal(false)
             setTabInicialParaDetalle(null)
+            const q = searchParams.toString()
+            if (slug) {
+              navigate(`/${slug}/expedientes${q ? `?${q}` : ''}`, { replace: true })
+            } else {
+              setShowDetalleModal(false)
+            }
           }}
           onUpdate={actualizarExpediente}
           onRefresh={fetchExpedientesData}

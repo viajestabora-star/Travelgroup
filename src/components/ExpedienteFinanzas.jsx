@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown, Eye, Paperclip } from 'lucide-react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
@@ -18,7 +18,7 @@ import { useEmpresa } from '../context/EmpresaContext'
 import VisualizadorPro from './VisualizadorPro'
 import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorStorage'
 import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
-import { esUuidExpedienteId, resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
+import { esUuidExpedienteId, leerIdExpedienteSoloUseParams } from '../utils/expedienteCotizacionId'
 
 /** Bucket unificado para facturas de cierre (alineado con ExpedienteDetalle / pagos_proveedores). */
 const BUCKET_FACTURAS_UNIFICADO = 'facturas'
@@ -233,14 +233,8 @@ const ExpedienteFinanzas = ({
 }) => {
   const { empresaId } = useEmpresa()
   const params = useParams()
-  const [searchParams] = useSearchParams()
-  const idDesdeRutaCierre = useMemo(() => {
-    const q = searchParams.get('expediente')
-    if (q != null && String(q).trim() !== '') return String(q).trim()
-    const p = params?.expedienteId ?? params?.expedienteUUID
-    if (p != null && String(p).trim() !== '') return String(p).trim()
-    return ''
-  }, [searchParams, params?.expedienteId, params?.expedienteUUID])
+  const paramsRef = useRef(params)
+  paramsRef.current = params
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
   const onRefresh = onExpedienteRefresh
@@ -940,13 +934,14 @@ const ExpedienteFinanzas = ({
   }, [recargarPagosProveedoresParaCierre])
 
   const recargarInformeDesdeCotizacion = async () => {
-    const { idExpediente: expedienteId, error: errResolucionExp } = resolverIdExpedienteFuenteVerdad({
-      expediente,
-      expedienteIdProp: expediente?.id,
-      idDesdeRuta: idDesdeRutaCierre,
-    })
+    const paramsAlClic = paramsRef.current
+    const { idExpediente: expedienteId, error: errResolucionExp } = leerIdExpedienteSoloUseParams(paramsAlClic)
     if (!expedienteId) {
-      setErrorCargaCotizacion(errResolucionExp || 'No hay expediente válido para cargar el cierre de grupo.')
+      setErrorCargaCotizacion(errResolucionExp || 'No hay :expedienteId en la URL para cargar el cierre de grupo.')
+      return
+    }
+    if (expediente?.id && String(expediente.id) !== expedienteId) {
+      setErrorCargaCotizacion('El expediente abierto no coincide con :expedienteId en la URL.')
       return
     }
     if (!esUuidExpedienteId(expedienteId)) {
@@ -1148,7 +1143,16 @@ const ExpedienteFinanzas = ({
 
   /** Solo UPDATE SQL en servicios_cotizacion; sin JSON legacy ni selects ambiguos. */
   const guardarCosteRealEnBD = async (servicioId, valor) => {
-    if (!expediente?.id || servicioId == null || servicioId === '') return
+    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsRef.current)
+    if (!expIdUrl) {
+      window.alert('ERROR CRÍTICO AL GUARDAR: ' + (errUrl || 'Sin :expedienteId en la URL.'))
+      return
+    }
+    if (!expediente?.id || String(expediente.id) !== expIdUrl) {
+      window.alert('ERROR CRÍTICO AL GUARDAR: el expediente abierto no coincide con la URL.')
+      return
+    }
+    if (servicioId == null || servicioId === '') return
     const raw = String(valor ?? '').trim().replace(/\s/g, '').replace(',', '.')
     let valorNumerico = null
     if (raw === '') {
@@ -1168,23 +1172,33 @@ const ExpedienteFinanzas = ({
         .from('servicios_cotizacion')
         .update({ coste_real_proveedor: valorNumerico })
         .eq('id', servicioId)
+        .eq('id_expediente', expIdUrl)
       if (error) {
         console.error('[cierre] guardarCosteRealEnBD:', error)
-        alert(`Error al guardar el coste: ${error.message || String(error)}`)
+        window.alert('ERROR CRÍTICO AL GUARDAR: ' + (error.message || String(error)))
         return
       }
       await recargarInformeDesdeCotizacion()
       await onRefresh?.()
     } catch (e) {
       console.error('[cierre] guardarCosteRealEnBD excepción:', e)
-      alert(`Error al guardar el coste: ${e?.message || String(e)}`)
+      window.alert('ERROR CRÍTICO AL GUARDAR: ' + (e?.message || String(e)))
     }
   }
 
   // Sube PDF a bucket `facturas`, sincroniza servicios_cotizacion.url_factura_pdf y pagos_proveedores (INSERT/UPDATE por servicio_id).
   const subirYVincularPdfCierre = async (eventOrFile, servicioIdParam) => {
     const file = eventOrFile?.target?.files?.[0] || eventOrFile
-    if (!file || !expediente?.id) return
+    if (!file) return
+    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsRef.current)
+    if (!expIdUrl) {
+      window.alert('ERROR CRÍTICO AL GUARDAR: ' + (errUrl || 'Sin :expedienteId en la URL.'))
+      return
+    }
+    if (!expediente?.id || String(expediente.id) !== expIdUrl) {
+      window.alert('ERROR CRÍTICO AL GUARDAR: el expediente abierto no coincide con la URL.')
+      return
+    }
     const tenantEid = Number(expediente?.empresa_id || user?.empresa_id || empresaId) || null
     if (!tenantEid) { alert('No hay empresa_id disponible para subir el PDF.'); return }
 
@@ -1211,7 +1225,7 @@ const ExpedienteFinanzas = ({
       return
     }
 
-    const expIdStr = String(expediente.id).trim()
+    const expIdStr = expIdUrl
     setSubiendoPdfCierre((prev) => ({ ...prev, [servicioIdCanonico]: true }))
     try {
       const ruta = `facturas/${tenantEid}/${expIdStr}/${servicioIdCanonico}.pdf`

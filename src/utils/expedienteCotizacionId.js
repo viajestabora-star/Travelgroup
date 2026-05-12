@@ -11,6 +11,29 @@ export function esUuidExpedienteId(value) {
 }
 
 /**
+ * Solo `useParams()` (ruta `…/expedientes/:expedienteId`). Sin query ni props.
+ * @param {Record<string, string|undefined>} params — resultado de `useParams()`
+ */
+export function leerIdExpedienteSoloUseParams(params) {
+  const raw = params?.expedienteId ?? params?.expedienteUUID
+  if (raw == null || String(raw).trim() === '') {
+    return {
+      idExpediente: null,
+      error:
+        'Falta :expedienteId en la URL. Abre el expediente desde la lista (la ruta debe ser …/expedientes/<uuid>).',
+    }
+  }
+  const s = String(raw).trim()
+  if (!esUuidExpedienteId(s)) {
+    return {
+      idExpediente: null,
+      error: 'El expediente en la URL no es un UUID válido.',
+    }
+  }
+  return { idExpediente: s, error: null }
+}
+
+/**
  * @param {object} opts
  * @param {{ id?: string }|null|undefined} opts.expediente — Fila expediente abierta (prioridad con URL vacía).
  * @param {string|number|null|undefined} opts.expedienteIdProp — Prop explícita desde el padre (debe coincidir con `expediente.id`).

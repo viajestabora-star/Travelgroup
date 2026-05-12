@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Save, Plus, Trash2, CheckCircle } from 'lucide-react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
-import { resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
+import { leerIdExpedienteSoloUseParams } from '../utils/expedienteCotizacionId'
+
+/** Inyección explícita de tenant en servicios_cotizacion (requisito de despliegue actual). */
+const EMPRESA_ID_ESC_SERVICIOS_COTIZACION = 1
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -236,7 +239,7 @@ const DropdownSugerencias = ({ servicio, textoBusqueda, proveedores, mapearTipo,
  */
 const ServiciosCotizacionPanel = ({
   expediente,
-  expedienteId,
+  expedienteId: _expedienteIdPropIgnorada,
   servicios,
   setServicios,
   proveedores,
@@ -250,21 +253,22 @@ const ServiciosCotizacionPanel = ({
   multicotizacionMode = false,
 }) => {
   const params = useParams()
-  const [searchParams] = useSearchParams()
-  const idDesdeRuta = useMemo(() => {
-    const q = searchParams.get('expediente')
-    if (q != null && String(q).trim() !== '') return String(q).trim()
-    const p = params?.expedienteId ?? params?.expedienteUUID
-    if (p != null && String(p).trim() !== '') return String(p).trim()
-    return ''
-  }, [searchParams, params?.expedienteId, params?.expedienteUUID])
+  const paramsRef = useRef(params)
+  paramsRef.current = params
 
-  const resolucionExpediente = useMemo(
-    () => resolverIdExpedienteFuenteVerdad({ expediente, expedienteIdProp: expedienteId, idDesdeRuta }),
-    [expediente?.id, expedienteId, idDesdeRuta],
+  const idExpedienteCotizacion = useMemo(
+    () => leerIdExpedienteSoloUseParams(params).idExpediente,
+    [params.expedienteId, params.expedienteUUID],
   )
-  const idExpedienteCotizacion = resolucionExpediente.idExpediente
-  const errorVinculacionExpediente = resolucionExpediente.error
+  const errorVinculacionExpediente = useMemo(() => {
+    const { idExpediente, error } = leerIdExpedienteSoloUseParams(params)
+    if (error) return error
+    if (expediente?.id && String(expediente.id) !== idExpediente) {
+      return 'El expediente abierto no coincide con :expedienteId en la URL.'
+    }
+    if (!idExpediente) return 'Sin expediente válido en la URL.'
+    return null
+  }, [params.expedienteId, params.expedienteUUID, expediente?.id])
 
   const [busquedaProveedor, setBusquedaProveedor] = useState({})
   const [mostrarSugerencias, setMostrarSugerencias] = useState({})
@@ -555,6 +559,7 @@ const ServiciosCotizacionPanel = ({
 
     return {
       id_expediente: String(idExpedienteCanonico ?? '').trim(),
+      empresa_id: EMPRESA_ID_ESC_SERVICIOS_COTIZACION,
       tipo_servicio: servicio?.tipo || 'Hotel',
       nombre_servicio: conceptoPrincipal,
       nombre_especifico,
@@ -584,15 +589,16 @@ const ServiciosCotizacionPanel = ({
   }
 
   const guardarTodosServiciosEnSupabase = async () => {
-    const { idExpediente, error: errResolucion } = resolverIdExpedienteFuenteVerdad({
-      expediente,
-      expedienteIdProp: expedienteId,
-      idDesdeRuta,
-    })
-    if (!idExpediente) {
-      const msg = errResolucion || 'No se puede guardar: expediente no válido.'
-      console.error('[Guardar Servicios]', msg)
-      alert(msg)
+    const paramsAlClic = paramsRef.current
+    const { idExpediente: idDeLaUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsAlClic)
+    if (!idDeLaUrl) {
+      const msg = errUrl || 'Sin id de expediente en la URL.'
+      window.alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
+      return { ok: false, error: msg }
+    }
+    if (expediente?.id && String(expediente.id) !== idDeLaUrl) {
+      const msg = 'El expediente en pantalla no coincide con la URL (:expedienteId).'
+      window.alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
       return { ok: false, error: msg }
     }
     if (!servicios?.length) {
@@ -600,7 +606,7 @@ const ServiciosCotizacionPanel = ({
       return { ok: true }
     }
 
-    const expIdStr = idExpediente
+    const expIdStr = idDeLaUrl
 
     try {
       // 1. Fetch previo del estado real en DB (base obligatoria para merge no destructivo)
@@ -609,8 +615,10 @@ const ServiciosCotizacionPanel = ({
         .select('*')
         .eq('id_expediente', expIdStr)
       if (errorExistentes) {
-        console.error('[Guardar Servicios] ❌ Error al leer estado actual:', errorExistentes.message, errorExistentes)
-        return { ok: false, error: errorExistentes.message }
+        const m = errorExistentes.message || String(errorExistentes)
+        console.error('[Guardar Servicios] ❌ Error al leer estado actual:', m, errorExistentes)
+        window.alert('ERROR CRÍTICO AL GUARDAR: ' + m)
+        return { ok: false, error: m }
       }
 
       const existentesMap = new Map((existentes || []).map(e => [String(e.id), e]))
@@ -628,6 +636,7 @@ const ServiciosCotizacionPanel = ({
           const uiService = {
             id: idFinal,
             id_expediente: expIdStr,
+            empresa_id: EMPRESA_ID_ESC_SERVICIOS_COTIZACION,
             orden: index,
             tipo_servicio: datos.tipo_servicio,
             nombre_servicio: datos.nombre_servicio,
@@ -688,6 +697,7 @@ const ServiciosCotizacionPanel = ({
 
       for (const fila of filasValidadas) {
         fila.id_expediente = expIdStr
+        fila.empresa_id = EMPRESA_ID_ESC_SERVICIOS_COTIZACION
       }
 
       // 3. Validar
@@ -698,7 +708,9 @@ const ServiciosCotizacionPanel = ({
       })
       if (invalidas.length > 0) {
         console.error('[Guardar Servicios] Validación fallida:', invalidas)
-        alert('No se puede guardar: todos los servicios deben tener nombre_servicio y total_servicio mayor que 0.')
+        window.alert(
+          'ERROR CRÍTICO AL GUARDAR: todos los servicios deben tener nombre_servicio y total_servicio mayor que 0.',
+        )
         return { ok: false, error: 'Validación de servicios fallida' }
       }
 
@@ -713,9 +725,10 @@ const ServiciosCotizacionPanel = ({
         .select('id')
 
       if (errUpsert) {
-        console.error('[Guardar Servicios] ❌ Error en upsert:', errUpsert.message, errUpsert)
-        alert(`Error al guardar servicios:\n${errUpsert.message}\n\nCódigo: ${errUpsert.code || 'N/A'}`)
-        return { ok: false, error: errUpsert.message }
+        const m = errUpsert.message || String(errUpsert)
+        console.error('[Guardar Servicios] ❌ Error en upsert:', m, errUpsert)
+        window.alert('ERROR CRÍTICO AL GUARDAR: ' + m)
+        return { ok: false, error: m }
       }
 
       console.log('[Guardar Servicios] upsert OK — filas:', dataUpsert?.length ?? filasValidadas.length)
@@ -723,8 +736,10 @@ const ServiciosCotizacionPanel = ({
       return { ok: true, data: dataUpsert || [] }
 
     } catch (err) {
+      const m = err?.message || String(err)
       console.error('[Guardar Servicios] ❌ Error general:', err)
-      return { ok: false, error: err.message }
+      window.alert('ERROR CRÍTICO AL GUARDAR: ' + m)
+      return { ok: false, error: m }
     }
   }
 
@@ -737,13 +752,14 @@ const ServiciosCotizacionPanel = ({
 
   const handleGuardar = async () => {
     if (isSaving) return
-    const { idExpediente: idOk, error: errVin } = resolverIdExpedienteFuenteVerdad({
-      expediente,
-      expedienteIdProp: expedienteId,
-      idDesdeRuta,
-    })
+    const paramsAlClic = paramsRef.current
+    const { idExpediente: idOk, error: errVin } = leerIdExpedienteSoloUseParams(paramsAlClic)
     if (!idOk) {
-      alert(errVin || 'No se puede guardar: el expediente no está vinculado correctamente.')
+      window.alert('ERROR CRÍTICO AL GUARDAR: ' + (errVin || 'Sin :expedienteId en la URL.'))
+      return
+    }
+    if (expediente?.id && String(expediente.id) !== idOk) {
+      window.alert('ERROR CRÍTICO AL GUARDAR: el expediente abierto no coincide con la URL.')
       return
     }
     setIsSaving(true)
@@ -753,18 +769,18 @@ const ServiciosCotizacionPanel = ({
 
       if (resultadoForm?.ok && resultadoServicios?.ok) {
         console.log('[Guardar] ✅ Cotización y servicios guardados correctamente.')
-        alert('✅ Cotización guardada correctamente')
+        window.alert('✅ Cotización guardada correctamente')
       } else if (!resultadoForm?.ok) {
         const msg = resultadoForm?.error || 'Error desconocido'
         console.error('[Guardar] ❌ Error en persistirCambios:', msg)
-        alert(`No se pudo guardar el formulario:\n${msg}`)
+        window.alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
       } else if (!resultadoServicios?.ok) {
         // El error específico ya fue mostrado dentro de guardarTodosServiciosEnSupabase
         console.error('[Guardar] ❌ Error en servicios:', resultadoServicios?.error)
       }
     } catch (err) {
       console.error('[Guardar] ❌ Excepción en handleGuardar:', err)
-      alert(`Error inesperado al guardar:\n${err?.message || String(err)}`)
+      window.alert('ERROR CRÍTICO AL GUARDAR: ' + (err?.message || String(err)))
     } finally {
       setIsSaving(false)
     }
