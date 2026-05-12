@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown, Eye, Paperclip } from 'lucide-react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
 import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
@@ -17,8 +17,7 @@ import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmiso
 import { useEmpresa } from '../context/EmpresaContext'
 import VisualizadorPro from './VisualizadorPro'
 import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorStorage'
-import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
-import { esUuidExpedienteId, leerIdExpedienteSoloUseParams } from '../utils/expedienteCotizacionId'
+import { esUuidExpedienteId, leerIdExpedienteDesdeParametrosUrl } from '../utils/expedienteCotizacionId'
 
 /** Bucket unificado para facturas de cierre (alineado con ExpedienteDetalle / pagos_proveedores). */
 const BUCKET_FACTURAS_UNIFICADO = 'facturas'
@@ -233,8 +232,11 @@ const ExpedienteFinanzas = ({
 }) => {
   const { empresaId } = useEmpresa()
   const params = useParams()
+  const [searchParams] = useSearchParams()
   const paramsRef = useRef(params)
   paramsRef.current = params
+  const searchParamsRef = useRef(searchParams)
+  searchParamsRef.current = searchParams
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
   const onRefresh = onExpedienteRefresh
@@ -839,7 +841,8 @@ const ExpedienteFinanzas = ({
       )
       const proveedorVisible =
         provOficial?.nombre_comercial || s?.nombre_proveedor_manual || s?.nombre_proveedor_texto || 'Sin proveedor'
-      const costeCotizadoVisible = toNum(s?.coste_total_servicio) || toNum(s?.total_servicio) || toNum(s?.coste_unitario) || 0
+      const costeCotizadoVisible =
+        toNum(s?.total_servicio) || toNum(s?.coste_total_servicio) || toNum(s?.coste_unitario) || 0
       const costeRealProveedorVisible = s?.coste_real_proveedor == null ? 0 : toNum(s?.coste_real_proveedor)
       const facturaUrl = String(s?.url_factura_pdf || '').trim() || null
       return {
@@ -934,14 +937,16 @@ const ExpedienteFinanzas = ({
   }, [recargarPagosProveedoresParaCierre])
 
   const recargarInformeDesdeCotizacion = async () => {
-    const paramsAlClic = paramsRef.current
-    const { idExpediente: expedienteId, error: errResolucionExp } = leerIdExpedienteSoloUseParams(paramsAlClic)
+    const { idExpediente: expedienteId, error: errResolucionExp } = leerIdExpedienteDesdeParametrosUrl(
+      paramsRef.current,
+      searchParamsRef.current,
+    )
     if (!expedienteId) {
-      setErrorCargaCotizacion(errResolucionExp || 'No hay :expedienteId en la URL para cargar el cierre de grupo.')
+      setErrorCargaCotizacion(errResolucionExp || 'No hay id de expediente en la URL para cargar el cierre de grupo.')
       return
     }
     if (expediente?.id && String(expediente.id) !== expedienteId) {
-      setErrorCargaCotizacion('El expediente abierto no coincide con :expedienteId en la URL.')
+      setErrorCargaCotizacion('El expediente abierto no coincide con el id en la URL.')
       return
     }
     if (!esUuidExpedienteId(expedienteId)) {
@@ -953,18 +958,6 @@ const ExpedienteFinanzas = ({
     informeLiquidacionInicializadoRef.current = false
 
     try {
-      const { empresaId: tenantSesion, error: errTenant } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
-      const empresaIdNum =
-        tenantSesion != null && Number.isFinite(Number(tenantSesion)) && Number(tenantSesion) > 0
-          ? Math.trunc(Number(tenantSesion))
-          : null
-      if (empresaIdNum == null) {
-        console.warn(
-          '[Cierre] Sin empresa_id resoluble desde la sesión activa; se filtra solo por id_expediente (RLS sigue aplicando).',
-          errTenant || '',
-        )
-      }
-
       // 1) Datos base de expediente para ingresos
       const { data: expFresco, error: errExp } = await supabase
         .from('expedientes')
@@ -973,40 +966,16 @@ const ExpedienteFinanzas = ({
         .single()
       if (errExp) console.warn('[Cierre] No se pudo cargar expediente fresco:', errExp.message)
 
-      // 2) Fuente SQL: columna de expediente es id_expediente (no expediente_id). empresa_id numérico para alinear con RLS.
+      // 2) servicios_cotizacion: columna real del expediente es id_expediente (sin filtrar por empresa_id: evita 0 filas si empresa_id en fila no coincide con sesión).
       const SERVICIOS_CIERRE_SELECT =
-        'id, nombre_servicio, total_servicio, coste_total_servicio, empresa_id, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
-
-      const cargarServiciosCotizacion = async (conFiltroEmpresa) => {
-        let q = supabase
-          .from('servicios_cotizacion')
-          .select(SERVICIOS_CIERRE_SELECT)
-          .eq('id_expediente', expedienteId)
-          .order('orden', { ascending: true })
-        if (conFiltroEmpresa && empresaIdNum != null) {
-          q = q.eq('empresa_id', empresaIdNum)
-        }
-        return q
-      }
+        'id, nombre_servicio, total_servicio, coste_total_servicio, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
 
       let serviciosCotizacionRows = []
-      let { data: scRows, error: scErr } = await cargarServiciosCotizacion(empresaIdNum != null)
-
-      if (
-        empresaIdNum != null &&
-        !scErr &&
-        (!Array.isArray(scRows) || scRows.length === 0)
-      ) {
-        const sinEmpresa = await cargarServiciosCotizacion(false)
-        if (!sinEmpresa.error && Array.isArray(sinEmpresa.data) && sinEmpresa.data.length > 0) {
-          console.log(
-            '[Cierre] Rescate: había 0 filas con filtro empresa_id; usando solo id_expediente (filas legacy sin empresa_id).',
-            { expedienteId, empresaIdNum },
-          )
-          scRows = sinEmpresa.data
-          scErr = sinEmpresa.error
-        }
-      }
+      let { data: scRows, error: scErr } = await supabase
+        .from('servicios_cotizacion')
+        .select(SERVICIOS_CIERRE_SELECT)
+        .eq('id_expediente', expedienteId)
+        .order('orden', { ascending: true })
 
       if (scErr) {
         const msg = String(scErr.message || '')
@@ -1014,33 +983,15 @@ const ExpedienteFinanzas = ({
           scErr.code === 'PGRST204' || msg.includes('coste_total_servicio') || msg.includes('does not exist')
         if (faltaColumna) {
           const SELECT_SIN_COSTE_TOTAL =
-            'id, nombre_servicio, total_servicio, empresa_id, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
-          let retry =
-            empresaIdNum != null
-              ? await supabase
-                  .from('servicios_cotizacion')
-                  .select(SELECT_SIN_COSTE_TOTAL)
-                  .eq('id_expediente', expedienteId)
-                  .eq('empresa_id', empresaIdNum)
-                  .order('orden', { ascending: true })
-              : await supabase
-                  .from('servicios_cotizacion')
-                  .select(SELECT_SIN_COSTE_TOTAL)
-                  .eq('id_expediente', expedienteId)
-                  .order('orden', { ascending: true })
-          if (!retry.error && Array.isArray(retry.data) && retry.data.length > 0) {
+            'id, nombre_servicio, total_servicio, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
+          const retry = await supabase
+            .from('servicios_cotizacion')
+            .select(SELECT_SIN_COSTE_TOTAL)
+            .eq('id_expediente', expedienteId)
+            .order('orden', { ascending: true })
+          if (!retry.error && Array.isArray(retry.data)) {
             scRows = retry.data
             scErr = null
-          } else if (!retry.error && empresaIdNum != null && (!retry.data || retry.data.length === 0)) {
-            const retry2 = await supabase
-              .from('servicios_cotizacion')
-              .select(SELECT_SIN_COSTE_TOTAL)
-              .eq('id_expediente', expedienteId)
-              .order('orden', { ascending: true })
-            if (!retry2.error) {
-              scRows = retry2.data || []
-              scErr = null
-            }
           }
         }
       }
@@ -1061,8 +1012,7 @@ const ExpedienteFinanzas = ({
         await recargarPagosProveedoresParaCierre(idsSet)
       }
       if (serviciosCotizacionRows.length === 0) {
-        console.log('Buscando servicios para expediente:', expedienteId, 'y empresa:', empresaIdNum)
-        console.warn('[Cierre] 0 filas en servicios_cotizacion para este expediente (revisar id_expediente, empresa_id en filas y RLS).')
+        console.warn('[Cierre] 0 filas en servicios_cotizacion para id_expediente=', expedienteId)
       }
 
       // 3) Ingresos
@@ -1143,13 +1093,16 @@ const ExpedienteFinanzas = ({
 
   /** Solo UPDATE SQL en servicios_cotizacion; sin JSON legacy ni selects ambiguos. */
   const guardarCosteRealEnBD = async (servicioId, valor) => {
-    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsRef.current)
+    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteDesdeParametrosUrl(
+      paramsRef.current,
+      searchParamsRef.current,
+    )
     if (!expIdUrl) {
-      window.alert('ERROR CRÍTICO AL GUARDAR: ' + (errUrl || 'Sin :expedienteId en la URL.'))
+      alert(errUrl || 'No hay id de expediente en la URL.')
       return
     }
     if (!expediente?.id || String(expediente.id) !== expIdUrl) {
-      window.alert('ERROR CRÍTICO AL GUARDAR: el expediente abierto no coincide con la URL.')
+      alert('El expediente abierto no coincide con el id en la URL.')
       return
     }
     if (servicioId == null || servicioId === '') return
@@ -1175,14 +1128,14 @@ const ExpedienteFinanzas = ({
         .eq('id_expediente', expIdUrl)
       if (error) {
         console.error('[cierre] guardarCosteRealEnBD:', error)
-        window.alert('ERROR CRÍTICO AL GUARDAR: ' + (error.message || String(error)))
+        alert(`Error al guardar el coste: ${error.message || String(error)}`)
         return
       }
       await recargarInformeDesdeCotizacion()
       await onRefresh?.()
     } catch (e) {
       console.error('[cierre] guardarCosteRealEnBD excepción:', e)
-      window.alert('ERROR CRÍTICO AL GUARDAR: ' + (e?.message || String(e)))
+      alert(`Error al guardar el coste: ${e?.message || String(e)}`)
     }
   }
 
@@ -1190,13 +1143,16 @@ const ExpedienteFinanzas = ({
   const subirYVincularPdfCierre = async (eventOrFile, servicioIdParam) => {
     const file = eventOrFile?.target?.files?.[0] || eventOrFile
     if (!file) return
-    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsRef.current)
+    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteDesdeParametrosUrl(
+      paramsRef.current,
+      searchParamsRef.current,
+    )
     if (!expIdUrl) {
-      window.alert('ERROR CRÍTICO AL GUARDAR: ' + (errUrl || 'Sin :expedienteId en la URL.'))
+      alert(errUrl || 'No hay id de expediente en la URL.')
       return
     }
     if (!expediente?.id || String(expediente.id) !== expIdUrl) {
-      window.alert('ERROR CRÍTICO AL GUARDAR: el expediente abierto no coincide con la URL.')
+      alert('El expediente abierto no coincide con el id en la URL.')
       return
     }
     const tenantEid = Number(expediente?.empresa_id || user?.empresa_id || empresaId) || null

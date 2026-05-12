@@ -34,6 +34,34 @@ export function leerIdExpedienteSoloUseParams(params) {
 }
 
 /**
+ * UUID del expediente desde parámetros de la URL: ruta `…/expedientes/:expedienteId`
+ * (o :expedienteUUID) y, si falta, query `?expediente=<uuid>`.
+ * @param {Record<string, string|undefined>} params — useParams()
+ * @param {URLSearchParams|null|undefined} searchParams — useSearchParams()[0] o equivalente
+ */
+export function leerIdExpedienteDesdeParametrosUrl(params, searchParams) {
+  const pathRaw = params?.expedienteId ?? params?.expedienteUUID
+  const fromPath = pathRaw != null && String(pathRaw).trim() !== '' ? String(pathRaw).trim() : ''
+  let fromQuery = ''
+  if (searchParams && typeof searchParams.get === 'function') {
+    const q = searchParams.get('expediente')
+    if (q != null && String(q).trim() !== '') fromQuery = String(q).trim()
+  }
+  const raw = fromPath || fromQuery
+  if (!raw) {
+    return {
+      idExpediente: null,
+      error:
+        'Falta el id del expediente en la URL (ruta …/expedientes/<uuid> o parámetro ?expediente=<uuid>).',
+    }
+  }
+  if (!esUuidExpedienteId(raw)) {
+    return { idExpediente: null, error: 'El expediente indicado en la URL no es un UUID válido.' }
+  }
+  return { idExpediente: raw, error: null }
+}
+
+/**
  * @param {object} opts
  * @param {{ id?: string }|null|undefined} opts.expediente — Fila expediente abierta (prioridad con URL vacía).
  * @param {string|number|null|undefined} opts.expedienteIdProp — Prop explícita desde el padre (debe coincidir con `expediente.id`).
