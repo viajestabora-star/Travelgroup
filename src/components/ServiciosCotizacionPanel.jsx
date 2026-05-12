@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Save, Plus, Trash2, CheckCircle } from 'lucide-react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
-import { leerIdExpedienteSoloUseParams } from '../utils/expedienteCotizacionId'
+import { leerIdExpedienteDesdeParametrosUrl } from '../utils/expedienteCotizacionId'
 
 /** Inyección explícita de tenant en servicios_cotizacion (requisito de despliegue actual). */
 const EMPRESA_ID_ESC_SERVICIOS_COTIZACION = 1
@@ -253,22 +253,26 @@ const ServiciosCotizacionPanel = ({
   multicotizacionMode = false,
 }) => {
   const params = useParams()
+  const [searchParams] = useSearchParams()
+  const expedienteQuery = searchParams.get('expediente')
   const paramsRef = useRef(params)
   paramsRef.current = params
+  const searchParamsRef = useRef(searchParams)
+  searchParamsRef.current = searchParams
 
   const idExpedienteCotizacion = useMemo(
-    () => leerIdExpedienteSoloUseParams(params).idExpediente,
-    [params.expedienteId, params.expedienteUUID],
+    () => leerIdExpedienteDesdeParametrosUrl(params, searchParams).idExpediente,
+    [params.expedienteId, params.expedienteUUID, expedienteQuery],
   )
   const errorVinculacionExpediente = useMemo(() => {
-    const { idExpediente, error } = leerIdExpedienteSoloUseParams(params)
+    const { idExpediente, error } = leerIdExpedienteDesdeParametrosUrl(params, searchParams)
     if (error) return error
     if (expediente?.id && String(expediente.id) !== idExpediente) {
-      return 'El expediente abierto no coincide con :expedienteId en la URL.'
+      return 'El expediente abierto no coincide con el id en la URL.'
     }
     if (!idExpediente) return 'Sin expediente válido en la URL.'
     return null
-  }, [params.expedienteId, params.expedienteUUID, expediente?.id])
+  }, [params.expedienteId, params.expedienteUUID, expedienteQuery, expediente?.id])
 
   const [busquedaProveedor, setBusquedaProveedor] = useState({})
   const [mostrarSugerencias, setMostrarSugerencias] = useState({})
@@ -337,6 +341,7 @@ const ServiciosCotizacionPanel = ({
           .from('servicios_cotizacion')
           .select('*')
           .eq('id_expediente', idExpedienteCotizacion)
+          .eq('empresa_id', EMPRESA_ID_ESC_SERVICIOS_COTIZACION)
           .order('orden', { ascending: true })
           .order('created_at', { ascending: true, nullsFirst: false })
           .order('id', { ascending: true })
@@ -346,6 +351,7 @@ const ServiciosCotizacionPanel = ({
             .from('servicios_cotizacion')
             .select('*')
             .eq('id_expediente', idExpedienteCotizacion)
+            .eq('empresa_id', EMPRESA_ID_ESC_SERVICIOS_COTIZACION)
             .order('orden', { ascending: true })
             .order('id', { ascending: true })
         }
@@ -590,15 +596,16 @@ const ServiciosCotizacionPanel = ({
 
   const guardarTodosServiciosEnSupabase = async () => {
     const paramsAlClic = paramsRef.current
-    const { idExpediente: idDeLaUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsAlClic)
+    const searchAlClic = searchParamsRef.current
+    const { idExpediente: idDeLaUrl, error: errUrl } = leerIdExpedienteDesdeParametrosUrl(paramsAlClic, searchAlClic)
     if (!idDeLaUrl) {
       const msg = errUrl || 'Sin id de expediente en la URL.'
-      window.alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
+      alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
       return { ok: false, error: msg }
     }
     if (expediente?.id && String(expediente.id) !== idDeLaUrl) {
-      const msg = 'El expediente en pantalla no coincide con la URL (:expedienteId).'
-      window.alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
+      const msg = 'El expediente en pantalla no coincide con la URL.'
+      alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
       return { ok: false, error: msg }
     }
     if (!servicios?.length) {
@@ -614,10 +621,11 @@ const ServiciosCotizacionPanel = ({
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', expIdStr)
+        .eq('empresa_id', EMPRESA_ID_ESC_SERVICIOS_COTIZACION)
       if (errorExistentes) {
         const m = errorExistentes.message || String(errorExistentes)
         console.error('[Guardar Servicios] ❌ Error al leer estado actual:', m, errorExistentes)
-        window.alert('ERROR CRÍTICO AL GUARDAR: ' + m)
+        alert('ERROR CRÍTICO AL GUARDAR: ' + m)
         return { ok: false, error: m }
       }
 
@@ -708,7 +716,7 @@ const ServiciosCotizacionPanel = ({
       })
       if (invalidas.length > 0) {
         console.error('[Guardar Servicios] Validación fallida:', invalidas)
-        window.alert(
+        alert(
           'ERROR CRÍTICO AL GUARDAR: todos los servicios deben tener nombre_servicio y total_servicio mayor que 0.',
         )
         return { ok: false, error: 'Validación de servicios fallida' }
@@ -727,7 +735,7 @@ const ServiciosCotizacionPanel = ({
       if (errUpsert) {
         const m = errUpsert.message || String(errUpsert)
         console.error('[Guardar Servicios] ❌ Error en upsert:', m, errUpsert)
-        window.alert('ERROR CRÍTICO AL GUARDAR: ' + m)
+        alert('ERROR CRÍTICO AL GUARDAR: ' + m)
         return { ok: false, error: m }
       }
 
@@ -738,7 +746,7 @@ const ServiciosCotizacionPanel = ({
     } catch (err) {
       const m = err?.message || String(err)
       console.error('[Guardar Servicios] ❌ Error general:', err)
-      window.alert('ERROR CRÍTICO AL GUARDAR: ' + m)
+      alert('ERROR CRÍTICO AL GUARDAR: ' + m)
       return { ok: false, error: m }
     }
   }
@@ -753,13 +761,13 @@ const ServiciosCotizacionPanel = ({
   const handleGuardar = async () => {
     if (isSaving) return
     const paramsAlClic = paramsRef.current
-    const { idExpediente: idOk, error: errVin } = leerIdExpedienteSoloUseParams(paramsAlClic)
+    const { idExpediente: idOk, error: errVin } = leerIdExpedienteDesdeParametrosUrl(paramsAlClic, searchParamsRef.current)
     if (!idOk) {
-      window.alert('ERROR CRÍTICO AL GUARDAR: ' + (errVin || 'Sin :expedienteId en la URL.'))
+      alert('ERROR CRÍTICO AL GUARDAR: ' + (errVin || 'Sin id de expediente en la URL.'))
       return
     }
     if (expediente?.id && String(expediente.id) !== idOk) {
-      window.alert('ERROR CRÍTICO AL GUARDAR: el expediente abierto no coincide con la URL.')
+      alert('ERROR CRÍTICO AL GUARDAR: el expediente abierto no coincide con la URL.')
       return
     }
     setIsSaving(true)
@@ -769,18 +777,18 @@ const ServiciosCotizacionPanel = ({
 
       if (resultadoForm?.ok && resultadoServicios?.ok) {
         console.log('[Guardar] ✅ Cotización y servicios guardados correctamente.')
-        window.alert('✅ Cotización guardada correctamente')
+        alert('✅ Cotización guardada correctamente')
       } else if (!resultadoForm?.ok) {
         const msg = resultadoForm?.error || 'Error desconocido'
         console.error('[Guardar] ❌ Error en persistirCambios:', msg)
-        window.alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
+        alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
       } else if (!resultadoServicios?.ok) {
         // El error específico ya fue mostrado dentro de guardarTodosServiciosEnSupabase
         console.error('[Guardar] ❌ Error en servicios:', resultadoServicios?.error)
       }
     } catch (err) {
       console.error('[Guardar] ❌ Excepción en handleGuardar:', err)
-      window.alert('ERROR CRÍTICO AL GUARDAR: ' + (err?.message || String(err)))
+      alert('ERROR CRÍTICO AL GUARDAR: ' + (err?.message || String(err)))
     } finally {
       setIsSaving(false)
     }

@@ -86,6 +86,7 @@ const TablaServiciosVariante = ({
           .from('servicios_cotizacion')
           .select('*')
           .eq('id_expediente', String(expedienteId).trim())
+          .eq('empresa_id', 1)
           .order('orden', { ascending: true })
           .order('created_at', { ascending: true, nullsFirst: false })
           .order('id', { ascending: true })
@@ -95,6 +96,7 @@ const TablaServiciosVariante = ({
             .from('servicios_cotizacion')
             .select('*')
             .eq('id_expediente', String(expedienteId).trim())
+            .eq('empresa_id', 1)
             .order('orden', { ascending: true })
             .order('id', { ascending: true })
         }

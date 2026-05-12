@@ -1071,6 +1071,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', String(id).trim())
+        .eq('empresa_id', 1)
         .order('created_at', { ascending: true, nullsFirst: false })
         .order('id', { ascending: true })
 
@@ -1079,6 +1080,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           .from('servicios_cotizacion')
           .select('*')
           .eq('id_expediente', String(id).trim())
+          .eq('empresa_id', 1)
           .order('id', { ascending: true })
       }
 
@@ -4408,24 +4410,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         // Multigrupo: sin entradas vacías/nulas (columna expedientes: desglose_grupos)
         desglose_grupos: limpiarDesgloseGruposParaSupabase(desgloseGrupos),
       }
-      let versionesGuardadas = null
-      if (versiones?.length > 0) {
-        const servsActuales = versiones[versionActiva]?.servicios ?? servicios
-        const cabActual = {
-          total_pax: toNum(fd?.total_pax),
-          gratuidades: toNum(fd?.gratuidades),
-          precio_venta_cliente: toNum(fd?.precio_venta_cliente),
-          bonificacion_pax: toNum(fd?.bonificacion_pax),
-          sup_individual_pax: toNum(fd?.sup_individual_pax),
-          sup_individual_precio_dia: toNum(fd?.sup_individual_precio_dia),
-          sup_seguro_pax: toNum(fd?.sup_seguro_pax),
-          sup_seguro_precio_total: toNum(fd?.sup_seguro_precio_total),
-        }
-        versionesGuardadas = versiones.map((v, i) =>
-          i === versionActiva ? { ...v, servicios: [...servsActuales], cabecera: cabActual } : v
-        )
-        datosParaGuardar.versiones_json = { versiones: versionesGuardadas }
-      }
 
       const { error } = await supabase
         .from('expedientes')
@@ -4435,8 +4419,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (error) return { ok: false, error: extraerMensajeError(error) }
 
       onUpdate({ ...expediente, ...datosParaGuardar })
-      if (versionesGuardadas) lastSavedVersionesRef.current = JSON.parse(JSON.stringify(versionesGuardadas))
-      else lastSavedFormDataRef.current = { ...fd }
+      if (versiones?.length > 0) {
+        lastSavedVersionesRef.current = JSON.parse(JSON.stringify(versiones))
+      }
+      lastSavedFormDataRef.current = { ...fd }
       await recargarDatosFinancieros()
       if (typeof onRefresh === 'function') onRefresh()
       return { ok: true }
