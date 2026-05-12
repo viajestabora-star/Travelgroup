@@ -16,6 +16,12 @@ import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmiso
 import { useEmpresa } from '../context/EmpresaContext'
 import VisualizadorPro from './VisualizadorPro'
 import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorStorage'
+import { EMPRESA_ID_TABORA_EMERGENCIA } from '../utils/tenantEmpresa'
+
+/** UUID v1–v5 (Postgres expediente.id) */
+const esUuidExpediente = (s) =>
+  typeof s === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim())
 
 /** Bucket unificado para facturas de cierre (alineado con ExpedienteDetalle / pagos_proveedores). */
 const BUCKET_FACTURAS_UNIFICADO = 'facturas'
@@ -929,6 +935,22 @@ const ExpedienteFinanzas = ({
 
   const recargarInformeDesdeCotizacion = async () => {
     if (!expediente?.id) return
+    const expedienteId = String(expediente.id).trim()
+    if (!esUuidExpediente(expedienteId)) {
+      console.warn('[Cierre] id expediente no es un UUID limpio:', expediente.id)
+      setErrorCargaCotizacion('El expediente no tiene un id (UUID) válido para cargar servicios de cotización.')
+      return
+    }
+
+    const empresaDesdeExp = Math.trunc(Number(expediente?.empresa_id))
+    const empresaDesdeSesion = Math.trunc(Number(user?.empresa_id ?? empresaId))
+    const empresaIdNum =
+      Number.isFinite(empresaDesdeExp) && empresaDesdeExp > 0
+        ? empresaDesdeExp
+        : Number.isFinite(empresaDesdeSesion) && empresaDesdeSesion > 0
+          ? empresaDesdeSesion
+          : EMPRESA_ID_TABORA_EMERGENCIA
+
     setCargandoCotizacion(true)
     setErrorCargaCotizacion(null)
     informeLiquidacionInicializadoRef.current = false
@@ -938,19 +960,71 @@ const ExpedienteFinanzas = ({
       const { data: expFresco, error: errExp } = await supabase
         .from('expedientes')
         .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
-        .eq('id', expediente.id)
+        .eq('id', expedienteId)
         .single()
       if (errExp) console.warn('[Cierre] No se pudo cargar expediente fresco:', errExp.message)
 
-      // 2) Fuente SQL pura para la tabla de cierre
+      // 2) Fuente SQL: columna de expediente es id_expediente (no expediente_id). empresa_id numérico para alinear con RLS.
+      const SERVICIOS_CIERRE_SELECT =
+        'id, nombre_servicio, total_servicio, coste_total_servicio, empresa_id, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
+
+      const cargarServiciosCotizacion = async (conFiltroEmpresa) => {
+        let q = supabase
+          .from('servicios_cotizacion')
+          .select(SERVICIOS_CIERRE_SELECT)
+          .eq('id_expediente', expedienteId)
+          .order('orden', { ascending: true })
+        if (conFiltroEmpresa) {
+          q = q.eq('empresa_id', empresaIdNum)
+        }
+        return q
+      }
+
       let serviciosCotizacionRows = []
-      console.log('DEBUG CIERRE: Buscando servicios para ID:', expediente.id, 'Tipo de ID:', typeof expediente.id)
-      const { data: scRows, error: scErr } = await supabase
-        .from('servicios_cotizacion')
-        .select('*')
-        .eq('id_expediente', String(expediente.id).trim())
-        .order('orden', { ascending: true })
-      console.log('DEBUG CIERRE: Resultado SQL:', scRows, 'Error SQL:', scErr)
+      let { data: scRows, error: scErr } = await cargarServiciosCotizacion(true)
+
+      if (!scErr && (!Array.isArray(scRows) || scRows.length === 0)) {
+        const sinEmpresa = await cargarServiciosCotizacion(false)
+        if (!sinEmpresa.error && Array.isArray(sinEmpresa.data) && sinEmpresa.data.length > 0) {
+          console.log(
+            '[Cierre] Rescate: había 0 filas con filtro empresa_id; usando solo id_expediente (filas legacy sin empresa_id).',
+            { expedienteId, empresaIdNum },
+          )
+          scRows = sinEmpresa.data
+          scErr = sinEmpresa.error
+        }
+      }
+
+      if (scErr) {
+        const msg = String(scErr.message || '')
+        const faltaColumna =
+          scErr.code === 'PGRST204' || msg.includes('coste_total_servicio') || msg.includes('does not exist')
+        if (faltaColumna) {
+          const SELECT_SIN_COSTE_TOTAL =
+            'id, nombre_servicio, total_servicio, empresa_id, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
+          const retry = await supabase
+            .from('servicios_cotizacion')
+            .select(SELECT_SIN_COSTE_TOTAL)
+            .eq('id_expediente', expedienteId)
+            .eq('empresa_id', empresaIdNum)
+            .order('orden', { ascending: true })
+          if (!retry.error && Array.isArray(retry.data) && retry.data.length > 0) {
+            scRows = retry.data
+            scErr = null
+          } else if (!retry.error && (!retry.data || retry.data.length === 0)) {
+            const retry2 = await supabase
+              .from('servicios_cotizacion')
+              .select(SELECT_SIN_COSTE_TOTAL)
+              .eq('id_expediente', expedienteId)
+              .order('orden', { ascending: true })
+            if (!retry2.error) {
+              scRows = retry2.data || []
+              scErr = null
+            }
+          }
+        }
+      }
+
       if (scErr) {
         console.warn('[Cierre] servicios_cotizacion (load):', scErr)
         setErrorCargaCotizacion(scErr.message || 'Error al cargar servicios desde SQL')
@@ -967,7 +1041,8 @@ const ExpedienteFinanzas = ({
         await recargarPagosProveedoresParaCierre(idsSet)
       }
       if (serviciosCotizacionRows.length === 0) {
-        console.error('ERROR: No se encuentran servicios en SQL')
+        console.log('Buscando servicios para expediente:', expedienteId, 'y empresa:', empresaIdNum)
+        console.warn('[Cierre] 0 filas en servicios_cotizacion para este expediente (revisar id_expediente, empresa_id en filas y RLS).')
       }
 
       // 3) Ingresos
