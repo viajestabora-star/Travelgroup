@@ -862,8 +862,7 @@ const ExpedienteFinanzas = ({
       )
       const proveedorVisible =
         provOficial?.nombre_comercial || s?.nombre_proveedor_manual || s?.nombre_proveedor_texto || 'Sin proveedor'
-      const costeCotizadoVisible =
-        toNum(s?.total_servicio) || toNum(s?.coste_total_servicio) || toNum(s?.coste_unitario) || 0
+      const costeCotizadoVisible = toNum(s?.total_servicio)
       const costeRealProveedorVisible = s?.coste_real_proveedor == null ? 0 : toNum(s?.coste_real_proveedor)
       const facturaUrl = String(s?.url_factura_pdf || '').trim() || null
       return {
@@ -980,23 +979,9 @@ const ExpedienteFinanzas = ({
     informeLiquidacionInicializadoRef.current = false
 
     try {
-      const { empresaId: empresaSesion, error: errEmpresaSesion } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
-      const empresaIdNum =
-        empresaSesion != null && Number.isFinite(Number(empresaSesion)) && Number(empresaSesion) > 0
-          ? Math.trunc(Number(empresaSesion))
-          : null
-      if (empresaIdNum == null) {
-        const msg = errEmpresaSesion || 'No se pudo resolver empresa_id de la sesión.'
-        setErrorCargaCotizacion(msg)
-        setServiciosCotizacionSqlRows([])
-        setCostesRealesTablaSql([])
-        return
-      }
-
-      // 1) Expediente: ingresos + empresa_id (integridad con tenant)
       const { data: expFresco, error: errExp } = await supabase
         .from('expedientes')
-        .select('id, empresa_id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
+        .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
         .eq('id', expedienteId)
         .single()
       if (errExp || !expFresco) {
@@ -1005,63 +990,28 @@ const ExpedienteFinanzas = ({
         setCostesRealesTablaSql([])
         return
       }
-      const expEmp = expFresco.empresa_id != null ? Number(expFresco.empresa_id) : NaN
-      if (!Number.isFinite(expEmp) || Math.trunc(expEmp) !== empresaIdNum) {
-        setErrorCargaCotizacion(
-          'Integridad: el expediente no tiene empresa_id válido o no coincide con tu sesión.',
-        )
-        setServiciosCotizacionSqlRows([])
-        setCostesRealesTablaSql([])
-        return
-      }
 
-      // 2) Única fuente de verdad: servicios_cotizacion — siempre id_expediente + empresa_id (entero).
-      const SERVICIOS_CIERRE_SELECT =
-        'id, empresa_id, nombre_servicio, total_servicio, coste_total_servicio, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
-
-      let serviciosCotizacionRows = []
-      let { data: scRows, error: scErr } = await supabase
+      const serviciosRes = await supabase
         .from('servicios_cotizacion')
-        .select(SERVICIOS_CIERRE_SELECT)
+        .select('*')
         .eq('id_expediente', expedienteId)
-        .eq('empresa_id', empresaIdNum)
+        .eq('empresa_id', 1)
         .order('orden', { ascending: true })
 
-      if (scErr) {
-        const msg = String(scErr.message || '')
-        const faltaColumna =
-          scErr.code === 'PGRST204' || msg.includes('coste_total_servicio') || msg.includes('does not exist')
-        if (faltaColumna) {
-          const SELECT_SIN_COSTE_TOTAL =
-            'id, empresa_id, nombre_servicio, total_servicio, tipo_servicio, nombre_especifico, proveedor_id_int, proveedor_id, coste_unitario, coste_real_proveedor, url_factura_pdf, orden'
-          const retry = await supabase
-            .from('servicios_cotizacion')
-            .select(SELECT_SIN_COSTE_TOTAL)
-            .eq('id_expediente', expedienteId)
-            .eq('empresa_id', empresaIdNum)
-            .order('orden', { ascending: true })
-          if (!retry.error && Array.isArray(retry.data)) {
-            scRows = retry.data
-            scErr = null
-          }
-        }
-      }
+      const scRows = serviciosRes.data
+      const scErr = serviciosRes.error
 
       if (scErr) {
-        console.warn('[Cierre] servicios_cotizacion (load):', scErr)
+        console.error('[Cierre] servicios_cotizacion error Supabase (objeto completo):', scErr)
         setErrorCargaCotizacion(scErr.message || 'Error al cargar servicios desde SQL')
         setServiciosCotizacionSqlRows([])
         setCostesRealesTablaSql([])
       } else if (Array.isArray(scRows)) {
-        try {
-          validarFilasServiciosCotizacionCierre(scRows, empresaIdNum)
-        } catch (valErr) {
-          setErrorCargaCotizacion(valErr?.message || String(valErr))
-          setServiciosCotizacionSqlRows([])
-          setCostesRealesTablaSql([])
-          return
+        if (scRows.length === 0) {
+          console.error('[Cierre] servicios_cotizacion 0 filas — error Supabase:', serviciosRes.error)
+          console.error('[Cierre] servicios_cotizacion 0 filas — respuesta completa:', serviciosRes)
         }
-        serviciosCotizacionRows = scRows
+        const serviciosCotizacionRows = scRows
         const { data: proveedoresDb } = await supabase
           .from('proveedores')
           .select('id, nombre_comercial')
