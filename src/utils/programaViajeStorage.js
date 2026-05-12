@@ -140,3 +140,19 @@ export function resolverRutaProgramaDesdeBdFlexible(empresaIdUi, expedienteId, v
 
   return path
 }
+
+/**
+ * Rutas a probar con `createSignedUrl` (orden: flexible segura → extraída de URL HTTP → cadena relativa cruda en BD).
+ */
+export function rutasCandidatasSignedUrlPrograma(empresaIdUi, expedienteId, valorBd, empresaIdCarpeta = null) {
+  const list = []
+  const push = (p) => {
+    const s = String(p ?? '').trim().replace(/^\/+/, '')
+    if (s && !list.includes(s)) list.push(s)
+  }
+  push(resolverRutaProgramaDesdeBdFlexible(empresaIdUi, expedienteId, valorBd, empresaIdCarpeta))
+  push(resolverRutaProgramaDesdeValorAlmacenado(valorBd))
+  const raw = String(valorBd ?? '').trim().replace(/^\/+/, '')
+  if (raw && !/^https?:\/\//i.test(raw)) push(raw)
+  return list
+}

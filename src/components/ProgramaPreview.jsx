@@ -2,8 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Download, Map, Maximize2, RefreshCw, Upload, X } from 'lucide-react'
 import {
   BUCKET_PROGRAMAS_VIAJE,
-  crearSignedUrlProgramaViaje,
-  resolverRutaProgramaDesdeBdFlexible,
+  rutasCandidatasSignedUrlPrograma,
 } from '../utils/programaViajeStorage'
 
 const BANNER_H = 220
@@ -20,9 +19,30 @@ function esErrorObjetoAusenteStorage(err) {
   )
 }
 
+function esError403Forbidden(err) {
+  const status = err?.status ?? err?.statusCode
+  if (status === 403) return true
+  const m = String(err?.message ?? err ?? '').toLowerCase()
+  return m.includes('403') || m.includes('forbidden') || m.includes('permission denied') || m.includes('rls')
+}
+
+function logSupabaseStorageError(contexto, ruta, error) {
+  const code = error?.code ?? error?.error ?? error?.name
+  const status = error?.status ?? error?.statusCode
+  const msg = error?.message ?? String(error)
+  console.error(`[ProgramaBanner] ${contexto}`, {
+    bucket: BUCKET_PROGRAMAS_VIAJE,
+    rutaIntentada: ruta,
+    mensaje: msg,
+    code,
+    status,
+    errorCompleto: error,
+  })
+}
+
 /**
- * Banner del itinerario (bucket `Programas`, privado): URL firmada 3600 s al cargar y al cambiar `url_programa_pdf`.
- * Estado `pdfUrl` alimenta el iframe. Sin PDF: «Subir Programa». Con PDF: banner + «Cambiar Programa».
+ * Banner del programa (bucket `Programas`): `createSignedUrl` al cargar o cuando cambia `url_programa_pdf` en BD.
+ * Logs en consola para diagnóstico (timing, RLS, objeto inexistente). iframe solo con URL ya firmada.
  */
 const ProgramaPreview = ({
   supabase,
@@ -33,93 +53,142 @@ const ProgramaPreview = ({
   onSolicitarSubida,
   subiendoProgramaPdf = false,
 }) => {
+  const rutaPdfEnDb = String(valorAlmacenadoBd ?? '').trim()
+
   const [pdfUrl, setPdfUrl] = useState(null)
+  const [pathUsada, setPathUsada] = useState(null)
   const [cargandoUrl, setCargandoUrl] = useState(false)
   const [errorUrl, setErrorUrl] = useState(null)
   const [modalFullscreen, setModalFullscreen] = useState(false)
   const [descargando, setDescargando] = useState(false)
 
-  const storagePath = useMemo(
-    () => resolverRutaProgramaDesdeBdFlexible(empresaId, expedienteId, valorAlmacenadoBd, empresaIdCarpetaEnBd),
+  const hayRutaEnBd = rutaPdfEnDb.length > 0
+
+  const rutasCandidatas = useMemo(
+    () => rutasCandidatasSignedUrlPrograma(empresaId, expedienteId, valorAlmacenadoBd, empresaIdCarpetaEnBd),
     [empresaId, empresaIdCarpetaEnBd, expedienteId, valorAlmacenadoBd],
   )
 
   useEffect(() => {
+    console.log('[ProgramaBanner] Ruta PDF en DB (prop valorAlmacenadoBd):', valorAlmacenadoBd, {
+      expedienteId,
+      empresaId,
+      empresaIdCarpetaEnBd,
+    })
+    console.log('[ProgramaBanner] useEffect url_programa_pdf / deps — disparo recuperación.', {
+      valorAlmacenadoBd,
+      expedienteId,
+      rutasCandidatas,
+    })
+
     let cancelado = false
 
     const cargarUrlFirmada = async () => {
-      if (!storagePath || !supabase) {
-        setPdfUrl(null)
-        setErrorUrl(null)
+      setPdfUrl(null)
+      setPathUsada(null)
+      setErrorUrl(null)
+
+      if (!supabase) {
+        console.warn('[ProgramaBanner] Sin cliente supabase; no se llama a createSignedUrl.')
+        setCargandoUrl(false)
+        return
+      }
+
+      if (!hayRutaEnBd) {
+        console.log('[ProgramaBanner] Sin ruta en BD; no se solicita Storage.')
         setCargandoUrl(false)
         return
       }
 
       setCargandoUrl(true)
-      setErrorUrl(null)
-      setPdfUrl(null)
 
-      try {
-        const { data, error } = await supabase.storage
-          .from(BUCKET_PROGRAMAS_VIAJE)
-          .createSignedUrl(storagePath, SIGNED_TTL)
+      const candidatas = rutasCandidatas.length > 0 ? rutasCandidatas : [rutaPdfEnDb]
+      console.log('[ProgramaBanner] Llamada Storage: rutas candidatas para createSignedUrl(3600):', candidatas)
 
-        if (cancelado) return
+      let ultimoError = null
 
-        if (error) {
-          if (esErrorObjetoAusenteStorage(error)) {
-            console.warn(
-              '[ProgramaBanner] La ruta existe en url_programa_pdf pero el objeto no está en Storage (posible borrado).',
-              { rutaResuelta: storagePath, valorBd: valorAlmacenadoBd, expedienteId },
-            )
-          } else {
-            console.warn('[ProgramaBanner] createSignedUrl falló.', { rutaResuelta: storagePath, error })
+      for (let i = 0; i < candidatas.length; i++) {
+        const ruta = candidatas[i]
+        console.log(`[ProgramaBanner] Intento ${i + 1}/${candidatas.length}: createSignedUrl`, {
+          bucket: BUCKET_PROGRAMAS_VIAJE,
+          ruta,
+          ttl: SIGNED_TTL,
+        })
+
+        try {
+          const { data, error } = await supabase.storage
+            .from(BUCKET_PROGRAMAS_VIAJE)
+            .createSignedUrl(ruta, SIGNED_TTL)
+
+          if (cancelado) return
+
+          if (error) {
+            ultimoError = error
+            logSupabaseStorageError(`createSignedUrl error (intento ${i + 1})`, ruta, error)
+
+            if (esError403Forbidden(error)) {
+              console.error(
+                '[ProgramaBanner] Posible bloqueo RLS / 403 Forbidden en Storage. Revisa políticas del bucket Programas.',
+                { ruta },
+              )
+            }
+
+            if (esErrorObjetoAusenteStorage(error)) {
+              console.warn(
+                '[ProgramaBanner] Object not found / ruta sin objeto: la cadena en BD puede no coincidir con el archivo en Storage.',
+                { rutaIntentada: ruta, valorBd: valorAlmacenadoBd },
+              )
+            }
+            continue
           }
-          setPdfUrl(null)
-          setErrorUrl(error.message || String(error))
-          return
-        }
 
-        const url = data?.signedUrl ? String(data.signedUrl).trim() : null
-        if (!url) {
-          setErrorUrl('No se obtuvo signedUrl')
+          const url = data?.signedUrl ? String(data.signedUrl).trim() : null
+          if (!url) {
+            console.warn('[ProgramaBanner] Respuesta sin signedUrl en data.', { data, ruta })
+            ultimoError = new Error('No se obtuvo signedUrl en la respuesta')
+            continue
+          }
+
+          console.log('[ProgramaBanner] createSignedUrl OK.', { rutaUsada: ruta, urlLength: url.length })
+          setPathUsada(ruta)
+          setPdfUrl(url)
+          setCargandoUrl(false)
           return
+        } catch (e) {
+          if (cancelado) return
+          ultimoError = e
+          console.error('[ProgramaBanner] Excepción en createSignedUrl.', { ruta, error: e })
         }
-        setPdfUrl(url)
-      } catch (e) {
-        if (cancelado) return
-        if (esErrorObjetoAusenteStorage(e)) {
-          console.warn(
-            '[ProgramaBanner] La ruta existe en url_programa_pdf pero el objeto no está en Storage (posible borrado).',
-            { rutaResuelta: storagePath, valorBd: valorAlmacenadoBd, expedienteId },
-          )
-        } else {
-          console.warn('[ProgramaBanner] Error al generar URL firmada.', { rutaResuelta: storagePath, error: e })
-        }
-        setPdfUrl(null)
-        setErrorUrl(e?.message || String(e))
-      } finally {
-        if (!cancelado) setCargandoUrl(false)
       }
+
+      if (cancelado) return
+
+      const msg = ultimoError?.message || String(ultimoError || 'Todos los intentos de createSignedUrl fallaron')
+      setErrorUrl(msg)
+      console.error('[ProgramaBanner] Fallo definitivo: ninguna ruta candidata produjo URL firmada.', {
+        candidatas,
+        ultimoError,
+      })
+      setCargandoUrl(false)
     }
 
     void cargarUrlFirmada()
     return () => {
       cancelado = true
     }
-  }, [supabase, storagePath, valorAlmacenadoBd, expedienteId])
+  }, [supabase, hayRutaEnBd, rutaPdfEnDb, valorAlmacenadoBd, expedienteId, rutasCandidatas])
 
   const nombreDescarga = useMemo(() => {
-    if (!storagePath) return 'programa.pdf'
-    const base = storagePath.split('/').pop()
+    if (!pathUsada) return 'programa.pdf'
+    const base = pathUsada.split('/').pop()
     return base && base.endsWith('.pdf') ? base : 'programa.pdf'
-  }, [storagePath])
+  }, [pathUsada])
 
   const descargarOriginal = async () => {
-    if (!storagePath || !supabase) return
+    if (!pathUsada || !supabase) return
     setDescargando(true)
     try {
-      const { data, error } = await supabase.storage.from(BUCKET_PROGRAMAS_VIAJE).download(storagePath)
+      const { data, error } = await supabase.storage.from(BUCKET_PROGRAMAS_VIAJE).download(pathUsada)
       if (error) throw error
       if (!data || data.size === 0) throw new Error('Archivo vacío o no encontrado.')
       const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/pdf' })
@@ -136,7 +205,7 @@ const ProgramaPreview = ({
       if (esErrorObjetoAusenteStorage(e)) {
         console.warn(
           '[ProgramaBanner] Descarga: archivo ausente en Storage pero la ruta sigue en BD.',
-          { rutaResuelta: storagePath, valorBd: valorAlmacenadoBd },
+          { pathUsada, valorBd: valorAlmacenadoBd },
         )
       }
       window.alert(e?.message || 'No se pudo descargar el programa.')
@@ -153,7 +222,7 @@ const ProgramaPreview = ({
     if (typeof onSolicitarSubida === 'function') onSolicitarSubida()
   }
 
-  if (!storagePath) {
+  if (!hayRutaEnBd) {
     return (
       <div className="w-full rounded-xl border-2 border-dashed border-blue-200 bg-gradient-to-br from-blue-50/90 to-white p-6 sm:p-8 text-center shadow-sm">
         <div className="mx-auto flex max-w-md flex-col items-center gap-4">
@@ -189,7 +258,7 @@ const ProgramaPreview = ({
           <button
             type="button"
             onClick={() => descargarOriginal()}
-            disabled={descargando}
+            disabled={descargando || !pathUsada}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
           >
             <Download size={14} />
@@ -204,8 +273,10 @@ const ProgramaPreview = ({
             <RefreshCw size={14} className={subiendoProgramaPdf ? 'animate-spin' : ''} />
             {subiendoProgramaPdf ? 'Subiendo…' : 'Cambiar Programa'}
           </button>
-          {cargandoUrl && <span className="text-[11px] text-slate-500">Preparando vista…</span>}
-          {errorUrl && <span className="max-w-[200px] truncate text-[11px] text-red-600" title={errorUrl}>{errorUrl}</span>}
+          {cargandoUrl && <span className="text-[11px] text-slate-600 font-medium">Cargando programa…</span>}
+          {errorUrl && !cargandoUrl && (
+            <span className="max-w-[220px] truncate text-[11px] text-red-600" title={errorUrl}>{errorUrl}</span>
+          )}
         </div>
       </div>
 
@@ -216,7 +287,7 @@ const ProgramaPreview = ({
           disabled={!pdfUrl}
           className="relative w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100 text-left outline-none ring-offset-2 transition-shadow hover:ring-2 hover:ring-blue-400/40 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ height: BANNER_H }}
-          title={pdfUrl ? 'Pantalla completa' : 'Esperando URL firmada'}
+          title={pdfUrl ? 'Pantalla completa' : cargandoUrl ? 'Cargando' : 'Sin vista previa'}
         >
           {pdfUrl ? (
             <>
@@ -233,8 +304,15 @@ const ProgramaPreview = ({
               </span>
             </>
           ) : (
-            <div className="flex h-full items-center justify-center px-2 text-xs text-slate-500">
-              {cargandoUrl ? 'Cargando PDF…' : 'No se pudo mostrar el PDF.'}
+            <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-xs text-slate-600">
+              {cargandoUrl ? (
+                <>
+                  <span className="font-semibold text-slate-700">Cargando programa…</span>
+                  <span className="text-[10px] text-slate-500">Generando URL firmada (Storage)</span>
+                </>
+              ) : (
+                <span className="text-slate-500">No se pudo mostrar el PDF. Revisa la consola (F12) para el detalle.</span>
+              )}
             </div>
           )}
         </button>

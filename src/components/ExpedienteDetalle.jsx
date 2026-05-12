@@ -622,6 +622,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     setUrlProgramaPdf(String(expediente?.url_programa_pdf ?? '').trim())
   }, [expediente?.id, expediente?.url_programa_pdf])
 
+  useEffect(() => {
+    console.log('[ExpedienteDetalle] Ruta PDF en DB (expediente.url_programa_pdf):', expediente?.url_programa_pdf, {
+      expedienteId: expediente?.id,
+      empresa_id: expediente?.empresa_id,
+    })
+  }, [expediente?.id, expediente?.url_programa_pdf, expediente?.empresa_id])
+
   // Restaurar cierre_grupo guardado (JSONB: total_ingresos, total_gastos, beneficio, fecha + detalle)
   useEffect(() => {
     const cg = expediente?.cierre_grupo
