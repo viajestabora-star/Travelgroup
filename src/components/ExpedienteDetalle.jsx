@@ -726,7 +726,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [datosCargados, setDatosCargados] = useState(false)
 
   // Estado de guardado: evita duplicados y muestra feedback
-  const [isSaving, setIsSaving] = useState(false)
+  /** Solo guardado unificado desde ServiciosCotizacionPanel (cotización + servicios_cotizacion) */
+  const [isSavingServicios, setIsSavingServicios] = useState(false)
+  /** Solo botón «Guardar Cotización» del panel lateral; no debe bloquear el guardado de servicios */
+  const [isSavingCotizacionSidebar, setIsSavingCotizacionSidebar] = useState(false)
+
+  useEffect(() => {
+    setIsSavingServicios(false)
+    setIsSavingCotizacionSidebar(false)
+  }, [expediente?.id])
 
   // Estados para servicios (separados porque se guardan en tabla diferente)
   const [servicios, setServicios] = useState([])
@@ -6401,8 +6409,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     onRefresh={onRefresh}
                     cargarProveedores={cargarProveedores}
                     persistirCambios={persistirCambios}
-                    isSaving={isSaving}
-                    setIsSaving={setIsSaving}
+                    isSaving={isSavingServicios}
+                    setIsSaving={setIsSavingServicios}
                     expediente={expediente}
                   />
                 ) : (
@@ -6418,8 +6426,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     onRefresh={onRefresh}
                     cargarProveedores={cargarProveedores}
                     persistirCambios={persistirCambios}
-                    isSaving={isSaving}
-                    setIsSaving={setIsSaving}
+                    isSaving={isSavingServicios}
+                    setIsSaving={setIsSavingServicios}
                   />
                 )}
 
@@ -6670,9 +6678,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   
                   <div className="mt-6">
                     <button
+                      type="button"
                       onClick={async () => {
-                        if (isSaving) return
-                        setIsSaving(true)
+                        if (isSavingCotizacionSidebar) return
+                        setIsSavingCotizacionSidebar(true)
                         try {
                           const resultado = await persistirCambios()
                           if (resultado?.ok) {
@@ -6683,14 +6692,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                         } catch {
                           alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
                         } finally {
-                          setIsSaving(false)
+                          setIsSavingCotizacionSidebar(false)
                         }
                       }}
-                      disabled={isSaving}
+                      disabled={isSavingCotizacionSidebar}
                       className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       <Save size={20} />
-                      {isSaving ? 'Guardando...' : 'Guardar Cotización'}
+                      {isSavingCotizacionSidebar ? 'Guardando...' : 'Guardar Cotización'}
                     </button>
                   </div>
                 </div>
