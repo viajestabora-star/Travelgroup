@@ -9,6 +9,50 @@ const toNum = (v) => {
   return isNaN(n) ? 0 : n
 }
 
+const esUuidProveedorFk = (v) =>
+  v != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v).trim())
+
+/** Resuelve proveedorId de fila BD hacia el id de catálogo (UUID preferido). */
+const proveedorIdDesdeFilaDb = (row, proveedores) => {
+  if (row.proveedor_id != null && String(row.proveedor_id).trim() !== '' && esUuidProveedorFk(row.proveedor_id)) {
+    return String(row.proveedor_id).trim()
+  }
+  const intv = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
+  if (!intv || isNaN(intv) || intv <= 0) return null
+  const p = (proveedores || []).find((pr) => {
+    const pn = Number(pr.id)
+    if (!isNaN(pn) && pn === intv) return true
+    const pint = pr.id_int != null ? Number(pr.id_int) : NaN
+    return !isNaN(pint) && pint === intv
+  })
+  return p?.id != null ? p.id : intv
+}
+
+/** Si el catálogo llega después del fetch, sustituye proveedorId numérico por UUID del proveedor. */
+const normalizarProveedorIdsEnServicios = (lista, proveedores) => {
+  if (!Array.isArray(lista) || lista.length === 0) return lista
+  let changed = false
+  const next = lista.map((s) => {
+    const id = s?.proveedorId
+    if (id == null || id === '') return s
+    if (esUuidProveedorFk(id)) return s
+    const intv = Number(id)
+    if (isNaN(intv) || intv <= 0) return s
+    const p = (proveedores || []).find((pr) => {
+      const pn = Number(pr.id)
+      if (!isNaN(pn) && pn === intv) return true
+      const pint = pr.id_int != null ? Number(pr.id_int) : NaN
+      return !isNaN(pint) && pint === intv
+    })
+    if (p?.id != null && esUuidProveedorFk(p.id)) {
+      changed = true
+      return { ...s, proveedorId: String(p.id).trim() }
+    }
+    return s
+  })
+  return changed ? next : lista
+}
+
 const generarUUID = () => {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = (Math.random() * 16) | 0
@@ -77,6 +121,22 @@ const TablaServiciosVariante = ({
   }
 
   useEffect(() => {
+    cargadoDesdeExpedienteRef.current = false
+  }, [expedienteId, indiceActivo])
+
+  useEffect(() => {
+    if (!Array.isArray(proveedores) || proveedores.length === 0) return
+    setServiciosLocal((prev) => {
+      const next = normalizarProveedorIdsEnServicios(prev, proveedores)
+      if (next === prev) return prev
+      onVersionesChange((vers) =>
+        vers.map((v, i) => (i === indiceActivo ? { ...v, servicios: [...next] } : v))
+      )
+      return next
+    })
+  }, [proveedores, indiceActivo, onVersionesChange])
+
+  useEffect(() => {
     if (!expedienteId || cargadoDesdeExpedienteRef.current) return
     const servs = versiones[indiceActivo]?.servicios ?? []
     if (Array.isArray(servs) && servs.length > 0) return
@@ -116,13 +176,13 @@ const TablaServiciosVariante = ({
 
         const mapeados = data.map(row => {
           const coste = (v) => toNum(v)
-          const proveedorIdInt = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
+          const proveedorId = proveedorIdDesdeFilaDb(row, proveedores)
           const c = coste(row.coste_unitario ?? row.precio_venta)
           const esPorGrupo = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
           return {
             ...DEFAULT_SERVICE_VALUES,
             id: row.id || generarUUID(),
-            proveedorId: proveedorIdInt,
+            proveedorId,
             proveedorNombreTemporal: row.nombre_proveedor_manual || '',
             tipo: row.tipo_servicio || row.tipo || 'Hotel',
             tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
@@ -153,7 +213,7 @@ const TablaServiciosVariante = ({
     }
 
     cargarDesdeExpediente()
-  }, [expedienteId, indiceActivo])
+  }, [expedienteId, indiceActivo, proveedores])
 
   return (
     <ServiciosCotizacionPanel

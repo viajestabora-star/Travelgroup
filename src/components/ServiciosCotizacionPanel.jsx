@@ -60,7 +60,68 @@ const esUuidServicioValido = (id) => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id.trim())
 }
 
-/** Sanitización de números: cualquier valor no numérico → 0 (para cálculos financieros) */
+/** UUID válido para FK `servicios_cotizacion.proveedor_id` (no confundir con id de fila de servicio). */
+const esUuidProveedorFk = (id) => {
+  if (id == null) return false
+  const s = typeof id === 'string' ? id.trim() : String(id).trim()
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+}
+
+/** Busca proveedor por id UUID, id numérico de lista o `id_int` legado. */
+const buscarProveedorEnLista = (proveedoresList, proveedorRef) => {
+  const listaProv = Array.isArray(proveedoresList) ? proveedoresList : []
+  if (proveedorRef == null || proveedorRef === '') return null
+  const strId = typeof proveedorRef === 'object' && proveedorRef?.id != null
+    ? String(proveedorRef.id).trim()
+    : String(proveedorRef).trim()
+  if (!strId) return null
+  if (esUuidProveedorFk(strId)) {
+    return listaProv.find((p) => String(p?.id ?? '').trim() === strId) || null
+  }
+  const numId = Number(strId)
+  if (isNaN(numId) || numId <= 0) return null
+  return (
+    listaProv.find((p) => {
+      const pn = Number(p?.id)
+      if (!isNaN(pn) && pn === numId) return true
+      const pint = p?.id_int != null ? Number(p.id_int) : NaN
+      return !isNaN(pint) && pint === numId
+    }) || null
+  )
+}
+
+/**
+ * A partir del servicio UI: `proveedor_id` en BD solo UUID; entero → `proveedor_id_int`.
+ */
+const resolverProveedorIdsParaSupabase = (servicio, proveedoresList) => {
+  const raw = servicio?.proveedorId ?? servicio?.proveedor_id ?? servicio?.proveedor_id_int
+  if (raw == null || raw === '') return { proveedorUuid: null, proveedorIdInt: null }
+  const strRaw = typeof raw === 'object' && raw?.id != null ? String(raw.id).trim() : String(raw).trim()
+  if (!strRaw) return { proveedorUuid: null, proveedorIdInt: null }
+  if (esUuidProveedorFk(strRaw)) {
+    const p = buscarProveedorEnLista(proveedoresList, strRaw)
+    let intLegado = null
+    if (p?.id_int != null && !isNaN(Number(p.id_int))) intLegado = Math.trunc(Number(p.id_int))
+    else if (p && typeof p.id === 'number' && !isNaN(p.id)) intLegado = Math.trunc(p.id)
+    return { proveedorUuid: strRaw, proveedorIdInt: intLegado }
+  }
+  const n = Number(strRaw)
+  if (!isNaN(n) && n > 0) {
+    const intLegado = Math.trunc(n)
+    const p = buscarProveedorEnLista(proveedoresList, intLegado)
+    const uuid = p && esUuidProveedorFk(p.id) ? String(p.id).trim() : null
+    return { proveedorUuid: uuid, proveedorIdInt: intLegado }
+  }
+  return { proveedorUuid: null, proveedorIdInt: null }
+}
+
+/** Cruza lista de proveedores (UUID, id numérico o id_int). */
+const resolverNombreProveedorDesdeLista = (proveedoresList, proveedorRef) => {
+  const pr = buscarProveedorEnLista(proveedoresList, proveedorRef)
+  if (!pr) return ''
+  const nombre = pr.nombreComercial ?? pr.nombre_comercial ?? pr.nombre ?? pr.nombre_fiscal ?? ''
+  return String(nombre).trim()
+}
 const toNum = (v) => {
   if (v === null || v === undefined) return 0
   if (typeof v === 'number' && !isNaN(v)) return v
@@ -84,27 +145,6 @@ const generarUUID = () => {
     const v = c === 'x' ? r : (r & 0x3) | 0x8
     return v.toString(16)
   })
-}
-
-/** Cruza proveedor_id_int con la lista en memoria (objeto UI o filas crudas de Supabase). */
-const resolverNombreProveedorDesdeLista = (proveedoresList, proveedorIdInt) => {
-  const listaProv = Array.isArray(proveedoresList) ? proveedoresList : []
-  if (proveedorIdInt == null || proveedorIdInt === '') return ''
-  const strId = String(proveedorIdInt).trim()
-  if (!strId) return ''
-  const numId = Number(strId)
-  const numOk = !isNaN(numId)
-
-  const pr = listaProv.find((p) => {
-    const pid = p?.id
-    if (pid == null || pid === '') return false
-    const pn = Number(pid)
-    if (numOk && !isNaN(pn) && pn === numId) return true
-    return String(pid).trim() === strId
-  })
-  if (!pr) return ''
-  const nombre = pr.nombreComercial ?? pr.nombre_comercial ?? pr.nombre ?? pr.nombre_fiscal ?? ''
-  return String(nombre).trim()
 }
 
 const DEFAULT_SERVICE_VALUES = {
@@ -142,13 +182,19 @@ const mapearRespuestaSupabaseAServiciosUI = (dataRows, proveedoresList) => {
   })
   const proveedores = Array.isArray(proveedoresList) ? proveedoresList : []
   const todosMapeados = ordenados.map((row) => {
-    const proveedorIdInt = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
-    if (proveedorIdInt && !isNaN(proveedorIdInt) && proveedorIdInt > 0) {
-      const proveedorEncontrado = proveedores.find((p) => {
-        const proveedorIdLista = Number(p.id)
-        return !isNaN(proveedorIdLista) && proveedorIdLista === proveedorIdInt
-      })
-      if (proveedorEncontrado) busquedaProveedoresRestaurada[row.id] = proveedorEncontrado.nombreComercial
+    const proveedorIdIntRow = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
+    const uuidRow = row.proveedor_id != null && String(row.proveedor_id).trim() !== '' && esUuidProveedorFk(String(row.proveedor_id))
+      ? String(row.proveedor_id).trim()
+      : null
+    let proveedorIdUi = uuidRow
+    if (!proveedorIdUi && proveedorIdIntRow != null && !isNaN(proveedorIdIntRow) && proveedorIdIntRow > 0) {
+      const pMatch = buscarProveedorEnLista(proveedores, proveedorIdIntRow)
+      proveedorIdUi = pMatch?.id != null ? pMatch.id : proveedorIdIntRow
+    }
+    const refNombre = proveedorIdUi ?? proveedorIdIntRow
+    if (refNombre != null && refNombre !== '') {
+      const nombreProv = resolverNombreProveedorDesdeLista(proveedores, refNombre)
+      if (nombreProv) busquedaProveedoresRestaurada[row.id] = nombreProv
     }
     if (!busquedaProveedoresRestaurada[row.id] && row.nombre_proveedor_manual) {
       busquedaProveedoresRestaurada[row.id] = row.nombre_proveedor_manual
@@ -159,7 +205,7 @@ const mapearRespuestaSupabaseAServiciosUI = (dataRows, proveedoresList) => {
       ...DEFAULT_SERVICE_VALUES,
       id: row.id || generarUUID(),
       nombre_servicio: row.nombre_servicio || row.nombre_especifico || '',
-      proveedorId: proveedorIdInt,
+      proveedorId: proveedorIdUi,
       proveedorNombreTemporal: row.nombre_proveedor_manual || '',
       tipo: row.tipo_servicio || row.tipo || 'Hotel',
       tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
@@ -392,7 +438,7 @@ const ServiciosCotizacionPanel = ({
     return mapa[tipoServicio] || normalizarTipo(tipoServicio)
   }
 
-  const obtenerProveedorPorId = (id) => proveedores.find(p => p.id === id)
+  const obtenerProveedorPorId = (id) => buscarProveedorEnLista(proveedores, id)
 
   const abrirModalProveedor = (inputValue, tipoServicioActual, servicioId) => {
     const nombreLimpio = inputValue?.trim() || ''
@@ -588,13 +634,7 @@ const ServiciosCotizacionPanel = ({
     }
     const calculado = finalizarCalculoModulo(fila, paxPago, totalPax)
     const totalServicio = toNum(calculado?.total_servicio)
-    let proveedorIdLimpio = null
-    const rawProveedor = servicio?.proveedorId ?? servicio?.proveedor_id ?? servicio?.proveedor_id_int
-    if (rawProveedor != null && rawProveedor !== '') {
-      const idRaw = typeof rawProveedor === 'object' ? rawProveedor?.id : rawProveedor
-      const num = idRaw != null ? Number(idRaw) : NaN
-      proveedorIdLimpio = !isNaN(num) && num > 0 ? Math.trunc(num) : null
-    }
+    const { proveedorUuid, proveedorIdInt } = resolverProveedorIdsParaSupabase(servicio, proveedores)
 
     const textoBusquedaProveedor = servicio?.id != null && busquedaProveedor[servicio.id] !== undefined
       ? String(busquedaProveedor[servicio.id]).trim()
@@ -603,8 +643,9 @@ const ServiciosCotizacionPanel = ({
 
     let nombreProveedorTextoPayload = null
     let nombreProveedorManualPayload = null
-    if (proveedorIdLimpio != null) {
-      const desdeLista = resolverNombreProveedorDesdeLista(proveedores, proveedorIdLimpio)
+    if (proveedorUuid != null || proveedorIdInt != null) {
+      const refNombre = servicio?.proveedorId ?? servicio?.proveedor_id ?? proveedorUuid ?? proveedorIdInt
+      const desdeLista = resolverNombreProveedorDesdeLista(proveedores, refNombre)
       const desdeServicio = servicio?.nombre_proveedor_texto != null && String(servicio.nombre_proveedor_texto).trim() !== ''
         ? String(servicio.nombre_proveedor_texto).trim()
         : ''
@@ -662,8 +703,8 @@ const ServiciosCotizacionPanel = ({
       fecha_release: servicio?.fechaRelease || null,
       release_pagado: !!servicio?.releasePagado,
       tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
-      proveedor_id: proveedorIdLimpio,
-      proveedor_id_int: proveedorIdLimpio,
+      proveedor_id: proveedorUuid,
+      proveedor_id_int: proveedorIdInt,
       nombre_proveedor_manual: nombreProveedorManualPayload,
       nombre_proveedor_texto: nombreProveedorTextoPayload,
       mayorista_id: (() => {
@@ -726,18 +767,17 @@ const ServiciosCotizacionPanel = ({
 
           const datosUI = typeof buildDatosParaSupabase === 'function'
             ? buildDatosParaSupabase(s, idCanonico, empresaIdInt)
-            : {
-                tipo_servicio: s.tipo_servicio || s.tipo || 'Hotel',
-                nombre_servicio: String(s.nombreEspecifico ?? s.nombre_servicio ?? s.nombre_especifico ?? '').trim() || 'Servicio',
-                cantidad: Math.max(1, toNum(s.cantidad)),
-                precio_venta: toNum(s.precio_venta ?? s.coste_unitario),
-                proveedor_id: (() => {
-                  const raw = s.proveedorId ?? s.proveedor_id ?? s.proveedor_id_int
-                  if (raw == null || raw === '') return null
-                  const n = Number(raw)
-                  return !isNaN(n) && n > 0 ? Math.trunc(n) : null
-                })(),
-              }
+            : (() => {
+                const { proveedorUuid, proveedorIdInt } = resolverProveedorIdsParaSupabase(s, proveedores)
+                return {
+                  tipo_servicio: s.tipo_servicio || s.tipo || 'Hotel',
+                  nombre_servicio: String(s.nombreEspecifico ?? s.nombre_servicio ?? s.nombre_especifico ?? '').trim() || 'Servicio',
+                  cantidad: Math.max(1, toNum(s.cantidad)),
+                  precio_venta: toNum(s.precio_venta ?? s.coste_unitario),
+                  proveedor_id: proveedorUuid,
+                  proveedor_id_int: proveedorIdInt,
+                }
+              })()
 
           const fila = {
             ...dbRecord,
@@ -749,6 +789,7 @@ const ServiciosCotizacionPanel = ({
           }
           delete fila.descripcion
           delete fila.tipo
+          if (fila.proveedor_id != null && !esUuidProveedorFk(fila.proveedor_id)) delete fila.proveedor_id
           return fila
         })
 

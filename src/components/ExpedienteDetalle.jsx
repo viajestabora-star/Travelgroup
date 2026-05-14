@@ -971,8 +971,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         const rawId = p.id
         const esUuid = typeof rawId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawId)
         const id = esUuid ? rawId : (typeof rawId === 'number' ? rawId : Number(rawId))
+        const idIntCol = p.id_int != null && !isNaN(Number(p.id_int)) ? Math.trunc(Number(p.id_int)) : null
+        const idIntLegacy = !esUuid && rawId != null && !isNaN(Number(rawId)) && Number(rawId) > 0 ? Math.trunc(Number(rawId)) : null
         return {
           id,
+          id_int: idIntCol ?? idIntLegacy,
           nombreComercial: p.nombre_comercial || p.nombreComercial || '',
           nombreFiscal: p.nombre_fiscal || p.nombreFiscal || p.nombre_comercial || '',
           tipo: p.tipo || '',
@@ -1006,13 +1009,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Mapear fila BD → objeto servicio interno
   const mapearFilaAServicio = (row) => {
     const coste = (v) => toNum(v)
-    const proveedorIdInt = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
+    const esUuidProvFk = (v) => v != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v).trim())
+    let proveedorId = null
+    if (row.proveedor_id != null && String(row.proveedor_id).trim() !== '' && esUuidProvFk(row.proveedor_id)) {
+      proveedorId = String(row.proveedor_id).trim()
+    } else {
+      const intv = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
+      if (intv && !isNaN(intv) && intv > 0) {
+        const p = proveedores.find((pr) => {
+          const pn = Number(pr.id)
+          if (!isNaN(pn) && pn === intv) return true
+          const pint = pr.id_int != null ? Number(pr.id_int) : NaN
+          return !isNaN(pint) && pint === intv
+        })
+        proveedorId = p?.id != null ? p.id : intv
+      }
+    }
     const c = coste(row.coste_unitario ?? row.precio_venta)
     const esPorGrupo = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
     return {
       ...DEFAULT_SERVICE_VALUES,
       id: row.id || generarUUID(),
-      proveedorId: proveedorIdInt,
+      proveedorId,
       proveedorNombreTemporal: row.nombre_proveedor_manual || '',
       tipo: row.tipo_servicio || row.tipo || 'Hotel',
       tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
