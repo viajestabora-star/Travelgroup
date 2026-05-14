@@ -730,6 +730,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [isSavingServicios, setIsSavingServicios] = useState(false)
   /** Solo botón «Guardar Cotización» del panel lateral; no debe bloquear el guardado de servicios */
   const [isSavingCotizacionSidebar, setIsSavingCotizacionSidebar] = useState(false)
+  /** `handleGuardar` del panel de servicios: cabecera + servicios (mismo flujo que el botón central). */
+  const guardarCotizacionYServiciosRef = useRef(null)
 
   useEffect(() => {
     setIsSavingServicios(false)
@@ -4470,6 +4472,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Guardar cotización (formData) y mostrar feedback. Retorna { ok } para permitir navegación tras guardar.
   const guardarCotizacion = async () => {
+    const guardarTodo = guardarCotizacionYServiciosRef.current
+    if (typeof guardarTodo === 'function') {
+      const r = await guardarTodo()
+      if (r?.ok) {
+        lastSavedFormDataRef.current = { ...formData }
+        setGuardadoExitoCotizacion(true)
+        setTimeout(() => setGuardadoExitoCotizacion(false), 2500)
+      } else if (r && r.ok === false && r.error && !r.userAlerted) {
+        alert(`❌ Error al guardar: ${r.error}`)
+      }
+      return r ?? { ok: false }
+    }
     const resultado = await persistirCambios()
     if (resultado.ok) {
       lastSavedFormDataRef.current = { ...formData }
@@ -6438,6 +6452,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     onRefresh={onRefresh}
                     cargarProveedores={cargarProveedores}
                     persistirCambios={persistirCambios}
+                    guardarCotizacionYServiciosRef={guardarCotizacionYServiciosRef}
                     isSaving={isSavingServicios}
                     setIsSaving={setIsSavingServicios}
                     expediente={expediente}
@@ -6455,6 +6470,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     onRefresh={onRefresh}
                     cargarProveedores={cargarProveedores}
                     persistirCambios={persistirCambios}
+                    guardarCotizacionYServiciosRef={guardarCotizacionYServiciosRef}
                     isSaving={isSavingServicios}
                     setIsSaving={setIsSavingServicios}
                   />
@@ -6708,23 +6724,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   <div className="mt-6">
                     <button
                       type="button"
-                      onClick={async () => {
-                        if (isSavingCotizacionSidebar) return
-                        setIsSavingCotizacionSidebar(true)
-                        try {
-                          const resultado = await persistirCambios()
-                          if (resultado?.ok) {
-                            alert('✅ Cotización guardada correctamente!')
-                          } else {
-                            alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
-                          }
-                        } catch {
-                          alert('No se pudo guardar. Los cambios no se han perdido. Inténtalo de nuevo.')
-                        } finally {
-                          setIsSavingCotizacionSidebar(false)
-                        }
-                      }}
-                      disabled={isSavingCotizacionSidebar}
+                      onClick={() => guardarCotizacion()}
+                      disabled={isSavingCotizacionSidebar || isSavingServicios}
                       className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       <Save size={20} />

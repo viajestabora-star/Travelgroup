@@ -54,6 +54,7 @@ const TablaServiciosVariante = ({
   onRefresh,
   cargarProveedores,
   persistirCambios,
+  guardarCotizacionYServiciosRef,
   isSaving,
   setIsSaving,
   expediente,
@@ -167,6 +168,7 @@ const TablaServiciosVariante = ({
       onRefresh={onRefresh}
       cargarProveedores={cargarProveedores}
       persistirCambios={persistirCambios}
+      guardarCotizacionYServiciosRef={guardarCotizacionYServiciosRef}
       isSaving={isSaving}
       setIsSaving={setIsSaving}
     />

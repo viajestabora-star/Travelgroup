@@ -348,6 +348,7 @@ const ServiciosCotizacionPanel = ({
   onRefresh,
   cargarProveedores,
   persistirCambios,
+  guardarCotizacionYServiciosRef = null,
   isSaving,
   setIsSaving,
   multicotizacionMode = false,
@@ -645,13 +646,10 @@ const ServiciosCotizacionPanel = ({
 
     return {
       id_expediente: idExpedienteStr,
-      empresa_id: empresaIdInt,
-      /** Columnas canónicas actuales + alias legacy usados en informes / RLS según entorno */
+      empresa_id: Math.trunc(Number(empresaIdInt)),
       tipo_servicio: tipoServicioUi,
-      tipo: tipoServicioUi,
       nombre_servicio: conceptoPrincipal,
       nombre_especifico,
-      descripcion: conceptoPrincipal,
       localizacion: servicio?.localizacion || '',
       especificacion_destino: (servicio?.especificacion_destino && String(servicio.especificacion_destino).trim()) || null,
       coste_unitario: toNum(precioUnitario),
@@ -677,7 +675,8 @@ const ServiciosCotizacionPanel = ({
       })(),
     }
   }
-  const guardarTodosServiciosEnSupabase = async () => {
+  const guardarTodosServiciosEnSupabase = async (serviciosLista) => {
+    const listaServicios = Array.isArray(serviciosLista) ? serviciosLista : []
     const paramsAlClic = paramsRef.current
     const idDesdeRuta = leerIdExpedienteSoloUseParams(paramsAlClic).idExpediente
     const { idExpediente: idCanonico, error: errResolucionExp } = resolverIdExpedienteFuenteVerdad({
@@ -701,12 +700,14 @@ const ServiciosCotizacionPanel = ({
       return { ok: false, error: msg }
     }
 
+    const empresaIdFila = Math.trunc(Number(empresaIdInt))
+
     try {
       const { data: existentes, error: errorEx } = await supabase
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', idCanonico)
-        .eq('empresa_id', empresaIdInt)
+        .eq('empresa_id', empresaIdFila)
 
       if (errorEx != null) {
         const detalle = formatearErrorSupabaseTenant(errorEx)
@@ -717,7 +718,7 @@ const ServiciosCotizacionPanel = ({
 
       const existentesMap = new Map((existentes || []).map((e) => [String(e.id).trim(), e]))
 
-      const filasValidadas = servicios
+      const filasValidadas = listaServicios
         .filter((s) => s && String(s.id || '').trim() !== SERVICIO_ANOMALO_ID)
         .map((s, index) => {
           const idFinal = esUuidServicioValido(s.id) ? String(s.id).trim() : generarUUID()
@@ -726,10 +727,8 @@ const ServiciosCotizacionPanel = ({
           const datosUI = typeof buildDatosParaSupabase === 'function'
             ? buildDatosParaSupabase(s, idCanonico, empresaIdInt)
             : {
-                tipo: s.tipo || s.tipo_servicio || 'Hotel',
                 tipo_servicio: s.tipo_servicio || s.tipo || 'Hotel',
-                descripcion: String(s.descripcion ?? s.nombreEspecifico ?? s.nombre_especifico ?? '').trim() || null,
-                nombre_servicio: String(s.nombreEspecifico ?? s.nombre_servicio ?? '').trim() || 'Servicio',
+                nombre_servicio: String(s.nombreEspecifico ?? s.nombre_servicio ?? s.nombre_especifico ?? '').trim() || 'Servicio',
                 cantidad: Math.max(1, toNum(s.cantidad)),
                 precio_venta: toNum(s.precio_venta ?? s.coste_unitario),
                 proveedor_id: (() => {
@@ -740,14 +739,17 @@ const ServiciosCotizacionPanel = ({
                 })(),
               }
 
-          return {
+          const fila = {
             ...dbRecord,
             ...datosUI,
             id: idFinal,
             id_expediente: idCanonico,
-            empresa_id: empresaIdInt,
+            empresa_id: empresaIdFila,
             orden: index,
           }
+          delete fila.descripcion
+          delete fila.tipo
+          return fila
         })
 
       if (filasValidadas.length === 0) {
@@ -790,10 +792,10 @@ const ServiciosCotizacionPanel = ({
     }
   }
   const handleGuardar = async () => {
-    console.log("🔥 CLICK CAPTURADO EN UI")
+    console.log('🔥 CLICK CAPTURADO EN UI')
     if (isSaving) {
       console.warn('[ServiciosCotizacionPanel] Guardar omitido: isSaving ya es true')
-      return
+      return { ok: false, error: 'Ya se está guardando' }
     }
     setIsSaving(true)
 
@@ -806,30 +808,38 @@ const ServiciosCotizacionPanel = ({
         }
       }
 
-      /* persistirCambios hace finally con flags; re-bloquear hasta terminar servicios */
-      setIsSaving(true)
-      const resultadoServicios = await guardarTodosServiciosEnSupabase()
+      if (!resultadoForm.ok) {
+        const msg = resultadoForm.error || 'Error desconocido'
+        alert('❌ Error al guardar: ' + msg)
+        return { ok: false, error: msg }
+      }
+
+      const serviciosUpsert = Array.isArray(servicios) ? [...servicios] : []
+      const resultadoServicios = await guardarTodosServiciosEnSupabase(serviciosUpsert)
       if (resultadoServicios == null || typeof resultadoServicios.ok !== 'boolean') {
         throw new Error('guardarTodosServiciosEnSupabase no devolvió { ok: boolean }')
       }
 
-      if (resultadoForm.ok && resultadoServicios.ok) {
+      if (resultadoServicios.ok) {
         if (onRefresh) await onRefresh()
         alert('✅ Todo guardado correctamente. ERP protegido.')
-      } else {
-        const msg = resultadoForm.error || resultadoServicios.error || 'Error desconocido'
-        if (!resultadoForm.ok) {
-          alert('❌ Error al guardar: ' + msg)
-        } else if (!resultadoServicios.ok && !resultadoServicios.userAlerted) {
-          alert('❌ Error al guardar: ' + msg)
-        }
+        return { ok: true }
       }
+      const msg = resultadoServicios.error || 'Error desconocido'
+      if (!resultadoServicios.userAlerted) {
+        alert('❌ Error al guardar: ' + msg)
+      }
+      return { ok: false, error: msg, userAlerted: resultadoServicios.userAlerted }
     } catch (err) {
       console.error('❌ Error crítico en handleGuardar:', err)
       alert('ERROR: ' + (err?.message || String(err)))
+      return { ok: false, error: err?.message || String(err) }
     } finally {
       setIsSaving(false)
     }
+  }
+  if (guardarCotizacionYServiciosRef) {
+    guardarCotizacionYServiciosRef.current = handleGuardar
   }
   // Aviso de cambios sin guardar al intentar cerrar/navegar fuera
   useEffect(() => {
