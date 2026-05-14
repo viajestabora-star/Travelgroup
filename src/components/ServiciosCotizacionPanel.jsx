@@ -3,7 +3,7 @@ import { X, Save, Plus, Trash2, CheckCircle } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
-import { leerIdExpedienteSoloUseParams } from '../utils/expedienteCotizacionId'
+import { leerIdExpedienteSoloUseParams, resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
 
 /** Inyección explícita de tenant en servicios_cotizacion (requisito de despliegue actual). */
 const EMPRESA_ID_ESC_SERVICIOS_COTIZACION = 1
@@ -239,7 +239,7 @@ const DropdownSugerencias = ({ servicio, textoBusqueda, proveedores, mapearTipo,
  */
 const ServiciosCotizacionPanel = ({
   expediente,
-  expedienteId: _expedienteIdPropIgnorada,
+  expedienteId: expedienteIdProp,
   servicios,
   setServicios,
   proveedores,
@@ -514,10 +514,11 @@ const ServiciosCotizacionPanel = ({
     const calculado = finalizarCalculoModulo(fila, paxPago, totalPax)
     const totalServicio = toNum(calculado?.total_servicio)
     let proveedorIdLimpio = null
-    if (servicio?.proveedorId != null) {
-      const idRaw = typeof servicio.proveedorId === 'object' ? servicio.proveedorId?.id : servicio.proveedorId
+    const rawProveedor = servicio?.proveedorId ?? servicio?.proveedor_id ?? servicio?.proveedor_id_int
+    if (rawProveedor != null && rawProveedor !== '') {
+      const idRaw = typeof rawProveedor === 'object' ? rawProveedor?.id : rawProveedor
       const num = idRaw != null ? Number(idRaw) : NaN
-      proveedorIdLimpio = !isNaN(num) ? num : null
+      proveedorIdLimpio = !isNaN(num) && num > 0 ? Math.trunc(num) : null
     }
 
     const textoBusquedaProveedor = servicio?.id != null && busquedaProveedor[servicio.id] !== undefined
@@ -540,7 +541,7 @@ const ServiciosCotizacionPanel = ({
       nombreProveedorTextoPayload = null
     }
 
-    const tipoNorm = normalizarTipo(servicio?.tipo || '')
+    const tipoNorm = normalizarTipo(servicio?.tipo || servicio?.tipo_servicio || '')
     const cantidadGuia = Math.max(1, toNum(servicio?.cantidad ?? servicio?.dias_guia ?? nochesFinal))
     const totalServicioFinal = (tipoNorm === 'guia' || tipoNorm === 'g')
       ? toNum(precioUnitario) * cantidadGuia
@@ -559,12 +560,24 @@ const ServiciosCotizacionPanel = ({
       servicio?.nombreEspecifico ?? servicio?.nombre_especifico ?? conceptoPrincipal
     ).trim() || conceptoPrincipal
 
+    const tipoServicioUi = servicio?.tipo_servicio || servicio?.tipo || 'Hotel'
+    const cantidadPayload = (tipoNorm === 'guia' || tipoNorm === 'g')
+      ? cantidadGuia
+      : Math.max(1, toNum(servicio?.cantidad ?? servicio?.noches ?? 1))
+    const idExpedienteStr = String(idExpedienteCanonico ?? '').trim()
+    if (!idExpedienteStr) {
+      console.warn('[ServiciosCotizacion] buildDatosParaSupabase: id_expediente vacío; la fila no debería enviarse a Supabase.')
+    }
+
     return {
-      id_expediente: String(idExpedienteCanonico ?? '').trim(),
+      id_expediente: idExpedienteStr,
       empresa_id: EMPRESA_ID_ESC_SERVICIOS_COTIZACION,
-      tipo_servicio: servicio?.tipo || 'Hotel',
+      /** Columnas canónicas actuales + alias legacy usados en informes / RLS según entorno */
+      tipo_servicio: tipoServicioUi,
+      tipo: tipoServicioUi,
       nombre_servicio: conceptoPrincipal,
       nombre_especifico,
+      descripcion: conceptoPrincipal,
       localizacion: servicio?.localizacion || '',
       especificacion_destino: (servicio?.especificacion_destino && String(servicio.especificacion_destino).trim()) || null,
       coste_unitario: toNum(precioUnitario),
@@ -573,10 +586,11 @@ const ServiciosCotizacionPanel = ({
       margen_pax: toNum(servicio?.margen),
       noches: nochesFinal,
       dias_guia: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : nochesFinal,
-      cantidad: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : Math.max(1, toNum(servicio?.noches ?? 1)),
+      cantidad: cantidadPayload,
       fecha_release: servicio?.fechaRelease || null,
       release_pagado: !!servicio?.releasePagado,
       tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
+      proveedor_id: proveedorIdLimpio,
       proveedor_id_int: proveedorIdLimpio,
       nombre_proveedor_manual: nombreProveedorManualPayload,
       nombre_proveedor_texto: nombreProveedorTextoPayload,
@@ -589,223 +603,125 @@ const ServiciosCotizacionPanel = ({
       })(),
     }
   }
-
   const guardarTodosServiciosEnSupabase = async () => {
     const paramsAlClic = paramsRef.current
-    const { idExpediente: idDeLaUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsAlClic)
-    if (!idDeLaUrl) {
-      const msg = errUrl || 'Sin id de expediente en la URL.'
-      alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
-      return { ok: false, error: msg }
-    }
-    if (expediente?.id && String(expediente.id) !== idDeLaUrl) {
-      const msg = 'El expediente en pantalla no coincide con la URL.'
-      alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
-      return { ok: false, error: msg }
-    }
-    if (!servicios?.length) {
-      console.warn('[Guardar Servicios] Lista vacía — nada que guardar.')
-      return { ok: true }
-    }
+    const idDesdeRuta = leerIdExpedienteSoloUseParams(paramsAlClic).idExpediente
+    const { idExpediente: idCanonico, error: errResolucionExp } = resolverIdExpedienteFuenteVerdad({
+      expediente,
+      expedienteIdProp,
+      idDesdeRuta,
+    })
 
-    const expIdStr = idDeLaUrl
+    console.log('[ServiciosCotizacion] guardar — ID expediente (resolver):', idCanonico, '| id URL:', idDesdeRuta, '| prop:', expedienteIdProp, '| err resolución:', errResolucionExp)
+
+    if (!idCanonico) {
+      const msg = errResolucionExp || 'No se pudo resolver un id de expediente válido (URL, prop o fila expediente).'
+      console.error('[ServiciosCotizacion] guardar abortado:', msg)
+      return { ok: false, error: msg }
+    }
 
     try {
-      // 1. Fetch previo del estado real en DB (base obligatoria para merge no destructivo)
-      const { data: existentes, error: errorExistentes } = await supabase
+      // 1. LEER: Obtenemos el estado actual del ERP para este expediente
+      const { data: existentes, error: errorEx } = await supabase
         .from('servicios_cotizacion')
         .select('*')
-        .eq('id_expediente', expIdStr)
+        .eq('id_expediente', idCanonico)
         .eq('empresa_id', EMPRESA_ID_ESC_SERVICIOS_COTIZACION)
-      if (errorExistentes) {
-        const m = errorExistentes.message || String(errorExistentes)
-        console.error('[Guardar Servicios] ❌ Error al leer estado actual:', m, errorExistentes)
-        alert('Error al guardar en BD: ' + m)
-        return { ok: false, error: m }
-      }
 
-      const existentesMap = new Map((existentes || []).map(e => [String(e.id), e]))
+      if (errorEx) throw errorEx
+      const existentesMap = new Map((existentes || []).map((e) => [String(e.id).trim(), e]))
 
-      // 2. Fetch-then-merge: por cada fila UI, { ...registroBD, ...payloadCotizacion }.
-      // buildDatosParaSupabase no incluye coste_real_proveedor / url_factura_pdf / pagado_a_proveedor:
-      // al hacer spread del registro BD primero, esos valores sobreviven salvo que la UI los envíe explícitamente.
+      // 2. FUSIÓN (MERGE): Mezclamos UI con BD para no perder campos sensibles
       const filasValidadas = servicios
-        .filter((s) => String(s?.id || '').trim() !== SERVICIO_ANOMALO_ID)
+        .filter((s) => s && String(s.id || '').trim() !== SERVICIO_ANOMALO_ID)
         .map((s, index) => {
-          const datos = buildDatosParaSupabase(s, expIdStr)
           const idFinal = esUuidServicioValido(s.id) ? String(s.id).trim() : generarUUID()
-          const dbService = existentesMap.get(idFinal) || {}
+          const dbRecord = existentesMap.get(idFinal) || {}
 
-          const uiService = {
+          const datosUI = typeof buildDatosParaSupabase === 'function'
+            ? buildDatosParaSupabase(s, idCanonico)
+            : {
+                tipo: s.tipo || s.tipo_servicio || 'Hotel',
+                tipo_servicio: s.tipo_servicio || s.tipo || 'Hotel',
+                descripcion: String(s.descripcion ?? s.nombreEspecifico ?? s.nombre_especifico ?? '').trim() || null,
+                nombre_servicio: String(s.nombreEspecifico ?? s.nombre_servicio ?? '').trim() || 'Servicio',
+                cantidad: Math.max(1, toNum(s.cantidad)),
+                precio_venta: toNum(s.precio_venta ?? s.coste_unitario),
+                proveedor_id: (() => {
+                  const raw = s.proveedorId ?? s.proveedor_id ?? s.proveedor_id_int
+                  if (raw == null || raw === '') return null
+                  const n = Number(raw)
+                  return !isNaN(n) && n > 0 ? Math.trunc(n) : null
+                })(),
+              }
+
+          return {
+            ...dbRecord,
+            ...datosUI,
             id: idFinal,
-            id_expediente: expIdStr,
+            id_expediente: idCanonico,
             empresa_id: EMPRESA_ID_ESC_SERVICIOS_COTIZACION,
             orden: index,
-            tipo_servicio: datos.tipo_servicio,
-            nombre_servicio: datos.nombre_servicio,
-            nombre_especifico: datos.nombre_especifico,
-            localizacion: datos.localizacion,
-            especificacion_destino: datos.especificacion_destino,
-            coste_unitario: datos.coste_unitario,
-            total_servicio: datos.total_servicio,
-            precio_venta: datos.precio_venta,
-            margen_pax: datos.margen_pax,
-            noches: datos.noches,
-            dias_guia: datos.dias_guia,
-            cantidad: datos.cantidad,
-            fecha_release: datos.fecha_release,
-            release_pagado: datos.release_pagado,
-            tipo_calculo: datos.tipo_calculo,
-            proveedor_id_int: datos.proveedor_id_int,
-            nombre_proveedor_manual: datos.nombre_proveedor_manual,
-            nombre_proveedor_texto:
-              datos.nombre_proveedor_texto != null && String(datos.nombre_proveedor_texto).trim() !== ''
-                ? String(datos.nombre_proveedor_texto).trim()
-                : null,
-            mayorista_id: datos.mayorista_id,
           }
-
-          const fusionado = { ...dbService, ...uiService }
-
-          const prevCoste = dbService?.coste_real_proveedor
-          const prevUrl = dbService?.url_factura_pdf
-          const prevPagado = dbService?.pagado_a_proveedor
-          if (
-            (fusionado.coste_real_proveedor == null || fusionado.coste_real_proveedor === '')
-            && prevCoste != null && prevCoste !== ''
-          ) {
-            fusionado.coste_real_proveedor = prevCoste
-          }
-          if (
-            (fusionado.url_factura_pdf == null || String(fusionado.url_factura_pdf).trim() === '')
-            && prevUrl != null && String(prevUrl).trim() !== ''
-          ) {
-            fusionado.url_factura_pdf = prevUrl
-          }
-          if (
-            (fusionado.pagado_a_proveedor === undefined || fusionado.pagado_a_proveedor === null)
-            && prevPagado !== undefined && prevPagado !== null
-          ) {
-            fusionado.pagado_a_proveedor = prevPagado
-          }
-
-          const nombrePorCruceLista = resolverNombreProveedorDesdeLista(proveedores, fusionado.proveedor_id_int)
-          if (nombrePorCruceLista) {
-            fusionado.nombre_proveedor_texto = nombrePorCruceLista
-            fusionado.nombre_proveedor_manual = null
-          }
-
-          return fusionado
         })
 
-      for (const fila of filasValidadas) {
-        fila.id_expediente = expIdStr
-        fila.empresa_id = EMPRESA_ID_ESC_SERVICIOS_COTIZACION
+      console.log('[ServiciosCotizacion] filas validadas para .upsert():', filasValidadas)
+
+      if (filasValidadas.length === 0) {
+        console.log('[ServiciosCotizacion] Sin filas que persistir; se omite upsert.')
+        return { ok: true }
       }
 
-      // 3. Validar
-      const invalidas = filasValidadas.filter((r) => {
-        const nombre = String(r.nombre_servicio || '').trim()
-        const total = Number(r.total_servicio || 0)
-        return !nombre || !(total > 0)
-      })
-      if (invalidas.length > 0) {
-        console.error('[Guardar Servicios] Validación fallida:', invalidas)
-        alert(
-          'ERROR CRÍTICO AL GUARDAR: todos los servicios deben tener nombre_servicio y total_servicio mayor que 0.',
-        )
-        return { ok: false, error: 'Validación de servicios fallida' }
-      }
-
-      if (!window.confirm('Se guardarán los servicios del expediente. ¿Confirmas continuar?')) {
-        return { ok: false, error: 'Operación cancelada por el usuario' }
-      }
-
-      // 4. Upsert atómico del array fusionado (una petición)
-      const { data: dataUpsert, error: errUpsert } = await supabase
+      // 3. ESCRIBIR: Upsert único
+      const upsertRes = await supabase
         .from('servicios_cotizacion')
         .upsert(filasValidadas, { onConflict: 'id' })
-        .select('id')
 
-      if (errUpsert) {
-        const m = errUpsert.message || String(errUpsert)
-        console.error('[Guardar Servicios] ❌ Error en upsert:', m, errUpsert)
-        alert('Error al guardar en BD: ' + m)
-        return { ok: false, error: m }
-      }
+      console.log('[ServiciosCotizacion] resultado Supabase .upsert:', { data: upsertRes.data, error: upsertRes.error })
 
-      const idsUi = new Set(filasValidadas.map((f) => String(f.id)))
-      const orphanIds = [...existentesMap.keys()].filter((idKey) => !idsUi.has(String(idKey)))
-      if (orphanIds.length > 0) {
-        const { error: errDel } = await supabase
-          .from('servicios_cotizacion')
-          .delete()
-          .eq('id_expediente', expIdStr)
-          .eq('empresa_id', EMPRESA_ID_ESC_SERVICIOS_COTIZACION)
-          .in('id', orphanIds)
-        if (errDel) {
-          const md = errDel.message || String(errDel)
-          console.error('[Guardar Servicios] ❌ Error al eliminar servicios huérfanos:', md, errDel)
-          alert('Error al guardar en BD: ' + md)
-          return { ok: false, error: md }
-        }
-      }
-
-      console.log('[Guardar Servicios] upsert OK — filas:', dataUpsert?.length ?? filasValidadas.length)
-      await onRefresh?.()
-      return { ok: true, data: dataUpsert || [] }
-
-    } catch (err) {
-      const m = err?.message || String(err)
-      console.error('[Guardar Servicios] ❌ Error general:', err)
-      alert('Error al guardar en BD: ' + m)
-      return { ok: false, error: m }
+      if (upsertRes.error) throw upsertRes.error
+      return { ok: true }
+    } catch (error) {
+      console.error('[ServiciosCotizacion] Error en el motor de guardado:', error)
+      return { ok: false, error: error?.message || String(error) }
     }
   }
-
-  const marcarReleaseComoPagadoServicio = (servicioId) => {
-    if (!servicioId) return
-    if (!window.confirm('¿Estás seguro de que quieres marcar este release como pagado?')) return
-    actualizarServicio(servicioId, 'releasePagado', true)
-    /* Persistence via manual Guardar button */
-  }
-
   const handleGuardar = async () => {
     if (isSaving) return
-    const paramsAlClic = paramsRef.current
-    const { idExpediente: idOk, error: errVin } = leerIdExpedienteSoloUseParams(paramsAlClic)
-    if (!idOk) {
-      alert('ERROR CRÍTICO AL GUARDAR: ' + (errVin || 'Sin id de expediente en la URL.'))
-      return
-    }
-    if (expediente?.id && String(expediente.id) !== idOk) {
-      alert('ERROR CRÍTICO AL GUARDAR: el expediente abierto no coincide con la URL.')
-      return
-    }
     setIsSaving(true)
+
     try {
-      const resultadoForm      = await persistirCambios()
+      const paramsAlClic = paramsRef.current
+      const idDesdeRutaLog = leerIdExpedienteSoloUseParams(paramsAlClic).idExpediente
+      const resueltoLog = resolverIdExpedienteFuenteVerdad({
+        expediente,
+        expedienteIdProp,
+        idDesdeRuta: idDesdeRutaLog,
+      })
+      console.log('[ServiciosCotizacion] handleGuardar — expediente id resuelto:', resueltoLog.idExpediente, '| servicios en UI:', servicios?.length ?? 0)
+
+      let resultadoForm = { ok: true }
+      if (typeof persistirCambios === 'function') {
+        resultadoForm = await persistirCambios()
+      }
+
       const resultadoServicios = await guardarTodosServiciosEnSupabase()
 
       if (resultadoForm?.ok && resultadoServicios?.ok) {
-        console.log('[Guardar] ✅ Cotización y servicios guardados correctamente.')
-        alert('✅ Cotización guardada correctamente')
-      } else if (!resultadoForm?.ok) {
-        const msg = resultadoForm?.error || 'Error desconocido'
-        console.error('[Guardar] ❌ Error en persistirCambios:', msg)
-        alert('ERROR CRÍTICO AL GUARDAR: ' + msg)
-      } else if (!resultadoServicios?.ok) {
-        // El error específico ya fue mostrado dentro de guardarTodosServiciosEnSupabase
-        console.error('[Guardar] ❌ Error en servicios:', resultadoServicios?.error)
+        if (onRefresh) await onRefresh()
+        alert('✅ Todo guardado correctamente. ERP protegido.')
+      } else {
+        const msg = resultadoForm?.error || resultadoServicios?.error || 'Error desconocido'
+        alert('❌ Error al guardar: ' + msg)
       }
     } catch (err) {
-      console.error('[Guardar] ❌ Excepción en handleGuardar:', err)
-      alert('ERROR CRÍTICO AL GUARDAR: ' + (err?.message || String(err)))
+      console.error('❌ Error crítico en handleGuardar:', err)
+      alert('ERROR: ' + (err?.message || String(err)))
     } finally {
       setIsSaving(false)
+      console.log('[ServiciosCotizacion] handleGuardar finalizado.')
     }
   }
-
   // Aviso de cambios sin guardar al intentar cerrar/navegar fuera
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -834,15 +750,13 @@ const ServiciosCotizacionPanel = ({
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleGuardar}
-              disabled={isSaving || !idExpedienteCotizacion || !!errorVinculacionExpediente}
               className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60"
             >
               <Save size={16} />
               {isSaving ? 'Guardando...' : 'Guardar'}
             </button>
           </div>
-        </div>
-
+          </div>
         {servicios.length === 0 ? (
           <div className="space-y-4">
             <p className="text-center text-gray-500 py-8">No hay servicios añadidos</p>
