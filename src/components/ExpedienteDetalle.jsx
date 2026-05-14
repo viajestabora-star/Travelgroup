@@ -4399,13 +4399,33 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (err?.details) return String(err.details)
       return String(err)
     }
-    const expedienteId = expediente?.id
-    if (!expedienteId) return { ok: false, error: 'Expediente sin ID' }
-    if (!datosCargados) return { ok: false, error: 'Datos aún cargando' }
 
     try {
+      const expedienteUuidActivo = normalizarUuidExpediente(expediente?.id)
+      if (!expedienteUuidActivo) {
+        return { ok: false, error: 'Expediente sin id UUID válido para actualizar la tabla expedientes.' }
+      }
+      if (!datosCargados) {
+        return { ok: false, error: 'Datos aún cargando' }
+      }
+
+      let empresaIdEscritura
+      try {
+        empresaIdEscritura = await resolverEmpresaIdEscrituraObligatorio(supabase)
+      } catch (errTenant) {
+        console.error('❌ ERROR EN BASE DE DATOS (TABLA EXPEDIENTES):', errTenant)
+        return { ok: false, error: extraerMensajeError(errTenant) }
+      }
+
+      const empExpediente = Number(expediente?.empresa_id)
+      if (Number.isFinite(empExpediente) && empExpediente > 0 && empExpediente !== empresaIdEscritura) {
+        const errInt = new Error('Integridad: empresa_id del expediente no coincide con la sesión de escritura.')
+        console.error('❌ ERROR EN BASE DE DATOS (TABLA EXPEDIENTES):', errInt)
+        return { ok: false, error: errInt.message }
+      }
+
       const fd = versiones?.length > 0 ? formDataParaVariante : formData
-      const datosParaGuardar = {
+      const datos = {
         total_pax: toNum(fd?.total_pax),
         gratuidades: toNum(fd?.gratuidades),
         pax_pago: Math.max(1, toNum(fd?.total_pax) - toNum(fd?.gratuidades)),
@@ -4415,18 +4435,23 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         sup_individual_precio_dia: toNum(fd?.sup_individual_precio_dia),
         sup_seguro_pax: toNum(fd?.sup_seguro_pax),
         sup_seguro_precio_total: toNum(fd?.sup_seguro_precio_total),
-        // Multigrupo: sin entradas vacías/nulas (columna expedientes: desglose_grupos)
         desglose_grupos: limpiarDesgloseGruposParaSupabase(desgloseGrupos),
+        empresa_id: empresaIdEscritura,
       }
+
+      console.log('📝 DATOS ENVIADOS A TABLA EXPEDIENTES:', datos)
 
       const { error } = await supabase
         .from('expedientes')
-        .update(datosParaGuardar)
-        .eq('id', expedienteId)
+        .update(datos)
+        .eq('id', expedienteUuidActivo)
 
-      if (error) return { ok: false, error: extraerMensajeError(error) }
+      if (error) {
+        console.error('❌ ERROR EN BASE DE DATOS (TABLA EXPEDIENTES):', error)
+        return { ok: false, error: extraerMensajeError(error) }
+      }
 
-      onUpdate({ ...expediente, ...datosParaGuardar })
+      onUpdate({ ...expediente, ...datos })
       if (versiones?.length > 0) {
         lastSavedVersionesRef.current = JSON.parse(JSON.stringify(versiones))
       }
@@ -4435,7 +4460,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       if (typeof onRefresh === 'function') onRefresh()
       return { ok: true }
     } catch (error) {
+      console.error('❌ ERROR EN BASE DE DATOS (TABLA EXPEDIENTES):', error)
       return { ok: false, error: extraerMensajeError(error) }
+    } finally {
+      setIsSavingServicios(false)
+      setIsSavingCotizacionSidebar(false)
     }
   }
 

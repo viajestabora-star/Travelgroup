@@ -806,6 +806,8 @@ const ServiciosCotizacionPanel = ({
         }
       }
 
+      /* persistirCambios hace finally con flags; re-bloquear hasta terminar servicios */
+      setIsSaving(true)
       const resultadoServicios = await guardarTodosServiciosEnSupabase()
       if (resultadoServicios == null || typeof resultadoServicios.ok !== 'boolean') {
         throw new Error('guardarTodosServiciosEnSupabase no devolvió { ok: boolean }')
