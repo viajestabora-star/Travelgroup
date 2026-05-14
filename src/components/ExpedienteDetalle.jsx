@@ -1332,7 +1332,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         // Cargar datos del expediente desde Supabase (solo columnas confirmadas)
         const { data, error } = await supabase
           .from('expedientes')
-          .select('total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total')
+          .select('destino, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, sup_individual_pax, sup_individual_precio_dia, sup_seguro_pax, sup_seguro_precio_total')
           .eq('id', expedienteId)
           .single()
 
@@ -1376,7 +1376,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         // Carga Blindada: Solo establecer formData si los datos son válidos
         setFormData(datosCargados)
         lastSavedFormDataRef.current = { ...datosCargados }
-        
+
+        const destinoDb = data.destino != null ? String(data.destino) : ''
+        if (typeof onUpdate === 'function' && expediente) {
+          onUpdate({ ...expediente, destino: destinoDb })
+        }
+
         // Liberar guardado: Marcar como cargado para permitir guardados
         setDatosCargados(true)
       } catch (err) {

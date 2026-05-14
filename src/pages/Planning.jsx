@@ -79,7 +79,7 @@ const Planning = ({ user = null }) => {
 
       let query = supabase
         .from('expedientes')
-        .select('id, numero_expediente, nombre_grupo, fecha_inicio, fecha_final, estado, empresa_id, ejercicio')
+        .select('id, numero_expediente, nombre_grupo, fecha_inicio, fecha_final, estado, empresa_id, ejercicio, destino')
         .order('fecha_inicio', { ascending: true })
 
       if (empresaIdFiltro != null) {
@@ -119,7 +119,7 @@ const Planning = ({ user = null }) => {
         fecha_fin: exp.fecha_final || '',
         fechaInicio: exp.fecha_inicio || '',
         fechaFin: exp.fecha_final || '',
-        destino: '',
+        destino: exp.destino != null ? String(exp.destino) : '',
         responsable: '',
         estado: (exp.estado || 'peticion').toString().trim(),
         observaciones: '',
