@@ -1063,38 +1063,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   // Cargar servicios de cotización cuando se abre el expediente (para Cierre de Grupo y otras pestañas)
-  // Multicotización: si versiones_json existe, usar; si no, crear Opción 1 desde servicios_cotizacion
+  // FUENTE DE VERDAD: servicios_cotizacion (la tabla real). versiones_json solo para metadatos de versiones.
   const cargarServiciosCotizacion = async () => {
     const id = expediente?.id
     if (!id) return
     lastSavedVersionesRef.current = null
     try {
-      const { data: expData } = await supabase.from('expedientes').select('versiones_json').eq('id', id).single()
-      const vj = expData?.versiones_json ?? expediente?.versiones_json
-      const versionesGuardadas = Array.isArray(vj?.versiones) ? vj.versiones : null
-
-      if (versionesGuardadas && versionesGuardadas.length > 0) {
-        const defaultCab = getDefaultCabecera(expediente, null)
-        const vs = versionesGuardadas.map(v => {
-          const cab = v.cabecera && typeof v.cabecera === 'object'
-            ? { ...defaultCab, ...v.cabecera }
-            : defaultCab
-          return {
-            id: v.id || generarUUID(),
-            nombre: v.nombre ?? '',
-            servicios: Array.isArray(v.servicios) ? v.servicios : [],
-            confirmada: !!v.confirmada,
-            cabecera: cab,
-          }
-        })
-        setVersiones(vs)
-        lastSavedVersionesRef.current = JSON.parse(JSON.stringify(vs))
-        setVersionActiva(0)
-        const servs = versionesGuardadas[0]?.servicios || []
-        setServicios(Array.isArray(servs) ? servs : [])
-        return
-      }
-
+      // PRIMERO: Cargar servicios reales de la tabla servicios_cotizacion (fuente de verdad)
       let serviciosResponse = await supabase
         .from('servicios_cotizacion')
         .select('*')
@@ -1112,28 +1087,58 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           .order('id', { ascending: true })
       }
 
-      const data = serviciosResponse.data
+      const data = serviciosResponse.data || []
+      const todosMapeados = data.map(mapearFilaAServicio)
+      const serviciosReales = todosMapeados.filter(tieneDatos)
+      const idsServiciosReales = new Set(serviciosReales.map(s => s.id))
+
+      // SEGUNDO: Cargar versiones_json solo para metadatos (nombre, confirmada, cabecera)
+      // pero NUNCA usar los servicios embebidos de versiones_json
+      const { data: expData } = await supabase.from('expedientes').select('versiones_json').eq('id', id).single()
+      const vj = expData?.versiones_json ?? expediente?.versiones_json
+      const versionesGuardadas = Array.isArray(vj?.versiones) ? vj.versiones : null
+
       const defaultCab = getDefaultCabecera(expediente, null)
-      if (data && Array.isArray(data) && data.length > 0) {
-        const todosMapeados = data.map(mapearFilaAServicio)
-        const serviciosMapeados = todosMapeados.filter(tieneDatos)
+      
+      if (versionesGuardadas && versionesGuardadas.length > 0) {
+        // Usar metadatos de versiones pero SIEMPRE los servicios de la tabla real
+        const vs = versionesGuardadas.map((v, idx) => {
+          const cab = v.cabecera && typeof v.cabecera === 'object'
+            ? { ...defaultCab, ...v.cabecera }
+            : defaultCab
+          return {
+            id: v.id || generarUUID(),
+            nombre: v.nombre ?? '',
+            // Si es la primera versión (activa), usar servicios reales de la BD
+            // Para otras versiones, filtrar solo los que existen en la BD
+            servicios: idx === 0
+              ? serviciosReales
+              : (Array.isArray(v.servicios)
+                  ? v.servicios.filter(s => idsServiciosReales.has(s.id))
+                  : []),
+            confirmada: !!v.confirmada,
+            cabecera: cab,
+          }
+        })
+        setVersiones(vs)
+        lastSavedVersionesRef.current = JSON.parse(JSON.stringify(vs))
+        setVersionActiva(0)
+        setServicios(serviciosReales)
+      } else {
+        // No hay versiones guardadas, crear versión inicial con servicios reales
         const versionInicial = {
           id: generarUUID(),
           nombre: '',
-          servicios: serviciosMapeados,
+          servicios: serviciosReales,
           confirmada: false,
           cabecera: { ...defaultCab },
         }
         setVersiones([versionInicial])
         setVersionActiva(0)
-        setServicios(serviciosMapeados)
-      } else {
-        const versionInicial = { id: generarUUID(), nombre: '', servicios: [], confirmada: false, cabecera: { ...defaultCab } }
-        setVersiones([versionInicial])
-        setVersionActiva(0)
-        setServicios([])
+        setServicios(serviciosReales)
       }
-    } catch (_) {
+    } catch (error) {
+      console.error('[cargarServiciosCotizacion] Error:', error)
       const defaultCab = getDefaultCabecera(expediente, null)
       setVersiones([{ id: generarUUID(), nombre: '', servicios: [], confirmada: false, cabecera: { ...defaultCab } }])
       setVersionActiva(0)
@@ -1165,6 +1170,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       }
       return next
     })
+    // Limpiar ref de último guardado para forzar re-sincronización con BD
+    lastSavedVersionesRef.current = null
   }
 
   // Al cambiar de pestaña: TablaServiciosVariante ya actualiza versiones en cada cambio; aquí solo cambiamos activa.
