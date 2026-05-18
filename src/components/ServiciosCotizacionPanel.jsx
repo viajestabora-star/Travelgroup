@@ -136,78 +136,140 @@ const DEFAULT_SERVICE_VALUES = {
 
 /**
  * Convierte filas devueltas por Supabase al modelo de UI del panel (ids canónicos, búsqueda proveedor).
+ *
+ * ⚠️ FUNCIÓN CRÍTICA: Ultra-defensiva - NUNCA descarta filas, aunque tengan datos incompletos.
+ * Todas las filas existentes en BD deben mostrarse en la interfaz con valores por defecto.
  */
 const mapearRespuestaSupabaseAServiciosUI = (dataRows, proveedoresList) => {
   const lista = Array.isArray(dataRows) ? dataRows : []
   const busquedaProveedoresRestaurada = {}
+  
+  // Ordenar manteniendo el orden original de BD
   const ordenados = [...lista].sort((a, b) => {
     const oa = a?.orden ?? 0
     const ob = b?.orden ?? 0
     if (oa !== ob) return oa - ob
     return String(a?.id ?? '').localeCompare(String(b?.id ?? ''))
   })
+  
   const proveedores = Array.isArray(proveedoresList) ? proveedoresList : []
+  
+  // Mapeo ULTRA-DEFENSIVO: Cada fila se mapea SIN CONDICIONES
+  // Incluso filas con datos corruptos o incompletos se muestran
   const todosMapeados = ordenados.map((row) => {
-    // NORMALIZACIÓN DEFENSIVA para datos antiguos
-    const idNormalizado = row.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id)
+    // ID único: preservar el original o generar uno nuevo si es necesario
+    const idNormalizado = row?.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id)
       ? row.id
-      : (row.id || generarUUID())
+      : (row?.id || generarUUID())
     
-    // Normalizar proveedor_id_int (soportar formato antiguo y nuevo)
+    // ID_EXPEDIENTE: Crítico para el anclaje relacional - siempre preservar
+    const idExpedientePreservado = row?.id_expediente || row?.expediente_id || null
+    
+    // PROVEEDOR: Múltiples fallbacks para datos antiguos/corruptos
     let proveedorIdIntRow = null
-    if (row.proveedor_id_int != null && row.proveedor_id_int !== '') {
-      proveedorIdIntRow = Number(row.proveedor_id_int)
-    } else if (row.proveedorId != null && row.proveedorId !== '') {
-      proveedorIdIntRow = Number(row.proveedorId)
-    } else if (row.proveedor_id != null && row.proveedor_id !== '') {
-      proveedorIdIntRow = Number(row.proveedor_id)
-    }
-    const proveedorIdUi = proveedorIdIntRow != null && !isNaN(proveedorIdIntRow) && proveedorIdIntRow > 0
-      ? proveedorIdIntRow
-      : null
-    
-    if (proveedorIdUi != null) {
-      const nombreProv = String(row.proveedor_nombre || '').trim()
-        || resolverNombreProveedorDesdeLista(proveedores, proveedorIdUi)
-      if (nombreProv) busquedaProveedoresRestaurada[idNormalizado] = nombreProv
-    }
-    if (!busquedaProveedoresRestaurada[idNormalizado]) {
-      const nombreManual = String(row.proveedor_nombre || row.nombre_proveedor_manual || row.nombre_proveedor_texto || '').trim()
-      if (nombreManual) busquedaProveedoresRestaurada[idNormalizado] = nombreManual
+    if (row?.proveedor_id_int != null && row.proveedor_id_int !== '') {
+      const parsed = Number(row.proveedor_id_int)
+      if (!isNaN(parsed) && parsed > 0) proveedorIdIntRow = parsed
+    } else if (row?.proveedorId != null && row.proveedorId !== '') {
+      const parsed = Number(row.proveedorId)
+      if (!isNaN(parsed) && parsed > 0) proveedorIdIntRow = parsed
+    } else if (row?.proveedor_id != null && row.proveedor_id !== '') {
+      const parsed = Number(row.proveedor_id)
+      if (!isNaN(parsed) && parsed > 0) proveedorIdIntRow = parsed
     }
     
-    const coste = toNum(row.coste_unitario ?? row.precio_venta)
-    const esPorGrupo = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
+    const proveedorIdUi = proveedorIdIntRow
     
-    // Normalizar tipo de servicio (formatos antiguos y nuevos)
-    const tipoNormalizado = row.tipo_servicio || row.tipo || 'Hotel'
+    // Nombre del proveedor con múltiples fuentes de fallback
+    let nombreProveedor = 'Sin proveedor'
+    if (row?.proveedor_nombre && String(row.proveedor_nombre).trim()) {
+      nombreProveedor = String(row.proveedor_nombre).trim()
+    } else if (row?.nombre_proveedor_manual && String(row.nombre_proveedor_manual).trim()) {
+      nombreProveedor = String(row.nombre_proveedor_manual).trim()
+    } else if (row?.nombre_proveedor_texto && String(row.nombre_proveedor_texto).trim()) {
+      nombreProveedor = String(row.nombre_proveedor_texto).trim()
+    } else if (proveedorIdUi != null) {
+      const nombreDesdeLista = resolverNombreProveedorDesdeLista(proveedores, proveedorIdUi)
+      if (nombreDesdeLista) nombreProveedor = nombreDesdeLista
+    }
+    
+    // Guardar para restaurar en búsqueda
+    if (nombreProveedor && nombreProveedor !== 'Sin proveedor') {
+      busquedaProveedoresRestaurada[idNormalizado] = nombreProveedor
+    }
+    
+    // Campos numéricos con fallbacks seguros
+    const coste = toNum(row?.coste_unitario ?? row?.precio_venta ?? 0)
+    const margen = toNum(row?.margen_pax ?? row?.margen ?? 0)
+    const nochesRaw = toNum(row?.noches ?? 1)
+    const noches = nochesRaw > 0 ? nochesRaw : 1
+    const diasGuiaRaw = toNum(row?.dias_guia ?? noches)
+    const diasGuia = diasGuiaRaw > 0 ? diasGuiaRaw : noches
+    const cantidadRaw = toNum(row?.cantidad ?? diasGuia ?? noches ?? 1)
+    const cantidad = cantidadRaw > 0 ? cantidadRaw : 1
+    
+    // Tipo de cálculo
+    const tipoCalculoRaw = row?.tipo_calculo || ''
+    const esPorGrupo = tipoCalculoRaw === 'Total a dividir' || tipoCalculoRaw === 'porGrupo'
+    
+    // Tipo de servicio con fallback
+    const tipoNormalizado = row?.tipo_servicio || row?.tipo || 'Hotel'
+    
+    // Fechas con manejo seguro
+    const fechaRelease = row?.fecha_release
+      ? String(row.fecha_release).split('T')[0]
+      : ''
+    
+    // Mayorista ID con validación
+    let mayoristaId = null
+    if (row?.mayorista_id != null && row.mayorista_id !== '') {
+      mayoristaId = typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-')
+        ? row.mayorista_id
+        : String(row.mayorista_id)
+    }
+    
+    // Nombre del servicio con múltiples fallbacks
+    const nombreServicio = row?.nombre_servicio || row?.nombre_especifico || row?.descripcion || 'Servicio sin nombre'
     
     return {
       ...DEFAULT_SERVICE_VALUES,
+      // ID único preservado
       id: idNormalizado,
-      nombre_servicio: row.nombre_servicio || row.nombre_especifico || row.descripcion || '',
-      proveedorId: proveedorIdUi,
-      proveedor_id_int: proveedorIdUi, // Asegurar ambos formatos
-      proveedorNombreTemporal: row.proveedor_nombre || row.nombre_proveedor_manual || row.nombre_proveedor_texto || '',
+      // ID_EXPEDIENTE preservado para anclaje relacional
+      id_expediente: idExpedientePreservado,
+      expediente_id: idExpedientePreservado,
+      // Datos del servicio con fallbacks
+      nombre_servicio: nombreServicio,
+      nombreEspecifico: nombreServicio,
       tipo: tipoNormalizado,
       tipo_servicio: tipoNormalizado,
-      nombreEspecifico: row.nombre_servicio || row.nombre_especifico || row.descripcion || '',
-      localizacion: row.localizacion || '',
-      especificacion_destino: row.especificacion_destino || '',
+      // Proveedor con valores por defecto
+      proveedorId: proveedorIdUi,
+      proveedor_id_int: proveedorIdUi,
+      proveedorNombreTemporal: nombreProveedor,
+      proveedor_nombre: nombreProveedor,
+      // Localización
+      localizacion: row?.localizacion || '',
+      especificacion_destino: row?.especificacion_destino || '',
+      // Campos numéricos
       coste_unitario: coste,
       total_servicio_manual: esPorGrupo ? coste : 0,
       tipo_calculo: esPorGrupo ? 'porGrupo' : 'porPersona',
-      margen: toNum(row.margen_pax ?? row.margen),
-      noches: Math.max(1, toNum(row.noches ?? 1)),
-      dias_guia: toNum(row.dias_guia) || Math.max(1, toNum(row.noches ?? 1)),
-      cantidad: Math.max(1, toNum(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)),
-      fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
-      releasePagado: !!row.release_pagado,
-      mayorista_id: (row.mayorista_id != null && row.mayorista_id !== '')
-        ? (typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-') ? row.mayorista_id : String(row.mayorista_id))
-        : null,
+      margen: margen,
+      noches: noches,
+      dias_guia: diasGuia,
+      cantidad: cantidad,
+      // Fechas y estado
+      fechaRelease: fechaRelease,
+      releasePagado: !!row?.release_pagado,
+      mayorista_id: mayoristaId,
+      // Campos adicionales preservados
+      orden: row?.orden ?? 0,
+      created_at: row?.created_at || null,
+      updated_at: row?.updated_at || null,
     }
   })
+  
   return { serviciosUI: todosMapeados, busquedaProveedor: busquedaProveedoresRestaurada }
 }
 
@@ -483,6 +545,8 @@ const ServiciosCotizacionPanel = ({
 
     const cargarServicios = async () => {
       try {
+        // 🔧 CORRECCIÓN CRÍTICA: Intentar primero con empresa_id del expediente
+        // Si no hay resultados, probar sin filtro de empresa (para datos antiguos)
         let serviciosResponse = await supabase
           .from('servicios_cotizacion')
           .select('*')
@@ -502,26 +566,70 @@ const ServiciosCotizacionPanel = ({
             .order('id', { ascending: true })
         }
 
+        // 🔧 Intento 2: Si no hay resultados, probar sin filtro de empresa_id
+        if (!serviciosResponse.error && (!serviciosResponse.data || serviciosResponse.data.length === 0)) {
+          console.log('[ServiciosCotizacionPanel] Sin resultados con empresa_id=' + empresaIdInt + ', probando sin filtro...')
+          serviciosResponse = await supabase
+            .from('servicios_cotizacion')
+            .select('*')
+            .eq('id_expediente', idExpedienteCotizacion)
+            .order('orden', { ascending: true })
+            .order('created_at', { ascending: true, nullsFirst: false })
+            .order('id', { ascending: true })
+        }
+
         if (serviciosResponse.error) return
 
-        if (serviciosResponse.data && Array.isArray(serviciosResponse.data) && serviciosResponse.data.length > 0) {
+        let dataRows = serviciosResponse.data || []
+        let serviciosDesdeVersionesJson = false
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // 🔴 PLAN B - CONTINGENCIA PARA EXPEDIENTES ANTIGUOS
+        // Si la tabla relacional tiene 0 filas, los datos están en versiones_json
+        // ═══════════════════════════════════════════════════════════════════════════
+        if (dataRows.length === 0 && expediente?.id) {
+          console.log('[ServiciosCotizacionPanel] [PLAN B] Tabla vacía. Cargando desde versiones_json...')
+          
+          try {
+            const { data: expDataPlanB } = await supabase
+              .from('expedientes')
+              .select('versiones_json')
+              .eq('id', expediente.id)
+              .single()
+            
+            const vjPlanB = expDataPlanB?.versiones_json ?? expediente?.versiones_json
+            
+            if (vjPlanB?.versiones && Array.isArray(vjPlanB.versiones) && vjPlanB.versiones.length > 0) {
+              const primeraVersion = vjPlanB.versiones[0]
+              if (primeraVersion?.servicios && Array.isArray(primeraVersion.servicios)) {
+                dataRows = primeraVersion.servicios.map(s => ({
+                  ...s,
+                  // Asegurar campos necesarios para el mapeo
+                  id_expediente: s.id_expediente || expediente.id,
+                }))
+                serviciosDesdeVersionesJson = true
+                console.log('[ServiciosCotizacionPanel] [PLAN B] ✅ Cargados:', dataRows.length, 'servicios')
+              }
+            }
+          } catch (err) {
+            console.log('[ServiciosCotizacionPanel] [PLAN B] Error cargando versiones_json:', err)
+          }
+        }
+
+        // ⚠️ CAMBIO CRÍTICO: Todas las filas de BD se muestran sin filtrar
+        // El mapeo ultra-defensivo ya asegura que cada fila tenga valores por defecto
+        if (dataRows.length > 0) {
           const { serviciosUI: todosMapeados, busquedaProveedor: busquedaProveedoresRestaurada } = mapearRespuestaSupabaseAServiciosUI(
-            serviciosResponse.data,
+            dataRows,
             proveedores
           )
 
-          const tieneProveedor = (r) => r.proveedorId != null || (r.proveedorNombreTemporal && String(r.proveedorNombreTemporal).trim())
-          const tieneNombreServicio = (r) => r.nombreEspecifico && String(r.nombreEspecifico).trim()
-          const tieneTipo = (r) => r.tipo && String(r.tipo).trim()
-          const tieneImporte = (r) => r.coste_unitario != null && Number(r.coste_unitario) > 0
-          const tieneTotalManual = (r) => r.total_servicio_manual != null && Number(r.total_servicio_manual) > 0
-          const tieneDatos = (r) => tieneProveedor(r) || tieneNombreServicio(r) || tieneImporte(r) || tieneTotalManual(r) || tieneTipo(r)
-          const serviciosMapeados = todosMapeados.filter(tieneDatos)
-
-          const idsEnBD = new Set((serviciosResponse.data || []).map(row => row.id))
+          // NUNCA filtrar - todas las filas existentes deben mostrarse
+          // Incluso filas antiguas con datos incompletos se muestran con valores por defecto
+          const idsEnBD = new Set(dataRows.map(row => row.id))
           setServicios(prev => {
             const serviciosNuevos = prev.filter(s => s.id && !idsEnBD.has(s.id))
-            return [...serviciosMapeados, ...serviciosNuevos]
+            return [...todosMapeados, ...serviciosNuevos]
           })
           setBusquedaProveedor(busquedaProveedoresRestaurada)
           serviciosInicializados.current = true

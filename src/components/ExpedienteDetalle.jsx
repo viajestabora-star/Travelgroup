@@ -48,6 +48,9 @@ import {
 
 /** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
+
+/** EXPEDIENTE DE DIAGNÓSTICO - Para verificar datos reales en consola */
+const EXPEDIENTE_DIAGNOSTICO = 'f51e81cc-0931-48fb-894c-1f1fdecdff92'
 const BUCKET_FACTURAS = 'facturas'
 const BUCKET_EXPEDIENTES = 'expedientes'
 const SUBMIT_DEDUPE_MS = 2000
@@ -1006,154 +1009,201 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     cargarProveedores()
   }, [])
 
-  // Mapear fila BD → objeto servicio interno
+  /**
+   * Mapear fila BD → objeto servicio interno
+   *
+   * ⚠️ FUNCIÓN CRÍTICA: Ultra-defensiva - NUNCA descarta filas.
+   * Todas las filas de BD se mapean con valores por defecto seguros.
+   */
   const mapearFilaAServicio = (row) => {
+    if (!row || typeof row !== 'object') {
+      // Si la fila es nula/corrupta, generar un servicio mínimo válido
+      return {
+        ...DEFAULT_SERVICE_VALUES,
+        id: generarUUID(),
+        nombreEspecifico: 'Servicio con datos corruptos',
+        tipo: 'Hotel',
+        tipo_servicio: 'Hotel',
+      }
+    }
+    
     const coste = (v) => toNum(v)
+    
+    // ID único preservado (crítico para anclaje)
+    const idPreservado = row.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id)
+      ? row.id
+      : (row.id || generarUUID())
+    
+    // ID_EXPEDIENTE: Crítico para el anclaje relacional - siempre preservar
+    const idExpedientePreservado = row.id_expediente || row.expediente_id || null
+    
+    // PROVEEDOR: Múltiples fallbacks para datos antiguos/corruptos
     const esUuidProvFk = (v) => v != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v).trim())
     let proveedorId = null
+    
+    // Intentar múltiples fuentes para el ID de proveedor
     if (row.proveedor_id != null && String(row.proveedor_id).trim() !== '' && esUuidProvFk(row.proveedor_id)) {
       proveedorId = String(row.proveedor_id).trim()
     } else {
-      const intv = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
+      // Intentar proveedor_id_int con validación segura
+      let intv = null
+      if (row.proveedor_id_int != null && row.proveedor_id_int !== '') {
+        intv = Number(row.proveedor_id_int)
+      } else if (row.proveedorId != null && row.proveedorId !== '') {
+        intv = Number(row.proveedorId)
+      }
+      
       if (intv && !isNaN(intv) && intv > 0) {
-        const p = proveedores.find((pr) => {
-          const pn = Number(pr.id)
+        // Buscar en lista de proveedores si está disponible
+        const p = Array.isArray(proveedores) ? proveedores.find((pr) => {
+          const pn = Number(pr?.id)
           if (!isNaN(pn) && pn === intv) return true
-          const pint = pr.id_int != null ? Number(pr.id_int) : NaN
+          const pint = pr?.id_int != null ? Number(pr.id_int) : NaN
           return !isNaN(pint) && pint === intv
-        })
+        }) : null
         proveedorId = p?.id != null ? p.id : intv
       }
     }
-    const c = coste(row.coste_unitario ?? row.precio_venta)
-    const esPorGrupo = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
+    
+    // Campos numéricos con fallbacks seguros
+    const c = coste(row.coste_unitario ?? row.precio_venta ?? 0)
+    const margenVal = coste(row.margen_pax ?? row.margen ?? 0)
+    const nochesRaw = coste(row.noches ?? 1)
+    const noches = nochesRaw > 0 ? nochesRaw : 1
+    const diasGuiaRaw = coste(row.dias_guia)
+    const diasGuia = diasGuiaRaw > 0 ? diasGuiaRaw : noches
+    const cantidadRaw = coste(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)
+    const cantidad = cantidadRaw > 0 ? cantidadRaw : 1
+    
+    // Tipo de cálculo
+    const tipoCalculoRaw = row.tipo_calculo || ''
+    const esPorGrupo = tipoCalculoRaw === 'Total a dividir' || tipoCalculoRaw === 'porGrupo'
+    
+    // Tipo de servicio con fallback
+    const tipoNormalizado = row.tipo_servicio || row.tipo || 'Hotel'
+    
+    // Nombre del servicio con múltiples fallbacks
+    const nombreServicio = row.nombre_especifico || row.nombre_servicio || row.descripcion || 'Servicio sin nombre'
+    
+    // Nombre del proveedor con fallbacks
+    let nombreProveedor = 'Sin proveedor'
+    if (row.nombre_proveedor_manual && String(row.nombre_proveedor_manual).trim()) {
+      nombreProveedor = String(row.nombre_proveedor_manual).trim()
+    } else if (row.proveedor_nombre && String(row.proveedor_nombre).trim()) {
+      nombreProveedor = String(row.proveedor_nombre).trim()
+    } else if (row.nombre_proveedor_texto && String(row.nombre_proveedor_texto).trim()) {
+      nombreProveedor = String(row.nombre_proveedor_texto).trim()
+    }
+    
+    // Mayorista ID con validación segura
+    let mayoristaId = null
+    if (row.mayorista_id != null && row.mayorista_id !== '') {
+      mayoristaId = typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-')
+        ? row.mayorista_id
+        : String(row.mayorista_id)
+    }
+    
+    // Fechas con manejo seguro
+    const fechaRelease = row.fecha_release
+      ? String(row.fecha_release).split('T')[0]
+      : ''
+    
     return {
       ...DEFAULT_SERVICE_VALUES,
-      id: row.id || generarUUID(),
+      // ID único preservado (crítico)
+      id: idPreservado,
+      // ID_EXPEDIENTE preservado para anclaje relacional
+      id_expediente: idExpedientePreservado,
+      expediente_id: idExpedientePreservado,
+      // Datos del proveedor con fallbacks
       proveedorId,
-      proveedorNombreTemporal: row.nombre_proveedor_manual || '',
-      tipo: row.tipo_servicio || row.tipo || 'Hotel',
-      tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
-      nombreEspecifico: row.nombre_especifico || '',
+      proveedor_id_int: proveedorId,
+      proveedorNombreTemporal: nombreProveedor,
+      proveedor_nombre: nombreProveedor,
+      // Tipo y nombre
+      tipo: tipoNormalizado,
+      tipo_servicio: tipoNormalizado,
+      nombreEspecifico: nombreServicio,
+      nombre_servicio: nombreServicio,
+      // Localización
       localizacion: row.localizacion || '',
       especificacion_destino: row.especificacion_destino || '',
+      // Campos numéricos
       coste_unitario: c,
       total_servicio_manual: esPorGrupo ? c : 0,
       tipo_calculo: esPorGrupo ? 'porGrupo' : 'porPersona',
-      margen: coste(row.margen_pax),
-      noches: Math.max(1, coste(row.noches)),
-      dias_guia: coste(row.dias_guia) || Math.max(1, coste(row.noches)),
-      cantidad: Math.max(1, coste(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)),
-      fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
+      margen: margenVal,
+      noches: noches,
+      dias_guia: diasGuia,
+      cantidad: cantidad,
+      // Fechas y estado
+      fechaRelease: fechaRelease,
       releasePagado: !!row.release_pagado,
-      mayorista_id: (row.mayorista_id != null && row.mayorista_id !== '') ? (typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-') ? row.mayorista_id : String(row.mayorista_id)) : null,
+      mayorista_id: mayoristaId,
       coste_real_proveedor: row.coste_real_proveedor != null && row.coste_real_proveedor !== ''
         ? coste(row.coste_real_proveedor)
         : null,
       url_factura_pdf: row.url_factura_pdf ? String(row.url_factura_pdf).trim() : '',
+      // Campos adicionales preservados
+      orden: row.orden ?? 0,
+      created_at: row.created_at || null,
+      updated_at: row.updated_at || null,
     }
   }
+  /**
+   * ⚠️ OBSOLETO: Función tieneDatos ya NO se usa para filtrar.
+   * Todas las filas de BD se muestran en la interfaz.
+   * Mantenida por compatibilidad con código existente que pueda llamarla.
+   */
   const tieneDatos = (r) => {
-    const tieneProveedor = (x) => x.proveedorId != null || (x.proveedorNombreTemporal && String(x.proveedorNombreTemporal).trim())
-    const tieneNombreServicio = (x) => x.nombreEspecifico && String(x.nombreEspecifico).trim()
-    const tieneTipo = (x) => x.tipo && String(x.tipo).trim()
-    const tieneImporte = (x) => x.coste_unitario != null && Number(x.coste_unitario) > 0
-    const tieneTotalManual = (x) => x.total_servicio_manual != null && Number(x.total_servicio_manual) > 0
-    return tieneProveedor(r) || tieneNombreServicio(r) || tieneImporte(r) || tieneTotalManual(r) || tieneTipo(r)
+    // Siempre devuelve true - nunca descartar filas de BD
+    // El mapeo ultra-defensivo asegura que cada fila tenga valores por defecto válidos
+    return true
   }
 
-  // Cargar servicios de cotización cuando se abre el expediente (para Cierre de Grupo y otras pestañas)
-  // FUENTE DE VERDAD: servicios_cotizacion (la tabla real). versiones_json solo para metadatos de versiones.
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CARGA DE SERVICIOS - FUNCIÓN SIMPLIFICADA
+  // Flujo: Tabla relacional → setServicios (sin fallback)
+  // ═══════════════════════════════════════════════════════════════════════════
   const cargarServiciosCotizacion = async () => {
     const id = expediente?.id
-    if (!id) return
-    lastSavedVersionesRef.current = null
+    if (!id) {
+      setServicios([])
+      return
+    }
+
     try {
-      // PRIMERO: Cargar servicios reales de la tabla servicios_cotizacion (fuente de verdad)
-      let serviciosResponse = await supabase
+      // 1) Consultar tabla relacional
+      const { data: serviciosDB, error } = await supabase
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', String(id).trim())
-        .eq('empresa_id', 1)
-        .order('created_at', { ascending: true, nullsFirst: false })
-        .order('id', { ascending: true })
 
-      if (serviciosResponse.error && (serviciosResponse.error.code === 'PGRST204' || String(serviciosResponse.error.message || '').includes('created_at'))) {
-        serviciosResponse = await supabase
-          .from('servicios_cotizacion')
-          .select('*')
-          .eq('id_expediente', String(id).trim())
-          .eq('empresa_id', 1)
-          .order('id', { ascending: true })
+      if (error) {
+        console.error('[cargarServiciosCotizacion] Error:', error)
+        setServicios([])
+        return
       }
 
-      const data = serviciosResponse.data || []
-      const todosMapeados = data.map(mapearFilaAServicio)
-      const serviciosReales = todosMapeados.filter(tieneDatos)
-      const idsServiciosReales = new Set(serviciosReales.map(s => s.id))
-
-      // SEGUNDO: Cargar versiones_json solo para metadatos (nombre, confirmada, cabecera)
-      // pero NUNCA usar los servicios embebidos de versiones_json
-      const { data: expData } = await supabase.from('expedientes').select('versiones_json').eq('id', id).single()
-      const vj = expData?.versiones_json ?? expediente?.versiones_json
-      const versionesGuardadas = Array.isArray(vj?.versiones) ? vj.versiones : null
-
-      const defaultCab = getDefaultCabecera(expediente, null)
-      
-      if (versionesGuardadas && versionesGuardadas.length > 0) {
-        // Usar metadatos de versiones pero SIEMPRE los servicios de la tabla real
-        const vs = versionesGuardadas.map((v, idx) => {
-          const cab = v.cabecera && typeof v.cabecera === 'object'
-            ? { ...defaultCab, ...v.cabecera }
-            : defaultCab
-          return {
-            id: v.id || generarUUID(),
-            nombre: v.nombre ?? '',
-            // Si es la primera versión (activa), usar servicios reales de la BD
-            // Para otras versiones, filtrar solo los que existen en la BD
-            servicios: idx === 0
-              ? serviciosReales
-              : (Array.isArray(v.servicios)
-                  ? v.servicios.filter(s => idsServiciosReales.has(s.id))
-                  : []),
-            confirmada: !!v.confirmada,
-            cabecera: cab,
-          }
-        })
-        setVersiones(vs)
-        lastSavedVersionesRef.current = JSON.parse(JSON.stringify(vs))
-        setVersionActiva(0)
-        setServicios(serviciosReales)
-      } else {
-        // No hay versiones guardadas, crear versión inicial con servicios reales
-        const versionInicial = {
-          id: generarUUID(),
-          nombre: '',
-          servicios: serviciosReales,
-          confirmada: false,
-          cabecera: { ...defaultCab },
-        }
-        setVersiones([versionInicial])
-        setVersionActiva(0)
-        setServicios(serviciosReales)
+      // 2) Si hay datos en tabla, mapear y usar
+      if (serviciosDB && serviciosDB.length > 0) {
+        const serviciosMapeados = serviciosDB.map(mapearFilaAServicio)
+        setServicios(serviciosMapeados)
+        return
       }
-    } catch (error) {
-      console.error('[cargarServiciosCotizacion] Error:', error)
-      const defaultCab = getDefaultCabecera(expediente, null)
-      setVersiones([{ id: generarUUID(), nombre: '', servicios: [], confirmada: false, cabecera: { ...defaultCab } }])
-      setVersionActiva(0)
+
+      // 3) Sin datos → array vacío. FIN. Sin fallback a expediente, sin JSON.
+      setServicios([])
+    } catch (err) {
+      console.error('[cargarServiciosCotizacion] Error:', err)
       setServicios([])
     }
   }
 
   useEffect(() => {
-    if (expediente?.id) {
-      cargarServiciosCotizacion()
-    } else {
-      setServicios([])
-      setVersiones([])
-      setVersionActiva(0)
-    }
+    // 🔓 ELIMINADO BLOQUEO: Ejecutar siempre, extraer ID de URL si es necesario
+    cargarServiciosCotizacion()
+    // No limpiar servicios si no hay expediente, dejar que la función maneje el caso
   }, [expediente?.id])
 
   // setServicios que persiste en versiones[versionActiva].servicios (no en raíz del expediente)
@@ -2204,7 +2254,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }, [versiones, versionActiva, expediente?.id])
 
-  // Carga servicios para Pagos: misma fuente que el presupuesto (versiones_json) si existe; si no, servicios_cotizacion.
+  // Carga servicios para Pagos: fuente única tabla servicios_cotizacion.
   // Se sincroniza al montar la pestaña y cuando cambia la firma del presupuesto (sin botón de refresco).
   useEffect(() => {
     if (tab !== 'pagosProveedores' || !expediente?.id) return
