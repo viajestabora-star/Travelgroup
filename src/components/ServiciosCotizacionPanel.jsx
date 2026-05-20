@@ -442,6 +442,11 @@ const ServiciosCotizacionPanel = ({
   isSaving,
   setIsSaving,
   multicotizacionMode = false,
+  // Refs para sincronización estricta del estado "sin guardar"
+  lastSavedVersionesRef,
+  lastSavedFormDataRef,
+  versiones,
+  formData,
 }) => {
   const params = useParams()
   const paramsRef = useRef(params)
@@ -1071,6 +1076,14 @@ const ServiciosCotizacionPanel = ({
       }
 
       if (resultadoServicios.ok) {
+        // ✅ SINCRONIZACIÓN ESTRICTA: Actualizar refs de estado base ANTES de onRefresh
+        // Esto asegura que el banner "Cambios sin guardar" desaparezca inmediatamente
+        if (lastSavedVersionesRef?.current !== undefined && versiones) {
+          lastSavedVersionesRef.current = JSON.parse(JSON.stringify(versiones))
+        }
+        if (lastSavedFormDataRef?.current !== undefined && formData) {
+          lastSavedFormDataRef.current = JSON.parse(JSON.stringify(formData))
+        }
         if (onRefresh) await onRefresh()
         alert('✅ Todo guardado correctamente. ERP protegido.')
         return { ok: true }

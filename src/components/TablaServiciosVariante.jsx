@@ -102,6 +102,10 @@ const TablaServiciosVariante = ({
   isSaving,
   setIsSaving,
   expediente,
+  // Props para sincronización estricta del banner "sin guardar"
+  lastSavedVersionesRef,
+  lastSavedFormDataRef,
+  formData,
 }) => {
   const servsIniciales = versiones[indiceActivo]?.servicios ?? []
   const [servicios, setServiciosLocal] = useState(() =>
@@ -231,6 +235,11 @@ const TablaServiciosVariante = ({
       guardarCotizacionYServiciosRef={guardarCotizacionYServiciosRef}
       isSaving={isSaving}
       setIsSaving={setIsSaving}
+      // Props para sincronización estricta del banner "sin guardar"
+      lastSavedVersionesRef={lastSavedVersionesRef}
+      lastSavedFormDataRef={lastSavedFormDataRef}
+      versiones={versiones}
+      formData={formData}
     />
   )
 }

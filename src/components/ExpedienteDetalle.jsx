@@ -6536,6 +6536,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     isSaving={isSavingServicios}
                     setIsSaving={setIsSavingServicios}
                     expediente={expediente}
+                    // Props para sincronización estricta del banner "sin guardar"
+                    lastSavedVersionesRef={lastSavedVersionesRef}
+                    lastSavedFormDataRef={lastSavedFormDataRef}
+                    formData={formData}
                   />
                 ) : (
                   <ServiciosCotizacionPanel
@@ -6553,6 +6557,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     guardarCotizacionYServiciosRef={guardarCotizacionYServiciosRef}
                     isSaving={isSavingServicios}
                     setIsSaving={setIsSavingServicios}
+                    // Props para sincronización estricta del banner "sin guardar"
+                    lastSavedVersionesRef={lastSavedVersionesRef}
+                    lastSavedFormDataRef={lastSavedFormDataRef}
+                    versiones={versiones}
+                    formData={formData}
                   />
                 )}
 
