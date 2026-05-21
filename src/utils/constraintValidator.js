@@ -78,7 +78,7 @@ export const detectarCamposPendientes = (expediente, servicios = []) => {
   }
 
   const serviciosSinProveedor = (servicios || []).filter(
-    (s) => !s.proveedor_id && !s.proveedor_id_int && !s.proveedorNombreTemporal && !s.nombre_proveedor_texto
+    (s) => !s.proveedor_id && !s.proveedorId && !s.proveedor_id_int && !s.proveedorNombreTemporal && !s.nombre_proveedor_texto
   )
   if (serviciosSinProveedor.length > 0) {
     pendientes.push(`${serviciosSinProveedor.length} proveedor${serviciosSinProveedor.length > 1 ? 'es' : ''} pendiente${serviciosSinProveedor.length > 1 ? 's' : ''} de asignar`)
