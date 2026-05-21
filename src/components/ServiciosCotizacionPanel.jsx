@@ -115,7 +115,7 @@ const generarUUID = () => {
 
 const DEFAULT_SERVICE_VALUES = {
   id: null,
-  proveedorId: null,
+  proveedor_id: null,
   proveedorNombreTemporal: '',
   mayorista_id: null,
   tipo: 'Hotel',
@@ -167,14 +167,11 @@ const mapearRespuestaSupabaseAServiciosUI = (dataRows, proveedoresList) => {
     
     // PROVEEDOR: Múltiples fallbacks para datos antiguos/corruptos
     let proveedorIdIntRow = null
-    if (row?.proveedor_id_int != null && row.proveedor_id_int !== '') {
-      const parsed = Number(row.proveedor_id_int)
-      if (!isNaN(parsed) && parsed > 0) proveedorIdIntRow = parsed
-    } else if (row?.proveedorId != null && row.proveedorId !== '') {
-      const parsed = Number(row.proveedorId)
-      if (!isNaN(parsed) && parsed > 0) proveedorIdIntRow = parsed
-    } else if (row?.proveedor_id != null && row.proveedor_id !== '') {
+    if (row?.proveedor_id != null && row.proveedor_id !== '') {
       const parsed = Number(row.proveedor_id)
+      if (!isNaN(parsed) && parsed > 0) proveedorIdIntRow = parsed
+    } else if (row?.proveedor_id_int != null && row.proveedor_id_int !== '') {
+      const parsed = Number(row.proveedor_id_int)
       if (!isNaN(parsed) && parsed > 0) proveedorIdIntRow = parsed
     }
     
@@ -244,7 +241,7 @@ const mapearRespuestaSupabaseAServiciosUI = (dataRows, proveedoresList) => {
       tipo: tipoNormalizado,
       tipo_servicio: tipoNormalizado,
       // Proveedor con valores por defecto
-      proveedorId: proveedorIdUi,
+      proveedor_id: proveedorIdUi,
       proveedor_id_int: proveedorIdUi,
       proveedorNombreTemporal: nombreProveedor,
       proveedor_nombre: nombreProveedor,
@@ -514,7 +511,7 @@ const ServiciosCotizacionPanel = ({
       seleccionarMayoristaYCrearHotel(servicio.id, proveedor.id, proveedor.nombreComercial)
     } else {
       actualizarServicio(servicio.id, {
-        proveedorId: proveedor.id,
+        proveedor_id: proveedorIdInt,
         proveedor_id_int: proveedorIdInt,
         proveedor_nombre: proveedorNombre
       })
@@ -677,7 +674,7 @@ const ServiciosCotizacionPanel = ({
     setServicios(prev => {
       const idx2 = prev.findIndex(s => s.id === servicioId)
       if (idx2 < 0) return prev
-      const actualizado = prev.map(s => s.id === servicioId ? { ...s, proveedorId, proveedor_id_int: proveedorIdInt, proveedor_nombre: proveedorNombre } : s)
+      const actualizado = prev.map(s => s.id === servicioId ? { ...s, proveedor_id: proveedorIdInt, proveedor_id_int: proveedorIdInt, proveedor_nombre: proveedorNombre } : s)
       return [...actualizado.slice(0, idx2 + 1), nuevoHotel, ...actualizado.slice(idx2 + 1)]
     })
     setBusquedaProveedor(prev => ({ ...prev, [servicioId]: proveedorNombre }))
@@ -696,8 +693,8 @@ const ServiciosCotizacionPanel = ({
     if (!window.confirm(mensajeConfirm)) return
 
     const idsAEliminar = [id]
-    if (esMayorista && servicio?.proveedorId) {
-      const hotelesVinculados = servicios.filter(s => s.tipo === 'Hotel' && s.mayorista_id != null && String(s.mayorista_id) === String(servicio.proveedorId))
+    if (esMayorista && servicio?.proveedor_id) {
+      const hotelesVinculados = servicios.filter(s => s.tipo === 'Hotel' && s.mayorista_id != null && String(s.mayorista_id) === String(servicio.proveedor_id))
       hotelesVinculados.forEach(h => idsAEliminar.push(h.id))
     }
 
@@ -781,9 +778,10 @@ const ServiciosCotizacionPanel = ({
     const calculado = finalizarCalculoModulo(fila, paxPago, totalPax)
     const totalServicio = toNum(calculado?.total_servicio)
 
-    const rawProveedorId = servicio?.proveedorId ?? servicio?.proveedor_id_int
+    // Cast numérico explícito a BIGINT para proveedor_id
+    const rawProveedorId = servicio?.proveedor_id ?? servicio?.proveedor_id_int
     console.log('[DEBUG buildDatosParaSupabase] servicio.id:', servicio?.id)
-    console.log('[DEBUG buildDatosParaSupabase] servicio.proveedorId:', servicio?.proveedorId)
+    console.log('[DEBUG buildDatosParaSupabase] servicio.proveedor_id:', servicio?.proveedor_id)
     console.log('[DEBUG buildDatosParaSupabase] servicio.proveedor_id_int:', servicio?.proveedor_id_int)
     console.log('[DEBUG buildDatosParaSupabase] rawProveedorId:', rawProveedorId)
     console.log('[DEBUG buildDatosParaSupabase] rawProveedorId != null:', rawProveedorId != null)
@@ -791,9 +789,9 @@ const ServiciosCotizacionPanel = ({
     console.log('[DEBUG buildDatosParaSupabase] !isNaN(Number(rawProveedorId)):', !isNaN(Number(rawProveedorId)))
     console.log('[DEBUG buildDatosParaSupabase] Number(rawProveedorId) > 0:', Number(rawProveedorId) > 0)
     const proveedorIdInt = rawProveedorId != null && rawProveedorId !== '' && !isNaN(Number(rawProveedorId)) && Number(rawProveedorId) > 0
-      ? Number(rawProveedorId)
+      ? Math.trunc(Number(rawProveedorId))
       : null
-    console.log('[DEBUG buildDatosParaSupabase] proveedorIdInt FINAL:', proveedorIdInt)
+    console.log('[DEBUG buildDatosParaSupabase] proveedorIdInt FINAL (BIGINT):', proveedorIdInt)
 
     const textoBusquedaProveedor = servicio?.id != null && busquedaProveedor[servicio.id] !== undefined
       ? String(busquedaProveedor[servicio.id]).trim()
@@ -856,7 +854,7 @@ const ServiciosCotizacionPanel = ({
       fecha_release: servicio?.fechaRelease || null,
       release_pagado: !!servicio?.releasePagado,
       tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
-      proveedor_id_int: proveedorIdInt,
+      proveedor_id: proveedorIdInt,
       proveedor_nombre: proveedorNombrePayload,
       mayorista_id: (() => {
         const v = servicio?.mayorista_id
@@ -934,8 +932,8 @@ const ServiciosCotizacionPanel = ({
           // Limpiar campos no permitidos por la tabla
           delete filaLimpia.descripcion
           delete filaLimpia.tipo
-          delete filaLimpia.proveedor_id  // Se usa proveedor_id_int, no proveedor_id
-          delete filaLimpia.proveedorId   // Campo UI, no existe en BD
+          delete filaLimpia.proveedorId   // Campo UI legacy, ahora se usa proveedor_id
+          delete filaLimpia.proveedor_id_int  // Campo legacy, ahora se usa proveedor_id directamente
           delete filaLimpia.nombre_proveedor_texto  // Campo UI legacy
           delete filaLimpia.proveedorNombreTemporal // Campo UI temporal
           delete filaLimpia.created_at    // Gestionado por Supabase
@@ -1154,33 +1152,33 @@ const ServiciosCotizacionPanel = ({
             <div className="hidden md:block overflow-visible">
               <table className="w-full whitespace-nowrap" style={{ tableLayout: 'fixed', minWidth: '860px' }}>
                 <colgroup>
-                  <col style={{ width: '160px', minWidth: '160px', maxWidth: '160px' }} />
+                  <col style={{ width: '115px', minWidth: '115px', maxWidth: '115px' }} />
                   <col style={{ width: '170px', minWidth: '170px', maxWidth: '170px' }} />
                   <col style={{ width: '130px', minWidth: '130px', maxWidth: '130px' }} />
                   <col style={{ width: '50px', minWidth: '50px', maxWidth: '50px' }} />
-                  <col style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }} />
-                  <col style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }} />
-                  <col style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }} />
-                  <col style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }} />
+                  <col style={{ width: '100px', minWidth: '100px', maxWidth: '100px' }} />
+                  <col style={{ width: '110px', minWidth: '110px', maxWidth: '110px' }} />
+                  <col style={{ width: '85px', minWidth: '85px', maxWidth: '85px' }} />
+                  <col style={{ width: '110px', minWidth: '110px', maxWidth: '110px' }} />
                   <col style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }} />
                 </colgroup>
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '160px' }}>Servicio</th>
+                    <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '115px' }}>Servicio</th>
                     <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '170px' }}>Proveedor</th>
                     <th className="px-1 py-2 text-left text-xs font-semibold text-gray-700" style={{ width: '130px' }}>Detalle</th>
                     <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '50px' }}>Cant.</th>
-                    <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '70px' }}>Precio</th>
-                    <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '120px' }}>Modo</th>
-                    <th className="px-1 py-2 text-right text-xs font-semibold text-gray-700" style={{ width: '90px' }}>Total</th>
-                    <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '120px' }}>Release</th>
+                    <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '100px' }}>Precio</th>
+                    <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '110px' }}>Modo</th>
+                    <th className="px-1 py-2 text-right text-xs font-semibold text-gray-700" style={{ width: '85px' }}>Total</th>
+                    <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '110px' }}>Release</th>
                     <th className="px-1 py-2 text-center text-xs font-semibold text-gray-700" style={{ width: '40px' }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {servicios.map((servicio, idx) => (
                     <tr key={servicio.id || `svc-${idx}`} className="border-t border-gray-200 hover:bg-gray-50 whitespace-nowrap">
-                      <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '160px', minWidth: '160px', maxWidth: '160px' }}>
+                      <td className="px-1 py-2 align-middle" onClick={(e) => e.stopPropagation()} style={{ width: '115px', minWidth: '115px', maxWidth: '115px' }}>
                         <select
                           value={servicio.tipo}
                           onClick={(e) => e.stopPropagation()}
@@ -1192,12 +1190,12 @@ const ServiciosCotizacionPanel = ({
                               updates.tipo_calculo = 'porGrupo'
                               if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
                             }
-                            if (servicio.proveedorId) {
-                              const proveedorActual = obtenerProveedorPorId(servicio.proveedorId)
+                            if (servicio.proveedor_id) {
+                              const proveedorActual = obtenerProveedorPorId(servicio.proveedor_id)
                               const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || '')
                               const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo)
                               if (tipoProveedorActual !== nuevoTipoProveedor) {
-                                updates.proveedorId = null
+                                updates.proveedor_id = null
                                 setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
                               }
                             }
@@ -1205,7 +1203,7 @@ const ServiciosCotizacionPanel = ({
                             setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: true }))
                           }}
                           className="input-field text-xs transition-all"
-                          style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '158px', minWidth: '158px', maxWidth: '158px' }}
+                          style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '113px', minWidth: '113px', maxWidth: '113px' }}
                           onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
                           onBlur={(e) => {
                             e.target.style.borderColor = '#e2e8f0'
@@ -1233,7 +1231,7 @@ const ServiciosCotizacionPanel = ({
                             <div className="relative flex-1 min-w-0">
                               <input
                                 type="text"
-                                value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')}
+                                value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedor_id)?.nombreComercial || '')}
                                 onChange={(e) => {
                                   const inputValue = e.target.value
                                   setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue })
@@ -1253,18 +1251,18 @@ const ServiciosCotizacionPanel = ({
                                   e.target.style.boxShadow = 'none'
                                   setTimeout(() => {
                                     setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: false }))
-                                    if (!servicio.proveedorId && busquedaProveedor[servicio.id]) {
+                                    if (!servicio.proveedor_id && busquedaProveedor[servicio.id]) {
                                       setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
                                     }
                                   }, 120)
                                 }}
                               />
-                              {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
+                              {(busquedaProveedor[servicio.id] || servicio.proveedor_id) && (
                                 <button
                                   type="button"
                                   onClick={() => {
                                     setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
-                                    actualizarServicio(servicio.id, 'proveedorId', null)
+                                    actualizarServicio(servicio.id, 'proveedor_id', null)
                                     setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: false }))
                                   }}
                                   className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10 transition-colors"
@@ -1366,7 +1364,7 @@ const ServiciosCotizacionPanel = ({
                         </div>
                       </td>
 
-                      <td className="px-1 py-2 align-middle" style={{ width: '70px', minWidth: '70px', maxWidth: '70px' }}>
+                      <td className="px-1 py-2 align-middle" style={{ width: '100px', minWidth: '100px', maxWidth: '100px' }}>
                         <div className="flex justify-end">
                           <input
                             type="number"
@@ -1410,14 +1408,14 @@ const ServiciosCotizacionPanel = ({
                               e.target.style.boxShadow = 'none'
                             }}
                             className="input-field text-xs text-right w-full transition-all"
-                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '70px', minWidth: '70px', maxWidth: '70px' }}
+                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '98px', minWidth: '98px', maxWidth: '98px' }}
                             placeholder="0.00"
                             min="0"
                           />
                         </div>
                       </td>
 
-                      <td className="px-1 py-2 text-center align-middle" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>
+                      <td className="px-1 py-2 text-center align-middle" style={{ width: '110px', minWidth: '110px', maxWidth: '110px' }}>
                         {(servicio.tipo === 'Autobús' || servicio.tipo === 'Transporte') ? (
                           <span className="text-xs font-medium text-slate-600" title="Autobús/Transporte siempre divide el total entre pasajeros de pago">Total ÷ pax</span>
                         ) : (
@@ -1431,7 +1429,7 @@ const ServiciosCotizacionPanel = ({
                               actualizarServicio(servicio.id, updates)
                             }}
                             className="input-field text-[10px] transition-all"
-                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '120px', minWidth: '120px', maxWidth: '120px' }}
+                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', width: '108px', minWidth: '108px', maxWidth: '108px' }}
                             onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
                             onBlur={(e) => {
                               e.target.style.borderColor = '#e2e8f0'
@@ -1449,11 +1447,11 @@ const ServiciosCotizacionPanel = ({
                         )}
                       </td>
 
-                      <td className="px-1 py-2 align-middle text-right" style={{ width: '90px', minWidth: '90px', maxWidth: '90px' }}>
+                      <td className="px-1 py-2 align-middle text-right" style={{ width: '85px', minWidth: '85px', maxWidth: '85px' }}>
                         <span className="text-gray-900 text-xs font-semibold whitespace-nowrap">{calcularTotalFilaUI(servicio).toFixed(2)}€</span>
                       </td>
 
-                      <td className="px-1 py-2 text-center align-middle" style={{ width: '120px', minWidth: '120px', maxWidth: '120px' }}>
+                      <td className="px-1 py-2 text-center align-middle" style={{ width: '110px', minWidth: '110px', maxWidth: '110px' }}>
                         <div className="flex flex-col items-center gap-1">
                           <input
                             type="date"
@@ -1466,7 +1464,7 @@ const ServiciosCotizacionPanel = ({
                               actualizarServicio(servicio.id, 'fechaRelease', e.target.value || '')
                             }}
                             className="input-field text-center transition-all"
-                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '4px 4px', width: '120px', minWidth: '120px', maxWidth: '120px', fontSize: '11px' }}
+                            style={{ backgroundColor: '#f8fafc', color: '#0f172a', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '4px 4px', width: '108px', minWidth: '108px', maxWidth: '108px', fontSize: '11px' }}
                           />
                           {!servicio.releasePagado && servicio.fechaRelease && (
                             <button type="button" onClick={() => marcarReleaseComoPagadoServicio(servicio.id)} className="flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-semibold" style={{ fontSize: '16px' }} title="Marcar como pagado"><CheckCircle size={12} /> Pagado</button>
@@ -1507,12 +1505,12 @@ const ServiciosCotizacionPanel = ({
                           updates.tipo_calculo = 'porGrupo'
                           if (servicio.coste_unitario) updates.total_servicio_manual = toNum(servicio.coste_unitario)
                         }
-                        if (servicio.proveedorId) {
-                          const proveedorActual = obtenerProveedorPorId(servicio.proveedorId)
+                        if (servicio.proveedor_id) {
+                          const proveedorActual = obtenerProveedorPorId(servicio.proveedor_id)
                           const tipoProveedorActual = mapearTipoServicioAProveedor(proveedorActual?.tipo || '')
                           const nuevoTipoProveedor = mapearTipoServicioAProveedor(nuevoTipo)
                           if (tipoProveedorActual !== nuevoTipoProveedor) {
-                            updates.proveedorId = null
+                            updates.proveedor_id = null
                             setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
                           }
                         }
@@ -1548,7 +1546,7 @@ const ServiciosCotizacionPanel = ({
                         <div className="relative flex-1 min-w-0">
                           <input
                             type="text"
-                            value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedorId)?.nombreComercial || '')}
+                            value={busquedaProveedor[servicio.id] !== undefined ? busquedaProveedor[servicio.id] : (obtenerProveedorPorId(servicio.proveedor_id)?.nombreComercial || '')}
                             onChange={(e) => { const inputValue = e.target.value; setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: inputValue }); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true }) }}
                             onFocus={(e) => { setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: true }); if (!busquedaProveedor[servicio.id]) setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' }); e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)' }}
                             placeholder="Pendiente"
@@ -1559,12 +1557,12 @@ const ServiciosCotizacionPanel = ({
                               e.target.style.boxShadow = 'none'
                               setTimeout(() => {
                                 setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: false }))
-                                if (!servicio.proveedorId && busquedaProveedor[servicio.id]) setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
+                                if (!servicio.proveedor_id && busquedaProveedor[servicio.id]) setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: '' }))
                               }, 120)
                             }}
                           />
-                          {(busquedaProveedor[servicio.id] || servicio.proveedorId) && (
-                            <button onClick={() => { setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' }); actualizarServicio(servicio.id, 'proveedorId', null); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }) }} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10" title="Limpiar"><X size={14} /></button>
+                          {(busquedaProveedor[servicio.id] || servicio.proveedor_id) && (
+                            <button onClick={() => { setBusquedaProveedor({ ...busquedaProveedor, [servicio.id]: '' }); actualizarServicio(servicio.id, 'proveedor_id', null); setMostrarSugerencias({ ...mostrarSugerencias, [servicio.id]: false }) }} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10" title="Limpiar"><X size={14} /></button>
                           )}
                         </div>
                         <button type="button" onClick={() => abrirModalProveedor(busquedaProveedor[servicio.id] || '', servicio.tipo, servicio.id)} className="flex-shrink-0 w-8 h-8 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center transition-colors" title="Añadir nuevo proveedor"><Plus size={16} /></button>
@@ -1670,12 +1668,15 @@ const ServiciosCotizacionPanel = ({
                 console.log('[DEBUG ProveedorForm onSaved] nuevoProveedor:', nuevoProveedor)
                 await cargarProveedores?.()
                 if (servicioIdParaProveedor) {
-                  const proveedorIdInt = Number(nuevoProveedor?.id)
+                  // Usar proveedor_id (BIGINT) del objeto mapeado por ProveedorForm
+                  const proveedorIdInt = nuevoProveedor?.proveedor_id != null
+                    ? Number(nuevoProveedor.proveedor_id)
+                    : Number(nuevoProveedor?.id)
                   const proveedorNombre = nuevoProveedor?.nombreComercial || nuevoProveedor?.nombre_comercial || ''
                   console.log('[DEBUG ProveedorForm onSaved] proveedorIdInt:', proveedorIdInt)
                   console.log('[DEBUG ProveedorForm onSaved] proveedorNombre:', proveedorNombre)
                   actualizarServicio(servicioIdParaProveedor, {
-                    proveedorId: nuevoProveedor.id,
+                    proveedor_id: proveedorIdInt,
                     proveedor_id_int: proveedorIdInt,
                     proveedor_nombre: proveedorNombre
                   })

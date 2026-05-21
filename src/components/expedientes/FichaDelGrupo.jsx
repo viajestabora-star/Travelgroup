@@ -28,7 +28,7 @@ export function importePresupuestadoServicioParaPagos(s) {
 /** True si hay proveedor por id FK o por nombre (manual / temporal / resuelto). */
 export function servicioTieneProveedorAsignadoParaPagos(s) {
   if (!s) return false
-  const rawId = s.proveedor_id_int ?? s.proveedorId
+  const rawId = s.proveedor_id ?? s.proveedor_id_int ?? s.proveedorId
   if (rawId != null && rawId !== '' && !Number.isNaN(Number(rawId)) && Number(rawId) > 0) return true
   const nom = String(
     s._proveedorNombre
@@ -95,12 +95,15 @@ export function unificarServiciosPagosPorNombreYProveedor(servicios) {
 /** Alinea campos snake/camel del presupuesto antes del pipeline de Pagos. */
 export function normalizarServicioFuentePresupuestoParaPagos(s) {
   if (!s || typeof s !== 'object') return null
+  // Prioridad: proveedor_id (snake_case) > proveedor_id_int (legacy) > proveedorId (camelCase legacy)
   const pid =
-    s.proveedor_id_int != null && s.proveedor_id_int !== '' && !Number.isNaN(Number(s.proveedor_id_int))
-      ? Number(s.proveedor_id_int)
-      : (s.proveedorId != null && s.proveedorId !== '' && !Number.isNaN(Number(s.proveedorId))
-        ? Number(s.proveedorId)
-        : null)
+    s.proveedor_id != null && s.proveedor_id !== '' && !Number.isNaN(Number(s.proveedor_id))
+      ? Number(s.proveedor_id)
+      : (s.proveedor_id_int != null && s.proveedor_id_int !== '' && !Number.isNaN(Number(s.proveedor_id_int))
+        ? Number(s.proveedor_id_int)
+        : (s.proveedorId != null && s.proveedorId !== '' && !Number.isNaN(Number(s.proveedorId))
+          ? Number(s.proveedorId)
+          : null))
   const manual = String(s.nombre_proveedor_manual || '').trim()
   const temp = String(s.proveedorNombreTemporal || '').trim()
   return {

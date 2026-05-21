@@ -180,7 +180,7 @@ const tipoServicioLegibleParaConcepto = (servicio) => {
 /** proveedor_id (FK) y nombre mostrado desde fila servicios_cotizacion enriquecida. */
 const datosProveedorDesdeServicioCot = (servicio) => {
   if (!servicio) return { proveedorId: null, proveedorNombre: null }
-  const rawId = servicio.proveedor_id_int ?? servicio.proveedorId
+  const rawId = servicio.proveedor_id ?? servicio.proveedor_id_int ?? servicio.proveedorId
   const proveedorId =
     rawId != null && rawId !== '' && !Number.isNaN(Number(rawId)) ? Number(rawId) : null
   const proveedorNombre =
@@ -377,7 +377,7 @@ const getDefaultCabecera = (exp, fd) => ({
  */
 const DEFAULT_SERVICE_VALUES = {
   id: null,
-  proveedorId: null,
+  proveedor_id: null,
   proveedorNombreTemporal: '',
   mayorista_id: null,
   tipo: 'Hotel',
@@ -842,7 +842,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       || filaServicio?.nombre_servicio
       || ''
     ).trim().toLowerCase()
-    const proveedorObjetivo = Number(filaServicio?.proveedor_id_int ?? filaServicio?.proveedorId ?? 0) || null
+    const proveedorObjetivo = Number(filaServicio?.proveedor_id ?? filaServicio?.proveedor_id_int ?? filaServicio?.proveedorId ?? 0) || null
 
     const match = (serviciosSource || []).find((s) => {
       const tipo = normalizarTipo(s?.tipo_servicio || s?.tipo || '')
@@ -852,7 +852,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         || s?.nombre_servicio
         || ''
       ).trim().toLowerCase()
-      const proveedor = Number(s?.proveedor_id_int ?? s?.proveedorId ?? 0) || null
+      const proveedor = Number(s?.proveedor_id ?? s?.proveedor_id_int ?? s?.proveedorId ?? 0) || null
       const sameTipo = tipoObjetivo ? tipo === tipoObjetivo : true
       const sameNombre = nombreObjetivo ? nombre === nombreObjetivo : true
       const sameProveedor = proveedorObjetivo ? proveedor === proveedorObjetivo : true
@@ -1038,30 +1038,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     const idExpedientePreservado = row.id_expediente || row.expediente_id || null
     
     // PROVEEDOR: Múltiples fallbacks para datos antiguos/corruptos
-    const esUuidProvFk = (v) => v != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v).trim())
+    // proveedor_id es BIGINT en la base de datos
     let proveedorId = null
     
-    // Intentar múltiples fuentes para el ID de proveedor
-    if (row.proveedor_id != null && String(row.proveedor_id).trim() !== '' && esUuidProvFk(row.proveedor_id)) {
-      proveedorId = String(row.proveedor_id).trim()
-    } else {
-      // Intentar proveedor_id_int con validación segura
-      let intv = null
-      if (row.proveedor_id_int != null && row.proveedor_id_int !== '') {
-        intv = Number(row.proveedor_id_int)
-      } else if (row.proveedorId != null && row.proveedorId !== '') {
-        intv = Number(row.proveedorId)
+    // Intentar múltiples fuentes para el ID de proveedor (priorizar proveedor_id)
+    if (row.proveedor_id != null && row.proveedor_id !== '') {
+      const parsed = Number(row.proveedor_id)
+      if (!isNaN(parsed) && parsed > 0) {
+        proveedorId = parsed
       }
-      
-      if (intv && !isNaN(intv) && intv > 0) {
-        // Buscar en lista de proveedores si está disponible
-        const p = Array.isArray(proveedores) ? proveedores.find((pr) => {
-          const pn = Number(pr?.id)
-          if (!isNaN(pn) && pn === intv) return true
-          const pint = pr?.id_int != null ? Number(pr.id_int) : NaN
-          return !isNaN(pint) && pint === intv
-        }) : null
-        proveedorId = p?.id != null ? p.id : intv
+    } else if (row.proveedor_id_int != null && row.proveedor_id_int !== '') {
+      const parsed = Number(row.proveedor_id_int)
+      if (!isNaN(parsed) && parsed > 0) {
+        proveedorId = parsed
+      }
+    }
+    
+    // Buscar en lista de proveedores si está disponible para validación
+    if (proveedorId != null && Array.isArray(proveedores)) {
+      const p = proveedores.find((pr) => {
+        const pn = Number(pr?.id)
+        if (!isNaN(pn) && pn === proveedorId) return true
+        const pint = pr?.id_int != null ? Number(pr.id_int) : NaN
+        return !isNaN(pint) && pint === proveedorId
+      })
+      // Mantener el ID numérico válido
+      if (!p) {
+        // Proveedor no encontrado en lista, pero el ID es válido numéricamente
+        // Mantenerlo como está (puede ser un proveedor eliminado o no cargado aún)
       }
     }
     
@@ -1115,9 +1119,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       // ID_EXPEDIENTE preservado para anclaje relacional
       id_expediente: idExpedientePreservado,
       expediente_id: idExpedientePreservado,
-      // Datos del proveedor con fallbacks
-      proveedorId,
-      proveedor_id_int: proveedorId,
+      // Datos del proveedor con fallbacks (proveedor_id como BIGINT)
+      proveedor_id: proveedorId,
+      proveedor_id_int: proveedorId, // Mantener para compatibilidad temporal
       proveedorNombreTemporal: nombreProveedor,
       proveedor_nombre: nombreProveedor,
       // Tipo y nombre
@@ -2243,7 +2247,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           id: s?.id,
           tipo: s?.tipo_servicio || s?.tipo,
           nom: s?.nombre_especifico || s?.nombreEspecifico,
-          pid: s?.proveedor_id_int ?? s?.proveedorId,
+          pid: s?.proveedor_id ?? s?.proveedor_id_int ?? s?.proveedorId,
           tm: s?.total_servicio_manual,
           ts: s?.total_servicio,
           c: s?.coste_unitario,

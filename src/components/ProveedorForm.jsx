@@ -71,8 +71,11 @@ const ProveedorForm = ({
       }
 
       // Mapear proveedor al formato usado en ExpedienteDetalle
+      // proveedor_id es el ID numérico BIGINT de la tabla proveedores
+      const proveedorIdNum = Number(nuevoProveedor.id)
       const proveedorMapeado = {
         id: nuevoProveedor.id,
+        proveedor_id: proveedorIdNum,
         nombreComercial: nuevoProveedor.nombre_comercial || nuevoProveedor.nombreComercial || '',
         nombreFiscal: nuevoProveedor.nombre_fiscal || nuevoProveedor.nombreFiscal || nuevoProveedor.nombre_comercial || '',
         tipo: nuevoProveedor.tipo || '',

@@ -16,7 +16,7 @@ const ServicioRow = memo(({
   // Estados locales para edición SIN CAUSAR RE-RENDERS DEL PADRE
   const [localCoste, setLocalCoste] = useState(servicio.coste_unitario || '');
   const [localTotalManual, setLocalTotalManual] = useState(servicio.total_servicio_manual || '');
-  const [localProveedor, setLocalProveedor] = useState(servicio.proveedorId || '');
+  const [localProveedor, setLocalProveedor] = useState(servicio.proveedor_id || '');
   const [localNombreEspecifico, setLocalNombreEspecifico] = useState(servicio.nombreEspecifico || '');
   const [isSaving, setIsSaving] = useState(false);
   
@@ -29,7 +29,7 @@ const ServicioRow = memo(({
     if (!isTypingRef.current) {
       setLocalCoste(servicio.coste_unitario || '');
       setLocalTotalManual(servicio.total_servicio_manual || '');
-      setLocalProveedor(servicio.proveedorId || '');
+      setLocalProveedor(servicio.proveedor_id || '');
       setLocalNombreEspecifico(servicio.nombreEspecifico || '');
     }
   }, [servicio]);
@@ -85,8 +85,8 @@ const ServicioRow = memo(({
     if (localTotalManual !== servicio.total_servicio_manual) {
       updates.total_servicio_manual = parseFloat(localTotalManual) || 0;
     }
-    if (localProveedor !== servicio.proveedorId) {
-      updates.proveedorId = localProveedor;
+    if (localProveedor !== servicio.proveedor_id) {
+      updates.proveedor_id = localProveedor ? Number(localProveedor) : null;
     }
     if (localNombreEspecifico !== servicio.nombreEspecifico) {
       updates.nombreEspecifico = localNombreEspecifico;

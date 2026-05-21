@@ -73,7 +73,7 @@ const resolverHrefFacturaUnificado = (valorGuardado) => {
  */
 const DEFAULT_SERVICE_VALUES = {
   id: null,
-  proveedorId: null,
+  proveedor_id: null,
   proveedorNombreTemporal: '',
   mayorista_id: null,
   tipo: 'Hotel',

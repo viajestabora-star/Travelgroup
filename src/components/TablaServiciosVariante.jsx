@@ -12,8 +12,18 @@ const toNum = (v) => {
 const esUuidProveedorFk = (v) =>
   v != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v).trim())
 
-/** Resuelve proveedorId de fila BD hacia el id de catálogo (UUID preferido). */
+/** Resuelve proveedor_id de fila BD hacia el id numérico BIGINT. */
 const proveedorIdDesdeFilaDb = (row, proveedores) => {
+  // Priorizar proveedor_id (BIGINT) sobre proveedor_id_int (legacy)
+  if (row.proveedor_id != null && row.proveedor_id !== '') {
+    const parsed = Number(row.proveedor_id)
+    if (!isNaN(parsed) && parsed > 0) return parsed
+  }
+  if (row.proveedor_id_int != null && row.proveedor_id_int !== '') {
+    const parsed = Number(row.proveedor_id_int)
+    if (!isNaN(parsed) && parsed > 0) return parsed
+  }
+  // Fallback legacy UUID (para datos antiguos)
   if (row.proveedor_id != null && String(row.proveedor_id).trim() !== '' && esUuidProveedorFk(row.proveedor_id)) {
     return String(row.proveedor_id).trim()
   }
@@ -28,27 +38,23 @@ const proveedorIdDesdeFilaDb = (row, proveedores) => {
   return p?.id != null ? p.id : intv
 }
 
-/** Si el catálogo llega después del fetch, sustituye proveedorId numérico por UUID del proveedor. */
+/** Normaliza proveedor_id en servicios: asegura que sea BIGINT numérico. */
 const normalizarProveedorIdsEnServicios = (lista, proveedores) => {
   if (!Array.isArray(lista) || lista.length === 0) return lista
   let changed = false
   const next = lista.map((s) => {
-    const id = s?.proveedorId
+    // Si ya tiene proveedor_id numérico válido, mantenerlo
+    if (s?.proveedor_id != null && s.proveedor_id !== '') {
+      const parsed = Number(s.proveedor_id)
+      if (!isNaN(parsed) && parsed > 0) return s
+    }
+    // Fallback: migrar desde proveedorId (legacy camelCase) o proveedor_id_int
+    const id = s?.proveedor_id ?? s?.proveedor_id_int ?? s?.proveedorId
     if (id == null || id === '') return s
-    if (esUuidProveedorFk(id)) return s
     const intv = Number(id)
     if (isNaN(intv) || intv <= 0) return s
-    const p = (proveedores || []).find((pr) => {
-      const pn = Number(pr.id)
-      if (!isNaN(pn) && pn === intv) return true
-      const pint = pr.id_int != null ? Number(pr.id_int) : NaN
-      return !isNaN(pint) && pint === intv
-    })
-    if (p?.id != null && esUuidProveedorFk(p.id)) {
-      changed = true
-      return { ...s, proveedorId: String(p.id).trim() }
-    }
-    return s
+    changed = true
+    return { ...s, proveedor_id: intv }
   })
   return changed ? next : lista
 }
@@ -63,7 +69,7 @@ const generarUUID = () => {
 
 const DEFAULT_SERVICE_VALUES = {
   id: null,
-  proveedorId: null,
+  proveedor_id: null,
   proveedorNombreTemporal: '',
   mayorista_id: null,
   tipo: 'Hotel',
@@ -170,7 +176,7 @@ const TablaServiciosVariante = ({
         if (!data || !Array.isArray(data) || data.length === 0) return
 
         const tieneDatos = (r) => {
-          const tieneProveedor = (x) => x.proveedorId != null || (x.proveedorNombreTemporal && String(x.proveedorNombreTemporal).trim())
+          const tieneProveedor = (x) => x.proveedor_id != null || (x.proveedorNombreTemporal && String(x.proveedorNombreTemporal).trim())
           const tieneNombreServicio = (x) => x.nombreEspecifico && String(x.nombreEspecifico).trim()
           const tieneTipo = (x) => x.tipo && String(x.tipo).trim()
           const tieneImporte = (x) => x.coste_unitario != null && Number(x.coste_unitario) > 0
@@ -180,13 +186,13 @@ const TablaServiciosVariante = ({
 
         const mapeados = data.map(row => {
           const coste = (v) => toNum(v)
-          const proveedorId = proveedorIdDesdeFilaDb(row, proveedores)
+          const proveedor_id = proveedorIdDesdeFilaDb(row, proveedores)
           const c = coste(row.coste_unitario ?? row.precio_venta)
           const esPorGrupo = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
           return {
             ...DEFAULT_SERVICE_VALUES,
             id: row.id || generarUUID(),
-            proveedorId,
+            proveedor_id,
             proveedorNombreTemporal: row.nombre_proveedor_manual || '',
             tipo: row.tipo_servicio || row.tipo || 'Hotel',
             tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
