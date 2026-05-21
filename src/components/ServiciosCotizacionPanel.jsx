@@ -471,6 +471,8 @@ const ServiciosCotizacionPanel = ({
   const [servicioIdParaProveedor, setServicioIdParaProveedor] = useState(null)
   // Estado para trackear IDs eliminados que deben borrarse de la BD al guardar
   const [idsEliminados, setIdsEliminados] = useState([])
+  // Estado para controlar cambios sin guardar en servicios
+  const [serviciosOriginales, setServiciosOriginales] = useState(null)
 
   const serviciosInicializados = useRef(false)
 
@@ -633,10 +635,13 @@ const ServiciosCotizacionPanel = ({
             const serviciosNuevos = prev.filter(s => s.id && !idsEnBD.has(s.id))
             return [...todosMapeados, ...serviciosNuevos]
           })
+          // Inicializar estado de comparación para control de cambios sin guardar
+          setServiciosOriginales(structuredClone(todosMapeados))
           setBusquedaProveedor(busquedaProveedoresRestaurada)
           serviciosInicializados.current = true
         } else {
           setServicios([])
+          setServiciosOriginales([])
           serviciosInicializados.current = false
         }
       } catch (_) {}
@@ -1077,11 +1082,13 @@ const ServiciosCotizacionPanel = ({
         // ✅ SINCRONIZACIÓN ESTRICTA: Actualizar refs de estado base ANTES de onRefresh
         // Esto asegura que el banner "Cambios sin guardar" desaparezca inmediatamente
         if (lastSavedVersionesRef?.current !== undefined && versiones) {
-          lastSavedVersionesRef.current = JSON.parse(JSON.stringify(versiones))
+          lastSavedVersionesRef.current = structuredClone(versiones)
         }
         if (lastSavedFormDataRef?.current !== undefined && formData) {
-          lastSavedFormDataRef.current = JSON.parse(JSON.stringify(formData))
+          lastSavedFormDataRef.current = structuredClone(formData)
         }
+        // Sincronizar estado local de servicios para control de cambios sin guardar
+        setServiciosOriginales(structuredClone(servicios))
         if (onRefresh) await onRefresh()
         alert('✅ Todo guardado correctamente. ERP protegido.')
         return { ok: true }
