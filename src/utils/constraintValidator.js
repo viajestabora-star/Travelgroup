@@ -7,6 +7,7 @@
  */
 
 import { DURACION_VIAJE_VALORES, TIPO_COLECTIVO_VALORES, normalizarDuracion } from '../constants/viaje'
+import { servicioTieneProveedorAsignado } from './consolidacionGastos'
 
 /**
  * Sanitiza un objeto expediente para que la DB siempre lo acepte.
@@ -77,9 +78,7 @@ export const detectarCamposPendientes = (expediente, servicios = []) => {
     pendientes.push('Responsable')
   }
 
-  const serviciosSinProveedor = (servicios || []).filter(
-    (s) => !s.proveedor_id && !s.proveedorId && !s.proveedor_id_int && !s.proveedorNombreTemporal && !s.nombre_proveedor_texto
-  )
+  const serviciosSinProveedor = (servicios || []).filter((s) => !servicioTieneProveedorAsignado(s))
   if (serviciosSinProveedor.length > 0) {
     pendientes.push(`${serviciosSinProveedor.length} proveedor${serviciosSinProveedor.length > 1 ? 'es' : ''} pendiente${serviciosSinProveedor.length > 1 ? 's' : ''} de asignar`)
   }

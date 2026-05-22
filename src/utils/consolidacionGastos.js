@@ -37,13 +37,39 @@ const calcularCosteTotal = (s) => {
   return cant * unit
 }
 
+/** Campos de ID de proveedor que usa el frontend (camelCase, BD, legacy). */
+const CAMPOS_PROVEEDOR_ID = ['proveedor_id', 'proveedorId', 'proveedor_id_int']
+
+/** Campos de nombre de proveedor cuando no hay ID numérico (texto manual / UI). */
+const CAMPOS_PROVEEDOR_NOMBRE = [
+  'proveedor_nombre',
+  'proveedorNombreTemporal',
+  'nombre_proveedor_texto',
+  'nombre_proveedor_manual',
+]
+
 /** Obtiene proveedorId válido (BIGINT) de un servicio. null si inválido. */
 const obtenerProveedorIdValido = (s) => {
-  const raw = s.proveedorId ?? s.proveedor_id ?? s.proveedor_id_int
-  if (raw == null || raw === '') return null
-  const n = typeof raw === 'number' ? raw : Number(raw)
-  if (isNaN(n) || n <= 0) return null
-  return Math.floor(n)
+  for (const campo of CAMPOS_PROVEEDOR_ID) {
+    const raw = s?.[campo]
+    if (raw == null || raw === '') continue
+    const n = typeof raw === 'number' ? raw : Number(raw)
+    if (!isNaN(n) && n > 0) return Math.floor(n)
+  }
+  return null
+}
+
+/**
+ * ¿El servicio tiene proveedor asignado en memoria / BD / versiones_json?
+ * Tolerante a nomenclaturas temporales del frontend (no solo BIGINT).
+ */
+export const servicioTieneProveedorAsignado = (s) => {
+  if (!s) return false
+  if (obtenerProveedorIdValido(s) != null) return true
+  return CAMPOS_PROVEEDOR_NOMBRE.some((campo) => {
+    const t = s[campo]
+    return t != null && String(t).trim() !== ''
+  })
 }
 
 const esErrorNotNullProveedorId = (error) => {
@@ -66,35 +92,50 @@ const resolverEmpresaIdConsolidacion = async (expediente) => {
   return resolverEmpresaIdEscrituraObligatorio(supabase)
 }
 
+/** Normaliza fila de servicio (tabla relacional o versiones_json) al shape del validador. */
+const normalizarServicioParaConsolidacion = (r) => {
+  const provId = r.proveedor_id_int ?? r.proveedor_id ?? r.proveedorId
+  return {
+    ...r,
+    proveedor_id: r.proveedor_id ?? provId,
+    proveedorId: r.proveedorId ?? provId,
+    proveedor_id_int: r.proveedor_id_int ?? provId,
+    tipo_servicio: r.tipo_servicio ?? r.tipo,
+    total_servicio_manual:
+      r.total_servicio_manual ??
+      r.total_servicio ??
+      (toNumSafe(r.coste_unitario) * Math.max(1, toNumSafe(r.cantidad ?? r.dias_guia ?? r.noches ?? 1))),
+    coste_unitario: r.coste_unitario ?? r.precio_venta,
+    cantidad: r.cantidad ?? r.dias_guia ?? r.noches ?? 1,
+  }
+}
+
 /**
- * Recoge todos los servicios a consolidar:
- * - versiones_json: usa la versión CONFIRMADA o la primera
- * - Si no hay versiones_json: carga desde servicios_cotizacion
+ * Recoge servicios para validar/consolidar.
+ * Fuente de verdad: servicios_cotizacion (lo que muestra la UI).
+ * Plan B: versiones_json solo si la tabla relacional está vacía.
  */
 const obtenerServiciosParaConsolidar = async (expedienteId, versionesJson) => {
+  const { data } = await supabase
+    .from('servicios_cotizacion')
+    .select('*')
+    .eq('id_expediente', String(expedienteId).trim())
+    .neq('id', SERVICIO_ANOMALO_ID)
+
+  const rows = Array.isArray(data) ? data : []
+  if (rows.length > 0) {
+    return rows.map(normalizarServicioParaConsolidacion)
+  }
+
   const versiones = Array.isArray(versionesJson?.versiones) ? versionesJson.versiones : []
   if (versiones.length > 0) {
     const confirmada = versiones.find((v) => v.confirmada)
     const v = confirmada ?? versiones[0]
     const servs = Array.isArray(v?.servicios) ? v.servicios : []
-    return servs
+    return servs.map(normalizarServicioParaConsolidacion)
   }
-  const { data } = await supabase
-    .from('servicios_cotizacion')
-    .select('*')
-    .eq('id_expediente', String(expedienteId).trim())
-    .gt('total_servicio', 0)
-    .not('nombre_servicio', 'is', null)
-    .neq('id', SERVICIO_ANOMALO_ID)
-  const rows = Array.isArray(data) ? data : []
-  return rows.map((r) => ({
-    ...r,
-    proveedorId: r.proveedor_id_int ?? r.proveedor_id,
-    tipo_servicio: r.tipo_servicio ?? r.tipo,
-    total_servicio_manual: r.total_servicio ?? r.total_servicio_manual ?? r.coste_unitario * (r.cantidad ?? 1),
-    coste_unitario: r.coste_unitario ?? r.precio_venta,
-    cantidad: r.cantidad ?? r.dias_guia ?? r.noches ?? 1,
-  }))
+
+  return []
 }
 
 /**
@@ -109,8 +150,7 @@ export const validarProveedoresServicios = async (expedienteId, versionesJson) =
     return coste > 0 || tipo !== ''
   })
   for (const s of conDatos) {
-    const provId = obtenerProveedorIdValido(s)
-    if (provId == null) {
+    if (!servicioTieneProveedorAsignado(s)) {
       const nombre = s.nombreEspecifico || s.nombre_especifico || s.tipo_servicio || s.tipo || 'Servicio'
       return {
         ok: false,
