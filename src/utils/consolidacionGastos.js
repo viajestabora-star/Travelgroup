@@ -7,6 +7,10 @@
 
 import { supabase } from '../supabase'
 import { toNum } from './finanzasHelpers'
+import {
+  MSJ_OPERACION_SIN_EMPRESA_ID,
+  resolverEmpresaIdEscrituraObligatorio,
+} from './tenantEmpresa'
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -46,6 +50,20 @@ const esErrorNotNullProveedorId = (error) => {
   const code = String(error?.code ?? '')
   const msg = String(error?.message ?? '').toLowerCase()
   return code === '23502' && msg.includes('proveedor_id')
+}
+
+/**
+ * empresa_id obligatorio para gastos_consolidados (NOT NULL + RLS).
+ * Orden: expediente actual → sesión Supabase (JWT / profiles).
+ * @returns {Promise<number>}
+ */
+const resolverEmpresaIdConsolidacion = async (expediente) => {
+  const raw = expediente?.empresa_id ?? expediente?.empresa_id_int
+  const desdeExpediente = Number(raw)
+  if (Number.isFinite(desdeExpediente) && desdeExpediente > 0) {
+    return Math.trunc(desdeExpediente)
+  }
+  return resolverEmpresaIdEscrituraObligatorio(supabase)
 }
 
 /**
@@ -135,6 +153,14 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
 
     if (!debeConsolidar) return { ok: true }
 
+    let empresaIdInt
+    try {
+      empresaIdInt = await resolverEmpresaIdConsolidacion(expediente)
+    } catch (err) {
+      const msg = err?.message || MSJ_OPERACION_SIN_EMPRESA_ID
+      return { ok: false, error: msg }
+    }
+
     const servicios = await obtenerServiciosParaConsolidar(expedienteId, expediente?.versiones_json)
     const añoEjercicio = extraerAñoEjercicio(expediente?.numero_expediente)
 
@@ -153,6 +179,7 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
       )
       filas.push({
         expediente_id: expedienteId,
+        empresa_id: empresaIdInt,
         proveedor_id: provId ?? null,
         tipo_servicio: String(tipoServicio).trim() || 'Otros',
         coste_total: costeTotal,

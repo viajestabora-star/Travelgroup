@@ -1122,7 +1122,7 @@ const Expedientes = ({ user = null }) => {
     try {
       let expediente = expedientes.find(exp => exp.id === id)
       if (debeConsolidar) {
-        const { data } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json').eq('id', id).single()
+        const { data } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json, empresa_id').eq('id', id).single()
         expediente = data || expediente
       }
 

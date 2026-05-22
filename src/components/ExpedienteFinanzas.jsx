@@ -1361,7 +1361,7 @@ const ExpedienteFinanzas = ({
     if (esSubmitDuplicadoReciente('guardarCierre', firmaCierre)) return
     setGuardandoCierre(true)
     try {
-      const { data: expDataRaw } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json').eq('id', expediente.id).single()
+      const { data: expDataRaw } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json, empresa_id').eq('id', expediente.id).single()
       const expData = expDataRaw || expediente
       const validacion = await validarProveedoresServicios(expediente.id, { versiones: [] })
       if (!validacion.ok) {

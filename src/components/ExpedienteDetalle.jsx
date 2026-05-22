@@ -1850,7 +1850,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (!window.confirm('¿Confirmar cierre? Se consolidarán los costes para el análisis financiero.')) return
     setGuardandoCierre(true)
     try {
-      const { data: expData } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json').eq('id', expediente.id).single()
+      const { data: expData } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json, empresa_id').eq('id', expediente.id).single()
       const expConVersiones = expData || expediente
       const validacion = await validarProveedoresServicios(expediente.id, expConVersiones?.versiones_json)
       if (!validacion.ok) {
