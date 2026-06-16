@@ -47,42 +47,6 @@ export const diagnosticarExpediente = async () => {
     }
   }
 
-  // 2. Consultar tabla expedientes (versiones_json)
-  console.log('\n\n📋 PASO 2: Consultando tabla expedientes (versiones_json)...')
-  const { data: expedienteData, error: expedienteError } = await supabase
-    .from('expedientes')
-    .select('id, numero_expediente, versiones_json, empresa_id')
-    .eq('id', EXPEDIENTE_ID)
-    .single()
-
-  if (expedienteError) {
-    console.error('❌ ERROR al consultar expedientes:', expedienteError)
-  } else {
-    console.log('✅ expedientes - Datos encontrados:')
-    console.log('  ID:', expedienteData?.id)
-    console.log('  Número:', expedienteData?.numero_expediente)
-    console.log('  Empresa ID:', expedienteData?.empresa_id)
-    console.log('📦 VERSIONES_JSON completo:')
-    console.log(JSON.stringify(expedienteData?.versiones_json, null, 2))
-    
-    if (expedienteData?.versiones_json?.versiones) {
-      console.log('\n📊 ANÁLISIS DE VERSIONES:')
-      expedienteData.versiones_json.versiones.forEach((v, idx) => {
-        console.log(`\n--- Versión ${idx} ---`)
-        console.log('  ID:', v.id)
-        console.log('  Nombre:', v.nombre)
-        console.log('  Confirmada:', v.confirmada)
-        console.log('  Cantidad servicios:', v.servicios?.length || 0)
-        if (v.servicios && v.servicios.length > 0) {
-          console.log('  Primer servicio:')
-          console.log('    ID:', v.servicios[0].id)
-          console.log('    Tipo:', v.servicios[0].tipo || v.servicios[0].tipo_servicio)
-          console.log('    Proveedor ID:', v.servicios[0].proveedorId || v.servicios[0].proveedor_id_int)
-        }
-      })
-    }
-  }
-
   // 3. Verificar políticas RLS (intentar contar sin filtros)
   console.log('\n\n📋 PASO 3: Verificando acceso total (sin filtros de empresa)...')
   const { data: allServicios, error: allError } = await supabase

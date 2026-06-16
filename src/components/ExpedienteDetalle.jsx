@@ -744,7 +744,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Estados para servicios (separados porque se guardan en tabla diferente)
   const [servicios, setServicios] = useState([])
 
-  // Multicotización: versiones de presupuesto. versiones_json en expediente.
+  // Multicotización: versiones de presupuesto gestionadas en memoria (estado versiones).
   // Solo la opción CONFIRMADA suma para beneficio_neto_real (Central de Inteligencia).
   const [versiones, setVersiones] = useState([])
   const [versionActiva, setVersionActiva] = useState(0)

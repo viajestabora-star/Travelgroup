@@ -367,7 +367,7 @@ const Expedientes = ({ user = null }) => {
       }
       // Lista explícita: el .map() siguiente solo conserva lo que copiamos; url_programa_pdf y empresa_id deben estar aquí y en el objeto parseado.
       const EXPEDIENTES_LISTADO_COLUMNS =
-        'id, numero_expediente, empresa_id, cliente_id, cliente_nombre, nombre_grupo, fecha_inicio, fecha_final, created_at, destino, telefono, email, responsable, estado, tipo_colectivo, duracion_viaje, observaciones, itinerario, ejercicio, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, total_ingresos, total_cobrado, presupuesto_total, cierre_grupo, desglose_grupos, url_programa_pdf, versiones_json'
+        'id, numero_expediente, empresa_id, cliente_id, cliente_nombre, nombre_grupo, fecha_inicio, fecha_final, created_at, destino, telefono, email, responsable, estado, tipo_colectivo, duracion_viaje, observaciones, itinerario, ejercicio, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax, total_ingresos, total_cobrado, presupuesto_total, cierre_grupo, desglose_grupos, url_programa_pdf'
 
       const { data: cloudData, error } = await Promise.resolve(
         supabase
@@ -437,7 +437,6 @@ const Expedientes = ({ user = null }) => {
             exp.url_programa_pdf != null && String(exp.url_programa_pdf).trim() !== ''
               ? String(exp.url_programa_pdf).trim()
               : null,
-          versiones_json: exp.versiones_json ?? null,
 
           // Campos por defecto para compatibilidad
           pasajeros: [],
@@ -1122,7 +1121,7 @@ const Expedientes = ({ user = null }) => {
     try {
       let expediente = expedientes.find(exp => exp.id === id)
       if (debeConsolidar) {
-        const { data } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json, empresa_id').eq('id', id).single()
+        const { data } = await supabase.from('expedientes').select('id, numero_expediente, empresa_id').eq('id', id).single()
         expediente = data || expediente
       }
 

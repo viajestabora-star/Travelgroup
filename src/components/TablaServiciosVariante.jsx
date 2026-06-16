@@ -91,7 +91,7 @@ const DEFAULT_SERVICE_VALUES = {
 /**
  * TablaServiciosVariante - Contenedor estanco por variante.
  * key={indiceActivo} fuerza remontaje al cambiar pestaña; cada variante tiene datos independientes.
- * Carga desde versiones_json[indiceActivo].servicios; si vacío, carga desde expediente (servicios_cotizacion).
+ * Carga servicios desde versiones[indiceActivo].servicios (estado en memoria); si vacío, carga desde servicios_cotizacion.
  */
 const TablaServiciosVariante = ({
   indiceActivo,
