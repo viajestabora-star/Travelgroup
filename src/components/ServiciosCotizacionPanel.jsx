@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
 import { leerIdExpedienteSoloUseParams, resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
+import { toDb, servicioVacio } from '../lib/serviciosCotizacionAdapter'
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -113,26 +114,6 @@ const generarUUID = () => {
   })
 }
 
-const DEFAULT_SERVICE_VALUES = {
-  id: null,
-  proveedor_id: null,
-  proveedorNombreTemporal: '',
-  mayorista_id: null,
-  tipo: 'Hotel',
-  tipo_servicio: 'Hotel',
-  tipo_calculo: 'porPersona',
-  nombreEspecifico: '',
-  localizacion: '',
-  especificacion_destino: '',
-  coste_unitario: 0,
-  total_servicio_manual: 0,
-  margen: 0,
-  noches: 1,
-  dias_guia: 1,
-  cantidad: 1,
-  fechaRelease: '',
-  releasePagado: false,
-}
 
 /**
  * Convierte filas devueltas por Supabase al modelo de UI del panel (ids canónicos, búsqueda proveedor).
@@ -229,7 +210,7 @@ const mapearRespuestaSupabaseAServiciosUI = (dataRows, proveedoresList) => {
     const nombreServicio = row?.nombre_servicio || row?.nombre_especifico || row?.descripcion || 'Servicio sin nombre'
     
     return {
-      ...DEFAULT_SERVICE_VALUES,
+      ...servicioVacio(),
       // ID único preservado
       id: idNormalizado,
       // ID_EXPEDIENTE preservado para anclaje relacional
@@ -514,8 +495,7 @@ const ServiciosCotizacionPanel = ({
     } else {
       actualizarServicio(servicio.id, {
         proveedor_id: proveedorIdInt,
-        proveedor_id_int: proveedorIdInt,
-        proveedor_nombre: proveedorNombre
+        proveedorNombre: proveedorNombre
       })
       setBusquedaProveedor(prev => ({ ...prev, [servicio.id]: proveedorNombre }))
       setMostrarSugerencias(prev => ({ ...prev, [servicio.id]: false }))
@@ -618,7 +598,7 @@ const ServiciosCotizacionPanel = ({
 
   const añadirServicio = () => {
     const nuevoServicio = {
-      ...DEFAULT_SERVICE_VALUES,
+      ...servicioVacio(),
       id: generarUUID(),
       tipo: 'Hotel',
       tipo_calculo: 'porPersona',
@@ -636,7 +616,7 @@ const ServiciosCotizacionPanel = ({
     
     const servicioActual = servicios.find(s => s.id === servicioId)
     const nuevoHotel = {
-      ...DEFAULT_SERVICE_VALUES,
+      ...servicioVacio(),
       id: generarUUID(),
       tipo: 'Hotel',
       mayorista_id: proveedorId,
@@ -645,7 +625,7 @@ const ServiciosCotizacionPanel = ({
     setServicios(prev => {
       const idx2 = prev.findIndex(s => s.id === servicioId)
       if (idx2 < 0) return prev
-      const actualizado = prev.map(s => s.id === servicioId ? { ...s, proveedor_id: proveedorIdInt, proveedor_id_int: proveedorIdInt, proveedor_nombre: proveedorNombre } : s)
+      const actualizado = prev.map(s => s.id === servicioId ? { ...s, proveedor_id: proveedorIdInt, proveedorNombre: proveedorNombre } : s)
       return [...actualizado.slice(0, idx2 + 1), nuevoHotel, ...actualizado.slice(idx2 + 1)]
     })
     setBusquedaProveedor(prev => ({ ...prev, [servicioId]: proveedorNombre }))
@@ -663,34 +643,33 @@ const ServiciosCotizacionPanel = ({
 
     if (!window.confirm(mensajeConfirm)) return
 
+    if (servicio.id === null || servicio.id === undefined) {
+      setServicios(prev => prev.filter(s => s.id !== id))
+      return
+    }
+
     const idsAEliminar = [id]
     if (esMayorista && servicio?.proveedor_id) {
       const hotelesVinculados = servicios.filter(s => s.tipo === 'Hotel' && s.mayorista_id != null && String(s.mayorista_id) === String(servicio.proveedor_id))
       hotelesVinculados.forEach(h => idsAEliminar.push(h.id))
     }
 
-    // BORRADO INMEDIATO DE LA BASE DE DATOS para IDs reales (UUID)
+    // BORRADO INMEDIATO DE LA BASE DE DATOS
     let borradosEnBD = 0
     for (const idElim of idsAEliminar) {
-      // Verificar si es un ID real de Supabase (UUID) o un ID temporal local
-      const esUuidReal = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idElim)
-      if (esUuidReal) {
-        console.log('[eliminarServicio] Borrando inmediatamente de BD:', idElim)
-        const { error: deleteError } = await supabase
-          .from('servicios_cotizacion')
-          .delete()
-          .eq('id', idElim)
-        
-        if (deleteError) {
-          console.error('[eliminarServicio] Error al borrar en BD:', deleteError)
-          alert('Error al eliminar servicio de la base de datos: ' + deleteError.message)
-          return // No continuar si hay error
-        }
-        console.log('[eliminarServicio] Borrado exitoso en BD:', idElim)
-        borradosEnBD++
-      } else {
-        console.log('[eliminarServicio] ID temporal, no existe en BD:', idElim)
+      console.log('[eliminarServicio] Borrando inmediatamente de BD:', idElim)
+      const { error: deleteError } = await supabase
+        .from('servicios_cotizacion')
+        .delete()
+        .eq('id', idElim)
+
+      if (deleteError) {
+        console.error('[eliminarServicio] Error al borrar en BD:', deleteError)
+        alert('Error al eliminar servicio de la base de datos: ' + deleteError.message)
+        return
       }
+      console.log('[eliminarServicio] Borrado exitoso en BD:', idElim)
+      borradosEnBD++
     }
     
     // Eliminar de la UI inmediatamente (antes de la recarga)
@@ -708,7 +687,7 @@ const ServiciosCotizacionPanel = ({
   }
 
   const calcularTotalFilaUI = (servicio) => {
-    const s = { ...DEFAULT_SERVICE_VALUES, ...servicio }
+    const s = { ...servicioVacio(), ...servicio }
     const tipoNorm = normalizarTipo(s.tipo || s.tipo_servicio || '')
     const precioCoste = toNum(s.coste_unitario)
     if (tipoNorm === 'guia' || tipoNorm === 'g') {
@@ -733,109 +712,8 @@ const ServiciosCotizacionPanel = ({
     /* No auto-save on blur: all persistence via manual Guardar button to avoid focus loss and save loops */
   }
 
-  const buildDatosParaSupabase = (servicio, idExpedienteCanonico, empresaIdInt) => {
-    const nochesFinal = Math.max(1, toNum(servicio?.noches))
-    const tipoCalc = servicio?.tipo_calculo === 'porGrupo' || servicio?.tipo_calculo === 'Total a dividir' ? 'porGrupo' : 'porPersona'
-    const precioUnitario = toNum(servicio?.coste_unitario)
-    const fila = {
-      ...servicio,
-      tipo_calculo: tipoCalc,
-      tipo_servicio: servicio?.tipo_servicio || servicio?.tipo || '',
-      coste_unitario: precioUnitario,
-      noches: nochesFinal,
-      dias_guia: toNum(servicio?.dias_guia) || nochesFinal,
-      total_servicio_manual: toNum(servicio?.total_servicio_manual) || 0,
-    }
-    const calculado = finalizarCalculoModulo(fila, paxPago, totalPax)
-    const totalServicio = toNum(calculado?.total_servicio)
-
-    // Cast numérico explícito a BIGINT para proveedor_id
-    const rawProveedorId = servicio?.proveedor_id ?? servicio?.proveedor_id_int
-    console.log('[DEBUG buildDatosParaSupabase] servicio.id:', servicio?.id)
-    console.log('[DEBUG buildDatosParaSupabase] servicio.proveedor_id:', servicio?.proveedor_id)
-    console.log('[DEBUG buildDatosParaSupabase] servicio.proveedor_id_int:', servicio?.proveedor_id_int)
-    console.log('[DEBUG buildDatosParaSupabase] rawProveedorId:', rawProveedorId)
-    console.log('[DEBUG buildDatosParaSupabase] rawProveedorId != null:', rawProveedorId != null)
-    console.log('[DEBUG buildDatosParaSupabase] rawProveedorId !== \'\':', rawProveedorId !== '')
-    console.log('[DEBUG buildDatosParaSupabase] !isNaN(Number(rawProveedorId)):', !isNaN(Number(rawProveedorId)))
-    console.log('[DEBUG buildDatosParaSupabase] Number(rawProveedorId) > 0:', Number(rawProveedorId) > 0)
-    const proveedorIdInt = rawProveedorId != null && rawProveedorId !== '' && !isNaN(Number(rawProveedorId)) && Number(rawProveedorId) > 0
-      ? Math.trunc(Number(rawProveedorId))
-      : null
-    console.log('[DEBUG buildDatosParaSupabase] proveedorIdInt FINAL (BIGINT):', proveedorIdInt)
-
-    const textoBusquedaProveedor = servicio?.id != null && busquedaProveedor[servicio.id] !== undefined
-      ? String(busquedaProveedor[servicio.id]).trim()
-      : ''
-    const nombreTemporalTrim = (servicio?.proveedorNombreTemporal && String(servicio.proveedorNombreTemporal).trim()) || ''
-
-    let proveedorNombrePayload = null
-    if (proveedorIdInt != null) {
-      const desdeLista = resolverNombreProveedorDesdeLista(proveedores, proveedorIdInt)
-      const desdeServicio = String(servicio?.proveedor_nombre ?? servicio?.nombre_proveedor_texto ?? '').trim()
-      const combinado = desdeLista || desdeServicio || textoBusquedaProveedor
-      proveedorNombrePayload = combinado || null
-    } else {
-      proveedorNombrePayload = nombreTemporalTrim || textoBusquedaProveedor || null
-    }
-
-    const tipoNorm = normalizarTipo(servicio?.tipo || servicio?.tipo_servicio || '')
-    const cantidadGuia = Math.max(1, toNum(servicio?.cantidad ?? servicio?.dias_guia ?? nochesFinal))
-    const totalServicioFinal = (tipoNorm === 'guia' || tipoNorm === 'g')
-      ? toNum(precioUnitario) * cantidadGuia
-      : toNum(totalServicio)
-
-    const conceptoPrincipal = String(
-      servicio?.nombre_servicio
-      ?? servicio?.nombreEspecifico
-      ?? servicio?.nombre_especifico
-      ?? servicio?.descripcion
-      ?? servicio?.tipo
-      ?? servicio?.tipo_servicio
-      ?? 'Servicio'
-    ).trim() || 'Servicio'
-    const nombre_especifico = String(
-      servicio?.nombreEspecifico ?? servicio?.nombre_especifico ?? conceptoPrincipal
-    ).trim() || conceptoPrincipal
-
-    const tipoServicioUi = servicio?.tipo_servicio || servicio?.tipo || 'Hotel'
-    const cantidadPayload = (tipoNorm === 'guia' || tipoNorm === 'g')
-      ? cantidadGuia
-      : Math.max(1, toNum(servicio?.cantidad ?? servicio?.noches ?? 1))
-    const idExpedienteStr = String(idExpedienteCanonico ?? '').trim()
-    if (!idExpedienteStr) {
-      console.warn('[ServiciosCotizacion] buildDatosParaSupabase: id_expediente vacío; la fila no debería enviarse a Supabase.')
-    }
-
-    return {
-      id_expediente: idExpedienteStr,
-      empresa_id: Math.trunc(Number(empresaIdInt)),
-      tipo_servicio: tipoServicioUi,
-      nombre_servicio: conceptoPrincipal,
-      nombre_especifico,
-      localizacion: servicio?.localizacion || '',
-      especificacion_destino: (servicio?.especificacion_destino && String(servicio.especificacion_destino).trim()) || null,
-      coste_unitario: toNum(precioUnitario),
-      total_servicio: totalServicioFinal,
-      precio_venta: toNum(precioUnitario),
-      margen_pax: toNum(servicio?.margen),
-      noches: nochesFinal,
-      dias_guia: (tipoNorm === 'guia' || tipoNorm === 'g') ? cantidadGuia : nochesFinal,
-      cantidad: cantidadPayload,
-      fecha_release: servicio?.fechaRelease || null,
-      release_pagado: !!servicio?.releasePagado,
-      tipo_calculo: tipoCalc === 'porGrupo' ? 'Total a dividir' : 'porPersona',
-      proveedor_id: proveedorIdInt,
-      proveedor_nombre: proveedorNombrePayload,
-      mayorista_id: (() => {
-        const v = servicio?.mayorista_id
-        if (v == null || v === '' || v === undefined) return null
-        const str = String(v)
-        const esUuidValido = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
-        return esUuidValido ? str : null
-      })(),
-    }
-  }
+  const buildDatosParaSupabase = (servicio, idExpedienteCanonico, empresaIdInt) =>
+    toDb(servicio, idExpedienteCanonico, empresaIdInt)
   const guardarTodosServiciosEnSupabase = async (serviciosLista) => {
     const listaServicios = Array.isArray(serviciosLista) ? serviciosLista : []
     const paramsAlClic = paramsRef.current
@@ -1650,8 +1528,7 @@ const ServiciosCotizacionPanel = ({
                   console.log('[DEBUG ProveedorForm onSaved] proveedorNombre:', proveedorNombre)
                   actualizarServicio(servicioIdParaProveedor, {
                     proveedor_id: proveedorIdInt,
-                    proveedor_id_int: proveedorIdInt,
-                    proveedor_nombre: proveedorNombre
+                    proveedorNombre: proveedorNombre
                   })
                   setBusquedaProveedor(prev => ({ ...prev, [servicioIdParaProveedor]: proveedorNombre }))
                   setMostrarSugerencias(prev => ({ ...prev, [servicioIdParaProveedor]: false }))

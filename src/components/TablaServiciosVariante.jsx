@@ -1,92 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
-
-const toNum = (v) => {
-  if (v === null || v === undefined) return 0
-  if (typeof v === 'number' && !isNaN(v)) return v
-  const n = Number(v)
-  return isNaN(n) ? 0 : n
-}
-
-const esUuidProveedorFk = (v) =>
-  v != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v).trim())
-
-/** Resuelve proveedor_id de fila BD hacia el id numérico BIGINT. */
-const proveedorIdDesdeFilaDb = (row, proveedores) => {
-  // Priorizar proveedor_id (BIGINT) sobre proveedor_id_int (legacy)
-  if (row.proveedor_id != null && row.proveedor_id !== '') {
-    const parsed = Number(row.proveedor_id)
-    if (!isNaN(parsed) && parsed > 0) return parsed
-  }
-  if (row.proveedor_id_int != null && row.proveedor_id_int !== '') {
-    const parsed = Number(row.proveedor_id_int)
-    if (!isNaN(parsed) && parsed > 0) return parsed
-  }
-  // Fallback legacy UUID (para datos antiguos)
-  if (row.proveedor_id != null && String(row.proveedor_id).trim() !== '' && esUuidProveedorFk(row.proveedor_id)) {
-    return String(row.proveedor_id).trim()
-  }
-  const intv = row.proveedor_id_int ? Number(row.proveedor_id_int) : null
-  if (!intv || isNaN(intv) || intv <= 0) return null
-  const p = (proveedores || []).find((pr) => {
-    const pn = Number(pr.id)
-    if (!isNaN(pn) && pn === intv) return true
-    const pint = pr.id_int != null ? Number(pr.id_int) : NaN
-    return !isNaN(pint) && pint === intv
-  })
-  return p?.id != null ? p.id : intv
-}
-
-/** Normaliza proveedor_id en servicios: asegura que sea BIGINT numérico. */
-const normalizarProveedorIdsEnServicios = (lista, proveedores) => {
-  if (!Array.isArray(lista) || lista.length === 0) return lista
-  let changed = false
-  const next = lista.map((s) => {
-    // Si ya tiene proveedor_id numérico válido, mantenerlo
-    if (s?.proveedor_id != null && s.proveedor_id !== '') {
-      const parsed = Number(s.proveedor_id)
-      if (!isNaN(parsed) && parsed > 0) return s
-    }
-    // Fallback: migrar desde proveedorId (legacy camelCase) o proveedor_id_int
-    const id = s?.proveedor_id ?? s?.proveedor_id_int ?? s?.proveedorId
-    if (id == null || id === '') return s
-    const intv = Number(id)
-    if (isNaN(intv) || intv <= 0) return s
-    changed = true
-    return { ...s, proveedor_id: intv }
-  })
-  return changed ? next : lista
-}
-
-const generarUUID = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = (Math.random() * 16) | 0
-    const v = c === 'x' ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
-}
-
-const DEFAULT_SERVICE_VALUES = {
-  id: null,
-  proveedor_id: null,
-  proveedorNombreTemporal: '',
-  mayorista_id: null,
-  tipo: 'Hotel',
-  tipo_servicio: 'Hotel',
-  tipo_calculo: 'porPersona',
-  nombreEspecifico: '',
-  localizacion: '',
-  especificacion_destino: '',
-  coste_unitario: 0,
-  total_servicio_manual: 0,
-  margen: 0,
-  noches: 1,
-  dias_guia: 1,
-  cantidad: 1,
-  fechaRelease: '',
-  releasePagado: false,
-}
+import { fromDb, servicioVacio } from '../lib/serviciosCotizacionAdapter'
 
 /**
  * TablaServiciosVariante - Contenedor estanco por variante.
@@ -135,18 +50,6 @@ const TablaServiciosVariante = ({
   }, [expedienteId, indiceActivo])
 
   useEffect(() => {
-    if (!Array.isArray(proveedores) || proveedores.length === 0) return
-    setServiciosLocal((prev) => {
-      const next = normalizarProveedorIdsEnServicios(prev, proveedores)
-      if (next === prev) return prev
-      onVersionesChange((vers) =>
-        vers.map((v, i) => (i === indiceActivo ? { ...v, servicios: [...next] } : v))
-      )
-      return next
-    })
-  }, [proveedores, indiceActivo, onVersionesChange])
-
-  useEffect(() => {
     if (!expedienteId || cargadoDesdeExpedienteRef.current) return
     const servs = versiones[indiceActivo]?.servicios ?? []
     if (Array.isArray(servs) && servs.length > 0) return
@@ -184,33 +87,7 @@ const TablaServiciosVariante = ({
           return tieneProveedor(r) || tieneNombreServicio(r) || tieneImporte(r) || tieneTotalManual(r) || tieneTipo(r)
         }
 
-        const mapeados = data.map(row => {
-          const coste = (v) => toNum(v)
-          const proveedor_id = proveedorIdDesdeFilaDb(row, proveedores)
-          const c = coste(row.coste_unitario ?? row.precio_venta)
-          const esPorGrupo = row.tipo_calculo === 'Total a dividir' || row.tipo_calculo === 'porGrupo'
-          return {
-            ...DEFAULT_SERVICE_VALUES,
-            id: row.id || generarUUID(),
-            proveedor_id,
-            proveedorNombreTemporal: row.nombre_proveedor_manual || '',
-            tipo: row.tipo_servicio || row.tipo || 'Hotel',
-            tipo_servicio: row.tipo_servicio || row.tipo || 'Hotel',
-            nombreEspecifico: row.nombre_especifico || '',
-            localizacion: row.localizacion || '',
-            especificacion_destino: row.especificacion_destino || '',
-            coste_unitario: c,
-            total_servicio_manual: esPorGrupo ? c : 0,
-            tipo_calculo: esPorGrupo ? 'porGrupo' : 'porPersona',
-            margen: coste(row.margen_pax),
-            noches: Math.max(1, coste(row.noches)),
-            dias_guia: coste(row.dias_guia) || Math.max(1, coste(row.noches)),
-            cantidad: Math.max(1, coste(row.cantidad ?? row.dias_guia ?? row.noches ?? 1)),
-            fechaRelease: row.fecha_release ? String(row.fecha_release).split('T')[0] : '',
-            releasePagado: !!row.release_pagado,
-            mayorista_id: (row.mayorista_id != null && row.mayorista_id !== '') ? (typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-') ? row.mayorista_id : String(row.mayorista_id)) : null,
-          }
-        }).filter(tieneDatos)
+        const mapeados = data.filter(tieneDatos).map(row => fromDb(row, proveedores))
 
         if (mapeados.length > 0) {
           setServiciosLocal(mapeados)

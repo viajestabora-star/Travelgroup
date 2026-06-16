@@ -11,6 +11,7 @@ import CobrosPagosModal, {
   esCobroLiquidado,
 } from './expedientes/CobrosPagosModal'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
+import { fromDbParaFinanzas } from '../lib/serviciosCotizacionAdapter'
 import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { DATOS_EMISOR } from '../config/empresa'
 import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmisorEmpresa'
@@ -33,9 +34,9 @@ function validarFilasServiciosCotizacionCierre(rows, empresaIdEsperado) {
     if (!Number.isFinite(eNum) || Math.trunc(eNum) !== empresaIdEsperado) {
       throw new Error(`servicios_cotizacion: fila ${i + 1} con empresa_id ausente o incompatible con la sesión.`)
     }
-    const concepto = String(s?.nombre_servicio || s?.tipo_servicio || s?.nombre_especifico || '').trim()
+    const concepto = String(s?.tipo_servicio || s?.nombre_especifico || '').trim()
     if (!concepto) {
-      throw new Error(`servicios_cotizacion: fila ${i + 1} sin nombre_servicio ni datos de concepto.`)
+      throw new Error(`servicios_cotizacion: fila ${i + 1} sin tipo_servicio ni nombre_especifico.`)
     }
   }
 }
@@ -812,26 +813,7 @@ const ExpedienteFinanzas = ({
 
   const mapearServiciosSqlATabla = React.useCallback((rows, proveedoresDb) => {
     const safeRows = Array.isArray(rows) ? rows : []
-    return safeRows.map((s) => {
-      const servicioId = String(s.id).trim()
-      const conceptoVisible = String(s?.nombre_servicio || s?.tipo_servicio || s?.nombre_especifico || '').trim()
-      const provOficial = proveedoresDb?.find(
-        (p) => String(p.id) === String(s.proveedor_id_int) || String(p.id) === String(s.proveedor_id)
-      )
-      const proveedorVisible =
-        provOficial?.nombre_comercial || s?.nombre_proveedor_manual || s?.nombre_proveedor_texto || 'Sin proveedor'
-      const costeCotizadoVisible = toNum(s?.total_servicio)
-      const costeRealProveedorVisible = s?.coste_real_proveedor == null ? 0 : toNum(s?.coste_real_proveedor)
-      const facturaUrl = String(s?.url_factura_pdf || '').trim() || null
-      return {
-        servicioId,
-        conceptoVisible,
-        proveedorVisible,
-        costeCotizadoVisible,
-        costeRealProveedorVisible,
-        facturaUrl,
-      }
-    })
+    return safeRows.map(row => fromDbParaFinanzas(row, proveedoresDb))
   }, [])
 
   /**
