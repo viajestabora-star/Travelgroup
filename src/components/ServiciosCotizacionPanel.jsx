@@ -584,41 +584,7 @@ const ServiciosCotizacionPanel = ({
 
         if (serviciosResponse.error) return
 
-        let dataRows = serviciosResponse.data || []
-        let serviciosDesdeVersionesJson = false
-        
-        // ═══════════════════════════════════════════════════════════════════════════
-        // 🔴 PLAN B - CONTINGENCIA PARA EXPEDIENTES ANTIGUOS
-        // Si la tabla relacional tiene 0 filas, los datos están en versiones_json
-        // ═══════════════════════════════════════════════════════════════════════════
-        if (dataRows.length === 0 && expediente?.id) {
-          console.log('[ServiciosCotizacionPanel] [PLAN B] Tabla vacía. Cargando desde versiones_json...')
-          
-          try {
-            const { data: expDataPlanB } = await supabase
-              .from('expedientes')
-              .select('versiones_json')
-              .eq('id', expediente.id)
-              .single()
-            
-            const vjPlanB = expDataPlanB?.versiones_json ?? expediente?.versiones_json
-            
-            if (vjPlanB?.versiones && Array.isArray(vjPlanB.versiones) && vjPlanB.versiones.length > 0) {
-              const primeraVersion = vjPlanB.versiones[0]
-              if (primeraVersion?.servicios && Array.isArray(primeraVersion.servicios)) {
-                dataRows = primeraVersion.servicios.map(s => ({
-                  ...s,
-                  // Asegurar campos necesarios para el mapeo
-                  id_expediente: s.id_expediente || expediente.id,
-                }))
-                serviciosDesdeVersionesJson = true
-                console.log('[ServiciosCotizacionPanel] [PLAN B] ✅ Cargados:', dataRows.length, 'servicios')
-              }
-            }
-          } catch (err) {
-            console.log('[ServiciosCotizacionPanel] [PLAN B] Error cargando versiones_json:', err)
-          }
-        }
+        const dataRows = serviciosResponse.data || []
 
         // ⚠️ CAMBIO CRÍTICO: Todas las filas de BD se muestran sin filtrar
         // El mapeo ultra-defensivo ya asegura que cada fila tenga valores por defecto

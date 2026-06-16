@@ -1850,9 +1850,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     if (!window.confirm('¿Confirmar cierre? Se consolidarán los costes para el análisis financiero.')) return
     setGuardandoCierre(true)
     try {
-      const { data: expData } = await supabase.from('expedientes').select('id, numero_expediente, versiones_json, empresa_id').eq('id', expediente.id).single()
-      const expConVersiones = expData || expediente
-      const validacion = await validarProveedoresServicios(expediente.id, expConVersiones?.versiones_json)
+      const validacion = await validarProveedoresServicios(expediente.id)
       if (!validacion.ok) {
         const confirmarSinProveedor = window.confirm(
           validacion.warning || 'Falta proveedor por asignar. ¿Deseas consolidar de todas formas?'
@@ -1925,7 +1923,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         return
       }
 
-      const cons = await consolidarGastosExpediente(expediente.id, expConVersiones, true)
+      const cons = await consolidarGastosExpediente(expediente.id, expediente, true)
       if (!cons.ok) {
         alert(cons.error || 'Error al consolidar gastos. El cierre se guardó pero revisa los proveedores.')
       }

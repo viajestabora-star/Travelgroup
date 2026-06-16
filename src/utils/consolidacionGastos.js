@@ -60,7 +60,7 @@ const obtenerProveedorIdValido = (s) => {
 }
 
 /**
- * ¿El servicio tiene proveedor asignado en memoria / BD / versiones_json?
+ * ¿El servicio tiene proveedor asignado en memoria / BD?
  * Tolerante a nomenclaturas temporales del frontend (no solo BIGINT).
  */
 export const servicioTieneProveedorAsignado = (s) => {
@@ -92,7 +92,7 @@ const resolverEmpresaIdConsolidacion = async (expediente) => {
   return resolverEmpresaIdEscrituraObligatorio(supabase)
 }
 
-/** Normaliza fila de servicio (tabla relacional o versiones_json) al shape del validador. */
+/** Normaliza fila de servicio (tabla relacional) al shape del validador. */
 const normalizarServicioParaConsolidacion = (r) => {
   const provId = r.proveedor_id_int ?? r.proveedor_id ?? r.proveedorId
   return {
@@ -110,12 +110,8 @@ const normalizarServicioParaConsolidacion = (r) => {
   }
 }
 
-/**
- * Recoge servicios para validar/consolidar.
- * Fuente de verdad: servicios_cotizacion (lo que muestra la UI).
- * Plan B: versiones_json solo si la tabla relacional está vacía.
- */
-const obtenerServiciosParaConsolidar = async (expedienteId, versionesJson) => {
+/** Recoge servicios para validar/consolidar desde servicios_cotizacion. */
+const obtenerServiciosParaConsolidar = async (expedienteId) => {
   const { data } = await supabase
     .from('servicios_cotizacion')
     .select('*')
@@ -123,27 +119,15 @@ const obtenerServiciosParaConsolidar = async (expedienteId, versionesJson) => {
     .neq('id', SERVICIO_ANOMALO_ID)
 
   const rows = Array.isArray(data) ? data : []
-  if (rows.length > 0) {
-    return rows.map(normalizarServicioParaConsolidacion)
-  }
-
-  const versiones = Array.isArray(versionesJson?.versiones) ? versionesJson.versiones : []
-  if (versiones.length > 0) {
-    const confirmada = versiones.find((v) => v.confirmada)
-    const v = confirmada ?? versiones[0]
-    const servs = Array.isArray(v?.servicios) ? v.servicios : []
-    return servs.map(normalizarServicioParaConsolidacion)
-  }
-
-  return []
+  return rows.map(normalizarServicioParaConsolidacion)
 }
 
 /**
  * Detecta servicios sin proveedor para aviso no bloqueante.
  * @returns { { ok: boolean, warning?: string, detalle?: string } }
  */
-export const validarProveedoresServicios = async (expedienteId, versionesJson) => {
-  const servicios = await obtenerServiciosParaConsolidar(expedienteId, versionesJson)
+export const validarProveedoresServicios = async (expedienteId) => {
+  const servicios = await obtenerServiciosParaConsolidar(expedienteId)
   const conDatos = servicios.filter((s) => {
     const coste = calcularCosteTotal(s)
     const tipo = (s.tipo_servicio || s.tipo || '').trim()
@@ -165,7 +149,7 @@ export const validarProveedoresServicios = async (expedienteId, versionesJson) =
 /**
  * Ejecuta consolidación: DELETE + INSERT (solo si debeConsolidar).
  * @param {string} expedienteId - UUID del expediente
- * @param {object} expediente - { numero_expediente, versiones_json }
+ * @param {object} expediente - { numero_expediente, empresa_id }
  * @param {boolean} debeConsolidar - true si estado es Finalizado o Cerrado
  * @returns {Promise<{ ok: boolean, error?: string }>}
  */
@@ -201,7 +185,7 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
       return { ok: false, error: msg }
     }
 
-    const servicios = await obtenerServiciosParaConsolidar(expedienteId, expediente?.versiones_json)
+    const servicios = await obtenerServiciosParaConsolidar(expedienteId)
     const añoEjercicio = extraerAñoEjercicio(expediente?.numero_expediente)
 
     const filas = []
