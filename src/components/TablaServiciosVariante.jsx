@@ -96,7 +96,9 @@ const TablaServiciosVariante = ({
           ))
         }
         cargadoDesdeExpedienteRef.current = true
-      } catch (_) {}
+      } catch (err) {
+        console.error('[TablaServiciosVariante] Error al cargar servicios desde BD:', err)
+      }
     }
 
     cargarDesdeExpediente()

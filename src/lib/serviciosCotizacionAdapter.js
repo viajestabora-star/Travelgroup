@@ -92,3 +92,35 @@ export const fromDbParaFinanzas = (row, proveedoresDb = []) => {
     facturaUrl: String(row.url_factura_pdf || '').trim() || null,
   }
 }
+
+export const validarServicio = (servicio) => {
+  const errores = []
+  if (servicio == null || typeof servicio !== 'object') {
+    return { valido: false, errores: ['Servicio nulo o con tipo incorrecto'] }
+  }
+  if (!servicio.tipo_servicio || String(servicio.tipo_servicio).trim() === '') {
+    errores.push('tipo_servicio es obligatorio')
+  }
+  const tieneProveedorId = servicio.proveedor_id != null && Number(servicio.proveedor_id) > 0
+  const tieneNombreTemporal = String(servicio.proveedorNombre ?? '').trim() !== ''
+  if (!tieneProveedorId && !tieneNombreTemporal) {
+    errores.push('El servicio debe tener proveedor_id o proveedorNombre')
+  }
+  const coste = Number(servicio.coste_unitario)
+  if (isNaN(coste)) errores.push('coste_unitario no es un número válido')
+  else if (coste < 0) errores.push('coste_unitario no puede ser negativo')
+  if (isNaN(Number(servicio.margen))) errores.push('margen no es un número válido')
+  const noches = Number(servicio.noches)
+  if (!Number.isInteger(noches) || noches < 1) errores.push('noches debe ser un entero mayor que 0')
+  const diasGuia = Number(servicio.dias_guia)
+  if (isNaN(diasGuia) || diasGuia < 0) errores.push('dias_guia no puede ser negativo ni NaN')
+  const cantidad = Number(servicio.cantidad)
+  if (!Number.isInteger(cantidad) || cantidad < 1) errores.push('cantidad debe ser un entero mayor que 0')
+  if (!['porPersona', 'porGrupo'].includes(servicio.tipo_calculo)) {
+    errores.push('tipo_calculo debe ser porPersona o porGrupo')
+  }
+  if (servicio.fechaRelease && !/^\d{4}-\d{2}-\d{2}$/.test(servicio.fechaRelease)) {
+    errores.push('fechaRelease debe tener formato YYYY-MM-DD')
+  }
+  return { valido: errores.length === 0, errores }
+}

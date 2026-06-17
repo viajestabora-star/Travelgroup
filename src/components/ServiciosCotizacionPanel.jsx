@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
 import { leerIdExpedienteSoloUseParams, resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
-import { toDb, servicioVacio } from '../lib/serviciosCotizacionAdapter'
+import { toDb, servicioVacio, validarServicio } from '../lib/serviciosCotizacionAdapter'
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -454,6 +454,8 @@ const ServiciosCotizacionPanel = ({
   const [idsEliminados, setIdsEliminados] = useState([])
   // Estado para controlar cambios sin guardar en servicios
   const [serviciosOriginales, setServiciosOriginales] = useState(null)
+  // Estado para mostrar en UI los servicios que no se pudieron guardar (validación o error Supabase)
+  const [errorGuardado, setErrorGuardado] = useState(null)
 
   const serviciosInicializados = useRef(false)
 
@@ -757,49 +759,74 @@ const ServiciosCotizacionPanel = ({
 
       const existentesMap = new Map((existentes || []).map((e) => [String(e.id).trim(), e]))
 
-      const filasValidadas = listaServicios
-        .filter((s) => s && String(s.id || '').trim() !== SERVICIO_ANOMALO_ID)
-        .map((s, index) => {
-          const idFinal = esUuidServicioValido(s.id) ? String(s.id).trim() : generarUUID()
-          const dbRecord = existentesMap.get(idFinal) || {}
+      // Acumulador de servicios que no se pudieron guardar (validación o error Supabase)
+      const serviciosConError = []
+      const sincronizarErrorGuardado = () => {
+        if (serviciosConError.length > 0) {
+          const resumen = serviciosConError
+            .map(e => `• ${e.servicio?.nombreEspecifico || e.servicio?.tipo_servicio || 'Servicio sin nombre'}: ${e.errores.join(', ')}`)
+            .join('\n')
+          setErrorGuardado(`Algunos servicios no se pudieron guardar:\n${resumen}`)
+        } else {
+          setErrorGuardado(null)
+        }
+      }
 
-          const datosUI = buildDatosParaSupabase(s, idCanonico, empresaIdInt)
+      const candidatos = listaServicios.filter((s) => s && String(s.id || '').trim() !== SERVICIO_ANOMALO_ID)
+      const filasValidadas = []
+      const serviciosValidos = []
+      for (let index = 0; index < candidatos.length; index++) {
+        const servicio = candidatos[index]
 
-          // Crear objeto base con los datos necesarios
-          const filaBase = {
-            ...dbRecord,
-            ...datosUI,
-            id: idFinal,
-            id_expediente: String(idCanonico || '').trim(),
-            empresa_id: Math.trunc(Number(empresaIdFila)),
-            orden: index,
-          }
-          
-          // CLONAR el objeto antes de limpiar campos UI (evita mutar estado de React)
-          const filaLimpia = { ...filaBase }
-          
-          // Limpiar campos no permitidos por la tabla
-          delete filaLimpia.descripcion
-          delete filaLimpia.tipo
-          delete filaLimpia.proveedorId   // Campo UI legacy, ahora se usa proveedor_id
-          delete filaLimpia.proveedor_id_int  // Campo legacy, ahora se usa proveedor_id directamente
-          delete filaLimpia.nombre_proveedor_texto  // Campo UI legacy
-          delete filaLimpia.proveedorNombreTemporal // Campo UI temporal
-          delete filaLimpia.created_at    // Gestionado por Supabase
-          delete filaLimpia.updated_at    // Gestionado por Supabase
-          
-          console.log(`[DEBUG guardarTodosServiciosEnSupabase] Fila ${index}:`)
-          console.log(`  - id: ${filaLimpia.id}`)
-          console.log(`  - id_expediente: ${filaLimpia.id_expediente}`)
-          console.log(`  - empresa_id: ${filaLimpia.empresa_id}`)
-          console.log(`  - proveedor_id_int:`, filaLimpia.proveedor_id_int)
-          console.log(`  - proveedor_nombre:`, filaLimpia.proveedor_nombre)
-          console.log(`  - tipo_servicio:`, filaLimpia.tipo_servicio)
-          
-          return filaLimpia
-        })
+        const { valido, errores } = validarServicio(servicio)
+        if (!valido) {
+          console.warn('[handleGuardar] Servicio inválido omitido:', errores, servicio)
+          serviciosConError.push({ servicio, errores })
+          continue
+        }
+
+        const idFinal = esUuidServicioValido(servicio.id) ? String(servicio.id).trim() : generarUUID()
+        const dbRecord = existentesMap.get(idFinal) || {}
+
+        const datosUI = buildDatosParaSupabase(servicio, idCanonico, empresaIdInt)
+
+        // Crear objeto base con los datos necesarios
+        const filaBase = {
+          ...dbRecord,
+          ...datosUI,
+          id: idFinal,
+          id_expediente: String(idCanonico || '').trim(),
+          empresa_id: Math.trunc(Number(empresaIdFila)),
+          orden: filasValidadas.length,
+        }
+
+        // CLONAR el objeto antes de limpiar campos UI (evita mutar estado de React)
+        const filaLimpia = { ...filaBase }
+
+        // Limpiar campos no permitidos por la tabla
+        delete filaLimpia.descripcion
+        delete filaLimpia.tipo
+        delete filaLimpia.proveedorId   // Campo UI legacy, ahora se usa proveedor_id
+        delete filaLimpia.proveedor_id_int  // Campo legacy, ahora se usa proveedor_id directamente
+        delete filaLimpia.nombre_proveedor_texto  // Campo UI legacy
+        delete filaLimpia.proveedorNombreTemporal // Campo UI temporal
+        delete filaLimpia.created_at    // Gestionado por Supabase
+        delete filaLimpia.updated_at    // Gestionado por Supabase
+
+        console.log(`[DEBUG guardarTodosServiciosEnSupabase] Fila ${filasValidadas.length}:`)
+        console.log(`  - id: ${filaLimpia.id}`)
+        console.log(`  - id_expediente: ${filaLimpia.id_expediente}`)
+        console.log(`  - empresa_id: ${filaLimpia.empresa_id}`)
+        console.log(`  - proveedor_id:`, filaLimpia.proveedor_id)
+        console.log(`  - nombre_proveedor_manual:`, filaLimpia.nombre_proveedor_manual)
+        console.log(`  - tipo_servicio:`, filaLimpia.tipo_servicio)
+
+        filasValidadas.push(filaLimpia)
+        serviciosValidos.push(servicio)
+      }
 
       if (filasValidadas.length === 0) {
+        sincronizarErrorGuardado()
         return { ok: true }
       }
 
@@ -820,7 +847,9 @@ const ServiciosCotizacionPanel = ({
       console.log('[DEBUG] Respuesta de Supabase (sin select) - error:', upsertRes.error)
       
       if (upsertRes.error) {
-        console.error('[ServiciosCotizacion] ❌ ERROR EN UPSERT:', upsertRes.error)
+        console.error('[handleGuardar] Error Supabase al persistir servicio:', upsertRes.error, filasValidadas)
+        serviciosValidos.forEach((servicio) => serviciosConError.push({ servicio, errores: [upsertRes.error.message] }))
+        sincronizarErrorGuardado()
         alert('ERROR AL GUARDAR: ' + upsertRes.error.message)
         return { ok: false, error: upsertRes.error.message, userAlerted: true }
       }
@@ -884,6 +913,9 @@ const ServiciosCotizacionPanel = ({
       // Limpiar el array de IDs eliminados después de guardar exitosamente
       setIdsEliminados([])
       console.log('✅ Guardado completo - idsEliminados limpiado')
+
+      // Reflejar en UI los servicios omitidos por validación (guardado parcial)
+      sincronizarErrorGuardado()
 
       return { ok: true }
     } catch (error) {
@@ -1497,6 +1529,16 @@ const ServiciosCotizacionPanel = ({
             </div>
           </>
         )}
+
+        {errorGuardado ? (
+          <div
+            className="mt-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900"
+            role="alert"
+          >
+            <strong className="font-semibold">No se pudieron guardar todos los servicios.</strong>
+            <pre className="mt-1 whitespace-pre-wrap font-sans text-red-800">{errorGuardado}</pre>
+          </div>
+        ) : null}
       </div>
 
       {showModal && (
