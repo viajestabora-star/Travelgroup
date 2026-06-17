@@ -5,6 +5,7 @@ import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
 import { leerIdExpedienteSoloUseParams, resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
 import { toDb, servicioVacio, validarServicio } from '../lib/serviciosCotizacionAdapter'
+import { useServiciosCotizacion } from '../hooks/useServiciosCotizacion'
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -408,7 +409,6 @@ const DropdownSugerencias = ({ servicio, textoBusqueda, proveedores, mapearTipo,
 const ServiciosCotizacionPanel = ({
   expediente,
   expedienteId: expedienteIdProp,
-  servicios,
   setServicios,
   proveedores,
   paxPago,
@@ -458,6 +458,11 @@ const ServiciosCotizacionPanel = ({
   const [errorGuardado, setErrorGuardado] = useState(null)
 
   const serviciosInicializados = useRef(false)
+
+  const { data: servicios = [], isLoading, isError, error } = useServiciosCotizacion({
+    idExpediente: idExpedienteCotizacion,
+    proveedores,
+  })
 
   const handleFocus = (e) => e.target.select()
   const handleWheel = (e) => e.target.blur()
@@ -517,86 +522,6 @@ const ServiciosCotizacionPanel = ({
       document.removeEventListener('touchstart', handleClickOutside)
     }
   }, [])
-
-  useEffect(() => {
-    if (!idExpedienteCotizacion) return
-    if (multicotizacionMode) return
-
-    let empresaIdInt
-    try {
-      empresaIdInt = resolverEmpresaIdDesdeExpediente(expediente)
-    } catch {
-      return
-    }
-
-    const cargarServicios = async () => {
-      try {
-        // 🔧 CORRECCIÓN CRÍTICA: Intentar primero con empresa_id del expediente
-        // Si no hay resultados, probar sin filtro de empresa (para datos antiguos)
-        let serviciosResponse = await supabase
-          .from('servicios_cotizacion')
-          .select('*')
-          .eq('id_expediente', idExpedienteCotizacion)
-          .eq('empresa_id', empresaIdInt)
-          .order('orden', { ascending: true })
-          .order('created_at', { ascending: true, nullsFirst: false })
-          .order('id', { ascending: true })
-
-        if (serviciosResponse.error && (serviciosResponse.error.code === 'PGRST204' || String(serviciosResponse.error.message || '').includes('created_at'))) {
-          serviciosResponse = await supabase
-            .from('servicios_cotizacion')
-            .select('*')
-            .eq('id_expediente', idExpedienteCotizacion)
-            .eq('empresa_id', empresaIdInt)
-            .order('orden', { ascending: true })
-            .order('id', { ascending: true })
-        }
-
-        // 🔧 Intento 2: Si no hay resultados, probar sin filtro de empresa_id
-        if (!serviciosResponse.error && (!serviciosResponse.data || serviciosResponse.data.length === 0)) {
-          console.log('[ServiciosCotizacionPanel] Sin resultados con empresa_id=' + empresaIdInt + ', probando sin filtro...')
-          serviciosResponse = await supabase
-            .from('servicios_cotizacion')
-            .select('*')
-            .eq('id_expediente', idExpedienteCotizacion)
-            .order('orden', { ascending: true })
-            .order('created_at', { ascending: true, nullsFirst: false })
-            .order('id', { ascending: true })
-        }
-
-        if (serviciosResponse.error) return
-
-        const dataRows = serviciosResponse.data || []
-
-        // ⚠️ CAMBIO CRÍTICO: Todas las filas de BD se muestran sin filtrar
-        // El mapeo ultra-defensivo ya asegura que cada fila tenga valores por defecto
-        if (dataRows.length > 0) {
-          const { serviciosUI: todosMapeados, busquedaProveedor: busquedaProveedoresRestaurada } = mapearRespuestaSupabaseAServiciosUI(
-            dataRows,
-            proveedores
-          )
-
-          // NUNCA filtrar - todas las filas existentes deben mostrarse
-          // Incluso filas antiguas con datos incompletos se muestran con valores por defecto
-          const idsEnBD = new Set(dataRows.map(row => row.id))
-          setServicios(prev => {
-            const serviciosNuevos = prev.filter(s => s.id && !idsEnBD.has(s.id))
-            return [...todosMapeados, ...serviciosNuevos]
-          })
-          // Inicializar estado de comparación para control de cambios sin guardar
-          setServiciosOriginales(structuredClone(todosMapeados))
-          setBusquedaProveedor(busquedaProveedoresRestaurada)
-          serviciosInicializados.current = true
-        } else {
-          setServicios([])
-          setServiciosOriginales([])
-          serviciosInicializados.current = false
-        }
-      } catch (_) {}
-    }
-
-    cargarServicios()
-  }, [idExpedienteCotizacion, proveedores, multicotizacionMode, expediente?.empresa_id, expediente?.empresa_id_int])
 
   const añadirServicio = () => {
     const nuevoServicio = {
@@ -995,6 +920,9 @@ const ServiciosCotizacionPanel = ({
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [isSaving])
+
+  if (isLoading) return <div className="p-4 text-sm text-gray-500">Cargando servicios...</div>
+  if (isError) return <div className="p-4 text-sm text-red-600">Error al cargar servicios: {error?.message}</div>
 
   return (
     <>
