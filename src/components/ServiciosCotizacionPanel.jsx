@@ -4,8 +4,12 @@ import { useParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
 import { leerIdExpedienteSoloUseParams, resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
-import { toDb, servicioVacio, validarServicio } from '../lib/serviciosCotizacionAdapter'
+import { toDb, fromDb, servicioVacio, validarServicio } from '../lib/serviciosCotizacionAdapter'
+import { useQueryClient } from '@tanstack/react-query'
 import { useServiciosCotizacion } from '../hooks/useServiciosCotizacion'
+import { useMutarServiciosCotizacion } from '../hooks/useMutarServiciosCotizacion'
+import { useEliminarServicio } from '../hooks/useEliminarServicio'
+import { queryKeys } from '../lib/queryKeys'
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -122,134 +126,17 @@ const generarUUID = () => {
  * ⚠️ FUNCIÓN CRÍTICA: Ultra-defensiva - NUNCA descarta filas, aunque tengan datos incompletos.
  * Todas las filas existentes en BD deben mostrarse en la interfaz con valores por defecto.
  */
-const mapearRespuestaSupabaseAServiciosUI = (dataRows, proveedoresList) => {
-  const lista = Array.isArray(dataRows) ? dataRows : []
-  const busquedaProveedoresRestaurada = {}
-  
-  // Ordenar manteniendo el orden original de BD
-  const ordenados = [...lista].sort((a, b) => {
-    const oa = a?.orden ?? 0
-    const ob = b?.orden ?? 0
-    if (oa !== ob) return oa - ob
-    return String(a?.id ?? '').localeCompare(String(b?.id ?? ''))
-  })
-  
-  const proveedores = Array.isArray(proveedoresList) ? proveedoresList : []
-  
-  // Mapeo ULTRA-DEFENSIVO: Cada fila se mapea SIN CONDICIONES
-  // Incluso filas con datos corruptos o incompletos se muestran
-  const todosMapeados = ordenados.map((row) => {
-    // ID único: preservar el original o generar uno nuevo si es necesario
-    const idNormalizado = row?.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id)
-      ? row.id
-      : (row?.id || generarUUID())
-    
-    // ID_EXPEDIENTE: Crítico para el anclaje relacional - siempre preservar
-    const idExpedientePreservado = row?.id_expediente || row?.expediente_id || null
-    
-    // PROVEEDOR: Múltiples fallbacks para datos antiguos/corruptos
-    let proveedorIdIntRow = null
-    if (row?.proveedor_id != null && row.proveedor_id !== '') {
-      const parsed = Number(row.proveedor_id)
-      if (!isNaN(parsed) && parsed > 0) proveedorIdIntRow = parsed
-    } else if (row?.proveedor_id_int != null && row.proveedor_id_int !== '') {
-      const parsed = Number(row.proveedor_id_int)
-      if (!isNaN(parsed) && parsed > 0) proveedorIdIntRow = parsed
-    }
-    
-    const proveedorIdUi = proveedorIdIntRow
-    
-    // Nombre del proveedor con múltiples fuentes de fallback
-    let nombreProveedor = 'Sin proveedor'
-    if (row?.proveedor_nombre && String(row.proveedor_nombre).trim()) {
-      nombreProveedor = String(row.proveedor_nombre).trim()
-    } else if (row?.nombre_proveedor_manual && String(row.nombre_proveedor_manual).trim()) {
-      nombreProveedor = String(row.nombre_proveedor_manual).trim()
-    } else if (row?.nombre_proveedor_texto && String(row.nombre_proveedor_texto).trim()) {
-      nombreProveedor = String(row.nombre_proveedor_texto).trim()
-    } else if (proveedorIdUi != null) {
-      const nombreDesdeLista = resolverNombreProveedorDesdeLista(proveedores, proveedorIdUi)
-      if (nombreDesdeLista) nombreProveedor = nombreDesdeLista
-    }
-    
-    // Guardar para restaurar en búsqueda
-    if (nombreProveedor && nombreProveedor !== 'Sin proveedor') {
-      busquedaProveedoresRestaurada[idNormalizado] = nombreProveedor
-    }
-    
-    // Campos numéricos con fallbacks seguros
-    const coste = toNum(row?.coste_unitario ?? row?.precio_venta ?? 0)
-    const margen = toNum(row?.margen_pax ?? row?.margen ?? 0)
-    const nochesRaw = toNum(row?.noches ?? 1)
-    const noches = nochesRaw > 0 ? nochesRaw : 1
-    const diasGuiaRaw = toNum(row?.dias_guia ?? noches)
-    const diasGuia = diasGuiaRaw > 0 ? diasGuiaRaw : noches
-    const cantidadRaw = toNum(row?.cantidad ?? diasGuia ?? noches ?? 1)
-    const cantidad = cantidadRaw > 0 ? cantidadRaw : 1
-    
-    // Tipo de cálculo
-    const tipoCalculoRaw = row?.tipo_calculo || ''
-    const esPorGrupo = tipoCalculoRaw === 'Total a dividir' || tipoCalculoRaw === 'porGrupo'
-    
-    // Tipo de servicio con fallback
-    const tipoNormalizado = row?.tipo_servicio || row?.tipo || 'Hotel'
-    
-    // Fechas con manejo seguro
-    const fechaRelease = row?.fecha_release
-      ? String(row.fecha_release).split('T')[0]
-      : ''
-    
-    // Mayorista ID con validación
-    let mayoristaId = null
-    if (row?.mayorista_id != null && row.mayorista_id !== '') {
-      mayoristaId = typeof row.mayorista_id === 'string' && row.mayorista_id.includes('-')
-        ? row.mayorista_id
-        : String(row.mayorista_id)
-    }
-    
-    // Nombre del servicio con múltiples fallbacks
-    const nombreServicio = row?.nombre_servicio || row?.nombre_especifico || row?.descripcion || 'Servicio sin nombre'
-    
-    return {
-      ...servicioVacio(),
-      // ID único preservado
-      id: idNormalizado,
-      // ID_EXPEDIENTE preservado para anclaje relacional
-      id_expediente: idExpedientePreservado,
-      expediente_id: idExpedientePreservado,
-      // Datos del servicio con fallbacks
-      nombre_servicio: nombreServicio,
-      nombreEspecifico: nombreServicio,
-      tipo: tipoNormalizado,
-      tipo_servicio: tipoNormalizado,
-      // Proveedor con valores por defecto
-      proveedor_id: proveedorIdUi,
-      proveedor_id_int: proveedorIdUi,
-      proveedorNombreTemporal: nombreProveedor,
-      proveedor_nombre: nombreProveedor,
-      // Localización
-      localizacion: row?.localizacion || '',
-      especificacion_destino: row?.especificacion_destino || '',
-      // Campos numéricos
-      coste_unitario: coste,
-      total_servicio_manual: esPorGrupo ? coste : 0,
-      tipo_calculo: esPorGrupo ? 'porGrupo' : 'porPersona',
-      margen: margen,
-      noches: noches,
-      dias_guia: diasGuia,
-      cantidad: cantidad,
-      // Fechas y estado
-      fechaRelease: fechaRelease,
-      releasePagado: !!row?.release_pagado,
-      mayorista_id: mayoristaId,
-      // Campos adicionales preservados
-      orden: row?.orden ?? 0,
-      created_at: row?.created_at || null,
-      updated_at: row?.updated_at || null,
+const mapearRespuestaSupabaseAServiciosUI = (rows, proveedores = []) => {
+  const serviciosUI = rows.map((row) => fromDb(row, proveedores))
+
+  const busquedaProveedor = {}
+  serviciosUI.forEach((svc) => {
+    if (svc.proveedorNombre) {
+      busquedaProveedor[svc.id] = svc.proveedorNombre
     }
   })
-  
-  return { serviciosUI: todosMapeados, busquedaProveedor: busquedaProveedoresRestaurada }
+
+  return { serviciosUI, busquedaProveedor }
 }
 
 const finalizarCalculoModulo = (servicio, paxPago = 31, paxTotal = 35) => {
@@ -417,8 +304,6 @@ const ServiciosCotizacionPanel = ({
   cargarProveedores,
   persistirCambios,
   guardarCotizacionYServiciosRef = null,
-  isSaving,
-  setIsSaving,
   multicotizacionMode = false,
   // Refs para sincronización estricta del estado "sin guardar"
   lastSavedVersionesRef,
@@ -463,6 +348,16 @@ const ServiciosCotizacionPanel = ({
     idExpediente: idExpedienteCotizacion,
     proveedores,
   })
+
+  const empresaId = expediente?.empresa_id ?? expediente?.empresa_id_int
+  const { mutate: guardarServicios, isPending: isSaving, isError: isMutationError, error: mutationError } = useMutarServiciosCotizacion({
+    idExpediente: idExpedienteCotizacion,
+    empresaId,
+  })
+
+  const queryClient = useQueryClient()
+  const queryKey = queryKeys.expedientes.servicios.all(idExpedienteCotizacion)
+  const { mutate: mutateEliminar } = useEliminarServicio({ idExpediente: idExpedienteCotizacion })
 
   const handleFocus = (e) => e.target.select()
   const handleWheel = (e) => e.target.blur()
@@ -529,9 +424,9 @@ const ServiciosCotizacionPanel = ({
       id: generarUUID(),
       tipo: 'Hotel',
       tipo_calculo: 'porPersona',
+      isDraft: true,
     }
-    setServicios(prev => [...prev, nuevoServicio])
-    /* Persistence via manual Guardar button */
+    queryClient.setQueryData(queryKey, (prev = []) => [...prev, nuevoServicio])
   }
 
   const seleccionarMayoristaYCrearHotel = (servicioId, proveedorId, nombreProveedor) => {
@@ -549,10 +444,14 @@ const ServiciosCotizacionPanel = ({
       mayorista_id: proveedorId,
       tipo_calculo: 'porPersona',
     }
-    setServicios(prev => {
+    queryClient.setQueryData(queryKey, (prev = []) => {
       const idx2 = prev.findIndex(s => s.id === servicioId)
       if (idx2 < 0) return prev
-      const actualizado = prev.map(s => s.id === servicioId ? { ...s, proveedor_id: proveedorIdInt, proveedorNombre: proveedorNombre } : s)
+      const actualizado = prev.map(s =>
+        s.id === servicioId
+          ? { ...s, proveedor_id: proveedorIdInt, proveedorNombre: proveedorNombre }
+          : s
+      )
       return [...actualizado.slice(0, idx2 + 1), nuevoHotel, ...actualizado.slice(idx2 + 1)]
     })
     setBusquedaProveedor(prev => ({ ...prev, [servicioId]: proveedorNombre }))
@@ -561,56 +460,25 @@ const ServiciosCotizacionPanel = ({
   }
 
   const eliminarServicio = async (id) => {
-    const servicio = servicios.find(s => s.id === id)
+    const servicio = servicios.find((s) => s.id === id)
     const nombre = servicio?.descripcion || servicio?.tipo || 'este servicio'
     const esMayorista = servicio?.tipo === 'Mayorista'
     const mensajeConfirm = esMayorista
       ? '¿Estás seguro de que quieres borrar este servicio? También se eliminará el Hotel vinculado a este mayorista.'
       : `¿Estás seguro de que quieres borrar el servicio "${nombre}"?\n\nEsta acción no se puede deshacer.`
-
     if (!window.confirm(mensajeConfirm)) return
-
     if (servicio.id === null || servicio.id === undefined) {
-      setServicios(prev => prev.filter(s => s.id !== id))
+      queryClient.setQueryData(queryKey, (prev = []) => prev.filter((s) => s.id !== id))
       return
     }
-
     const idsAEliminar = [id]
     if (esMayorista && servicio?.proveedor_id) {
-      const hotelesVinculados = servicios.filter(s => s.tipo === 'Hotel' && s.mayorista_id != null && String(s.mayorista_id) === String(servicio.proveedor_id))
-      hotelesVinculados.forEach(h => idsAEliminar.push(h.id))
+      const hotelesVinculados = servicios.filter(
+        (s) => s.tipo === 'Hotel' && s.mayorista_id != null && String(s.mayorista_id) === String(servicio.proveedor_id)
+      )
+      hotelesVinculados.forEach((h) => idsAEliminar.push(h.id))
     }
-
-    // BORRADO INMEDIATO DE LA BASE DE DATOS
-    let borradosEnBD = 0
-    for (const idElim of idsAEliminar) {
-      console.log('[eliminarServicio] Borrando inmediatamente de BD:', idElim)
-      const { error: deleteError } = await supabase
-        .from('servicios_cotizacion')
-        .delete()
-        .eq('id', idElim)
-
-      if (deleteError) {
-        console.error('[eliminarServicio] Error al borrar en BD:', deleteError)
-        alert('Error al eliminar servicio de la base de datos: ' + deleteError.message)
-        return
-      }
-      console.log('[eliminarServicio] Borrado exitoso en BD:', idElim)
-      borradosEnBD++
-    }
-    
-    // Eliminar de la UI inmediatamente (antes de la recarga)
-    const nuevosServicios = servicios.filter(s => !idsAEliminar.includes(s.id))
-    setServicios(nuevosServicios)
-    const busquedaActualizada = { ...busquedaProveedor }
-    idsAEliminar.forEach(idElim => delete busquedaActualizada[idElim])
-    setBusquedaProveedor(busquedaActualizada)
-    
-    // FORZAR RECARGA DESDE SUPABASE para sincronizar completamente con el padre
-    if (typeof onRefresh === 'function') {
-      console.log('[eliminarServicio] Forzando recarga desde BD para sincronizar padre...')
-      await onRefresh()
-    }
+    mutateEliminar(idsAEliminar)
   }
 
   const calcularTotalFilaUI = (servicio) => {
@@ -634,9 +502,16 @@ const ServiciosCotizacionPanel = ({
   const actualizarServicio = (id, campoOrUpdates, valorOrOpts, opts = {}) => {
     const isMulti = typeof campoOrUpdates === 'object' && campoOrUpdates !== null && !Array.isArray(campoOrUpdates)
     const updates = isMulti ? campoOrUpdates : { [campoOrUpdates]: valorOrOpts }
-    const serviciosActualizados = servicios.map(s => (s.id === id ? { ...s, ...updates } : s))
-    setServicios(serviciosActualizados)
-    /* No auto-save on blur: all persistence via manual Guardar button to avoid focus loss and save loops */
+    const asignaProveedor =
+      ('proveedor_id' in updates && updates.proveedor_id != null) ||
+      ('proveedorNombre' in updates && String(updates.proveedorNombre ?? '').trim() !== '')
+    const updatesFinal = asignaProveedor
+      ? { ...updates, isDraft: false }
+      : updates
+    const serviciosActualizados = servicios.map(s =>
+      s.id === id ? { ...s, ...updatesFinal } : s
+    )
+    queryClient.setQueryData(queryKey, serviciosActualizados)
   }
 
   const buildDatosParaSupabase = (servicio, idExpedienteCanonico, empresaIdInt) =>
@@ -715,28 +590,10 @@ const ServiciosCotizacionPanel = ({
 
         const datosUI = buildDatosParaSupabase(servicio, idCanonico, empresaIdInt)
 
-        // Crear objeto base con los datos necesarios
-        const filaBase = {
-          ...dbRecord,
-          ...datosUI,
-          id: idFinal,
-          id_expediente: String(idCanonico || '').trim(),
-          empresa_id: Math.trunc(Number(empresaIdFila)),
-          orden: filasValidadas.length,
+        const filaLimpia = {
+          ...toDb(servicio, idCanonico, empresaIdInt),
+          id: servicio.id, // Fuerza absoluta del ID original
         }
-
-        // CLONAR el objeto antes de limpiar campos UI (evita mutar estado de React)
-        const filaLimpia = { ...filaBase }
-
-        // Limpiar campos no permitidos por la tabla
-        delete filaLimpia.descripcion
-        delete filaLimpia.tipo
-        delete filaLimpia.proveedorId   // Campo UI legacy, ahora se usa proveedor_id
-        delete filaLimpia.proveedor_id_int  // Campo legacy, ahora se usa proveedor_id directamente
-        delete filaLimpia.nombre_proveedor_texto  // Campo UI legacy
-        delete filaLimpia.proveedorNombreTemporal // Campo UI temporal
-        delete filaLimpia.created_at    // Gestionado por Supabase
-        delete filaLimpia.updated_at    // Gestionado por Supabase
 
         console.log(`[DEBUG guardarTodosServiciosEnSupabase] Fila ${filasValidadas.length}:`)
         console.log(`  - id: ${filaLimpia.id}`)
@@ -762,6 +619,8 @@ const ServiciosCotizacionPanel = ({
       if (filasValidadas.length > 0) {
         console.log('📦 EJEMPLO PRIMERA FILA:', JSON.stringify(filasValidadas[0], null, 2))
       }
+
+      console.log("Payload enviado a Supabase:", JSON.stringify(filasValidadas, null, 2))
 
       // Hacer upsert SIN .select() primero para verificar si hay error de inserción
       const upsertRes = await supabase
@@ -832,8 +691,15 @@ const ServiciosCotizacionPanel = ({
       }
 
       const { serviciosUI, busquedaProveedor: bpSync } = mapearRespuestaSupabaseAServiciosUI(dataDevuelta, proveedores)
-      setServicios(serviciosUI)
       setBusquedaProveedor(bpSync)
+
+      // Reemplazo total en TanStack Query con la verdad de BD
+      queryClient.setQueryData(queryKey, serviciosUI)
+
+      // Notificar al padre si escucha cambios via prop setServicios
+      if (typeof setServicios === 'function') {
+        setServicios(serviciosUI)
+      }
       
       // Limpiar el array de IDs eliminados después de guardar exitosamente
       setIdsEliminados([])
@@ -850,62 +716,12 @@ const ServiciosCotizacionPanel = ({
       return { ok: false, error: detalle, userAlerted: true }
     }
   }
-  const handleGuardar = async () => {
-    console.log('🔥 CLICK CAPTURADO EN UI')
-    if (isSaving) {
-      console.warn('[ServiciosCotizacionPanel] Guardar omitido: isSaving ya es true')
-      return { ok: false, error: 'Ya se está guardando' }
-    }
-    setIsSaving(true)
-
-    try {
-      let resultadoForm = { ok: true }
-      if (typeof persistirCambios === 'function') {
-        resultadoForm = await persistirCambios()
-        if (resultadoForm == null || typeof resultadoForm.ok !== 'boolean') {
-          resultadoForm = { ok: false, error: 'persistirCambios no devolvió { ok: boolean }' }
-        }
-      }
-
-      if (!resultadoForm.ok) {
-        const msg = resultadoForm.error || 'Error desconocido'
-        alert('❌ Error al guardar: ' + msg)
-        return { ok: false, error: msg }
-      }
-
-      const serviciosUpsert = Array.isArray(servicios) ? [...servicios] : []
-      const resultadoServicios = await guardarTodosServiciosEnSupabase(serviciosUpsert)
-      if (resultadoServicios == null || typeof resultadoServicios.ok !== 'boolean') {
-        throw new Error('guardarTodosServiciosEnSupabase no devolvió { ok: boolean }')
-      }
-
-      if (resultadoServicios.ok) {
-        // ✅ SINCRONIZACIÓN ESTRICTA: Actualizar refs de estado base ANTES de onRefresh
-        // Esto asegura que el banner "Cambios sin guardar" desaparezca inmediatamente
-        if (lastSavedVersionesRef?.current !== undefined && versiones) {
-          lastSavedVersionesRef.current = structuredClone(versiones)
-        }
-        if (lastSavedFormDataRef?.current !== undefined && formData) {
-          lastSavedFormDataRef.current = structuredClone(formData)
-        }
-        // Sincronizar estado local de servicios para control de cambios sin guardar
-        setServiciosOriginales(structuredClone(servicios))
-        if (onRefresh) await onRefresh()
-        alert('✅ Todo guardado correctamente. ERP protegido.')
-        return { ok: true }
-      }
-      const msg = resultadoServicios.error || 'Error desconocido'
-      if (!resultadoServicios.userAlerted) {
-        alert('❌ Error al guardar: ' + msg)
-      }
-      return { ok: false, error: msg, userAlerted: resultadoServicios.userAlerted }
-    } catch (err) {
-      console.error('❌ Error crítico en handleGuardar:', err)
-      alert('ERROR: ' + (err?.message || String(err)))
-      return { ok: false, error: err?.message || String(err) }
-    } finally {
-      setIsSaving(false)
-    }
+  const handleGuardar = () => {
+    guardarServicios(servicios, {
+      onError: (err) => {
+        setErrorGuardado(err.message ?? 'Error desconocido al guardar')
+      },
+    })
   }
   if (guardarCotizacionYServiciosRef) {
     guardarCotizacionYServiciosRef.current = handleGuardar

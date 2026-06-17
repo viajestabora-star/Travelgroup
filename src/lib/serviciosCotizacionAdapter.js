@@ -59,6 +59,7 @@ export const fromDb = (row, proveedores = []) => ({
 })
 
 export const toDb = (servicio, idExpediente, empresaId) => ({
+  id: servicio.id ?? null,
   id_expediente: String(idExpediente).trim(),
   empresa_id: empresaId,
   proveedor_id: servicio.proveedor_id ?? null,
@@ -101,11 +102,6 @@ export const validarServicio = (servicio) => {
   if (!servicio.tipo_servicio || String(servicio.tipo_servicio).trim() === '') {
     errores.push('tipo_servicio es obligatorio')
   }
-  const tieneProveedorId = servicio.proveedor_id != null && Number(servicio.proveedor_id) > 0
-  const tieneNombreTemporal = String(servicio.proveedorNombre ?? '').trim() !== ''
-  if (!tieneProveedorId && !tieneNombreTemporal) {
-    errores.push('El servicio debe tener proveedor_id o proveedorNombre')
-  }
   const coste = Number(servicio.coste_unitario)
   if (isNaN(coste)) errores.push('coste_unitario no es un número válido')
   else if (coste < 0) errores.push('coste_unitario no puede ser negativo')
@@ -123,4 +119,18 @@ export const validarServicio = (servicio) => {
     errores.push('fechaRelease debe tener formato YYYY-MM-DD')
   }
   return { valido: errores.length === 0, errores }
+}
+
+export const validarServicioCierre = (servicio) => {
+  const { valido, errores } = validarServicio(servicio)
+  const erroresCierre = [...errores]
+
+  const tieneProveedorId = servicio.proveedor_id != null && Number(servicio.proveedor_id) > 0
+  const tieneNombreProveedor = String(servicio.proveedorNombre ?? '').trim() !== ''
+
+  if (!tieneProveedorId && !tieneNombreProveedor) {
+    erroresCierre.push('El servicio debe tener proveedor_id o proveedorNombre para cerrar el expediente')
+  }
+
+  return { valido: erroresCierre.length === 0, errores: erroresCierre }
 }
