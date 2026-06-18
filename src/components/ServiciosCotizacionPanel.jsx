@@ -341,6 +341,7 @@ const ServiciosCotizacionPanel = ({
   const [serviciosOriginales, setServiciosOriginales] = useState(null)
   // Estado para mostrar en UI los servicios que no se pudieron guardar (validación o error Supabase)
   const [errorGuardado, setErrorGuardado] = useState(null)
+  const [isGuardando, setIsGuardando] = useState(false)
 
   const serviciosInicializados = useRef(false)
 
@@ -669,16 +670,6 @@ const ServiciosCotizacionPanel = ({
       console.log('[DEBUG] Select después de upsert - data:', selectRes.data)
       console.log('[DEBUG] Select después de upsert - count:', selectRes.data?.length)
 
-      if (upsertRes.error != null) {
-        const detalle = formatearErrorSupabaseTenant(upsertRes.error)
-        console.error('[ServiciosCotizacion] ❌ ERROR EN UPSERT:', upsertRes.error)
-        console.error('[ServiciosCotizacion] Código de error:', upsertRes.error.code)
-        console.error('[ServiciosCotizacion] Mensaje:', upsertRes.error.message)
-        console.error('[ServiciosCotizacion] Detalles:', upsertRes.error.details)
-        alert('ERROR AL GUARDAR: ' + detalle)
-        return { ok: false, error: detalle, userAlerted: true }
-      }
-
       const dataDevuelta = selectRes.data || []
       console.log('[DEBUG] dataDevuelta:', dataDevuelta)
       console.log('[DEBUG] dataDevuelta es array:', Array.isArray(dataDevuelta))
@@ -716,12 +707,46 @@ const ServiciosCotizacionPanel = ({
       return { ok: false, error: detalle, userAlerted: true }
     }
   }
-  const handleGuardar = () => {
-    guardarServicios(servicios, {
-      onError: (err) => {
-        setErrorGuardado(err.message ?? 'Error desconocido al guardar')
-      },
-    })
+  const handleGuardar = async () => {
+    if (isGuardando) return
+    setIsGuardando(true)
+    setErrorGuardado(null)
+    
+    try {
+      // PASO 1 — Persistir cabecera del expediente (pax, noches, precio venta, etc.)
+      if (typeof persistirCambios === 'function') {
+        try {
+          await persistirCambios()
+        } catch (errCabecera) {
+          const msg = errCabecera instanceof Error ? errCabecera.message : String(errCabecera)
+          console.error('[handleGuardar] Error al persistir cabecera:', errCabecera)
+          setErrorGuardado('Error al guardar parámetros del viaje: ' + msg)
+          return 
+        }
+      }
+
+      // PASO 2 — Upsert de los servicios de cotización
+      const resultado = await guardarTodosServiciosEnSupabase(servicios)
+      if (!resultado.ok && !resultado.userAlerted) {
+        setErrorGuardado(resultado.error ?? 'Error desconocido al guardar servicios')
+        return
+      }
+
+      // PASO 3 — Sincronizar refs 
+      if (lastSavedFormDataRef && formData !== undefined) {
+        lastSavedFormDataRef.current = formData
+      }
+      if (lastSavedVersionesRef && versiones !== undefined) {
+        lastSavedVersionesRef.current = versiones
+      }
+      
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[handleGuardar] Excepción inesperada:', err)
+      setErrorGuardado(msg)
+    } finally {
+      setIsGuardando(false) 
+    }
   }
   if (guardarCotizacionYServiciosRef) {
     guardarCotizacionYServiciosRef.current = handleGuardar
@@ -729,13 +754,13 @@ const ServiciosCotizacionPanel = ({
   // Aviso de cambios sin guardar al intentar cerrar/navegar fuera
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (isSaving) return  // está guardando, no interrumpir
+      if (isGuardando) return  // está guardando, no interrumpir
       e.preventDefault()
       e.returnValue = 'Tienes cambios sin guardar en la cotización. ¿Seguro que quieres salir?'
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isSaving])
+  }, [isGuardando])
 
   if (isLoading) return <div className="p-4 text-sm text-gray-500">Cargando servicios...</div>
   if (isError) return <div className="p-4 text-sm text-red-600">Error al cargar servicios: {error?.message}</div>
