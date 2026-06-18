@@ -3920,7 +3920,22 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }, [formDataParaVariante?.precio_venta_cliente, formDataParaVariante?.bonificacion_pax, formData, paxPago, suplementos.totalSuplementos])
 
   // ============ GENERAR PDF DE FACTURA ============
-  const generarFacturaPDF = async (numeroFactura, datosFactura) => {
+  // overrides: permite inyectar datos de receptor y cálculos por grupo (multi-factura)
+  const generarFacturaPDF = async (numeroFactura, datosFactura, overrides = {}) => {
+    const {
+      receptorNombre: ovNombre,
+      receptorCIF: ovCIF,
+      receptorDireccion: ovDireccion,
+      receptorPoblacion: ovPoblacion,
+      receptorProvincia: ovProvincia,
+      receptorCP: ovCP,
+      paxPago: ovPaxPago,
+      precioNetoPax: ovPrecioNetoPax,
+      totalFactura: ovTotalFactura,
+      totalSupHabitacion: ovTotalSupHab,
+      totalSupSeguro: ovTotalSupSeguro,
+    } = overrides
+
     const crearDocumento = (logoImg) => {
       const doc = new jsPDF()
       const pageWidth = doc.internal.pageSize.getWidth()
@@ -3990,7 +4005,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       yPos += 6
       doc.text(datosEmisor.banco2, 20, yPos)
 
-      // Datos del receptor
+      // Datos del receptor (usar overrides si están disponibles)
+      const rNombre = ovNombre ?? formFactura.receptorNombre ?? ''
+      const rCIF = ovCIF !== undefined ? ovCIF : formFactura.receptorCIF
+      const rDireccion = ovDireccion !== undefined ? ovDireccion : formFactura.receptorDireccion
+      const rPoblacion = ovPoblacion !== undefined ? ovPoblacion : formFactura.receptorPoblacion
+      const rProvincia = ovProvincia !== undefined ? ovProvincia : formFactura.receptorProvincia
+      const rCP = ovCP !== undefined ? ovCP : formFactura.receptorCP
+
       yPos += 15
       doc.setFontSize(12)
       doc.setFont(undefined, 'bold')
@@ -3998,21 +4020,17 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       yPos += 8
       doc.setFontSize(10)
       doc.setFont(undefined, 'normal')
-      doc.text(formFactura.receptorNombre || 'Sin nombre', 20, yPos)
+      doc.text(rNombre || 'Sin nombre', 20, yPos)
       yPos += 6
-      if (formFactura.receptorCIF) {
-        doc.text(`CIF/NIF: ${formFactura.receptorCIF}`, 20, yPos)
+      if (rCIF) {
+        doc.text(`CIF/NIF: ${rCIF}`, 20, yPos)
         yPos += 6
       }
-      if (formFactura.receptorDireccion) {
-        doc.text(formFactura.receptorDireccion, 20, yPos)
+      if (rDireccion) {
+        doc.text(rDireccion, 20, yPos)
         yPos += 6
       }
-      const direccionCompleta = [
-        formFactura.receptorCP,
-        formFactura.receptorPoblacion,
-        formFactura.receptorProvincia
-      ].filter(Boolean).join(' ')
+      const direccionCompleta = [rCP, rPoblacion, rProvincia].filter(Boolean).join(' ')
       if (direccionCompleta) {
         doc.text(direccionCompleta, 20, yPos)
         yPos += 6
@@ -4038,10 +4056,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       // Formato numérico español (10.540,00)
       const fmtEuro = (n) => (parseFloat(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '€'
 
-      // Línea 1: Viaje a {destino} (Pasajeros) | Unid: 31 | P. Unit: 340,00€ | Total: 10.540,00€
+      // Línea 1: Viaje a {destino} (Pasajeros) — usar overrides si están disponibles
       const conceptoLinea1 = destino ? `Viaje a ${destino} (Pasajeros)` : (datosFactura?.concepto || 'Viaje (Pasajeros)')
-      const paxPagoFactura = parseFloat(calcularBaseFactura.paxPago || 0) || 0
-      const precioNetoPaxNum = parseFloat(calcularBaseFactura.precioNetoPax || 0) || 0
+      const paxPagoFactura = ovPaxPago !== undefined ? ovPaxPago : (parseFloat(calcularBaseFactura.paxPago || 0) || 0)
+      const precioNetoPaxNum = ovPrecioNetoPax !== undefined ? ovPrecioNetoPax : (parseFloat(calcularBaseFactura.precioNetoPax || 0) || 0)
       const totalConceptoPrincipal = paxPagoFactura * precioNetoPaxNum
 
       doc.setFontSize(9)
@@ -4052,34 +4070,28 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.text(fmtEuro(totalConceptoPrincipal), pageWidth - 20, yPos, { align: 'right' })
       yPos += 6
 
-      // Línea 2: Suplemento Habitación Individual (sincronizado con Desglose)
-      const totalSupHabitacionNum = parseFloat(suplementos.totalSupHabitacion || 0) || 0
+      // Línea 2: Suplemento Habitación Individual
+      const totalSupHabitacionNum = ovTotalSupHab !== undefined ? ovTotalSupHab : (parseFloat(suplementos.totalSupHabitacion || 0) || 0)
       if (totalSupHabitacionNum > 0) {
-        const paxIndividualNum = Math.max(1, parseFloat(formDataParaVariante?.sup_individual_pax || formData?.sup_individual_pax || 0) || 0)
-        const cantidadHabitacion = paxIndividualNum
+        const paxIndividualNum = Math.max(1, paxPagoFactura || 1)
         const precioUnitHabitacion = totalSupHabitacionNum / paxIndividualNum
-        const totalConceptoHabitacion = cantidadHabitacion * precioUnitHabitacion
-
         doc.text('Suplemento Habitación Individual', 20, yPos)
-        doc.text(String(cantidadHabitacion), 90, yPos)
+        doc.text(String(paxIndividualNum), 90, yPos)
         doc.text(fmtEuro(precioUnitHabitacion), 115, yPos)
-        doc.text(fmtEuro(totalConceptoHabitacion), pageWidth - 20, yPos, { align: 'right' })
+        doc.text(fmtEuro(totalSupHabitacionNum), pageWidth - 20, yPos, { align: 'right' })
         yPos += 6
       }
 
-      const totalSupSeguroNum = parseFloat(suplementos.totalSupSeguro || 0) || 0
+      const totalSupSeguroNum = ovTotalSupSeguro !== undefined ? ovTotalSupSeguro : (parseFloat(suplementos.totalSupSeguro || 0) || 0)
       if (totalSupSeguroNum > 0) {
         const paxSeguroNum = parseFloat(formDataParaVariante?.sup_seguro_pax || formData?.sup_seguro_pax || 0) || 0
         const precioSeguroTotalNum = parseFloat(formDataParaVariante?.sup_seguro_precio_total || formData?.sup_seguro_precio_total || 0) || 0
-
         const cantidadSeguro = Math.max(0, paxSeguroNum)
         const precioUnitSeguro = Math.max(0, precioSeguroTotalNum)
-        const totalConceptoSeguro = cantidadSeguro * precioUnitSeguro
-
         doc.text('Seguro de cancelación', 20, yPos)
         doc.text(String(cantidadSeguro), 90, yPos)
         doc.text(fmtEuro(precioUnitSeguro), 115, yPos)
-        doc.text(fmtEuro(totalConceptoSeguro), pageWidth - 20, yPos, { align: 'right' })
+        doc.text(fmtEuro(totalSupSeguroNum), pageWidth - 20, yPos, { align: 'right' })
         yPos += 6
       }
 
@@ -4097,12 +4109,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.line(20, yPos, pageWidth - 20, yPos)
       yPos += 8
 
+      const totalFacturaValor = ovTotalFactura !== undefined ? ovTotalFactura : calcularBaseFactura.totalFactura
       doc.setFontSize(12)
       doc.setTextColor(0, 0, 0)
       doc.setFont(undefined, 'bold')
       doc.text('TOTAL FACTURA (IVA INCLUIDO):', pageWidth - 60, yPos, { align: 'right' })
       doc.setTextColor(34, 197, 94) // Verde
-      doc.text(fmtEuro(calcularBaseFactura.totalFactura), pageWidth - 20, yPos, { align: 'right' })
+      doc.text(fmtEuro(totalFacturaValor), pageWidth - 20, yPos, { align: 'right' })
       yPos += 10
 
       // Cláusula legal obligatoria (art 142 Ley 37/1992)
@@ -4131,7 +4144,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       doc.text(datosEmisor.banco2, 20, footerY + 24)
 
       // Nombre del archivo
-      const nombreArchivo = `Factura_${numeroFactura}_${nombreGrupo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
+      const nombreArchivo = `Factura_${numeroFactura}_${(rNombre || nombreGrupo).replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
 
       // Descargar PDF
       doc.save(nombreArchivo)
@@ -4141,21 +4154,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   // ============ EMITIR FACTURA ============
-  // IMPORTANTE: Esta función SOLO lee datos de cotización desde formData, NO los modifica
-  // - NO actualiza el expediente
-  // - NO modifica formData
-  // - SOLO hace INSERT en la tabla 'facturas'
-  // - Los datos de cotización son independientes y solo se modifican desde su pestaña
+  // Soporta dos modos:
+  //   - Multi-grupo: itera desgloseGrupos y emite una factura individual por asociación.
+  //   - Único (fallback): usa formFactura.receptorNombre cuando no hay grupos configurados.
   const emitirFactura = async () => {
     if (isSubmittingFactura) return
     setIsSubmittingFactura(true)
-
-    // Validar datos del receptor
-    if (!formFactura.receptorNombre || formFactura.receptorNombre.trim() === '') {
-      alert('⚠️ Por favor, completa el nombre del receptor de la factura.')
-      setIsSubmittingFactura(false)
-      return
-    }
 
     const expedienteId = expediente?.id
     if (expedienteId == null || expedienteId === '') {
@@ -4164,73 +4168,87 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       return
     }
 
-    // Validar valores del Desglose (no aceptar ceros por defecto)
-    const paxP = Number(calcularBaseFactura.paxPago) || 0
-    const precioNeto = parseFloat(calcularBaseFactura.precioNetoPax) || 0
-    const totalF = parseFloat(calcularBaseFactura.totalFactura) || 0
-    if (paxP <= 0 || precioNeto <= 0) {
-      alert('⚠️ Revisa la cotización: Pasajeros de pago y Precio neto deben ser mayores que 0. Completa el Desglose antes de emitir.')
-      setIsSubmittingFactura(false)
-      return
-    }
-    if (totalF <= 0) {
-      alert('⚠️ El total de la factura es 0. Revisa el Desglose (Pasajeros, Precio, Suplementos) antes de emitir.')
-      setIsSubmittingFactura(false)
-      return
-    }
-
+    // Resolver empresa_id (obligatorio para RLS en facturas_versiones y facturas_emitidas)
+    let eid
     try {
-      // Preparar datos para guardar según esquema real de la DB
-      // El total_factura ya incluye la bonificación (precio - bonificación) calculado implícitamente
-      // NO se envía el campo bonificacion a Supabase
-      // base_imponible = (precio_venta_cliente - bonificacion) * pax_pago / 1.21 (sin IVA)
-      const precioVentaCliente = parseFloat(formData?.precio_venta_cliente || 0) || 0
-      const bonificacionPax = parseFloat(formData?.bonificacion_pax || 0) || 0
-      const precioNetoPax = precioVentaCliente - bonificacionPax
-      const totalSinIVA = (precioNetoPax * calcularBaseFactura.paxPago) / 1.21
-      const suplementosSinIVA = parseFloat(calcularBaseFactura.totalSuplementos || 0) / 1.21
-      const baseImponibleCalculada = totalSinIVA + suplementosSinIVA
+      eid = await resolverEmpresaIdPerfilActual()
+    } catch (err) {
+      alert(`❌ No se pudo resolver la empresa del usuario: ${err.message}`)
+      setIsSubmittingFactura(false)
+      return
+    }
 
-      // ===== CONCEPTO AUTOMÁTICO DE FACTURA =====
-      // Usar destino y fechas del expediente cuando estén disponibles.
-      const destinoFactura = expediente?.destino || ''
-      const fechaInicioRaw = expediente?.fecha_inicio || expediente?.fechaInicio || ''
-      const fechaFinalRaw = expediente?.fecha_final || expediente?.fechaFin || ''
+    // Determinar si operamos en modo multi-grupo o factura única
+    const gruposConPax = desgloseGrupos.filter(
+      (g) => g.nombre_grupo && (Number(g.pax) || 0) > 0
+    )
+    const modoMultiGrupo = gruposConPax.length > 0
 
-      const formatearFechaFactura = (fecha) => {
-        if (!fecha) return ''
-        const str = String(fecha)
-        // Si parece una fecha ISO (YYYY-MM-DD), usar helper para pasarla a formato español
-        if (str.includes('-')) {
-          try {
-            return convertirISOAEspañol(str)
-          } catch {
-            return str
-          }
-        }
-        return str
+    // Validar receptor en modo factura única
+    if (!modoMultiGrupo) {
+      if (!formFactura.receptorNombre || formFactura.receptorNombre.trim() === '') {
+        alert('⚠️ Por favor, completa el nombre del receptor de la factura o configura los grupos en la pestaña de Cotización.')
+        setIsSubmittingFactura(false)
+        return
       }
+    }
 
-      const fechaInicioFormateada = formatearFechaFactura(fechaInicioRaw)
-      const fechaFinalFormateada = formatearFechaFactura(fechaFinalRaw)
+    // Validar precio base (común a todos los modos)
+    const precioNetoPax = parseFloat(calcularBaseFactura.precioNetoPax) || 0
+    if (precioNetoPax <= 0) {
+      alert('⚠️ Revisa la cotización: el Precio neto por pax debe ser mayor que 0. Completa el Desglose antes de emitir.')
+      setIsSubmittingFactura(false)
+      return
+    }
 
-      let conceptoFactura = 'Servicios de viaje'
-      if (destinoFactura && fechaInicioFormateada && fechaFinalFormateada) {
-        conceptoFactura = `Viaje a ${destinoFactura} del ${fechaInicioFormateada} al ${fechaFinalFormateada}`
+    // Datos comunes de cotización
+    const precioVentaCliente = parseFloat(formData?.precio_venta_cliente || 0) || 0
+    const bonificacionPax = parseFloat(formData?.bonificacion_pax || 0) || 0
+    const precioNetoPaxCalc = precioVentaCliente - bonificacionPax
+
+    // Suplementos globales (se prorratean por pax en modo multi-grupo)
+    const totalSupHabGlobal = parseFloat(suplementos.totalSupHabitacion || 0) || 0
+    const totalSupSeguroGlobal = parseFloat(suplementos.totalSupSeguro || 0) || 0
+    const paxPagoGlobal = Math.max(1, Number(calcularBaseFactura.paxPago) || 1)
+    const supHabPorPax = totalSupHabGlobal / paxPagoGlobal
+    const supSeguroPorPax = totalSupSeguroGlobal / paxPagoGlobal
+
+    // Concepto de factura
+    const destinoFactura = expediente?.destino || ''
+    const fechaInicioRaw = expediente?.fecha_inicio || expediente?.fechaInicio || ''
+    const fechaFinalRaw = expediente?.fecha_final || expediente?.fechaFin || ''
+
+    const formatearFechaFactura = (fecha) => {
+      if (!fecha) return ''
+      const str = String(fecha)
+      if (str.includes('-')) {
+        try { return convertirISOAEspañol(str) } catch { return str }
       }
-      
-      // Numeración correlativa fiscal (YYYY-XXX): releer tras 1 ms antes del INSERT en `facturas`.
-      const añoNumeracionFactura = new Date().getFullYear()
-      const datosFacturaSinNumero = {
-        expediente_id: expediente.id,
-        cliente_id: expediente.cliente_id || expediente.clienteId || null,
-        nombre_receptor: formFactura.receptorNombre.trim(),
-        cif_receptor: formFactura.receptorCIF.trim() || null,
-        total_factura: parseFloat(calcularBaseFactura.totalFactura),
-        concepto: conceptoFactura,
-      }
+      return str
+    }
 
-      const MAX_INTENTOS_NUMERO = 5
+    const fechaInicioFormateada = formatearFechaFactura(fechaInicioRaw)
+    const fechaFinalFormateada = formatearFechaFactura(fechaFinalRaw)
+    const conceptoBase = (destinoFactura && fechaInicioFormateada && fechaFinalFormateada)
+      ? `Viaje a ${destinoFactura} del ${fechaInicioFormateada} al ${fechaFinalFormateada}`
+      : 'Servicios de viaje'
+
+    const añoNumeracionFactura = new Date().getFullYear()
+    const MAX_INTENTOS_NUMERO = 5
+
+    // ── Helper: emite UNA factura individual para los parámetros dados ──────────────
+    const emitirFacturaIndividual = async ({ receptorNombre, receptorCIF, clienteId, paxPagoGrupo }) => {
+      const totalServiciosGrupo = precioNetoPaxCalc * paxPagoGrupo
+      const totalSupHabGrupo = parseFloat((supHabPorPax * paxPagoGrupo).toFixed(2))
+      const totalSupSeguroGrupo = parseFloat((supSeguroPorPax * paxPagoGrupo).toFixed(2))
+      const totalFacturaGrupo = parseFloat((totalServiciosGrupo + totalSupHabGrupo + totalSupSeguroGrupo).toFixed(2))
+
+      if (paxPagoGrupo <= 0 || totalFacturaGrupo <= 0) return null
+
+      const baseImponibleGrupo = parseFloat((totalFacturaGrupo / 1.21).toFixed(2))
+      const ivaGrupo = parseFloat((totalFacturaGrupo - baseImponibleGrupo).toFixed(2))
+
+      // Obtener número de factura con reintentos por colisión de correlativo
       let numeroFactura = ''
       let datosFactura = null
 
@@ -4239,28 +4257,29 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         await new Promise((r) => setTimeout(r, 1))
         n = await getNextInvoiceNumber(supabase, añoNumeracionFactura)
         const nt = String(n || '').trim()
-        if (!nt) {
-          alert('❌ Error: numero_factura vacío. No se puede guardar una factura sin número.')
-          setIsSubmittingFactura(false)
-          return
-        }
+        if (!nt) throw new Error('Número de factura vacío. No se puede guardar una factura sin número.')
+
         numeroFactura = nt
-        datosFactura = { ...datosFacturaSinNumero, numero_factura: numeroFactura }
+        datosFactura = {
+          expediente_id: expediente.id,
+          cliente_id: clienteId || expediente.cliente_id || expediente.clienteId || null,
+          nombre_receptor: receptorNombre,
+          cif_receptor: receptorCIF || null,
+          total_factura: totalFacturaGrupo,
+          concepto: conceptoBase,
+          numero_factura: numeroFactura,
+        }
 
         const { error: insertErr } = await supabase.from('facturas').insert([datosFactura])
         if (!insertErr) break
-
         if (insertErr.code === '23505' && intento < MAX_INTENTOS_NUMERO - 1) continue
         console.error('[facturas.insert] error completo:', insertErr)
         throw insertErr
       }
 
-      if (!datosFactura || !numeroFactura) {
-        setIsSubmittingFactura(false)
-        return
-      }
+      if (!datosFactura || !numeroFactura) return null
 
-      // Versión histórica alineada con el correlativo ya persistido en `facturas`
+      // ── Versión histórica en facturas_versiones (con empresa_id para RLS) ──
       try {
         const { data: versionesExistentes } = await supabase
           .from('facturas_versiones')
@@ -4269,144 +4288,185 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           .order('version_numero', { ascending: false })
           .limit(1)
 
-        let versionNumero = 1
-        if (versionesExistentes && versionesExistentes.length > 0 && versionesExistentes[0]?.version_numero) {
-          versionNumero = versionesExistentes[0].version_numero + 1
-        }
-
-        const concepts = {
-          concepto: expediente?.destino ? `Viaje a ${expediente.destino}` : 'Servicios de viaje',
-          fecha_inicio: expediente?.fecha_inicio || expediente?.fechaInicio || '',
-          fecha_final: expediente?.fecha_final || expediente?.fechaFin || '',
-        }
-
-        const totals = {
-          base_imponible: calcularBaseFactura.baseImponible,
-          iva: calcularBaseFactura.iva,
-          total_factura: calcularBaseFactura.totalFactura,
-          precio_venta_pax: calcularBaseFactura.precioVentaPax,
-          precio_neto_pax: calcularBaseFactura.precioNetoPax,
-          total_servicios_con_iva: calcularBaseFactura.totalServiciosConIVA,
-          total_suplementos: calcularBaseFactura.totalSuplementos,
-          pax_pago: calcularBaseFactura.paxPago,
-        }
-
-        const clientData = {
-          nombre: formFactura.receptorNombre,
-          cif: formFactura.receptorCIF,
-          direccion: formFactura.receptorDireccion,
-          poblacion: formFactura.receptorPoblacion,
-          provincia: formFactura.receptorProvincia,
-          cp: formFactura.receptorCP,
-        }
+        const versionNumero = (versionesExistentes?.[0]?.version_numero ?? 0) + 1
 
         const datosVersion = {
           expediente_id: expediente.id,
+          empresa_id: eid,
           numero_factura: numeroFactura,
+          version_numero: versionNumero,
           datos_json: {
-            concepts,
-            totals,
-            clientData,
+            concepts: {
+              concepto: conceptoBase,
+              fecha_inicio: fechaInicioRaw,
+              fecha_final: fechaFinalRaw,
+            },
+            totals: {
+              base_imponible: baseImponibleGrupo.toFixed(2),
+              iva: ivaGrupo.toFixed(2),
+              total_factura: totalFacturaGrupo.toFixed(2),
+              precio_venta_pax: precioVentaCliente.toFixed(2),
+              precio_neto_pax: precioNetoPaxCalc.toFixed(2),
+              total_servicios_con_iva: totalServiciosGrupo.toFixed(2),
+              total_suplementos: (totalSupHabGrupo + totalSupSeguroGrupo).toFixed(2),
+              pax_pago: paxPagoGrupo,
+            },
+            clientData: {
+              nombre: receptorNombre,
+              cif: receptorCIF || '',
+              direccion: formFactura.receptorDireccion || '',
+              poblacion: formFactura.receptorPoblacion || '',
+              provincia: formFactura.receptorProvincia || '',
+              cp: formFactura.receptorCP || '',
+            },
             fecha: new Date().toISOString(),
           },
-          version_numero: versionNumero,
         }
 
         const { error: versionError } = await supabase.from('facturas_versiones').insert([datosVersion])
         if (!versionError) await cargarVersionesFactura()
-      } catch (err) {
-        // No bloqueamos el flujo si falla el versionado
-      }
+      } catch { /* No bloqueamos el flujo si falla el versionado */ }
 
-      // Generar PDF
-      await generarFacturaPDF(numeroFactura, datosFactura)
+      // ── Generar PDF con datos de este grupo ──
+      await generarFacturaPDF(numeroFactura, datosFactura, {
+        receptorNombre,
+        receptorCIF: receptorCIF || '',
+        receptorDireccion: formFactura.receptorDireccion || '',
+        receptorPoblacion: formFactura.receptorPoblacion || '',
+        receptorProvincia: formFactura.receptorProvincia || '',
+        receptorCP: formFactura.receptorCP || '',
+        paxPago: paxPagoGrupo,
+        precioNetoPax: precioNetoPaxCalc,
+        totalFactura: totalFacturaGrupo,
+        totalSupHabitacion: totalSupHabGrupo,
+        totalSupSeguro: totalSupSeguroGrupo,
+      })
 
-      // INSERT EN facturas_emitidas DESPUÉS DE GENERAR EL PDF
+      // ── INSERT en facturas_emitidas y facturas_emitidas_global (con empresa_id para RLS) ──
       try {
-        // Obtener cliente_nombre del expediente
-        const clienteNombre = expediente?.cliente_nombre || 
-                              expediente?.nombre_grupo || 
-                              expediente?.clienteNombre || 
-                              grupo?.nombre || 
-                              'Sin nombre'
-        
-        // Preparar datos_factura (JSON completo) — incluye numero_expediente para plantillas
-        const totalSupHab = parseFloat(suplementos.totalSupHabitacion || 0) || 0
         const paxInd = Math.max(1, parseFloat(formDataParaVariante?.sup_individual_pax || formData?.sup_individual_pax || 0) || 0)
         const datosFacturaCompletos = {
           ...datosFactura,
           numero_expediente: expediente?.numero_expediente || expediente?.numeroExpediente || '',
-          formFactura: { ...formFactura },
-          receptor: { nombre: formFactura.receptorNombre, cif_nif: formFactura.receptorCIF, direccion: formFactura.receptorDireccion, poblacion: formFactura.receptorPoblacion, provincia: formFactura.receptorProvincia, cp: formFactura.receptorCP },
+          formFactura: {
+            receptorNombre,
+            receptorCIF: receptorCIF || '',
+            receptorDireccion: formFactura.receptorDireccion || '',
+            receptorPoblacion: formFactura.receptorPoblacion || '',
+            receptorProvincia: formFactura.receptorProvincia || '',
+            receptorCP: formFactura.receptorCP || '',
+          },
+          receptor: {
+            nombre: receptorNombre,
+            cif_nif: receptorCIF || '',
+            direccion: formFactura.receptorDireccion || '',
+            poblacion: formFactura.receptorPoblacion || '',
+            provincia: formFactura.receptorProvincia || '',
+            cp: formFactura.receptorCP || '',
+          },
           sup_individual_pax: paxInd,
-          totalSupHabitacion: totalSupHab,
-          totalSupSeguro: parseFloat(suplementos.totalSupSeguro || 0) || 0,
+          totalSupHabitacion: totalSupHabGrupo,
+          totalSupSeguro: totalSupSeguroGrupo,
           sup_seguro_pax: parseFloat(formDataParaVariante?.sup_seguro_pax || formData?.sup_seguro_pax || 0) || 0,
           sup_seguro_precio_total: parseFloat(formDataParaVariante?.sup_seguro_precio_total || formData?.sup_seguro_precio_total || 0) || 0,
           calcularBaseFactura: {
-            precioVentaPax: calcularBaseFactura.precioVentaPax,
-            precioNetoPax: calcularBaseFactura.precioNetoPax,
-            paxPago: calcularBaseFactura.paxPago,
-            totalServiciosConIVA: calcularBaseFactura.totalServiciosConIVA,
-            totalSuplementos: calcularBaseFactura.totalSuplementos,
-            baseImponible: calcularBaseFactura.baseImponible,
-            iva: calcularBaseFactura.iva,
-            totalFactura: calcularBaseFactura.totalFactura
+            precioVentaPax: precioVentaCliente.toFixed(2),
+            precioNetoPax: precioNetoPaxCalc.toFixed(2),
+            paxPago: paxPagoGrupo,
+            totalServiciosConIVA: totalServiciosGrupo.toFixed(2),
+            totalSuplementos: (totalSupHabGrupo + totalSupSeguroGrupo).toFixed(2),
+            baseImponible: baseImponibleGrupo.toFixed(2),
+            iva: ivaGrupo.toFixed(2),
+            totalFactura: totalFacturaGrupo.toFixed(2),
           },
           lineasFactura: [
-            { concepto: `Viaje a ${expediente?.destino || ''} (Pasajeros)`, unid: Number(calcularBaseFactura.paxPago), pUnit: Number(calcularBaseFactura.precioNetoPax), total: Number(calcularBaseFactura.totalServiciosConIVA) },
-            ...(totalSupHab > 0 ? [{ concepto: 'Suplemento Habitación Individual', unid: paxInd, pUnit: Number((totalSupHab / paxInd).toFixed(2)), total: totalSupHab }] : []),
-            ...(parseFloat(suplementos.totalSupSeguro || 0) > 0 ? [{ concepto: 'Seguro de cancelación', unid: Number(formDataParaVariante?.sup_seguro_pax || formData?.sup_seguro_pax || 0), pUnit: Number(formDataParaVariante?.sup_seguro_precio_total || formData?.sup_seguro_precio_total || 0), total: Number(suplementos.totalSupSeguro) }] : [])
+            { concepto: `Viaje a ${destinoFactura || ''} (Pasajeros)`, unid: paxPagoGrupo, pUnit: precioNetoPaxCalc, total: totalServiciosGrupo },
+            ...(totalSupHabGrupo > 0 ? [{ concepto: 'Suplemento Habitación Individual', unid: paxPagoGrupo, pUnit: parseFloat((totalSupHabGrupo / paxPagoGrupo).toFixed(2)), total: totalSupHabGrupo }] : []),
+            ...(totalSupSeguroGrupo > 0 ? [{ concepto: 'Seguro de cancelación', unid: paxPagoGrupo, pUnit: parseFloat((totalSupSeguroGrupo / paxPagoGrupo).toFixed(2)), total: totalSupSeguroGrupo }] : []),
           ],
           expediente: {
             id: expediente.id,
             nombre_grupo: expediente?.nombre_grupo || '',
-            destino: expediente?.destino || '',
-            fecha_inicio: expediente?.fecha_inicio || expediente?.fechaInicio || '',
-            fecha_final: expediente?.fecha_final || expediente?.fechaFin || ''
-          }
-        }
-        
-        const { error: errorEmitida } = await supabase
-          .from('facturas_emitidas')
-          .insert([{
-            expediente_id: expediente.id,
-            cliente_nombre: clienteNombre,
-            importe_total: parseFloat(calcularBaseFactura.totalFactura),
-            datos_factura: datosFacturaCompletos,
-            numero_factura: numeroFactura,
-            url_pdf: null // Se puede subir después si es necesario
-          }])
-        
-        if (errorEmitida) {
-          // No bloqueamos el flujo si falla
-        } else {
+            destino: destinoFactura,
+            fecha_inicio: fechaInicioRaw,
+            fecha_final: fechaFinalRaw,
+          },
         }
 
-        // INSERT EN facturas_emitidas_global (sincronización total) - OBLIGATORIO
-        const { error: errorGlobal } = await supabase
-          .from('facturas_emitidas_global')
-          .insert([{
-            expediente_id: expediente.id,
-            numero_factura: numeroFactura,
-            cliente_nombre: clienteNombre,
-            importe_total: parseFloat(calcularBaseFactura.totalFactura),
-            tipo_factura: 'GRUPO',
-            datos_json: datosFacturaCompletos,
-            fecha_emision: new Date().toISOString()
-          }])
-        
-        if (errorGlobal) {
-          // No bloqueamos el flujo si falla
-        } else {
+        await supabase.from('facturas_emitidas').insert([{
+          expediente_id: expediente.id,
+          empresa_id: eid,
+          numero_factura: numeroFactura,
+          cliente_nombre: receptorNombre,
+          importe_total: totalFacturaGrupo,
+          tipo_factura: 'GRUPO',
+          datos_factura: datosFacturaCompletos,
+          url_pdf: null,
+        }])
+
+        await supabase.from('facturas_emitidas_global').insert([{
+          expediente_id: expediente.id,
+          empresa_id: eid,
+          numero_factura: numeroFactura,
+          cliente_nombre: receptorNombre,
+          importe_total: totalFacturaGrupo,
+          tipo_factura: 'GRUPO',
+          datos_json: datosFacturaCompletos,
+          fecha_emision: new Date().toISOString(),
+        }])
+      } catch { /* No bloqueamos el flujo si falla el registro en emitidas */ }
+
+      return numeroFactura
+    }
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    try {
+      const facturasGeneradas = []
+
+      if (modoMultiGrupo) {
+        // Emitir una factura por cada asociación/grupo con pasajeros
+        for (const grupo of gruposConPax) {
+          const paxPagoGrupo = Math.max(0, (Number(grupo.pax) || 0) - (Number(grupo.gratuidades) || 0))
+          if (paxPagoGrupo <= 0) continue
+
+          const numeroEmitido = await emitirFacturaIndividual({
+            receptorNombre: grupo.nombre_grupo,
+            receptorCIF: '',
+            clienteId: grupo.cliente_id || null,
+            paxPagoGrupo,
+          })
+          if (numeroEmitido) facturasGeneradas.push(numeroEmitido)
         }
-      } catch (err) {
-        // No bloqueamos el flujo si falla
+
+        if (facturasGeneradas.length === 0) {
+          alert('⚠️ Ningún grupo tiene pasajeros de pago válidos. Revisa la Configuración de Grupos.')
+          setIsSubmittingFactura(false)
+          return
+        }
+      } else {
+        // Factura única con los datos del receptor manual
+        const paxPagoUnico = Number(calcularBaseFactura.paxPago) || 0
+        if (paxPagoUnico <= 0) {
+          alert('⚠️ Revisa la cotización: Pasajeros de pago debe ser mayor que 0.')
+          setIsSubmittingFactura(false)
+          return
+        }
+        const numeroEmitido = await emitirFacturaIndividual({
+          receptorNombre: formFactura.receptorNombre.trim(),
+          receptorCIF: formFactura.receptorCIF.trim() || '',
+          clienteId: expediente.cliente_id || expediente.clienteId || null,
+          paxPagoGrupo: paxPagoUnico,
+        })
+        if (numeroEmitido) facturasGeneradas.push(numeroEmitido)
       }
 
       solicitarRefrescoFacturasEmitidas()
 
-      alert(`✅ Factura ${numeroFactura} emitida y guardada correctamente.`)
+      const totalEmitidas = facturasGeneradas.length
+      const resumen = totalEmitidas > 1
+        ? `✅ ${totalEmitidas} facturas emitidas correctamente:\n${facturasGeneradas.join(', ')}`
+        : `✅ Factura ${facturasGeneradas[0]} emitida y guardada correctamente.`
+      alert(resumen)
 
       // Reset del formulario + redirección de flujo tras éxito
       setFormFactura({
@@ -4419,14 +4479,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       })
       setTab('cierre')
 
-      // Recargar historial de versiones para reflejar la nueva factura emitida
       await cargarVersionesFactura()
       setIsSubmittingFactura(false)
     } catch (error) {
       if (error?.code === '23505') {
-        alert(
-          'ESTA FACTURA YA FUE REGISTRADA. El correlativo se probó varias veces; revise duplicados o vuelva a intentar.',
-        )
+        alert('ESTA FACTURA YA FUE REGISTRADA. El correlativo se probó varias veces; revise duplicados o vuelva a intentar.')
       } else {
         alert(buildWriteErrorMessage({ table: 'facturas', error, action: 'emitir la factura' }))
       }
