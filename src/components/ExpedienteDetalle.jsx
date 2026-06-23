@@ -3262,6 +3262,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     receptorPoblacion: '',
     receptorProvincia: '',
     receptorCP: '',
+    conceptoPersonalizado: '',
   })
   
   // Estados para Versiones de Facturas
@@ -4229,9 +4230,10 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
     const fechaInicioFormateada = formatearFechaFactura(fechaInicioRaw)
     const fechaFinalFormateada = formatearFechaFactura(fechaFinalRaw)
-    const conceptoBase = (destinoFactura && fechaInicioFormateada && fechaFinalFormateada)
+    const conceptoAutoGenerado = (destinoFactura && fechaInicioFormateada && fechaFinalFormateada)
       ? `Viaje a ${destinoFactura} del ${fechaInicioFormateada} al ${fechaFinalFormateada}`
       : 'Servicios de viaje'
+    const conceptoBase = formFactura.conceptoPersonalizado?.trim() || conceptoAutoGenerado
 
     const añoNumeracionFactura = new Date().getFullYear()
     const MAX_INTENTOS_NUMERO = 5
@@ -4476,6 +4478,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         receptorPoblacion: '',
         receptorProvincia: '',
         receptorCP: '',
+        conceptoPersonalizado: '',
       })
       setTab('cierre')
 
@@ -7266,6 +7269,42 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                             e.target.style.boxShadow = 'none'
                           }}
                           placeholder="CP"
+                        />
+                      </div>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '4px' }}>
+                          Concepto personalizado <span style={{ fontWeight: '400', textTransform: 'none', fontSize: '10px', color: '#b45309' }}>(opcional · si se deja vacío se usa el concepto automático)</span>
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={formFactura.conceptoPersonalizado}
+                          onChange={(e) => setFormFactura({ ...formFactura, conceptoPersonalizado: e.target.value })}
+                          className="w-full p-4 transition-all resize-none"
+                          style={{
+                            backgroundColor: '#fffbeb',
+                            color: '#0f172a',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            borderRadius: '12px',
+                            border: '1px solid #fcd34d',
+                            marginTop: '4px',
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#f59e0b'
+                            e.target.style.boxShadow = '0 0 0 3px rgba(245, 158, 11, 0.15)'
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#fcd34d'
+                            e.target.style.boxShadow = 'none'
+                          }}
+                          placeholder={
+                            (() => {
+                              const dest = expediente?.destino || expediente?.nombre_destino || ''
+                              const fi = expediente?.fecha_inicio ? new Date(expediente.fecha_inicio).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+                              const ff = expediente?.fecha_fin || expediente?.fecha_final ? new Date(expediente.fecha_fin || expediente.fecha_final).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+                              return dest && fi && ff ? `Ej: Viaje a ${dest} del ${fi} al ${ff}` : 'Ej: Viaje organizado – servicio personalizado'
+                            })()
+                          }
                         />
                       </div>
                     </div>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { FileText, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { FileText, Pencil, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { supabase } from '../supabase'
 import { getEjercicioActual, getAñosDisponibles, subscribeToEjercicioChanges } from '../utils/ejercicioGlobal'
 import {
@@ -65,6 +65,11 @@ const FacturasEmitidas = () => {
   const [busquedaNumero, setBusquedaNumero] = useState('')
   const [añoEjercicio, setAñoEjercicio] = useState(() => getEjercicioActual())
   const [borrandoId, setBorrandoId] = useState(null)
+
+  // Estados para edición de concepto
+  const [facturaEditando, setFacturaEditando] = useState(null)
+  const [conceptoEditado, setConceptoEditado] = useState('')
+  const [guardandoConcepto, setGuardandoConcepto] = useState(false)
 
   useEffect(() => {
     const unsub = subscribeToEjercicioChanges((y) => {
@@ -158,8 +163,108 @@ const FacturasEmitidas = () => {
     }
   }
 
+  const handleAbrirEdicionConcepto = (row) => {
+    setFacturaEditando(row)
+    setConceptoEditado(row?.datos_factura?.concepto ?? '')
+  }
+
+  const handleCerrarEdicionConcepto = () => {
+    setFacturaEditando(null)
+    setConceptoEditado('')
+  }
+
+  const handleGuardarConcepto = async () => {
+    if (!facturaEditando?.id) return
+    setGuardandoConcepto(true)
+    try {
+      // Merge seguro: leemos datos_factura actual → sobreescribimos solo el campo concepto
+      const datosActuales = facturaEditando.datos_factura ?? {}
+      const datosMergeados = { ...datosActuales, concepto: conceptoEditado.trim() }
+
+      const { error: updErr } = await supabase
+        .from('facturas_emitidas')
+        .update({ datos_factura: datosMergeados })
+        .eq('id', facturaEditando.id)
+
+      if (updErr) {
+        window.alert(updErr.message || 'No se pudo guardar el concepto.')
+        return
+      }
+
+      // Actualizar estado local para reflejar el cambio sin recargar toda la lista
+      setFilas((prev) =>
+        prev.map((r) =>
+          r.id === facturaEditando.id ? { ...r, datos_factura: datosMergeados } : r,
+        ),
+      )
+      handleCerrarEdicionConcepto()
+    } finally {
+      setGuardandoConcepto(false)
+    }
+  }
+
   return (
     <div className="max-w-[1400px] mx-auto px-4 py-6 space-y-6">
+      {/* ── Modal edición concepto ───────────────────────────────────────── */}
+      {facturaEditando && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(15, 23, 42, 0.55)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) handleCerrarEdicionConcepto() }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Editar concepto de factura</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Factura <span className="font-semibold">{facturaEditando.numero_factura || '—'}</span>
+                  {facturaEditando.cliente_nombre ? ` · ${facturaEditando.cliente_nombre}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCerrarEdicionConcepto}
+                className="shrink-0 rounded-lg p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                aria-label="Cerrar"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">
+                Concepto
+              </label>
+              <textarea
+                rows={3}
+                value={conceptoEditado}
+                onChange={(e) => setConceptoEditado(e.target.value)}
+                className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-slate-900 resize-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                placeholder="Describe el concepto de esta factura…"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleCerrarEdicionConcepto}
+                disabled={guardandoConcepto}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleGuardarConcepto}
+                disabled={guardandoConcepto}
+                className="px-4 py-2 rounded-xl bg-amber-500 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+              >
+                {guardandoConcepto ? 'Guardando…' : 'Guardar concepto'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-navy-900 tracking-tight">Facturas emitidas</h1>
@@ -223,6 +328,7 @@ const FacturasEmitidas = () => {
                 <th className="px-4 py-3 font-semibold text-slate-700">Fecha emisión</th>
                 <th className="px-4 py-3 font-semibold text-slate-700">Cliente</th>
                 <th className="px-4 py-3 font-semibold text-slate-700">Referencia</th>
+                <th className="px-4 py-3 font-semibold text-slate-700">Concepto</th>
                 <th className="px-4 py-3 font-semibold text-slate-700 text-right">Base</th>
                 <th className="px-4 py-3 font-semibold text-slate-700 text-right">IVA</th>
                 <th className="px-4 py-3 font-semibold text-slate-700 text-right">Total</th>
@@ -233,13 +339,13 @@ const FacturasEmitidas = () => {
             <tbody>
               {cargando ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={10} className="px-4 py-12 text-center text-slate-500">
                     Cargando facturas…
                   </td>
                 </tr>
               ) : filasFiltradas.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={10} className="px-4 py-12 text-center text-slate-500">
                     No hay facturas para este ejercicio
                     {busquedaNumero.trim() ? ' o para el filtro indicado' : ''}.
                   </td>
@@ -252,6 +358,7 @@ const FacturasEmitidas = () => {
                     : '—'
                   const { base, iva, total } = baseIvaTotalDesdeFila(row)
                   const referencia = textoReferencia(row, nombreGrupoDesdeFila(row))
+                  const concepto = row?.datos_factura?.concepto ?? '—'
                   const busy = borrandoId === row.id
 
                   return (
@@ -263,6 +370,9 @@ const FacturasEmitidas = () => {
                       </td>
                       <td className="px-4 py-3 text-slate-600 max-w-[220px]" title={referencia}>
                         {referencia}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 max-w-[240px] truncate" title={concepto !== '—' ? concepto : ''}>
+                        {concepto}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-slate-700">{formatEuro(base)}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-slate-700">{formatEuro(iva)}</td>
@@ -281,16 +391,27 @@ const FacturasEmitidas = () => {
                         </button>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleBorrarFactura(row)}
-                          disabled={busy}
-                          className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 hover:bg-red-100 disabled:opacity-40 disabled:pointer-events-none"
-                          title="Eliminar factura del registro"
-                          aria-label="Eliminar factura"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleAbrirEdicionConcepto(row)}
+                            className="inline-flex items-center justify-center rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-700 hover:bg-amber-100"
+                            title="Editar concepto de la factura"
+                            aria-label="Editar concepto"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleBorrarFactura(row)}
+                            disabled={busy}
+                            className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 hover:bg-red-100 disabled:opacity-40 disabled:pointer-events-none"
+                            title="Eliminar factura del registro"
+                            aria-label="Eliminar factura"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
