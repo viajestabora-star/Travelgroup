@@ -84,12 +84,17 @@ export const fromDbParaFinanzas = (row, proveedoresDb = []) => {
   const provOficial = proveedoresDb.find(
     p => String(p.id) === String(row.proveedor_id)
   )
+  const costeCotizadoVisible = toNum(row.total_servicio ?? row.coste_unitario)
+  const sinCosteRealIntroducido = row.coste_real_proveedor === null || row.coste_real_proveedor === undefined
+  const costeRealProveedorVisible = sinCosteRealIntroducido
+    ? costeCotizadoVisible
+    : toNum(row.coste_real_proveedor)
   return {
     servicioId: String(row.id).trim(),
     conceptoVisible: String(row.nombre_especifico || row.tipo_servicio || '').trim(),
     proveedorVisible: provOficial?.nombre_comercial || row.nombre_proveedor_manual || 'Sin proveedor',
-    costeCotizadoVisible: toNum(row.total_servicio ?? row.coste_unitario),
-    costeRealProveedorVisible: toNum(row.coste_real_proveedor ?? 0),
+    costeCotizadoVisible,
+    costeRealProveedorVisible,
     facturaUrl: String(row.url_factura_pdf || '').trim() || null,
   }
 }
