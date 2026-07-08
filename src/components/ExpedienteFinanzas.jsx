@@ -921,8 +921,15 @@ const ExpedienteFinanzas = ({
         .select('id, total_pax, pax_pago, gratuidades, precio_venta_cliente, bonificacion_pax')
         .eq('id', expedienteId)
         .single()
-      if (errExp || !expFresco) {
-        setErrorCargaCotizacion(errExp?.message || 'No se pudo cargar el expediente.')
+      if (errExp) {
+        console.error('[Cierre] expedientes error Supabase (objeto completo):', errExp)
+        setErrorCargaCotizacion(errExp.message || 'No se pudo cargar el expediente.')
+        setServiciosCotizacionSqlRows([])
+        setCostesRealesTablaSql([])
+        return
+      }
+      if (!expFresco) {
+        setErrorCargaCotizacion('No se pudo cargar el expediente.')
         setServiciosCotizacionSqlRows([])
         setCostesRealesTablaSql([])
         return
@@ -947,6 +954,10 @@ const ExpedienteFinanzas = ({
         if (scRows.length === 0) {
           console.error('[Cierre] servicios_cotizacion 0 filas — error Supabase:', serviciosRes.error)
           console.error('[Cierre] servicios_cotizacion 0 filas — respuesta completa:', serviciosRes)
+          setErrorCargaCotizacion(
+            'No se encontraron servicios de cotización para este expediente. ' +
+            'Verifica que existan servicios guardados en la pestaña Cotización antes de cargar el cierre.'
+          )
         }
         try {
           validarFilasServiciosCotizacionCierre(scRows, 1)
@@ -957,60 +968,89 @@ const ExpedienteFinanzas = ({
           return
         }
         const serviciosCotizacionRows = scRows
-        const { data: proveedoresDb } = await supabase
+        const { data: proveedoresDb, error: errProv } = await supabase
           .from('proveedores')
           .select('id, nombre_comercial')
+        if (errProv) {
+          console.error('[Cierre] proveedores error Supabase (objeto completo):', errProv)
+          setErrorCargaCotizacion(errProv.message || 'Error al cargar proveedores desde SQL')
+        }
+        const proveedoresParaMapeo = errProv ? [] : (proveedoresDb ?? [])
         setServiciosCotizacionSqlRows(serviciosCotizacionRows)
-        setCostesRealesTablaSql(mapearServiciosSqlATabla(scRows, proveedoresDb))
+        setCostesRealesTablaSql(mapearServiciosSqlATabla(scRows, proveedoresParaMapeo))
         const idsSet = new Set(
           (scRows || []).map((s) => String(s?.id ?? '').trim()).filter(Boolean)
         )
         await recargarPagosProveedoresParaCierre(idsSet)
       }
 
-      // 3) Ingresos
-      const paxTotalFresco = toNum(expFresco?.total_pax) || toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0
-      const gratuidadesFrescas = toNum(expFresco?.gratuidades) || toNum(expediente?.gratuidades) || toNum(formData?.gratuidades) || 0
-      const paxPagoFresco = toNum(expFresco?.pax_pago) || Math.max(0, paxTotalFresco - gratuidadesFrescas) || paxPago
-      const precioVentaFresco = toNum(expFresco?.precio_venta_cliente) || toNum(expediente?.precio_venta_cliente) || toNum(formData?.precio_venta_cliente) || 0
-      const bonificacionFresco = toNum(expFresco?.bonificacion_pax) || toNum(expediente?.bonificacion_pax) || toNum(formData?.bonificacion_pax) || 0
-
-      const precioViaje = paxPagoFresco * precioVentaFresco
-      const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
-      const descuentosVal = bonificacionFresco * paxPagoFresco
-
-      // 4) Commit state
-      setInformeLiquidacion(prev => ({
-        ...prev,
-        ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal },
-        gastosImprevistos: prev.gastosImprevistos || [],
-      }))
-
-      // 5) PAX por asociación
-      const guardado = expediente?.cierre_grupo?.pax_por_asociacion
-      if (!Array.isArray(guardado) || guardado.length === 0) {
-        if (expedienteClientes.length > 0) {
-          const paxPorCliente = paxTotalFresco > 0
-            ? Math.floor(paxTotalFresco / expedienteClientes.length)
-            : null
-          setPaxPorAsociacion(expedienteClientes.map(ec => ({
-            cliente_id: ec.cliente_id,
-            cliente_nombre: ec.cliente_nombre,
-            pax: paxPorCliente,
-          })))
-        } else if (clienteIdPrincipal) {
-          const nombrePrincipal = grupo?.nombre || expediente?.cliente_nombre || expediente?.nombre_grupo || '—'
-          setPaxPorAsociacion([{
-            cliente_id: clienteIdPrincipal,
-            cliente_nombre: nombrePrincipal,
-            pax: paxTotalFresco || null,
-          }])
+      // 3) Ingresos + 4) Commit state + 5) PAX por asociación (defensivo)
+      try {
+        if (!Array.isArray(expedienteClientes)) {
+          console.warn('[Cierre] expedienteClientes no es un array — se omite PAX por asociación:', {
+            expedienteClientes,
+            tipo: typeof expedienteClientes,
+          })
         }
+
+        const paxTotalFresco = toNum(expFresco?.total_pax) || toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0
+        const gratuidadesFrescas = toNum(expFresco?.gratuidades) || toNum(expediente?.gratuidades) || toNum(formData?.gratuidades) || 0
+        const paxPagoFresco = toNum(expFresco?.pax_pago) || Math.max(0, paxTotalFresco - gratuidadesFrescas) || paxPago
+        const precioVentaFresco = toNum(expFresco?.precio_venta_cliente) || toNum(expediente?.precio_venta_cliente) || toNum(formData?.precio_venta_cliente) || 0
+        const bonificacionFresco = toNum(expFresco?.bonificacion_pax) || toNum(expediente?.bonificacion_pax) || toNum(formData?.bonificacion_pax) || 0
+
+        const precioViaje = paxPagoFresco * precioVentaFresco
+        const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0)
+        const descuentosVal = bonificacionFresco * paxPagoFresco
+
+        setInformeLiquidacion(prev => ({
+          ...prev,
+          ingresos: { precioViaje, suplementos: suplementosVal, descuentos: descuentosVal },
+          gastosImprevistos: prev.gastosImprevistos || [],
+        }))
+
+        const guardado = expediente?.cierre_grupo?.pax_por_asociacion
+        const clientesArray = Array.isArray(expedienteClientes) ? expedienteClientes : []
+        if (!Array.isArray(guardado) || guardado.length === 0) {
+          if (clientesArray.length > 0) {
+            const paxPorCliente = paxTotalFresco > 0
+              ? Math.floor(paxTotalFresco / clientesArray.length)
+              : null
+            setPaxPorAsociacion(clientesArray.map(ec => ({
+              cliente_id: ec.cliente_id,
+              cliente_nombre: ec.cliente_nombre,
+              pax: paxPorCliente,
+            })))
+          } else if (clienteIdPrincipal) {
+            if (!grupo) {
+              console.warn('[Cierre] grupo ausente al calcular PAX por asociación:', {
+                clienteIdPrincipal,
+                grupo,
+              })
+            }
+            const nombrePrincipal = grupo?.nombre || expediente?.cliente_nombre || expediente?.nombre_grupo || '—'
+            setPaxPorAsociacion([{
+              cliente_id: clienteIdPrincipal,
+              cliente_nombre: nombrePrincipal,
+              pax: paxTotalFresco || null,
+            }])
+          } else {
+            console.warn('[Cierre] Sin expedienteClientes ni clienteIdPrincipal para PAX por asociación:', {
+              expedienteClientes: clientesArray,
+              clienteIdPrincipal,
+              grupo: grupo ?? null,
+            })
+          }
+        }
+      } catch (ingresosErr) {
+        console.warn('[Cierre] Error en cálculo de PAX/ingresos (continuando sin interrumpir el informe):', ingresosErr)
+        if (ingresosErr?.stack) console.warn('[Cierre] Stack trace (PAX/ingresos):', ingresosErr.stack)
       }
 
       informeLiquidacionInicializadoRef.current = true
     } catch (err) {
-      console.error('[Cierre] Error al cargar cotización:', err)
+      console.error('[Cierre] Error al cargar cotización (objeto completo):', err)
+      if (err?.stack) console.error('[Cierre] Stack trace:', err.stack)
       setErrorCargaCotizacion(err?.message || 'Error desconocido al cargar los datos')
     } finally {
       setCargandoCotizacion(false)

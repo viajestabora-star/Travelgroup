@@ -38,16 +38,32 @@ const resolverEmpresaIdDesdeExpediente = (expediente) => {
   return n
 }
 
-/** Mensaje legible para fallos RLS, FK u otros errores PostgREST por tenant. */
+/** Mensaje legible para fallos RLS, FK u otros errores PostgREST, y para fallos de red. */
 const formatearErrorSupabaseTenant = (error) => {
   if (error == null) {
     return 'Error desconocido al guardar servicios (sin objeto error de Supabase).'
   }
+
+  const msgOriginal = error.message != null ? String(error.message) : String(error)
+  const msgLower = msgOriginal.toLowerCase()
+  const esFallaDeRed =
+    error instanceof TypeError &&
+    error.code === undefined &&
+    (
+      msgLower.includes('failed to fetch') ||
+      msgLower.includes('networkerror') ||
+      msgLower.includes('network request failed')
+    )
+
+  if (esFallaDeRed) {
+    return 'Problema de conexión. Puede que los datos no se hayan confirmado. Revisa la conexión y vuelve a intentarlo.'
+  }
+
   const code = error.code ?? error.status ?? 'sin código'
-  const msg = error.message != null ? String(error.message) : String(error)
+  const msg = msgOriginal
   const details = error.details != null ? String(error.details) : ''
   const hint = error.hint != null ? String(error.hint) : ''
-  const lower = msg.toLowerCase()
+  const lower = msgLower
   let titulo = 'Error al persistir servicios_cotizacion (PostgREST / Supabase)'
   if (code === '42501' || lower.includes('row-level security') || lower.includes('rls')) {
     titulo = 'Bloqueo por políticas del tenant (RLS): la fila no es visible o no permitida para esta empresa_id / sesión'
