@@ -79,12 +79,46 @@ export const toDb = (servicio, idExpediente, empresaId) => ({
   release_pagado: !!servicio.releasePagado,
 })
 
+/**
+ * Reconstruye el coste cotizado total (visible) de una fila `servicios_cotizacion`.
+ * Orden defensivo (sin depender de pax, que no está en la fila):
+ *   a) total_servicio_manual > 0  → total explícito introducido a mano.
+ *   b) total_servicio > 0         → fallback legacy (el adapter actual ya no lo escribe).
+ *   c) coste_unitario × cantidad × (noches si es hotel) × (dias_guia si es guía).
+ *   d) sin datos suficientes      → 0.
+ */
+const calcularCosteCotizadoVisible = (row) => {
+  const manual = toNum(row.total_servicio_manual)
+  if (manual > 0) return manual
+
+  const legacy = toNum(row.total_servicio)
+  if (legacy > 0) return legacy
+
+  const base = toNum(row.coste_unitario)
+  if (base <= 0) return 0
+
+  const tipo = String(row.tipo_servicio ?? row.tipo ?? '').trim().toLowerCase()
+  const esHotel = tipo.includes('hotel')
+  const esGuia = tipo === 'g' || tipo.includes('guia') || tipo.includes('guía')
+
+  const cantidad = toNum(row.cantidad)
+  const noches = toNum(row.noches)
+  const diasGuia = toNum(row.dias_guia)
+
+  let total = base
+  if (cantidad > 0) total *= cantidad
+  if (esHotel && noches > 0) total *= noches
+  if (esGuia && diasGuia > 0) total *= diasGuia
+
+  return total
+}
+
 /** Para uso exclusivo de ExpedienteFinanzas — solo lectura, no escribe a BD */
 export const fromDbParaFinanzas = (row, proveedoresDb = []) => {
   const provOficial = proveedoresDb.find(
     p => String(p.id) === String(row.proveedor_id)
   )
-  const costeCotizadoVisible = toNum(row.total_servicio ?? row.coste_unitario)
+  const costeCotizadoVisible = calcularCosteCotizadoVisible(row)
   const sinCosteRealIntroducido = row.coste_real_proveedor === null || row.coste_real_proveedor === undefined
   const costeRealProveedorVisible = sinCosteRealIntroducido
     ? costeCotizadoVisible
