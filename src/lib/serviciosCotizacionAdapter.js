@@ -119,10 +119,8 @@ export const fromDbParaFinanzas = (row, proveedoresDb = [], paxPago = null, tota
     p => String(p.id) === String(row.proveedor_id)
   )
   const costeCotizadoVisible = calcularCosteCotizadoVisible(row, paxPago, totalPax)
-  const sinCosteRealIntroducido = row.coste_real_proveedor === null || row.coste_real_proveedor === undefined
-  const costeRealProveedorVisible = sinCosteRealIntroducido
-    ? costeCotizadoVisible
-    : toNum(row.coste_real_proveedor)
+  const costeRealBd = toNum(row.coste_real_proveedor)
+  const costeRealProveedorVisible = costeRealBd > 0 ? costeRealBd : costeCotizadoVisible
   return {
     servicioId: String(row.id).trim(),
     conceptoVisible: String(row.nombre_especifico || row.tipo_servicio || '').trim(),
