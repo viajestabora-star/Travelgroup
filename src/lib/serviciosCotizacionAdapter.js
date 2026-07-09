@@ -80,45 +80,45 @@ export const toDb = (servicio, idExpediente, empresaId) => ({
 })
 
 /**
- * Reconstruye el coste cotizado total (visible) de una fila `servicios_cotizacion`.
- * Orden defensivo (sin depender de pax, que no está en la fila):
- *   a) total_servicio_manual > 0  → total explícito introducido a mano.
- *   b) total_servicio > 0         → fallback legacy (el adapter actual ya no lo escribe).
- *   c) coste_unitario × cantidad × (noches si es hotel) × (dias_guia si es guía).
- *   d) sin datos suficientes      → 0.
+ * @param {object} row - fila de servicios_cotizacion
+ * @param {number|null} paxPago - NO afecta a este cálculo (ver finalizarCalculoModulo,
+ *   ExpedienteFinanzas.jsx línea 102: paxPago solo influye en coste_pax, nunca en
+ *   total_servicio). Se acepta por simetría de firma, no se usa aquí.
+ * @param {number|null} totalPax - pasajeros totales del expediente. Necesario solo
+ *   para tipo_calculo='porPersona'; sin él, se devuelve el coste por persona en vez
+ *   del total de grupo.
  */
-const calcularCosteCotizadoVisible = (row) => {
-  const manual = toNum(row.total_servicio_manual)
-  if (manual > 0) return manual
+const calcularCosteCotizadoVisible = (row, paxPago = null, totalPax = null) => {
+  const costeUnitario = toNum(row.coste_unitario)
+  const totalServicioManual = toNum(row.total_servicio_manual)
+  const cantidad = Math.max(1, toNum(row.cantidad))
+  const noches = Math.max(1, toNum(row.noches))
+  const diasGuia = Math.max(1, toNum(row.dias_guia))
+  const tipoServicioNorm = String(row.tipo_servicio || row.tipo || '').trim().toLowerCase()
+  const esGuia = tipoServicioNorm === 'guia' || tipoServicioNorm === 'guía' || tipoServicioNorm === 'g'
+  const esHotel = tipoServicioNorm === 'hotel'
+  const esAutobusOTransporte = tipoServicioNorm === 'autobus' || tipoServicioNorm === 'autobús' || tipoServicioNorm === 'transporte'
+  const esPorGrupo = row.tipo_calculo === 'porGrupo' || row.tipo_calculo === 'Total a dividir'
 
-  const legacy = toNum(row.total_servicio)
-  if (legacy > 0) return legacy
+  if (esAutobusOTransporte || esPorGrupo) {
+    if (totalServicioManual > 0) return totalServicioManual
+    if (esGuia) return costeUnitario * cantidad
+    return costeUnitario
+  }
 
-  const base = toNum(row.coste_unitario)
-  if (base <= 0) return 0
-
-  const tipo = String(row.tipo_servicio ?? row.tipo ?? '').trim().toLowerCase()
-  const esHotel = tipo.includes('hotel')
-  const esGuia = tipo === 'g' || tipo.includes('guia') || tipo.includes('guía')
-
-  const cantidad = toNum(row.cantidad)
-  const noches = toNum(row.noches)
-  const diasGuia = toNum(row.dias_guia)
-
-  let total = base
-  if (cantidad > 0) total *= cantidad
-  if (esHotel && noches > 0) total *= noches
-  if (esGuia && diasGuia > 0) total *= diasGuia
-
-  return total
+  // porPersona: total de grupo si tenemos totalPax; si no, coste por persona (comportamiento previo)
+  const factor = esHotel ? noches : (esGuia ? diasGuia : 1)
+  const costePorPersona = costeUnitario * factor
+  const pT = totalPax != null ? Math.max(1, toNum(totalPax)) : null
+  return pT != null ? costePorPersona * pT : costePorPersona
 }
 
 /** Para uso exclusivo de ExpedienteFinanzas — solo lectura, no escribe a BD */
-export const fromDbParaFinanzas = (row, proveedoresDb = []) => {
+export const fromDbParaFinanzas = (row, proveedoresDb = [], paxPago = null, totalPax = null) => {
   const provOficial = proveedoresDb.find(
     p => String(p.id) === String(row.proveedor_id)
   )
-  const costeCotizadoVisible = calcularCosteCotizadoVisible(row)
+  const costeCotizadoVisible = calcularCosteCotizadoVisible(row, paxPago, totalPax)
   const sinCosteRealIntroducido = row.coste_real_proveedor === null || row.coste_real_proveedor === undefined
   const costeRealProveedorVisible = sinCosteRealIntroducido
     ? costeCotizadoVisible

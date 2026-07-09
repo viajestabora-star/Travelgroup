@@ -811,9 +811,9 @@ const ExpedienteFinanzas = ({
   const [mapaUrlFacturaPorServicioDesdePagos, setMapaUrlFacturaPorServicioDesdePagos] = useState({})
   const [documentosAdicionalesExpediente, setDocumentosAdicionalesExpediente] = useState([])
 
-  const mapearServiciosSqlATabla = React.useCallback((rows, proveedoresDb) => {
+  const mapearServiciosSqlATabla = React.useCallback((rows, proveedoresDb, paxPagoParam = null, totalPaxParam = null) => {
     const safeRows = Array.isArray(rows) ? rows : []
-    return safeRows.map(row => fromDbParaFinanzas(row, proveedoresDb))
+    return safeRows.map(row => fromDbParaFinanzas(row, proveedoresDb, paxPagoParam, totalPaxParam))
   }, [])
 
   /**
@@ -977,7 +977,12 @@ const ExpedienteFinanzas = ({
         }
         const proveedoresParaMapeo = errProv ? [] : (proveedoresDb ?? [])
         setServiciosCotizacionSqlRows(serviciosCotizacionRows)
-        setCostesRealesTablaSql(mapearServiciosSqlATabla(scRows, proveedoresParaMapeo))
+        // Pax reales para el cálculo canónico de costeCotizadoVisible (tipo_calculo='porPersona').
+        // Mismo patrón de fallback que las líneas 996-998 (paxTotalFresco/paxPagoFresco), con
+        // nombres distintos para no colisionar con esa declaración posterior en otro bloque try.
+        const paxTotalParaCierre = toNum(expFresco?.total_pax) || toNum(expediente?.total_pax) || toNum(formData?.total_pax) || 0
+        const paxPagoParaCierre = toNum(expFresco?.pax_pago) || Math.max(0, paxTotalParaCierre - toNum(expFresco?.gratuidades ?? expediente?.gratuidades ?? formData?.gratuidades ?? 0)) || paxPago
+        setCostesRealesTablaSql(mapearServiciosSqlATabla(scRows, proveedoresParaMapeo, paxPagoParaCierre, paxTotalParaCierre))
         const idsSet = new Set(
           (scRows || []).map((s) => String(s?.id ?? '').trim()).filter(Boolean)
         )
