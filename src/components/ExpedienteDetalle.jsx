@@ -45,13 +45,10 @@ import {
   crearSignedUrlProgramaViaje,
   resolverRutaProgramaDesdeBdFlexible,
 } from '../utils/programaViajeStorage'
-
-/** Bucket único de Storage para facturas adjuntas en «Pagos a Proveedores». */
-const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
+import { subirPdfFacturaProveedor, eliminarObjetoStorageFacturaProveedor } from '../utils/facturaProveedorStorage'
 
 /** EXPEDIENTE DE DIAGNÓSTICO - Para verificar datos reales en consola */
 const EXPEDIENTE_DIAGNOSTICO = 'f51e81cc-0931-48fb-894c-1f1fdecdff92'
-const BUCKET_FACTURAS = 'facturas'
 const BUCKET_EXPEDIENTES = 'expedientes'
 const SUBMIT_DEDUPE_MS = 2000
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
@@ -59,49 +56,6 @@ const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 const proveedorInformeTexto = (proveedor) => {
   const txt = String(proveedor ?? '').trim()
   return txt || 'Varios/Sin asignar'
-}
-
-/** Ruta relativa del objeto dentro del bucket (p. ej. para remove y getPublicUrl). */
-const extraerRutaObjectoFacturaProveedor = (urlPdf) => {
-  if (!urlPdf || typeof urlPdf !== 'string') return null
-  const trimmed = urlPdf.trim()
-  const marker = `/object/public/${BUCKET_FACTURAS_PROVEEDORES}/`
-  const idx = trimmed.indexOf(marker)
-  if (idx >= 0) {
-    let path = trimmed.slice(idx + marker.length).split('?')[0]
-    try {
-      path = decodeURIComponent(path)
-    } catch (_) {}
-    return path
-  }
-  if (!/^https?:\/\//i.test(trimmed)) return trimmed.replace(/^\/+/, '')
-  return null
-}
-
-/**
- * Ver factura: getPublicUrl(nombreUnico) en facturas_proveedores + window.open.
- * En BD se guarda la ruta del objeto (fac-….pdf) o URL legada.
- */
-const resolverUrlFacturaProveedorPorUrlGuardada = (valorGuardado) => {
-  if (!valorGuardado || typeof valorGuardado !== 'string') return null
-  const nombreUnico =
-    extraerRutaObjectoFacturaProveedor(valorGuardado) || valorGuardado.replace(/^\/+/, '').trim()
-  if (nombreUnico) {
-    const publicUrl = supabase.storage.from('facturas_proveedores').getPublicUrl(nombreUnico).data
-      ?.publicUrl
-    if (publicUrl) return publicUrl
-  }
-  const t = valorGuardado.trim()
-  if (/^https?:\/\//i.test(t)) return t
-  return null
-}
-
-const eliminarObjetoStorageFacturaProveedor = async (urlPdf) => {
-  const path = extraerRutaObjectoFacturaProveedor(urlPdf)
-  if (!path) return { ok: true }
-  const { error } = await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([path])
-  if (error) return { ok: false, error }
-  return { ok: true }
 }
 
 /** Coincide pago con fila de servicio de cotización (esquema actual: servicio_id). */
@@ -3489,19 +3443,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   const handleFileUpload = async (file, eid, expUuid) => {
     if (!file) return null
-    if (!eid || !expUuid) throw new Error('empresa_id o expediente_id no disponibles para subir el PDF.')
-    // Ruta canónica: /{empresa_id}/{expediente_id}/{timestamp}_factura.pdf
-    const ruta = `${eid}/${expUuid}/${Date.now()}_factura.pdf`
-    const { error: uploadErr } = await supabase.storage
-      .from(BUCKET_FACTURAS)
-      .upload(ruta, file, { upsert: false, contentType: 'application/pdf' })
-    if (uploadErr) {
-      throw new Error(`No se pudo subir el PDF al bucket '${BUCKET_FACTURAS}': ${uploadErr.message}`)
-    }
-    const { data: urlData } = supabase.storage.from(BUCKET_FACTURAS).getPublicUrl(ruta)
-    const publicUrl = urlData?.publicUrl || null
-    if (!publicUrl) throw new Error('PDF subido pero no se pudo obtener la URL pública.')
-    return publicUrl
+    return subirPdfFacturaProveedor(file, { empresaId: eid, expedienteId: expUuid })
   }
 
   const handleSubmit = async (servicio) => {
@@ -3619,7 +3561,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     try {
       if (pagoRegistrado.url_pdf) {
         const res = await eliminarObjetoStorageFacturaProveedor(pagoRegistrado.url_pdf)
-        if (!res.ok) console.warn('[facturas_proveedores] remove', res.error)
+        if (!res.ok) console.warn('[facturaProveedorStorage] remove', res.error)
       }
       const { error } = await supabase
         .from('pagos_proveedores')

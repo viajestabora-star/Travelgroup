@@ -1,6 +1,12 @@
 import { supabase } from '../supabase'
 
+/** Bucket vigente para nuevas subidas de facturas de proveedor. */
+export const BUCKET_FACTURAS_ACTIVO = 'facturas'
+
+/** Bucket legado: solo lectura/borrado de documentos antiguos (no usar para escritura nueva). */
 const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
+
+const BUCKETS_CONOCIDOS = [BUCKET_FACTURAS_PROVEEDORES, BUCKET_FACTURAS_ACTIVO]
 
 /**
  * Quita comillas JSON/espacios y el prefijo duplicado `bucket/` en rutas guardadas.
@@ -15,67 +21,144 @@ const normalizarRutaInternaBucket = (rutaCruda, bucketId) => {
   return p.replace(/^\/+/, '') || null
 }
 
-/**
- * Extrae la ruta del objeto dentro del bucket a partir de URL pública, firmada o ruta suelta.
- * Devuelve null si no se puede interpretar como objeto de este bucket.
- */
-export const extraerRutaObjectoFacturaProveedor = (urlPdf) => {
-  if (!urlPdf || typeof urlPdf !== 'string') return null
-  const trimmed = urlPdf.trim().replace(/^["']|["']$/g, '')
-
-  const marcadoresPublicos = [
-    `/object/public/${BUCKET_FACTURAS_PROVEEDORES}/`,
-    `/storage/v1/object/public/${BUCKET_FACTURAS_PROVEEDORES}/`,
-  ]
-
-  for (const marker of marcadoresPublicos) {
-    const idx = trimmed.indexOf(marker)
-    if (idx >= 0) {
+const extraerDesdeMarcadoresUrl = (trimmed, tipoObjeto) => {
+  for (const bucket of BUCKETS_CONOCIDOS) {
+    const marcadores = [
+      `/object/${tipoObjeto}/${bucket}/`,
+      `/storage/v1/object/${tipoObjeto}/${bucket}/`,
+    ]
+    for (const marker of marcadores) {
+      const idx = trimmed.indexOf(marker)
+      if (idx < 0) continue
       let path = trimmed.slice(idx + marker.length).split('?')[0]
       try {
         path = decodeURIComponent(path)
       } catch (_) {}
-      return normalizarRutaInternaBucket(path, BUCKET_FACTURAS_PROVEEDORES)
+      const pathNorm = normalizarRutaInternaBucket(path, bucket)
+      if (pathNorm) return { bucket, path: pathNorm }
     }
   }
+  return null
+}
 
-  // URL firmada: devolver null aquí; resolverUrlPublicaFacturaProveedor devolverá la URL completa (incl. token).
-  if (trimmed.includes(`/object/sign/${BUCKET_FACTURAS_PROVEEDORES}/`) && /^https?:\/\//i.test(trimmed)) {
-    return null
+const esRutaLegadaFacturasProveedores = (rutaRelativa) => {
+  const p = String(rutaRelativa || '').replace(/^\/+/, '')
+  if (!p) return false
+  if (/^fac-\d+\.pdf$/i.test(p)) return true
+  if (/^\d+\/fac-\d+\.pdf$/i.test(p)) return true
+  return false
+}
+
+const esRutaConvencionFacturasActivo = (rutaRelativa) => {
+  const p = String(rutaRelativa || '').replace(/^\/+/, '')
+  if (!p) return false
+  // Convención vigente: {empresa_id}/{expediente_uuid}/…
+  return /^\d+\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\//i.test(p)
+}
+
+/**
+ * Determina de forma determinista bucket + ruta interna a partir del valor guardado en BD.
+ * @returns {{ bucket: string, path: string } | null}
+ */
+export const resolverUbicacionStorageFacturaProveedor = (valorGuardado) => {
+  if (!valorGuardado || typeof valorGuardado !== 'string') return null
+  const trimmed = valorGuardado.trim().replace(/^["']|["']$/g, '')
+  if (!trimmed) return null
+
+  const desdePublic = extraerDesdeMarcadoresUrl(trimmed, 'public')
+  if (desdePublic) return desdePublic
+
+  const desdeSign = extraerDesdeMarcadoresUrl(trimmed, 'sign')
+  if (desdeSign) return desdeSign
+
+  if (/^https?:\/\//i.test(trimmed)) return null
+
+  let rutaRel = trimmed.replace(/^\/+/, '')
+
+  // Histórico Flujo A: prefijo redundante facturas/ dentro del bucket facturas
+  if (rutaRel.startsWith(`${BUCKET_FACTURAS_ACTIVO}/`)) {
+    rutaRel = rutaRel.slice(BUCKET_FACTURAS_ACTIVO.length + 1)
+    const pathNorm = normalizarRutaInternaBucket(rutaRel, BUCKET_FACTURAS_ACTIVO)
+    if (pathNorm) return { bucket: BUCKET_FACTURAS_ACTIVO, path: pathNorm }
   }
 
-  if (!/^https?:\/\//i.test(trimmed)) {
-    return normalizarRutaInternaBucket(trimmed, BUCKET_FACTURAS_PROVEEDORES)
+  if (esRutaConvencionFacturasActivo(rutaRel)) {
+    const pathNorm = normalizarRutaInternaBucket(rutaRel, BUCKET_FACTURAS_ACTIVO)
+    if (pathNorm) return { bucket: BUCKET_FACTURAS_ACTIVO, path: pathNorm }
   }
+
+  if (esRutaLegadaFacturasProveedores(rutaRel)) {
+    const pathNorm = normalizarRutaInternaBucket(rutaRel, BUCKET_FACTURAS_PROVEEDORES)
+    if (pathNorm) return { bucket: BUCKET_FACTURAS_PROVEEDORES, path: pathNorm }
+  }
+
+  const pathLegado = normalizarRutaInternaBucket(rutaRel, BUCKET_FACTURAS_PROVEEDORES)
+  if (pathLegado) return { bucket: BUCKET_FACTURAS_PROVEEDORES, path: pathLegado }
 
   return null
 }
 
 /**
+ * Extrae la ruta del objeto dentro del bucket (sin identificar bucket).
+ * Preferir resolverUbicacionStorageFacturaProveedor cuando se necesite borrar o descargar.
+ */
+export const extraerRutaObjectoFacturaProveedor = (urlPdf) => {
+  const ubicacion = resolverUbicacionStorageFacturaProveedor(urlPdf)
+  return ubicacion?.path ?? null
+}
+
+/**
+ * Convención vigente de subida: `{empresa_id}/{expediente_id}/{nombre}.pdf` en bucket `facturas`.
+ * - Cierre (servicioId): `{servicio_id}.pdf`, upsert true
+ * - Pagos (sin servicioId): `{timestamp}_factura.pdf`, upsert false
+ */
+export const subirPdfFacturaProveedor = async (file, { empresaId, expedienteId, servicioId = null } = {}) => {
+  if (!file) return null
+  const eid = String(empresaId ?? '').trim()
+  const expId = String(expedienteId ?? '').trim()
+  if (!eid || !expId) {
+    throw new Error('empresa_id o expediente_id no disponibles para subir el PDF.')
+  }
+
+  const sid = servicioId != null ? String(servicioId).trim() : ''
+  const ruta = sid
+    ? `${eid}/${expId}/${sid}.pdf`
+    : `${eid}/${expId}/${Date.now()}_factura.pdf`
+  const upsert = Boolean(sid)
+
+  const { error: uploadErr } = await supabase.storage
+    .from(BUCKET_FACTURAS_ACTIVO)
+    .upload(ruta, file, { upsert, contentType: 'application/pdf' })
+  if (uploadErr) {
+    throw new Error(`No se pudo subir el PDF al bucket '${BUCKET_FACTURAS_ACTIVO}': ${uploadErr.message}`)
+  }
+
+  const { data: urlData } = supabase.storage.from(BUCKET_FACTURAS_ACTIVO).getPublicUrl(ruta)
+  const publicUrl = urlData?.publicUrl || null
+  if (!publicUrl) throw new Error('PDF subido pero no se pudo obtener la URL pública.')
+  return publicUrl
+}
+
+/**
  * URL lista para fetch, window.open o <a href>.
- * Soporta: ruta `fac-….pdf`, URL pública Supabase, URL firmada, https externa.
+ * Soporta bucket vigente `facturas`, legado `facturas_proveedores`, URL firmada y https externa.
  */
 export const resolverUrlPublicaFacturaProveedor = (valorGuardado) => {
   if (!valorGuardado || typeof valorGuardado !== 'string') return null
   const trimmed = valorGuardado.trim().replace(/^["']|["']$/g, '')
+  if (!trimmed) return null
 
-  // URL firmada del bucket: usar tal cual (el token va en la query).
   if (
     /^https?:\/\//i.test(trimmed) &&
-    trimmed.includes(`/object/sign/${BUCKET_FACTURAS_PROVEEDORES}/`)
+    BUCKETS_CONOCIDOS.some((b) => trimmed.includes(`/object/sign/${b}/`))
   ) {
     return trimmed
   }
 
-  const rutaExtraida = extraerRutaObjectoFacturaProveedor(trimmed)
-  const nombreUnico =
-    rutaExtraida ||
-    (!/^https?:\/\//i.test(trimmed) ? normalizarRutaInternaBucket(trimmed, BUCKET_FACTURAS_PROVEEDORES) : null)
-
-  if (nombreUnico && !/^https?:\/\//i.test(nombreUnico)) {
-    const { data } = supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).getPublicUrl(nombreUnico)
-    const publicUrl = data?.publicUrl
-    return publicUrl || null
+  const ubicacion = resolverUbicacionStorageFacturaProveedor(trimmed)
+  if (ubicacion?.path) {
+    const { data } = supabase.storage.from(ubicacion.bucket).getPublicUrl(ubicacion.path)
+    return data?.publicUrl || null
   }
 
   if (/^https?:\/\//i.test(trimmed)) return trimmed
@@ -88,15 +171,10 @@ export const resolverUrlPublicaFacturaProveedor = (valorGuardado) => {
  */
 export const descargarArrayBufferFacturaProveedor = async (valorGuardado) => {
   if (!valorGuardado || typeof valorGuardado !== 'string') return null
-  const path = extraerRutaObjectoFacturaProveedor(valorGuardado)
-  const pathNorm =
-    path ||
-    (!/^https?:\/\//i.test(valorGuardado.trim())
-      ? normalizarRutaInternaBucket(valorGuardado, BUCKET_FACTURAS_PROVEEDORES)
-      : null)
-  if (!pathNorm) return null
+  const ubicacion = resolverUbicacionStorageFacturaProveedor(valorGuardado)
+  if (!ubicacion?.path) return null
   try {
-    const { data, error } = await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).download(pathNorm)
+    const { data, error } = await supabase.storage.from(ubicacion.bucket).download(ubicacion.path)
     if (error || !data) return null
     return await data.arrayBuffer()
   } catch {
@@ -114,10 +192,11 @@ export const abrirFacturaProveedorPorUrlGuardada = (valorGuardado) => {
   if (/^https?:\/\//i.test(t)) window.open(t, '_blank', 'noopener,noreferrer')
 }
 
+/** Borra del bucket determinado por la URL guardada (un solo bucket, sin best-effort). */
 export const eliminarObjetoStorageFacturaProveedor = async (urlPdf) => {
-  const path = extraerRutaObjectoFacturaProveedor(urlPdf)
-  if (!path) return { ok: true }
-  const { error } = await supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).remove([path])
+  const ubicacion = resolverUbicacionStorageFacturaProveedor(urlPdf)
+  if (!ubicacion?.path) return { ok: true }
+  const { error } = await supabase.storage.from(ubicacion.bucket).remove([ubicacion.path])
   if (error) return { ok: false, error }
   return { ok: true }
 }

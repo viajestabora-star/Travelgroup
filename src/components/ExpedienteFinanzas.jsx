@@ -17,7 +17,7 @@ import { DATOS_EMISOR } from '../config/empresa'
 import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmisorEmpresa'
 import { useEmpresa } from '../context/EmpresaContext'
 import VisualizadorPro from './VisualizadorPro'
-import { resolverUrlPublicaFacturaProveedor } from '../utils/facturaProveedorStorage'
+import { resolverUrlPublicaFacturaProveedor, subirPdfFacturaProveedor } from '../utils/facturaProveedorStorage'
 import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
 import { esUuidExpedienteId, leerIdExpedienteSoloUseParams } from '../utils/expedienteCotizacionId'
 
@@ -39,33 +39,6 @@ function validarFilasServiciosCotizacionCierre(rows, empresaIdEsperado) {
       throw new Error(`servicios_cotizacion: fila ${i + 1} sin tipo_servicio ni nombre_especifico.`)
     }
   }
-}
-
-/** Bucket unificado para facturas de cierre (alineado con ExpedienteDetalle / pagos_proveedores). */
-const BUCKET_FACTURAS_UNIFICADO = 'facturas'
-
-/** Bucket de PDFs registrados en `pagos_proveedores.url_pdf` (mismo que ExpedienteDetalle / storage RLS). */
-const BUCKET_FACTURAS_PROVEEDORES = 'facturas_proveedores'
-
-/** `pagos_proveedores.url_pdf`: nombre de objeto, ruta relativa o URL ya absoluta. */
-const publicUrlDesdeUrlPdfPagosProveedor = (urlPdf) => {
-  if (!urlPdf || typeof urlPdf !== 'string') return null
-  const t = urlPdf.trim().replace(/^["']|["']$/g, '')
-  if (!t) return null
-  if (/^https?:\/\//i.test(t)) return t
-  const path = t.replace(/^\/+/, '')
-  const { data } = supabase.storage.from(BUCKET_FACTURAS_PROVEEDORES).getPublicUrl(path)
-  return data?.publicUrl || null
-}
-
-/** URL para abrir PDF: público https, ruta en bucket `facturas`, o legado `facturas_proveedores`. */
-const resolverHrefFacturaUnificado = (valorGuardado) => {
-  if (!valorGuardado || typeof valorGuardado !== 'string') return null
-  const t = valorGuardado.trim().replace(/^["']|["']$/g, '')
-  if (/^https?:\/\//i.test(t)) return t
-  const path = t.replace(/^\/+/, '')
-  const pub = supabase.storage.from(BUCKET_FACTURAS_UNIFICADO).getPublicUrl(path)?.data?.publicUrl
-  return pub || resolverUrlPublicaFacturaProveedor(valorGuardado)
 }
 
 /**
@@ -207,13 +180,15 @@ const CierreServicioRow = ({
             )}
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className={`inline-flex cursor-pointer items-center justify-center px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendo ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}
-            disabled={camposBloqueados || subiendo}
-          >
-            {subiendo ? '…subiendo' : 'AÑADIR FACTURA'}
+          <>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className={`inline-flex cursor-pointer items-center justify-center px-2 py-1 rounded-md text-xs font-semibold transition-colors ${subiendo ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'}`}
+              disabled={camposBloqueados || subiendo}
+            >
+              {subiendo ? '…subiendo' : 'AÑADIR FACTURA'}
+            </button>
             <input
               type="file"
               style={{ display: 'none' }}
@@ -222,7 +197,7 @@ const CierreServicioRow = ({
               disabled={camposBloqueados || subiendo}
               onChange={(e) => onSubirFactura(e, servicioId)}
             />
-          </button>
+          </>
         )}
       </td>
     </tr>
@@ -856,9 +831,7 @@ const ExpedienteFinanzas = ({
       const fname = row?.url_pdf != null ? String(row.url_pdf).trim() : ''
       if (!fname) continue
 
-      const publicUrl = /^https?:\/\//i.test(fname)
-        ? fname
-        : (publicUrlDesdeUrlPdfPagosProveedor(fname) || resolverHrefFacturaUnificado(fname))
+      const publicUrl = resolverUrlPublicaFacturaProveedor(fname)
       if (!publicUrl) continue
 
       const sidRaw = row?.servicio_id
@@ -1208,15 +1181,11 @@ const ExpedienteFinanzas = ({
     const expIdStr = expIdUrl
     setSubiendoPdfCierre((prev) => ({ ...prev, [servicioIdCanonico]: true }))
     try {
-      const ruta = `facturas/${tenantEid}/${expIdStr}/${servicioIdCanonico}.pdf`
-      const { error: uploadErr } = await supabase.storage
-        .from('facturas')
-        .upload(ruta, file, { upsert: true, contentType: 'application/pdf' })
-      if (uploadErr) throw new Error(`Error al subir el PDF: ${uploadErr.message}`)
-
-      const { data: urlData } = supabase.storage.from('facturas').getPublicUrl(ruta)
-      const publicUrl = urlData?.publicUrl || null
-      if (!publicUrl) throw new Error('No se pudo obtener la URL pública del PDF.')
+      const publicUrl = await subirPdfFacturaProveedor(file, {
+        empresaId: tenantEid,
+        expedienteId: expIdStr,
+        servicioId: servicioIdCanonico,
+      })
 
       const { data: sqlConfirm, error: sqlPdfErr } = await supabase
         .from('servicios_cotizacion')
