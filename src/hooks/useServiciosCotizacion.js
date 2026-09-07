@@ -36,5 +36,6 @@ export const useServiciosCotizacion = ({
       return data.map((row) => fromDb(row, proveedores))
     },
     staleTime: 60_000,
+    refetchOnMount: false,
   })
 }
