@@ -745,7 +745,7 @@ const ServiciosCotizacionPanel = ({
       const resultado = await guardarTodosServiciosEnSupabase(servicios)
       if (!resultado.ok && !resultado.userAlerted) {
         setErrorGuardado(resultado.error ?? 'Error desconocido al guardar servicios')
-        return
+        return { ok: false, error: resultado.error, userAlerted: resultado.userAlerted }
       }
 
       // PASO 3 — Sincronizar refs 
@@ -755,6 +755,8 @@ const ServiciosCotizacionPanel = ({
       if (lastSavedVersionesRef && versiones !== undefined) {
         lastSavedVersionesRef.current = versiones
       }
+
+      return { ok: true }
       
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
