@@ -3171,9 +3171,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }
 
-  // ⚠️ BLINDAJE NIVEL 2: Cálculo seguro de pasajeros de pago (usa cabecera de variante activa)
-  const paxPago = Math.max(0, toNum(expediente?.pax_pago) || Math.max(0, toNum(formDataParaVariante?.total_pax) - toNum(formDataParaVariante?.gratuidades)))
-  const totalPax = Math.max(0, toNum(expediente?.total_pax) || toNum(formDataParaVariante?.total_pax))
+  // ⚠️ BLINDAJE NIVEL 2: Cálculo siempre en vivo desde cabecera de variante activa (no usar expediente.pax_pago guardado, puede quedar obsoleto)
+  const totalPax = Math.max(0, toNum(formDataParaVariante?.total_pax))
+  const paxPago = Math.max(0, totalPax - toNum(formDataParaVariante?.gratuidades))
 
   // Servicios para cálculos: en multicotización usar variante activa; si no, servicios raíz
   const serviciosParaCalculo = versiones.length > 0 && versionActiva >= 0 && versionActiva < versiones.length
@@ -6191,7 +6191,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                           Gratuidades:&nbsp;<strong>{desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0)}</strong>
                         </span>
                         <span className="font-semibold text-emerald-700">
-                          Pax de Pago:&nbsp;<strong>{Math.max(0, desgloseGrupos.reduce((s, g) => s + (Number(g.pax) || 0), 0) - desgloseGrupos.reduce((s, g) => s + (Number(g.gratuidades) || 0), 0))}</strong>
+                          Pax de Pago:&nbsp;<strong>{paxPago}</strong>
                         </span>
                         <span className="text-xs text-slate-400 italic">La bonificación se aplica globalmente desde el campo superior.</span>
                       </div>
