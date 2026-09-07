@@ -724,7 +724,7 @@ const ServiciosCotizacionPanel = ({
     }
   }
   const handleGuardar = async () => {
-    if (isGuardando) return
+    if (isGuardando) return { ok: false, error: 'Ya hay un guardado en curso' }
     setIsGuardando(true)
     setErrorGuardado(null)
     
@@ -737,7 +737,7 @@ const ServiciosCotizacionPanel = ({
           const msg = errCabecera instanceof Error ? errCabecera.message : String(errCabecera)
           console.error('[handleGuardar] Error al persistir cabecera:', errCabecera)
           setErrorGuardado('Error al guardar parámetros del viaje: ' + msg)
-          return 
+          return { ok: false, error: 'Error al guardar parámetros del viaje: ' + msg } 
         }
       }
 
