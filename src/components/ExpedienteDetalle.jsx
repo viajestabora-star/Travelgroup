@@ -14,7 +14,9 @@ import { normalizarMetodoPago } from '../utils/finanzasHelpers'
 import { desgloseIvaBeneficioBruto } from '../utils/finance'
 import { DATOS_EMISOR } from '../config/empresa'
 import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmisorEmpresa'
-import { fromDb } from '../lib/serviciosCotizacionAdapter'
+import { fromDb, toDb, validarServicio } from '../lib/serviciosCotizacionAdapter'
+import { useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../lib/queryKeys'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
 import TablaServiciosVariante from './TablaServiciosVariante'
@@ -701,6 +703,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Multicotización: versiones de presupuesto gestionadas en memoria (estado versiones).
   // Solo la opción CONFIRMADA suma para beneficio_neto_real (Central de Inteligencia).
+  const queryClient = useQueryClient()
   const [versiones, setVersiones] = useState([])
   const [versionActiva, setVersionActiva] = useState(0)
   
@@ -1328,10 +1331,31 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     // Multicotización: clonar SIEMPRE la variante realmente activa. Solo sin multicotización se usa la raíz.
     const servs = versiones.length > 0 ? (v?.servicios ?? []) : servicios
     const cab = v?.cabecera ? { ...getDefaultCabecera(expediente, null), ...v.cabecera } : getDefaultCabecera(expediente, formData)
+    const serviciosClonados = servs.map(s => ({ ...s, id: generarUUID(), version_id: nuevoVersionId }))
+
+    // Persistir los servicios clonados: el panel lee de servicios_cotizacion (useQuery por version_id),
+    // no del estado en memoria, así que sin estas filas la pestaña nueva sale vacía.
+    const filasClonadas = serviciosClonados
+      .filter(s => validarServicio(s).valido)
+      .map(s => ({ ...toDb(s, idExpedienteActual, Math.trunc(Number(empresaIdActual))), id: s.id }))
+    if (filasClonadas.length > 0) {
+      const { error: errorServicios } = await supabase.from('servicios_cotizacion').insert(filasClonadas)
+      if (errorServicios) {
+        console.error('[duplicarCotizacion] Error clonando servicios en servicios_cotizacion:', errorServicios)
+        // Rollback: no dejar una opción vacía huérfana en versiones_cotizacion
+        const { error: errorRollback } = await supabase.from('versiones_cotizacion').delete().eq('id', nuevoVersionId)
+        if (errorRollback) console.error('[duplicarCotizacion] Error en rollback de versiones_cotizacion:', errorRollback)
+        alert('No se pudieron copiar los servicios a la nueva opción: ' + errorServicios.message)
+        return
+      }
+    }
+    // Forzar al panel a leer de BD las filas recién insertadas
+    queryClient.removeQueries({ queryKey: queryKeys.expedientes.servicios.all(idExpedienteActual, nuevoVersionId) })
+
     const nuevaVersion = {
       id: nuevoVersionId,
       nombre: '',
-      servicios: servs.map(s => ({ ...s, id: generarUUID() })),
+      servicios: serviciosClonados,
       confirmada: false,
       cabecera: { ...cab },
     }
