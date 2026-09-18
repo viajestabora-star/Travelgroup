@@ -8,6 +8,32 @@ import { fromDb, servicioVacio } from '../lib/serviciosCotizacionAdapter'
  * key={indiceActivo} fuerza remontaje al cambiar pestaña; cada variante tiene datos independientes.
  * Carga servicios desde versiones[indiceActivo].servicios (estado en memoria); si vacío, carga desde servicios_cotizacion.
  */
+/**
+ * Resuelve el tenant (empresa_id) desde el expediente inyectado por el padre.
+ * Misma validación que ServiciosCotizacionPanel.resolverEmpresaIdDesdeExpediente:
+ * exige entero positivo antes de cualquier lectura multi-tenant en Supabase.
+ */
+const resolverEmpresaIdDesdeExpediente = (expediente) => {
+  if (expediente == null || typeof expediente !== 'object') {
+    throw new Error(
+      '[TablaServiciosVariante] Multi-tenant: no hay expediente en contexto; no se puede resolver empresa_id antes de acceder a la base de datos.'
+    )
+  }
+  const raw = expediente.empresa_id ?? expediente.empresa_id_int
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    throw new Error(
+      '[TablaServiciosVariante] Multi-tenant: el expediente no incluye empresa_id ni empresa_id_int.'
+    )
+  }
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
+    throw new Error(
+      `[TablaServiciosVariante] Multi-tenant: empresa_id del expediente no es un entero positivo válido (recibido: ${String(raw)}).`
+    )
+  }
+  return n
+}
+
 const TablaServiciosVariante = ({
   indiceActivo,
   versionId = null,
@@ -57,12 +83,13 @@ const TablaServiciosVariante = ({
 
     const cargarDesdeExpediente = async () => {
       try {
+        const empresaId = resolverEmpresaIdDesdeExpediente(expediente)
         const baseQuery = () => {
           const q = supabase
             .from('servicios_cotizacion')
             .select('*')
             .eq('id_expediente', String(expedienteId).trim())
-            .eq('empresa_id', 1)
+            .eq('empresa_id', empresaId)
           return versionId ? q.eq('version_id', versionId) : q.is('version_id', null)
         }
 
@@ -80,16 +107,7 @@ const TablaServiciosVariante = ({
         const data = res.data
         if (!data || !Array.isArray(data) || data.length === 0) return
 
-        const tieneDatos = (r) => {
-          const tieneProveedor = (x) => x.proveedor_id != null || (x.proveedorNombreTemporal && String(x.proveedorNombreTemporal).trim())
-          const tieneNombreServicio = (x) => x.nombreEspecifico && String(x.nombreEspecifico).trim()
-          const tieneTipo = (x) => x.tipo && String(x.tipo).trim()
-          const tieneImporte = (x) => x.coste_unitario != null && Number(x.coste_unitario) > 0
-          const tieneTotalManual = (x) => x.total_servicio_manual != null && Number(x.total_servicio_manual) > 0
-          return tieneProveedor(r) || tieneNombreServicio(r) || tieneImporte(r) || tieneTotalManual(r) || tieneTipo(r)
-        }
-
-        const mapeados = data.filter(tieneDatos).map(row => fromDb(row, proveedores))
+        const mapeados = data.map(row => fromDb(row, proveedores))
 
         if (mapeados.length > 0) {
           setServiciosLocal(mapeados)
@@ -104,7 +122,7 @@ const TablaServiciosVariante = ({
     }
 
     cargarDesdeExpediente()
-  }, [expedienteId, indiceActivo, versionId, proveedores])
+  }, [expedienteId, indiceActivo, versionId, proveedores, expediente])
 
   return (
     <ServiciosCotizacionPanel
