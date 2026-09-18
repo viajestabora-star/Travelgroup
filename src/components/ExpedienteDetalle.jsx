@@ -14,6 +14,7 @@ import { normalizarMetodoPago } from '../utils/finanzasHelpers'
 import { desgloseIvaBeneficioBruto } from '../utils/finance'
 import { DATOS_EMISOR } from '../config/empresa'
 import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmisorEmpresa'
+import { fromDb } from '../lib/serviciosCotizacionAdapter'
 import ExpedienteFinanzas from './ExpedienteFinanzas'
 import ServiciosCotizacionPanel from './ServiciosCotizacionPanel'
 import TablaServiciosVariante from './TablaServiciosVariante'
@@ -819,13 +820,20 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   const fetchServiciosCotizacionActuales = async (expedienteUuid) => {
     const expId = String(expedienteUuid || '').trim()
-    let refRes = await supabase
+    // Multicotización: solo servicios de la variante activa (id null = base implícita).
+    // Sin multicotización (versiones vacías) se mantiene la consulta por expediente completo.
+    const filtrarPorVariante = (q) => {
+      if (versiones.length === 0 || !versiones[versionActiva]) return q
+      const vid = versiones[versionActiva].id
+      return vid ? q.eq('version_id', vid) : q.is('version_id', null)
+    }
+    let refRes = await filtrarPorVariante(supabase
       .from('servicios_cotizacion')
       .select('*')
       .eq('id_expediente', expId)
       .gt('total_servicio', 0)
       .not('nombre_servicio', 'is', null)
-      .neq('id', SERVICIO_ANOMALO_ID)
+      .neq('id', SERVICIO_ANOMALO_ID))
       .order('orden', { ascending: true })
       .order('created_at', { ascending: true, nullsFirst: false })
       .order('id', { ascending: true })
@@ -834,13 +842,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       refRes.error &&
       (refRes.error.code === 'PGRST204' || String(refRes.error.message || '').includes('created_at'))
     ) {
-      refRes = await supabase
+      refRes = await filtrarPorVariante(supabase
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', expId)
         .gt('total_servicio', 0)
         .not('nombre_servicio', 'is', null)
-        .neq('id', SERVICIO_ANOMALO_ID)
+        .neq('id', SERVICIO_ANOMALO_ID))
         .order('orden', { ascending: true })
         .order('id', { ascending: true })
     }
@@ -1158,10 +1166,84 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }
 
+  // Reconstruye `versiones` desde BD (la memoria se pierde al recargar).
+  // Criterio de variante base idéntico a TablaServiciosVariante: version_id NULL = base implícita.
+  // Devuelve [] si el expediente no tiene multicotización (sin filas en versiones_cotizacion
+  // y todos los servicios con version_id NULL).
+  const construirVersionesDesdeBD = async (idExpediente, empresaId) => {
+    const expId = String(idExpediente || '').trim()
+    if (!expId) return []
+    const conEmpresa = (q) => (empresaId != null && empresaId !== '' ? q.eq('empresa_id', empresaId) : q)
+
+    const { data: filasVersiones, error: errVersiones } = await conEmpresa(
+      supabase.from('versiones_cotizacion').select('*').eq('id_expediente', expId)
+    ).order('created_at', { ascending: true })
+    if (errVersiones) throw errVersiones
+
+    const { data: filasServicios, error: errServicios } = await conEmpresa(
+      supabase.from('servicios_cotizacion').select('*').eq('id_expediente', expId)
+    ).order('orden', { ascending: true }).order('id', { ascending: true })
+    if (errServicios) throw errServicios
+
+    const filasV = filasVersiones || []
+    const filasS = filasServicios || []
+    const hayBaseImplicita = filasS.some(r => r.version_id == null)
+    if (filasV.length === 0 && (filasS.length === 0 || hayBaseImplicita)) return []
+
+    const serviciosDe = (versionId) =>
+      filasS.filter(r => (versionId == null ? r.version_id == null : r.version_id === versionId))
+        .map(r => fromDb(r, proveedores))
+
+    const cabeceraDe = (row) => {
+      const def = getDefaultCabecera(expediente, null)
+      const out = { ...def }
+      Object.keys(def).forEach(k => {
+        const n = Number(row?.[k])
+        if (Number.isFinite(n) && n > 0) out[k] = n
+      })
+      return out
+    }
+
+    const resultado = []
+    if (hayBaseImplicita) {
+      resultado.push({
+        id: null,
+        nombre: '',
+        servicios: serviciosDe(null),
+        confirmada: false,
+        cabecera: getDefaultCabecera(expediente, null),
+      })
+    }
+    filasV.forEach(row => {
+      resultado.push({
+        id: row.id,
+        nombre: row.nombre || '',
+        servicios: serviciosDe(row.id),
+        confirmada: !!row.confirmada,
+        cabecera: cabeceraDe(row),
+      })
+    })
+    return resultado
+  }
+
   useEffect(() => {
     // 🔓 ELIMINADO BLOQUEO: Ejecutar siempre, extraer ID de URL si es necesario
     cargarServiciosCotizacion()
     // No limpiar servicios si no hay expediente, dejar que la función maneje el caso
+    let cancelado = false
+    if (!expediente?.id) {
+      setVersiones([])
+      setVersionActiva(0)
+      return
+    }
+    construirVersionesDesdeBD(expediente.id, expediente.empresa_id)
+      .then(vs => {
+        if (cancelado) return
+        setVersiones(vs)
+        setVersionActiva(0)
+      })
+      .catch(err => console.error('[construirVersionesDesdeBD] Error:', err))
+    return () => { cancelado = true }
   }, [expediente?.id])
 
   // setServicios que persiste en versiones[versionActiva].servicios (no en raíz del expediente)
@@ -1243,7 +1325,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
 
     const v = versiones[versionActiva]
-    const servs = v?.servicios ?? servicios
+    // Multicotización: clonar SIEMPRE la variante realmente activa. Solo sin multicotización se usa la raíz.
+    const servs = versiones.length > 0 ? (v?.servicios ?? []) : servicios
     const cab = v?.cabecera ? { ...getDefaultCabecera(expediente, null), ...v.cabecera } : getDefaultCabecera(expediente, formData)
     const nuevaVersion = {
       id: nuevoVersionId,
@@ -1252,8 +1335,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       confirmada: false,
       cabecera: { ...cab },
     }
-    setVersiones(prev => [...prev, nuevaVersion])
-    setVersionActiva(versiones.length)
+    // Primera duplicación: la cotización original (base, id null) pasa a ser la pestaña 0 para no desaparecer.
+    const baseImplicita = versiones.length === 0
+      ? [{ id: null, nombre: '', servicios: servicios.map(s => ({ ...s })), confirmada: false, cabecera: getDefaultCabecera(expediente, formData) }]
+      : []
+    setVersiones(prev => [...(prev.length === 0 ? baseImplicita : prev), nuevaVersion])
+    setVersionActiva(versiones.length === 0 ? 1 : versiones.length)
     setServicios(nuevaVersion.servicios)
   }
 
@@ -1264,10 +1351,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Servicios para Cierre/beneficio: usar la versión CONFIRMADA
   const serviciosParaCierre = useMemo(() => {
+    if (versiones.length === 0) return servicios
     const conf = versiones.find(v => v.confirmada)
-    if (conf && Array.isArray(conf.servicios) && conf.servicios.length > 0) return conf.servicios
-    return servicios
-  }, [versiones, servicios])
+    if (conf && Array.isArray(conf.servicios)) return conf.servicios
+    return versiones[versionActiva]?.servicios ?? []
+  }, [versiones, versionActiva, servicios])
 
   // Función para cargar historial de expedientes del mismo cliente
   const cargarHistorialExpedientes = async (nombreCliente) => {
@@ -3196,8 +3284,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const paxPago = Math.max(0, totalPax - toNum(formDataParaVariante?.gratuidades))
 
   // Servicios para cálculos: en multicotización usar variante activa; si no, servicios raíz
-  const serviciosParaCalculo = versiones.length > 0 && versionActiva >= 0 && versionActiva < versiones.length
-    ? (versiones[versionActiva]?.servicios ?? servicios)
+  const serviciosParaCalculo = versiones.length > 0
+    ? (versiones[versionActiva]?.servicios ?? [])
     : servicios
 
   // Firma primitiva de servicios: evita re-renders cuando el array cambia de referencia pero el contenido es igual
@@ -6503,7 +6591,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   </div>
                   <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-3 mb-3">
                     {versiones.map((v, idx) => (
-                      <div key={v.id} className="flex items-center gap-1 flex-wrap">
+                      <div key={v.id ?? 'base'} className="flex items-center gap-1 flex-wrap">
                         <button
                           type="button"
                           onClick={() => cambiarVersionActiva(idx)}
@@ -6992,7 +7080,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     })
                   }
                 }}
-                servicios={servicios}
+                servicios={serviciosParaCalculo}
                 versiones={versiones}
                 versionActiva={versionActiva}
                 onVersionChange={cambiarVersionActiva}
