@@ -6,12 +6,13 @@ import { queryKeys } from '../lib/queryKeys'
 export const useMutarServiciosCotizacion = ({
   cotizacionId  = null,
   idExpediente  = null,
+  versionId     = null,
   empresaId,
 }) => {
   const queryClient = useQueryClient()
   const queryKey = cotizacionId
-    ? queryKeys.cotizaciones.servicios.all(cotizacionId)
-    : queryKeys.expedientes.servicios.all(idExpediente)
+    ? queryKeys.cotizaciones.servicios.all(cotizacionId, versionId)
+    : queryKeys.expedientes.servicios.all(idExpediente, versionId)
 
   return useMutation({
     mutationFn: async (servicios) => {
@@ -26,7 +27,7 @@ export const useMutarServiciosCotizacion = ({
       if (erroresValidacion.length > 0) {
         throw new Error(erroresValidacion.join('\n'))
       }
-      const filas = servicios.map((svc) => toDb(svc, idCanónico, empresaId))
+      const filas = servicios.map((svc) => toDb({ ...svc, version_id: versionId ?? null }, idCanónico, empresaId))
       const { error } = await supabase
         .from('servicios_cotizacion')
         .upsert(filas, { onConflict: 'id', ignoreDuplicates: false })

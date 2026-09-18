@@ -6,11 +6,12 @@ import { queryKeys } from '../lib/queryKeys'
 export const useServiciosCotizacion = ({
   cotizacionId = null,
   idExpediente = null,
+  versionId    = null,
   proveedores  = [],
 } = {}) => {
   const queryKey = cotizacionId
-    ? queryKeys.cotizaciones.servicios.all(cotizacionId)
-    : queryKeys.expedientes.servicios.all(idExpediente)
+    ? queryKeys.cotizaciones.servicios.all(cotizacionId, versionId)
+    : queryKeys.expedientes.servicios.all(idExpediente, versionId)
 
   const enabled = !!(cotizacionId || idExpediente)
 
@@ -28,6 +29,8 @@ export const useServiciosCotizacion = ({
       } else {
         query = query.eq('id_expediente', idExpediente)
       }
+
+      query = versionId ? query.eq('version_id', versionId) : query.is('version_id', null)
 
       const { data, error } = await query
 

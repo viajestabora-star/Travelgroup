@@ -10,6 +10,7 @@ import { fromDb, servicioVacio } from '../lib/serviciosCotizacionAdapter'
  */
 const TablaServiciosVariante = ({
   indiceActivo,
+  versionId = null,
   versiones,
   onVersionesChange,
   expedienteId,
@@ -56,21 +57,22 @@ const TablaServiciosVariante = ({
 
     const cargarDesdeExpediente = async () => {
       try {
-        let res = await supabase
-          .from('servicios_cotizacion')
-          .select('*')
-          .eq('id_expediente', String(expedienteId).trim())
-          .eq('empresa_id', 1)
+        const baseQuery = () => {
+          const q = supabase
+            .from('servicios_cotizacion')
+            .select('*')
+            .eq('id_expediente', String(expedienteId).trim())
+            .eq('empresa_id', 1)
+          return versionId ? q.eq('version_id', versionId) : q.is('version_id', null)
+        }
+
+        let res = await baseQuery()
           .order('orden', { ascending: true })
           .order('created_at', { ascending: true, nullsFirst: false })
           .order('id', { ascending: true })
 
         if (res.error && (res.error.code === 'PGRST204' || String(res.error?.message || '').includes('created_at'))) {
-          res = await supabase
-            .from('servicios_cotizacion')
-            .select('*')
-            .eq('id_expediente', String(expedienteId).trim())
-            .eq('empresa_id', 1)
+          res = await baseQuery()
             .order('orden', { ascending: true })
             .order('id', { ascending: true })
         }
@@ -102,12 +104,13 @@ const TablaServiciosVariante = ({
     }
 
     cargarDesdeExpediente()
-  }, [expedienteId, indiceActivo, proveedores])
+  }, [expedienteId, indiceActivo, versionId, proveedores])
 
   return (
     <ServiciosCotizacionPanel
       expediente={expediente}
       expedienteId={expedienteId}
+      versionId={versionId}
       servicios={servicios}
       setServicios={setServiciosParaVariante}
       multicotizacionMode={true}

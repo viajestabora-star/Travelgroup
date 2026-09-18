@@ -3,14 +3,18 @@ export const queryKeys = {
     all:       ()    => ['cotizaciones'],
     byId:      (id)  => ['cotizaciones', id],
     servicios: {
-      all:     (cotizacionId) => ['cotizaciones', cotizacionId, 'servicios'],
+      all:     (cotizacionId, versionId) => versionId
+        ? ['cotizaciones', cotizacionId, 'servicios', versionId]
+        : ['cotizaciones', cotizacionId, 'servicios'],
     },
   },
   expedientes: {
     all:       ()    => ['expedientes'],
     byId:      (id)  => ['expedientes', id],
     servicios: {
-      all:     (idExpediente) => ['expedientes', idExpediente, 'servicios'],
+      all:     (idExpediente, versionId) => versionId
+        ? ['expedientes', idExpediente, 'servicios', versionId]
+        : ['expedientes', idExpediente, 'servicios'],
     },
   },
   proveedores: {

@@ -19,6 +19,7 @@ const resolverProveedorIdBigint = (row, proveedores) => {
 
 export const servicioVacio = () => ({
   id: null,
+  version_id: null,
   proveedor_id: null,
   proveedorNombre: '',
   mayorista_id: null,
@@ -40,6 +41,7 @@ export const servicioVacio = () => ({
 export const fromDb = (row, proveedores = []) => ({
   ...servicioVacio(),
   id: row.id ?? null,
+  version_id: row.version_id ?? null,
   proveedor_id: resolverProveedorIdBigint(row, proveedores),
   proveedorNombre: row.nombre_proveedor_manual ?? '',
   mayorista_id: row.mayorista_id ?? null,
@@ -62,6 +64,7 @@ export const toDb = (servicio, idExpediente, empresaId) => ({
   id: servicio.id ?? null,
   id_expediente: String(idExpediente).trim(),
   empresa_id: empresaId,
+  version_id: servicio.version_id ?? null,
   proveedor_id: servicio.proveedor_id ?? null,
   nombre_proveedor_manual: servicio.proveedorNombre || null,
   mayorista_id: servicio.mayorista_id ?? null,

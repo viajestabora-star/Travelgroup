@@ -312,6 +312,7 @@ const DropdownSugerencias = ({ servicio, textoBusqueda, proveedores, mapearTipo,
 const ServiciosCotizacionPanel = ({
   expediente,
   expedienteId: expedienteIdProp,
+  versionId = null,
   setServicios,
   proveedores,
   paxPago,
@@ -363,17 +364,19 @@ const ServiciosCotizacionPanel = ({
 
   const { data: servicios = [], isLoading, isError, error } = useServiciosCotizacion({
     idExpediente: idExpedienteCotizacion,
+    versionId,
     proveedores,
   })
 
   const empresaId = expediente?.empresa_id ?? expediente?.empresa_id_int
   const { mutate: guardarServicios, isPending: isSaving, isError: isMutationError, error: mutationError } = useMutarServiciosCotizacion({
     idExpediente: idExpedienteCotizacion,
+    versionId,
     empresaId,
   })
 
   const queryClient = useQueryClient()
-  const queryKey = queryKeys.expedientes.servicios.all(idExpedienteCotizacion)
+  const queryKey = queryKeys.expedientes.servicios.all(idExpedienteCotizacion, versionId)
   const { mutate: mutateEliminar } = useEliminarServicio({ idExpediente: idExpedienteCotizacion })
 
   const handleFocus = (e) => e.target.select()
@@ -561,11 +564,15 @@ const ServiciosCotizacionPanel = ({
     const empresaIdFila = Math.trunc(Number(empresaIdInt))
 
     try {
-      const { data: existentes, error: errorEx } = await supabase
+      let queryExistentes = supabase
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', idCanonico)
         .eq('empresa_id', empresaIdFila)
+      queryExistentes = versionId
+        ? queryExistentes.eq('version_id', versionId)
+        : queryExistentes.is('version_id', null)
+      const { data: existentes, error: errorEx } = await queryExistentes
 
       if (errorEx != null) {
         const detalle = formatearErrorSupabaseTenant(errorEx)
@@ -608,7 +615,7 @@ const ServiciosCotizacionPanel = ({
         const datosUI = buildDatosParaSupabase(servicio, idCanonico, empresaIdInt)
 
         const filaLimpia = {
-          ...toDb(servicio, idCanonico, empresaIdInt),
+          ...toDb({ ...servicio, version_id: versionId ?? null }, idCanonico, empresaIdInt),
           id: servicio.id, // Fuerza absoluta del ID original
         }
 
@@ -676,12 +683,16 @@ const ServiciosCotizacionPanel = ({
 
       // Si el upsert fue exitoso, hacer select separado
       console.log('[DEBUG] Upsert exitoso, consultando filas guardadas...')
-      const selectRes = await supabase
+      let querySelectPostUpsert = supabase
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', idCanonico)
         .eq('empresa_id', empresaIdFila)
-      
+      querySelectPostUpsert = versionId
+        ? querySelectPostUpsert.eq('version_id', versionId)
+        : querySelectPostUpsert.is('version_id', null)
+      const selectRes = await querySelectPostUpsert
+
       console.log('[DEBUG] Select después de upsert - selectRes:', selectRes)
       console.log('[DEBUG] Select después de upsert - data:', selectRes.data)
       console.log('[DEBUG] Select después de upsert - count:', selectRes.data?.length)

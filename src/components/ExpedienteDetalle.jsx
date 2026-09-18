@@ -1221,12 +1221,32 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   // Duplicar cotización actual: hereda servicios y cabecera de la variante activa
-  const duplicarCotizacion = () => {
+  // Crea primero la fila espejo en versiones_cotizacion (FK de servicios_cotizacion.version_id);
+  // si falla, no se activa la variante en memoria para no repetir el bug de guardado silencioso.
+  const duplicarCotizacion = async () => {
+    const idExpedienteActual = expediente?.id
+    const empresaIdActual = expediente?.empresa_id
+    if (!idExpedienteActual || !empresaIdActual) {
+      alert('No se pudo duplicar la cotización: falta id de expediente o empresa_id en el expediente cargado.')
+      return
+    }
+
+    const nuevoVersionId = generarUUID()
+    const { error: errorVersion } = await supabase
+      .from('versiones_cotizacion')
+      .insert([{ id: nuevoVersionId, id_expediente: idExpedienteActual, empresa_id: empresaIdActual }])
+
+    if (errorVersion) {
+      console.error('[duplicarCotizacion] Error creando fila en versiones_cotizacion:', errorVersion)
+      alert('No se pudo crear la nueva opción de cotización: ' + errorVersion.message)
+      return
+    }
+
     const v = versiones[versionActiva]
     const servs = v?.servicios ?? servicios
     const cab = v?.cabecera ? { ...getDefaultCabecera(expediente, null), ...v.cabecera } : getDefaultCabecera(expediente, formData)
     const nuevaVersion = {
-      id: generarUUID(),
+      id: nuevoVersionId,
       nombre: '',
       servicios: servs.map(s => ({ ...s, id: generarUUID() })),
       confirmada: false,
@@ -6527,6 +6547,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   <TablaServiciosVariante
                     key={versionActiva}
                     indiceActivo={versionActiva}
+                    versionId={versiones[versionActiva]?.id}
                     versiones={versiones}
                     onVersionesChange={setVersiones}
                     expedienteId={expediente?.id}
