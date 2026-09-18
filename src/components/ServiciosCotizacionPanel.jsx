@@ -74,11 +74,6 @@ const formatearErrorSupabaseTenant = (error) => {
   return partes.join('\n')
 }
 
-const esUuidServicioValido = (id) => {
-  if (id == null || typeof id !== 'string') return false
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id.trim())
-}
-
 /** Busca proveedor por id numérico de lista o `id_int` legado. */
 const buscarProveedorEnLista = (proveedoresList, proveedorRef) => {
   const listaProv = Array.isArray(proveedoresList) ? proveedoresList : []
@@ -527,8 +522,6 @@ const ServiciosCotizacionPanel = ({
     queryClient.setQueryData(queryKey, serviciosActualizados)
   }
 
-  const buildDatosParaSupabase = (servicio, idExpedienteCanonico, empresaIdInt) =>
-    toDb(servicio, idExpedienteCanonico, empresaIdInt)
   const guardarTodosServiciosEnSupabase = async (serviciosLista) => {
     const listaServicios = Array.isArray(serviciosLista) ? serviciosLista : []
     const paramsAlClic = paramsRef.current
@@ -574,8 +567,6 @@ const ServiciosCotizacionPanel = ({
         return { ok: false, error: detalle, userAlerted: true }
       }
 
-      const existentesMap = new Map((existentes || []).map((e) => [String(e.id).trim(), e]))
-
       // Acumulador de servicios que no se pudieron guardar (validación o error Supabase)
       const serviciosConError = []
       const sincronizarErrorGuardado = () => {
@@ -601,11 +592,6 @@ const ServiciosCotizacionPanel = ({
           serviciosConError.push({ servicio, errores })
           continue
         }
-
-        const idFinal = esUuidServicioValido(servicio.id) ? String(servicio.id).trim() : generarUUID()
-        const dbRecord = existentesMap.get(idFinal) || {}
-
-        const datosUI = buildDatosParaSupabase(servicio, idCanonico, empresaIdInt)
 
         const filaLimpia = {
           ...toDb({ ...servicio, version_id: versionId ?? null }, idCanonico, empresaIdInt),

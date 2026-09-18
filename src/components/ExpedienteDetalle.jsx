@@ -1119,17 +1119,6 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       updated_at: row.updated_at || null,
     }
   }
-  /**
-   * ⚠️ OBSOLETO: Función tieneDatos ya NO se usa para filtrar.
-   * Todas las filas de BD se muestran en la interfaz.
-   * Mantenida por compatibilidad con código existente que pueda llamarla.
-   */
-  const tieneDatos = (r) => {
-    // Siempre devuelve true - nunca descartar filas de BD
-    // El mapeo ultra-defensivo asegura que cada fila tenga valores por defecto válidos
-    return true
-  }
-
   // ═══════════════════════════════════════════════════════════════════════════
   // CARGA DE SERVICIOS - FUNCIÓN SIMPLIFICADA
   // Flujo: Tabla relacional → setServicios (sin fallback)
