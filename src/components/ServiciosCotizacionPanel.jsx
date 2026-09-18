@@ -10,8 +10,6 @@ import { useServiciosCotizacion } from '../hooks/useServiciosCotizacion'
 import { useEliminarServicio } from '../hooks/useEliminarServicio'
 import { queryKeys } from '../lib/queryKeys'
 
-const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
-
 /**
  * Resuelve el tenant (empresa_id) desde el expediente que inyecta el padre.
  * Debe ejecutarse antes de cualquier lectura/escritura multi-tenant en Supabase.
@@ -591,7 +589,7 @@ const ServiciosCotizacionPanel = ({
         }
       }
 
-      const candidatos = listaServicios.filter((s) => s && String(s.id || '').trim() !== SERVICIO_ANOMALO_ID)
+      const candidatos = listaServicios.filter((s) => s)
       const filasValidadas = []
       const serviciosValidos = []
       for (let index = 0; index < candidatos.length; index++) {
