@@ -7,7 +7,6 @@ import { leerIdExpedienteSoloUseParams, resolverIdExpedienteFuenteVerdad } from 
 import { toDb, fromDb, servicioVacio, validarServicio } from '../lib/serviciosCotizacionAdapter'
 import { useQueryClient } from '@tanstack/react-query'
 import { useServiciosCotizacion } from '../hooks/useServiciosCotizacion'
-import { useMutarServiciosCotizacion } from '../hooks/useMutarServiciosCotizacion'
 import { useEliminarServicio } from '../hooks/useEliminarServicio'
 import { queryKeys } from '../lib/queryKeys'
 
@@ -327,6 +326,9 @@ const ServiciosCotizacionPanel = ({
   lastSavedFormDataRef,
   versiones,
   formData,
+  servicios: _serviciosProp,
+  isSaving: _isSavingProp,
+  setIsSaving,
 }) => {
   const params = useParams()
   const paramsRef = useRef(params)
@@ -366,13 +368,6 @@ const ServiciosCotizacionPanel = ({
     idExpediente: idExpedienteCotizacion,
     versionId,
     proveedores,
-  })
-
-  const empresaId = expediente?.empresa_id ?? expediente?.empresa_id_int
-  const { mutate: guardarServicios, isPending: isSaving, isError: isMutationError, error: mutationError } = useMutarServiciosCotizacion({
-    idExpediente: idExpedienteCotizacion,
-    versionId,
-    empresaId,
   })
 
   const queryClient = useQueryClient()
@@ -737,6 +732,7 @@ const ServiciosCotizacionPanel = ({
   const handleGuardar = async () => {
     if (isGuardando) return { ok: false, error: 'Ya hay un guardado en curso' }
     setIsGuardando(true)
+    if (typeof setIsSaving === 'function') setIsSaving(true)
     setErrorGuardado(null)
     
     try {
@@ -774,7 +770,8 @@ const ServiciosCotizacionPanel = ({
       console.error('[handleGuardar] Excepción inesperada:', err)
       setErrorGuardado(msg)
     } finally {
-      setIsGuardando(false) 
+      setIsGuardando(false)
+      if (typeof setIsSaving === 'function') setIsSaving(false)
     }
   }
   if (guardarCotizacionYServiciosRef) {
@@ -812,11 +809,11 @@ const ServiciosCotizacionPanel = ({
             <button
               type="button"
               onClick={handleGuardar}
-              disabled={!!isSaving}
+              disabled={!!isGuardando}
               className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Save size={16} />
-              {isSaving ? 'Guardando...' : 'Guardar'}
+              {isGuardando ? 'Guardando...' : 'Guardar'}
             </button>
           </div>
           </div>
