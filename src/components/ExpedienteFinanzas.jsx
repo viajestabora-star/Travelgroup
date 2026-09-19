@@ -1316,10 +1316,13 @@ const ExpedienteFinanzas = ({
   }
 
   const calcularCierreFinanciero = () => {
-    const pP = Math.max(1, toNum(expediente?.pax_pago) || Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
-    const precioVenta = pP * toNum(expediente?.precio_venta_cliente ?? formData?.precio_venta_cliente ?? 0)
+    // ⚠️ BLINDAJE NIVEL 2 (alineado con Presupuesto, ExpedienteDetalle.jsx ~L3295):
+    // usar SIEMPRE formData en vivo (ya trae la cabecera de la variante activa),
+    // no expediente.* persistido, que puede quedar obsoleto o ser de otra variante.
+    const pP = Math.max(1, Math.max(0, toNum(formData?.total_pax) - toNum(formData?.gratuidades)))
+    const precioVenta = pP * toNum(formData?.precio_venta_cliente ?? 0)
     const suplementosVal = parseFloat(suplementos?.totalSuplementos || 0) || 0
-    const bonificaciones = toNum(expediente?.bonificacion_pax ?? formData?.bonificacion_pax ?? 0) * pP
+    const bonificaciones = toNum(formData?.bonificacion_pax ?? 0) * pP
     const gratuidadesVal = toNum(expediente?.gratuidades_monetario ?? 0)
     const ingresosTotales = (precioVenta + suplementosVal) - (bonificaciones + gratuidadesVal)
 

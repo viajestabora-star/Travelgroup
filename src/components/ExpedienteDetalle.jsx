@@ -7097,7 +7097,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                 versiones={versiones}
                 versionActiva={versionActiva}
                 onVersionChange={cambiarVersionActiva}
-                formData={formData}
+                formData={formDataParaVariante}
                 suplementos={suplementos}
                 expedienteClientes={expedienteClientes}
                 grupo={grupo}
@@ -7135,7 +7135,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   }
                 }}
                 servicios={serviciosParaCierre}
-                formData={formData}
+                formData={formDataParaVariante}
                 suplementos={suplementos}
                 expedienteClientes={expedienteClientes}
                 grupo={grupo}
