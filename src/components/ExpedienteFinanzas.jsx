@@ -783,6 +783,7 @@ const ExpedienteFinanzas = ({
   const [errorCargaCotizacion, setErrorCargaCotizacion] = React.useState(null)
   const [serviciosCotizacionSqlRows, setServiciosCotizacionSqlRows] = React.useState([])
   const [costesRealesTablaSql, setCostesRealesTablaSql] = React.useState([])
+  const [varianteCierreNombre, setVarianteCierreNombre] = React.useState(null)
   const [mapaUrlFacturaPorServicioDesdePagos, setMapaUrlFacturaPorServicioDesdePagos] = useState({})
   const [documentosAdicionalesExpediente, setDocumentosAdicionalesExpediente] = useState([])
 
@@ -908,11 +909,41 @@ const ExpedienteFinanzas = ({
         return
       }
 
-      const serviciosRes = await supabase
+      // Multicotización: el Cierre usa solo la variante confirmada. Cierres ya guardados no se alteran.
+      let versionIdCierre = null
+      setVarianteCierreNombre(null)
+      if (!isCierreGuardado) {
+        const { data: filasVersiones, error: errVersiones } = await supabase
+          .from('versiones_cotizacion')
+          .select('id, nombre, confirmada')
+          .eq('id_expediente', expedienteId)
+        if (errVersiones) {
+          console.error('[Cierre] versiones_cotizacion error Supabase (objeto completo):', errVersiones)
+          setErrorCargaCotizacion(errVersiones.message)
+          setServiciosCotizacionSqlRows([])
+          setCostesRealesTablaSql([])
+          return
+        }
+        if (Array.isArray(filasVersiones) && filasVersiones.length > 0) {
+          const confirmadas = filasVersiones.filter(f => f.confirmada)
+          if (confirmadas.length !== 1) {
+            setErrorCargaCotizacion('Este expediente tiene opciones de cotización y ninguna está confirmada. Ve a la pestaña Cotización y pulsa «Confirmar» en la opción vendida.')
+            setServiciosCotizacionSqlRows([])
+            setCostesRealesTablaSql([])
+            return
+          }
+          versionIdCierre = confirmadas[0].id
+          setVarianteCierreNombre(confirmadas[0].nombre || 'Sin nombre')
+        }
+      }
+
+      let serviciosQuery = supabase
         .from('servicios_cotizacion')
         .select('*')
         .eq('id_expediente', expedienteId)
         .eq('empresa_id', 1)
+      if (versionIdCierre) serviciosQuery = serviciosQuery.eq('version_id', versionIdCierre)
+      const serviciosRes = await serviciosQuery
         .order('orden', { ascending: true })
 
       const scRows = serviciosRes.data
@@ -2017,7 +2048,12 @@ const ExpedienteFinanzas = ({
 
             <section className="mb-6">
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3">
-                <h2 className="text-base font-bold text-slate-800 uppercase border-b border-slate-300 pb-1">Costes Reales (factura proveedor)</h2>
+                <div className="flex items-baseline gap-2">
+                  <h2 className="text-base font-bold text-slate-800 uppercase border-b border-slate-300 pb-1">Costes Reales (factura proveedor)</h2>
+                  {varianteCierreNombre !== null && (
+                    <span className="text-xs text-slate-500">Variante confirmada: {varianteCierreNombre}</span>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-2 self-start sm:self-auto">
                   {!camposBloqueados && (
                     <button

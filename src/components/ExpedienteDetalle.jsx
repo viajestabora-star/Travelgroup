@@ -1305,6 +1305,36 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       return
     }
 
+    // Primera duplicación: la cotización original pasa a ser una variante real ('Opción base')
+    // para no generar "base implícita" (version_id NULL sin fila en versiones_cotizacion).
+    let baseVersionId = null
+    if (versiones.length === 0) {
+      baseVersionId = generarUUID()
+      const { error: errorBase } = await supabase
+        .from('versiones_cotizacion')
+        .insert([{ id: baseVersionId, id_expediente: idExpedienteActual, empresa_id: empresaIdActual, nombre: 'Opción base' }])
+      if (errorBase) {
+        console.error('[duplicarCotizacion] Error creando la opción base en versiones_cotizacion:', errorBase)
+        alert('No se pudo crear la opción base de cotización: ' + errorBase.message)
+        return
+      }
+      const { error: errorAsignarBase } = await supabase
+        .from('servicios_cotizacion')
+        .update({ version_id: baseVersionId })
+        .eq('id_expediente', idExpedienteActual)
+        .is('version_id', null)
+      if (errorAsignarBase) {
+        console.error('[duplicarCotizacion] Error asignando servicios a la opción base:', errorAsignarBase)
+        // Rollback: no dejar la opción base huérfana en versiones_cotizacion
+        const { error: errorRollbackBase } = await supabase.from('versiones_cotizacion').delete().eq('id', baseVersionId)
+        if (errorRollbackBase) console.error('[duplicarCotizacion] Error en rollback de la opción base:', errorRollbackBase)
+        alert('No se pudieron asignar los servicios a la opción base: ' + errorAsignarBase.message)
+        return
+      }
+      queryClient.removeQueries({ queryKey: queryKeys.expedientes.servicios.all(idExpedienteActual) })
+      queryClient.removeQueries({ queryKey: queryKeys.expedientes.servicios.all(idExpedienteActual, baseVersionId) })
+    }
+
     const nuevoVersionId = generarUUID()
     const { error: errorVersion } = await supabase
       .from('versiones_cotizacion')
@@ -1348,9 +1378,9 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       confirmada: false,
       cabecera: { ...cab },
     }
-    // Primera duplicación: la cotización original (base, id null) pasa a ser la pestaña 0 para no desaparecer.
+    // Primera duplicación: la cotización original (Opción base, ya persistida) pasa a ser la pestaña 0 para no desaparecer.
     const baseImplicita = versiones.length === 0
-      ? [{ id: null, nombre: '', servicios: servicios.map(s => ({ ...s })), confirmada: false, cabecera: getDefaultCabecera(expediente, formData) }]
+      ? [{ id: baseVersionId, nombre: 'Opción base', servicios: servicios.map(s => ({ ...s, version_id: baseVersionId })), confirmada: false, cabecera: getDefaultCabecera(expediente, formData) }]
       : []
     setVersiones(prev => [...(prev.length === 0 ? baseImplicita : prev), nuevaVersion])
     setVersionActiva(versiones.length === 0 ? 1 : versiones.length)
@@ -1358,8 +1388,35 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   }
 
   // Marcar versión como CONFIRMADA (solo esta suma para beneficio_neto_real)
-  const marcarComoConfirmada = (idx) => {
-    setVersiones(prev => prev.map((v, i) => ({ ...v, confirmada: i === idx })))
+  // Persiste en versiones_cotizacion.confirmada (una sola por expediente); solo si BD va bien se toca memoria.
+  const marcarComoConfirmada = async (idx) => {
+    const v = versiones[idx]
+    if (!v?.id) {
+      alert('Esta opción no está guardada como variante en la base de datos y no se puede confirmar.')
+      return
+    }
+    const { error: errorDesmarcar } = await supabase
+      .from('versiones_cotizacion')
+      .update({ confirmada: false })
+      .eq('id_expediente', expediente.id)
+      .eq('empresa_id', expediente.empresa_id)
+    if (errorDesmarcar) {
+      console.error('[confirmarVariante]', errorDesmarcar)
+      alert('No se pudo confirmar la opción: ' + errorDesmarcar.message)
+      return
+    }
+    const { error: errorConfirmar } = await supabase
+      .from('versiones_cotizacion')
+      .update({ confirmada: true })
+      .eq('id', v.id)
+      .select('id')
+      .single()
+    if (errorConfirmar) {
+      console.error('[confirmarVariante]', errorConfirmar)
+      alert('No se pudo confirmar la opción: ' + errorConfirmar.message)
+      return
+    }
+    setVersiones(prev => prev.map((x, i) => ({ ...x, confirmada: i === idx })))
   }
 
   // Servicios para Cierre/beneficio: usar la versión CONFIRMADA
