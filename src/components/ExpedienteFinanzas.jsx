@@ -109,6 +109,10 @@ const CierreServicioRow = ({
   servicioId,
   conceptoVisible,
   proveedorVisible,
+  proveedoresOpciones,
+  proveedorEditable,
+  tienePagos,
+  onGuardarProveedor,
   costeCotizadoVisible,
   costeRealProveedorVisible,
   facturaUrl,
@@ -125,12 +129,40 @@ const CierreServicioRow = ({
   const costeCotizadoTxt = Number(costeCotizadoVisible || 0).toFixed(2)
   const costeRealTxt = costeRealProveedorVisible ?? 0
   const facturaUrlTxt = String(facturaUrl || '').trim()
+  const proveedorAsignado = proveedorTxt && proveedorTxt !== 'Pendiente de asignar' && proveedorTxt !== 'Sin proveedor'
+  const [proveedorInput, setProveedorInput] = useState(proveedorAsignado ? proveedorTxt : '')
+  useEffect(() => {
+    setProveedorInput(proveedorAsignado ? proveedorTxt : '')
+  }, [proveedorAsignado, proveedorTxt])
+  const datalistId = `cierre-proveedores-${servicioId || idx}`
 
   return (
     <tr key={servicioId || `cr-${idx}`} className="border-b border-slate-100 hover:bg-slate-50">
       <td className="px-3 py-2 font-medium text-slate-800">{conceptoTxt}</td>
       <td className="px-3 py-2 hidden sm:table-cell">
-        {proveedorTxt && proveedorTxt !== 'Pendiente de asignar' && proveedorTxt !== 'Sin proveedor'
+        {proveedorEditable ? (
+          <span
+            className="block"
+            title={tienePagos ? 'Tiene pagos registrados. Elimina o reasigna los pagos antes de cambiar el proveedor.' : undefined}
+          >
+            <input
+              type="text"
+              list={datalistId}
+              value={proveedorInput}
+              onChange={(e) => setProveedorInput(e.target.value)}
+              onBlur={(e) => onGuardarProveedor(servicioId, e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+              disabled={tienePagos}
+              placeholder="Sin proveedor"
+              className={`w-full min-w-[120px] border rounded-lg px-2 py-1 text-slate-600 ${tienePagos ? 'bg-slate-100 border-slate-200 cursor-not-allowed' : 'border-slate-300 focus:ring-2 focus:ring-blue-500'}`}
+            />
+            <datalist id={datalistId}>
+              {(proveedoresOpciones || []).map((p) => (
+                <option key={p.id} value={p.nombre_comercial || ''} />
+              ))}
+            </datalist>
+          </span>
+        ) : proveedorAsignado
           ? <span className="text-slate-600">{proveedorTxt}</span>
           : <span className="text-slate-400 italic text-xs">Sin proveedor</span>
         }
@@ -786,6 +818,10 @@ const ExpedienteFinanzas = ({
   const [varianteCierreNombre, setVarianteCierreNombre] = React.useState(null)
   const [mapaUrlFacturaPorServicioDesdePagos, setMapaUrlFacturaPorServicioDesdePagos] = useState({})
   const [documentosAdicionalesExpediente, setDocumentosAdicionalesExpediente] = useState([])
+  /** servicio_id con alguna fila en pagos_proveedores (con o sin PDF): bloquea el cambio de proveedor. */
+  const [serviciosConPagosCierre, setServiciosConPagosCierre] = useState(() => new Set())
+  /** Proveedores cargados para el Cierre (id, nombre_comercial): opciones del selector de proveedor. */
+  const [proveedoresCierre, setProveedoresCierre] = useState([])
 
   const mapearServiciosSqlATabla = React.useCallback((rows, proveedoresDb, paxPagoParam = null, totalPaxParam = null) => {
     const safeRows = Array.isArray(rows) ? rows : []
@@ -800,6 +836,7 @@ const ExpedienteFinanzas = ({
     if (activeTab !== 'cierre' || !expediente?.id) {
       setMapaUrlFacturaPorServicioDesdePagos({})
       setDocumentosAdicionalesExpediente([])
+      setServiciosConPagosCierre(new Set())
       return
     }
     const expId = String(expediente.id).trim()
@@ -821,9 +858,13 @@ const ExpedienteFinanzas = ({
       console.warn('[Cierre] pagos_proveedores (cruce facturas):', error.message)
       setMapaUrlFacturaPorServicioDesdePagos({})
       setDocumentosAdicionalesExpediente([])
+      setServiciosConPagosCierre(new Set())
       return
     }
 
+    const conPagos = new Set(
+      (data || []).map((row) => String(row?.servicio_id ?? '').trim()).filter(Boolean)
+    )
     const dict = {}
     const huerfanos = []
     const vistoHuerfano = new Set()
@@ -864,6 +905,7 @@ const ExpedienteFinanzas = ({
 
     setMapaUrlFacturaPorServicioDesdePagos(dict)
     setDocumentosAdicionalesExpediente(huerfanos)
+    setServiciosConPagosCierre(conPagos)
   }, [activeTab, expediente?.id, costesRealesTablaSql])
 
   useEffect(() => {
@@ -981,6 +1023,7 @@ const ExpedienteFinanzas = ({
         }
         const proveedoresParaMapeo = errProv ? [] : (proveedoresDb ?? [])
         setServiciosCotizacionSqlRows(serviciosCotizacionRows)
+        setProveedoresCierre(proveedoresParaMapeo)
         // Pax reales para el cálculo canónico de costeCotizadoVisible (tipo_calculo='porPersona').
         // Mismo patrón de fallback que las líneas 996-998 (paxTotalFresco/paxPagoFresco), con
         // nombres distintos para no colisionar con esa declaración posterior en otro bloque try.
@@ -1157,6 +1200,79 @@ const ExpedienteFinanzas = ({
     } catch (e) {
       console.error('[cierre] guardarCosteRealEnBD excepción:', e)
       alert(`Error al guardar el coste: ${e?.message || String(e)}`)
+    }
+  }
+
+  /**
+   * Solo UPDATE SQL en servicios_cotizacion (proveedor_id, nombre_proveedor_manual).
+   * Misma semántica que la Cotización (handleSeleccionarProveedor + toDb): proveedor oficial →
+   * id + nombre_comercial; texto libre sin coincidencia → id null + nombre manual; vacío → ambos null.
+   */
+  const guardarProveedorEnBD = async (servicioId, texto) => {
+    if (servicioId == null || servicioId === '') return
+    const sid = String(servicioId).trim()
+    if (serviciosConPagosCierre.has(sid)) return
+    const filaCruda = (serviciosCotizacionSqlRows || []).find((r) => String(r?.id ?? '').trim() === sid)
+    const txt = String(texto ?? '').trim()
+    const provOficial = txt
+      ? (proveedoresCierre || []).find((p) => String(p?.nombre_comercial ?? '').trim().toLowerCase() === txt.toLowerCase())
+      : null
+    const proveedorIdNuevo = provOficial && Number.isFinite(Number(provOficial.id)) ? Number(provOficial.id) : null
+    const nombreProveedorNuevo = provOficial ? (String(provOficial.nombre_comercial || '').trim() || null) : (txt || null)
+    if (
+      filaCruda &&
+      String(filaCruda.proveedor_id ?? '') === String(proveedorIdNuevo ?? '') &&
+      String(filaCruda.nombre_proveedor_manual ?? '').trim() === String(nombreProveedorNuevo ?? '')
+    ) return
+
+    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsRef.current)
+    if (!expIdUrl) {
+      alert(errUrl || 'No hay id de expediente en la URL.')
+      return
+    }
+    if (!expediente?.id || String(expediente.id) !== expIdUrl) {
+      alert('El expediente abierto no coincide con el id en la URL.')
+      return
+    }
+    const { empresaId: empSes, error: errEmp } = await obtenerEmpresaIdTenantDesdePerfil(supabase)
+    const empresaIdNum =
+      empSes != null && Number.isFinite(Number(empSes)) && Number(empSes) > 0 ? Math.trunc(Number(empSes)) : null
+    if (empresaIdNum == null) {
+      alert(errEmp || 'No se pudo resolver empresa_id de la sesión.')
+      return
+    }
+    const expEmpProp = expediente?.empresa_id != null ? Number(expediente.empresa_id) : NaN
+    if (Number.isFinite(expEmpProp) && Math.trunc(expEmpProp) !== empresaIdNum) {
+      alert('Integridad: empresa del expediente no coincide con tu sesión.')
+      return
+    }
+    try {
+      const { error } = await supabase
+        .from('servicios_cotizacion')
+        .update({ proveedor_id: proveedorIdNuevo, nombre_proveedor_manual: nombreProveedorNuevo })
+        .eq('id', sid)
+        .eq('id_expediente', expIdUrl)
+        .eq('empresa_id', empresaIdNum)
+      if (error) {
+        console.error('[cierre] guardarProveedorEnBD:', error)
+        alert(`Error al guardar el proveedor: ${error.message || String(error)}`)
+        return
+      }
+      setServiciosCotizacionSqlRows(prev => (Array.isArray(prev) ? prev : []).map(r =>
+        String(r?.id ?? '').trim() === sid
+          ? { ...r, proveedor_id: proveedorIdNuevo, nombre_proveedor_manual: nombreProveedorNuevo }
+          : r
+      ))
+      setCostesRealesTablaSql(prev => (Array.isArray(prev) ? prev : []).map(c =>
+        c.servicioId === sid
+          ? { ...c, proveedorVisible: nombreProveedorNuevo || 'Sin proveedor' }
+          : c
+      ))
+      await recargarInformeDesdeCotizacion()
+      await onRefresh?.()
+    } catch (e) {
+      console.error('[cierre] guardarProveedorEnBD excepción:', e)
+      alert(`Error al guardar el proveedor: ${e?.message || String(e)}`)
     }
   }
 
@@ -1377,6 +1493,8 @@ const ExpedienteFinanzas = ({
   // En cualquier otro estado (Confirmado, Petición, En curso) siempre editables
   const [edicionHabilitada, setEdicionHabilitada] = useState(false)
   const camposBloqueados = isCierreGuardado && (esCerrado || esFinalizado) && !edicionHabilitada
+  // Proveedor: cierres históricos (cierre ya guardado o estado cerrado/finalizado) solo lectura.
+  const proveedorSoloLectura = isCierreGuardado || esCerrado || esFinalizado
 
   const handleGuardarCierre = async () => {
     if (!expediente?.id) return
@@ -2097,6 +2215,10 @@ const ExpedienteFinanzas = ({
                           servicioId={servicio.servicioId}
                           conceptoVisible={servicio.conceptoVisible}
                           proveedorVisible={servicio.proveedorVisible}
+                          proveedoresOpciones={proveedoresCierre}
+                          proveedorEditable={!proveedorSoloLectura}
+                          tienePagos={serviciosConPagosCierre.has(String(servicio.servicioId ?? '').trim())}
+                          onGuardarProveedor={guardarProveedorEnBD}
                           costeCotizadoVisible={servicio.costeCotizadoVisible}
                           costeRealProveedorVisible={servicio.costeRealProveedorVisible}
                           facturaUrl={servicio.facturaUrl}
