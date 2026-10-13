@@ -816,6 +816,7 @@ const ExpedienteFinanzas = ({
   const [serviciosCotizacionSqlRows, setServiciosCotizacionSqlRows] = React.useState([])
   const [costesRealesTablaSql, setCostesRealesTablaSql] = React.useState([])
   const [varianteCierreNombre, setVarianteCierreNombre] = React.useState(null)
+  const [sinVarianteConfirmada, setSinVarianteConfirmada] = React.useState(false)
   const [mapaUrlFacturaPorServicioDesdePagos, setMapaUrlFacturaPorServicioDesdePagos] = useState({})
   const [documentosAdicionalesExpediente, setDocumentosAdicionalesExpediente] = useState([])
   /** servicio_id con alguna fila en pagos_proveedores (con o sin PDF): bloquea el cambio de proveedor. */
@@ -951,31 +952,34 @@ const ExpedienteFinanzas = ({
         return
       }
 
-      // Multicotización: el Cierre usa solo la variante confirmada. Cierres ya guardados no se alteran.
+      // Multicotización: el Cierre usa solo la variante confirmada (también en cierres ya guardados,
+      // cuyas líneas de coste se recalculan desde servicios_cotizacion). Un cierre guardado sin variante
+      // confirmada (históricos migrados con «Versión 1») mantiene la carga de todos sus servicios.
       let versionIdCierre = null
       setVarianteCierreNombre(null)
-      if (!isCierreGuardado) {
-        const { data: filasVersiones, error: errVersiones } = await supabase
-          .from('versiones_cotizacion')
-          .select('id, nombre, confirmada')
-          .eq('id_expediente', expedienteId)
-        if (errVersiones) {
-          console.error('[Cierre] versiones_cotizacion error Supabase (objeto completo):', errVersiones)
-          setErrorCargaCotizacion(errVersiones.message)
+      setSinVarianteConfirmada(false)
+      const { data: filasVersiones, error: errVersiones } = await supabase
+        .from('versiones_cotizacion')
+        .select('id, nombre, confirmada')
+        .eq('id_expediente', expedienteId)
+      if (errVersiones) {
+        console.error('[Cierre] versiones_cotizacion error Supabase (objeto completo):', errVersiones)
+        setErrorCargaCotizacion(errVersiones.message)
+        setServiciosCotizacionSqlRows([])
+        setCostesRealesTablaSql([])
+        return
+      }
+      if (Array.isArray(filasVersiones) && filasVersiones.length > 0) {
+        const confirmadas = filasVersiones.filter(f => f.confirmada)
+        if (confirmadas.length === 1) {
+          versionIdCierre = confirmadas[0].id
+          setVarianteCierreNombre(confirmadas[0].nombre || 'Sin nombre')
+        } else if (!isCierreGuardado) {
+          setSinVarianteConfirmada(true)
+          setErrorCargaCotizacion('Confirma una variante para hacer el cierre. Ve a la pestaña Cotización y pulsa «Confirmar» en la opción vendida.')
           setServiciosCotizacionSqlRows([])
           setCostesRealesTablaSql([])
           return
-        }
-        if (Array.isArray(filasVersiones) && filasVersiones.length > 0) {
-          const confirmadas = filasVersiones.filter(f => f.confirmada)
-          if (confirmadas.length !== 1) {
-            setErrorCargaCotizacion('Este expediente tiene opciones de cotización y ninguna está confirmada. Ve a la pestaña Cotización y pulsa «Confirmar» en la opción vendida.')
-            setServiciosCotizacionSqlRows([])
-            setCostesRealesTablaSql([])
-            return
-          }
-          versionIdCierre = confirmadas[0].id
-          setVarianteCierreNombre(confirmadas[0].nombre || 'Sin nombre')
         }
       }
 
@@ -1499,6 +1503,10 @@ const ExpedienteFinanzas = ({
   const handleGuardarCierre = async () => {
     if (!expediente?.id) return
     if (guardandoCierre) return
+    if (sinVarianteConfirmada) {
+      alert('Confirma una variante para hacer el cierre.')
+      return
+    }
     if (!window.confirm('¿Confirmar cierre? Se consolidarán los costes para el análisis financiero.')) return
     const firmaCierre = {
       expediente_id: expediente.id,

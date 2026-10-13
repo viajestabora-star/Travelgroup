@@ -549,6 +549,14 @@ const ServiciosCotizacionPanel = ({
 
     const empresaIdFila = Math.trunc(Number(empresaIdInt))
 
+    // Multicotización: todo servicio guardado debe pertenecer a una variante persistida (nunca version_id NULL).
+    if (multicotizacionMode && !versionId) {
+      const msg = 'Esta opción no está guardada como variante en la base de datos; no se pueden guardar sus servicios sin variante.'
+      console.error('[ServiciosCotizacion] guardar abortado: multicotización sin versionId', { idExpediente: idCanonico })
+      alert(msg)
+      return { ok: false, error: msg, userAlerted: true }
+    }
+
     try {
       let queryExistentes = supabase
         .from('servicios_cotizacion')
@@ -734,8 +742,8 @@ const ServiciosCotizacionPanel = ({
 
       // PASO 2 — Upsert de los servicios de cotización
       const resultado = await guardarTodosServiciosEnSupabase(servicios)
-      if (!resultado.ok && !resultado.userAlerted) {
-        setErrorGuardado(resultado.error ?? 'Error desconocido al guardar servicios')
+      if (!resultado.ok) {
+        if (!resultado.userAlerted) setErrorGuardado(resultado.error ?? 'Error desconocido al guardar servicios')
         return { ok: false, error: resultado.error, userAlerted: resultado.userAlerted }
       }
 

@@ -6,6 +6,7 @@
  */
 
 import { supabase } from '../supabase'
+import { obtenerVersionConfirmadaPorExpediente } from './varianteCierre'
 import { toNum } from './finanzasHelpers'
 import {
   MSJ_OPERACION_SIN_EMPRESA_ID,
@@ -112,11 +113,15 @@ const normalizarServicioParaConsolidacion = (r) => {
 
 /** Recoge servicios para validar/consolidar desde servicios_cotizacion. */
 const obtenerServiciosParaConsolidar = async (expedienteId) => {
-  const { data } = await supabase
+  // Multicotización: solo la variante confirmada; sin variante confirmada, todos los servicios.
+  const versionConfirmada = (await obtenerVersionConfirmadaPorExpediente([expedienteId])).get(String(expedienteId).trim())
+  let query = supabase
     .from('servicios_cotizacion')
     .select('*')
     .eq('id_expediente', String(expedienteId).trim())
     .neq('id', SERVICIO_ANOMALO_ID)
+  if (versionConfirmada) query = query.eq('version_id', versionConfirmada)
+  const { data } = await query
 
   const rows = Array.isArray(data) ? data : []
   return rows.map(normalizarServicioParaConsolidacion)

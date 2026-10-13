@@ -16,6 +16,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { supabase } from '../supabase'
+import { obtenerVersionConfirmadaPorExpediente } from '../utils/varianteCierre'
 import { saveAs } from 'file-saver'
 import {
   resolverUrlPublicaFacturaProveedor,
@@ -736,13 +737,19 @@ const HistorialCierres = ({ user }) => {
       const detallesPorExpediente = {}
 
       if (idsNecesitanFetch.length > 0) {
-        const { data: serviciosDB } = await supabase
+        const { data: serviciosTodasVariantes } = await supabase
           .from('servicios_cotizacion')
-          .select('id, id_expediente, tipo_servicio, nombre_especifico, coste_real_proveedor, coste_unitario, total_servicio_manual, proveedor_id_int, nombre_proveedor_texto')
+          .select('id, id_expediente, version_id, tipo_servicio, nombre_especifico, coste_real_proveedor, coste_unitario, total_servicio_manual, proveedor_id_int, nombre_proveedor_texto')
           .in('id_expediente', idsNecesitanFetch)
           .gt('total_servicio', 0)
           .not('nombre_servicio', 'is', null)
           .neq('id', SERVICIO_ANOMALO_ID)
+        // Multicotización: solo la variante confirmada; sin variante confirmada, todos los servicios.
+        const versionConfirmadaPorExp = await obtenerVersionConfirmadaPorExpediente(idsNecesitanFetch)
+        const serviciosDB = (serviciosTodasVariantes || []).filter((s) => {
+          const vConf = versionConfirmadaPorExp.get(String(s.id_expediente))
+          return !vConf || s.version_id === vConf
+        })
 
         const provIds = [...new Set((serviciosDB || []).map(s => s.proveedor_id_int).filter(Boolean))]
         let provNombres = {}

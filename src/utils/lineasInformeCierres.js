@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { obtenerVersionConfirmadaPorExpediente } from './varianteCierre'
 
 const SERVICIO_ANOMALO_ID = 'b97fbcff-eb61-4443-b4a0-77352f794d9c'
 
@@ -118,7 +119,9 @@ export async function obtenerLineasInformeComoCierres(supabaseClient, exp, optio
   }
 
   try {
-    const { data, error } = await supabaseClient
+    // Multicotización: solo la variante confirmada; sin variante confirmada, todos los servicios.
+    const versionConfirmada = (await obtenerVersionConfirmadaPorExpediente([exp.id], supabaseClient)).get(String(exp.id).trim())
+    let query = supabaseClient
       .from('servicios_cotizacion')
       .select(
         'id, tipo_servicio, tipo, nombre_especifico, nombre_servicio, nombre_proveedor_texto, nombre_proveedor_manual, proveedor_id_int, coste_unitario, noches, tipo_calculo, total_servicio'
@@ -127,6 +130,8 @@ export async function obtenerLineasInformeComoCierres(supabaseClient, exp, optio
       .gt('total_servicio', 0)
       .not('nombre_servicio', 'is', null)
       .neq('id', SERVICIO_ANOMALO_ID)
+    if (versionConfirmada) query = query.eq('version_id', versionConfirmada)
+    const { data, error } = await query
       .order('id', { ascending: true })
 
     if (error) return []
