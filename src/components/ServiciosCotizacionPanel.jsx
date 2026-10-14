@@ -751,9 +751,8 @@ const ServiciosCotizacionPanel = ({
       if (lastSavedFormDataRef && formData !== undefined) {
         lastSavedFormDataRef.current = formData
       }
-      if (lastSavedVersionesRef && versiones !== undefined) {
-        lastSavedVersionesRef.current = versiones
-      }
+      // lastSavedVersionesRef no se toca aquí: la prop `versiones` es la previa al guardado.
+      // El padre sincroniza la referencia al recibir los servicios de BD vía setServicios.
 
       return { ok: true }
       

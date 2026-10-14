@@ -1258,6 +1258,24 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     lastSavedVersionesRef.current = null
   }
 
+  // TablaServiciosVariante solo escribe en versiones servicios recién leídos de BD (carga inicial o
+  // post-guardado del panel): se reflejan también en la referencia "limpia" para que no marquen
+  // "Cambios sin guardar". La cabecera/nombre pendientes de la referencia no se tocan.
+  const aplicarServiciosLeidosDeBD = (updater) => {
+    setVersiones(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      const last = lastSavedVersionesRef.current
+      if (Array.isArray(last)) {
+        lastSavedVersionesRef.current = last.map((v, i) =>
+          next[i] && next[i].id === v.id && next[i].servicios !== prev[i]?.servicios
+            ? { ...v, servicios: JSON.parse(JSON.stringify(next[i].servicios ?? [])) }
+            : v
+        )
+      }
+      return next
+    })
+  }
+
   // Al cambiar de pestaña: TablaServiciosVariante ya actualiza versiones en cada cambio; aquí solo cambiamos activa.
   const cambiarVersionActiva = (nuevoIdx) => {
     if (nuevoIdx === versionActiva) return
@@ -6647,7 +6665,18 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                   </div>
                 </div>
 
-                {/* Multicotización: pestañas Opción 1, Opción 2... + Duplicar */}
+                {/* Multicotización: pestañas Opción 1, Opción 2... + Duplicar. Con 0-1 versión solo Duplicar (solo UI). */}
+                {versiones.length < 2 ? (
+                  <div className="flex justify-end mb-6">
+                    <button
+                      type="button"
+                      onClick={duplicarCotizacion}
+                      className="px-3 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 font-medium text-sm flex items-center gap-2"
+                    >
+                      ➕ Duplicar esta cotización
+                    </button>
+                  </div>
+                ) : (
                 <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 border border-gray-200 mb-6">
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <h3 className="text-lg font-bold text-navy-900">Presupuestos (Multicotización)</h3>
@@ -6701,6 +6730,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     ))}
                   </div>
                 </div>
+                )}
 
                 {/* Tabla de Servicios - TablaServiciosVariante con key=versionActiva: contenedor estanco por variante */}
                 {versiones.length > 0 ? (
@@ -6709,7 +6739,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     indiceActivo={versionActiva}
                     versionId={versiones[versionActiva]?.id}
                     versiones={versiones}
-                    onVersionesChange={setVersiones}
+                    onVersionesChange={aplicarServiciosLeidosDeBD}
                     expedienteId={expediente?.id}
                     proveedores={proveedores}
                     paxPago={paxPago}
