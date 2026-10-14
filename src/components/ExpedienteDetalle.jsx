@@ -688,14 +688,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Estado de guardado: evita duplicados y muestra feedback
   /** Solo guardado unificado desde ServiciosCotizacionPanel (cotización + servicios_cotizacion) */
   const [isSavingServicios, setIsSavingServicios] = useState(false)
-  /** Solo botón «Guardar Cotización» del panel lateral; no debe bloquear el guardado de servicios */
-  const [isSavingCotizacionSidebar, setIsSavingCotizacionSidebar] = useState(false)
   /** `handleGuardar` del panel de servicios: cabecera + servicios (mismo flujo que el botón central). */
   const guardarCotizacionYServiciosRef = useRef(null)
 
   useEffect(() => {
     setIsSavingServicios(false)
-    setIsSavingCotizacionSidebar(false)
   }, [expediente?.id])
 
   // Estados para servicios (separados porque se guardan en tabla diferente)
@@ -4746,14 +4743,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     } catch (error) {
       console.error('❌ ERROR EN BASE DE DATOS (TABLA EXPEDIENTES):', error)
       return { ok: false, error: extraerMensajeError(error) }
-    } finally {
-      setIsSavingServicios(false)
-      setIsSavingCotizacionSidebar(false)
     }
   }
 
   // Guardar cotización (formData) y mostrar feedback. Retorna { ok } para permitir navegación tras guardar.
   const guardarCotizacion = async () => {
+    if (isSavingServicios) return { ok: false, error: 'Ya hay un guardado en curso' }
     const guardarTodo = guardarCotizacionYServiciosRef.current
     if (typeof guardarTodo === 'function') {
       const r = await guardarTodo()
@@ -4766,7 +4761,13 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       }
       return r ?? { ok: false }
     }
-    const resultado = await persistirCambios()
+    let resultado
+    setIsSavingServicios(true)
+    try {
+      resultado = await persistirCambios()
+    } finally {
+      setIsSavingServicios(false)
+    }
     if (resultado.ok) {
       lastSavedFormDataRef.current = { ...formData }
       setGuardadoExitoCotizacion(true)
@@ -6035,10 +6036,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     </span>
                     <button
                       onClick={guardarCotizacion}
+                      disabled={isSavingServicios}
                       className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Save size={18} />
-                      Guardar Cotización
+                      {isSavingServicios ? 'Guardando...' : 'Guardar Cotización'}
                     </button>
                   </div>
                 )}
@@ -7029,11 +7031,11 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     <button
                       type="button"
                       onClick={() => guardarCotizacion()}
-                      disabled={isSavingCotizacionSidebar || isSavingServicios}
+                      disabled={isSavingServicios}
                       className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       <Save size={20} />
-                      {isSavingCotizacionSidebar ? 'Guardando...' : 'Guardar Cotización'}
+                      {isSavingServicios ? 'Guardando...' : 'Guardar Cotización'}
                     </button>
                   </div>
                 </div>

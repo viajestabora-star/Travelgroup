@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { X, Save, Plus, Trash2, CheckCircle } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
@@ -730,13 +730,20 @@ const ServiciosCotizacionPanel = ({
     try {
       // PASO 1 — Persistir cabecera del expediente (pax, noches, precio venta, etc.)
       if (typeof persistirCambios === 'function') {
+        let rCab
         try {
-          await persistirCambios()
+          rCab = await persistirCambios()
         } catch (errCabecera) {
           const msg = errCabecera instanceof Error ? errCabecera.message : String(errCabecera)
           console.error('[handleGuardar] Error al persistir cabecera:', errCabecera)
           setErrorGuardado('Error al guardar parámetros del viaje: ' + msg)
           return { ok: false, error: 'Error al guardar parámetros del viaje: ' + msg } 
+        }
+        if (rCab && rCab.ok === false) {
+          const msg = rCab.error ?? 'Error desconocido'
+          console.error('[handleGuardar] Error al persistir cabecera:', msg)
+          setErrorGuardado('Error al guardar parámetros del viaje: ' + msg)
+          return { ok: false, error: 'Error al guardar parámetros del viaje: ' + msg }
         }
       }
 
@@ -796,17 +803,6 @@ const ServiciosCotizacionPanel = ({
       <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 border border-gray-200">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
           <h3 className="text-xl font-bold text-navy-900">Servicios del Viaje</h3>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleGuardar}
-              disabled={!!isGuardando}
-              className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2 px-3 py-2.5 sm:py-1.5 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Save size={16} />
-              {isGuardando ? 'Guardando...' : 'Guardar'}
-            </button>
-          </div>
           </div>
         {servicios.length === 0 ? (
           <div className="space-y-4">
