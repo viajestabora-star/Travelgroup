@@ -1231,6 +1231,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     construirVersionesDesdeBD(expediente.id, expediente.empresa_id)
       .then(vs => {
         if (cancelado) return
+        // Referencia "limpia" = versiones recién hidratadas desde BD (evita "Cambios sin guardar" al abrir)
+        lastSavedVersionesRef.current = JSON.parse(JSON.stringify(vs))
         setVersiones(vs)
         setVersionActiva(0)
       })

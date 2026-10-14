@@ -3,7 +3,7 @@ import { X, Save, Plus, Trash2, CheckCircle } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
-import { leerIdExpedienteSoloUseParams, resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
+import { leerIdExpedienteSoloUseParams, leerIdExpedientePropOUseParams, resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
 import { toDb, fromDb, servicioVacio, validarServicio } from '../lib/serviciosCotizacionAdapter'
 import { useQueryClient } from '@tanstack/react-query'
 import { useServiciosCotizacion } from '../hooks/useServiciosCotizacion'
@@ -328,18 +328,18 @@ const ServiciosCotizacionPanel = ({
   paramsRef.current = params
 
   const idExpedienteCotizacion = useMemo(
-    () => leerIdExpedienteSoloUseParams(params).idExpediente,
-    [params.expedienteId, params.expedienteUUID],
+    () => leerIdExpedientePropOUseParams(expedienteIdProp ?? expediente?.id, params).idExpediente,
+    [expedienteIdProp, expediente?.id, params.expedienteId, params.expedienteUUID],
   )
   const errorVinculacionExpediente = useMemo(() => {
-    const { idExpediente, error } = leerIdExpedienteSoloUseParams(params)
+    const { idExpediente, error } = leerIdExpedientePropOUseParams(expedienteIdProp ?? expediente?.id, params)
     if (error) return error
     if (expediente?.id && String(expediente.id) !== idExpediente) {
       return 'El expediente abierto no coincide con el id en la URL.'
     }
     if (!idExpediente) return 'Sin expediente válido en la URL.'
     return null
-  }, [params.expedienteId, params.expedienteUUID, expediente?.id])
+  }, [expedienteIdProp, params.expedienteId, params.expedienteUUID, expediente?.id])
 
   const [busquedaProveedor, setBusquedaProveedor] = useState({})
   const [mostrarSugerencias, setMostrarSugerencias] = useState({})

@@ -19,7 +19,7 @@ import { useEmpresa } from '../context/EmpresaContext'
 import VisualizadorPro from './VisualizadorPro'
 import { resolverUrlPublicaFacturaProveedor, subirPdfFacturaProveedor } from '../utils/facturaProveedorStorage'
 import { obtenerEmpresaIdTenantDesdePerfil } from '../utils/tenantEmpresa'
-import { esUuidExpedienteId, leerIdExpedienteSoloUseParams } from '../utils/expedienteCotizacionId'
+import { esUuidExpedienteId, leerIdExpedientePropOUseParams } from '../utils/expedienteCotizacionId'
 
 /** Integridad: filas de servicios_cotizacion deben traer id (UUID) y empresa_id acorde al tenant. Sin datos inventados. */
 function validarFilasServiciosCotizacionCierre(rows, empresaIdEsperado) {
@@ -914,7 +914,7 @@ const ExpedienteFinanzas = ({
   }, [recargarPagosProveedoresParaCierre])
 
   const recargarInformeDesdeCotizacion = async () => {
-    const { idExpediente: expedienteId, error: errResolucionExp } = leerIdExpedienteSoloUseParams(paramsRef.current)
+    const { idExpediente: expedienteId, error: errResolucionExp } = leerIdExpedientePropOUseParams(expediente?.id, paramsRef.current)
     if (!expedienteId) {
       setErrorCargaCotizacion(errResolucionExp || 'No hay id de expediente en la URL para cargar el cierre de grupo.')
       return
@@ -1151,7 +1151,7 @@ const ExpedienteFinanzas = ({
 
   /** Solo UPDATE SQL en servicios_cotizacion; sin JSON legacy ni selects ambiguos. */
   const guardarCosteRealEnBD = async (servicioId, valor) => {
-    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsRef.current)
+    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedientePropOUseParams(expediente?.id, paramsRef.current)
     if (!expIdUrl) {
       alert(errUrl || 'No hay id de expediente en la URL.')
       return
@@ -1229,7 +1229,7 @@ const ExpedienteFinanzas = ({
       String(filaCruda.nombre_proveedor_manual ?? '').trim() === String(nombreProveedorNuevo ?? '')
     ) return
 
-    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsRef.current)
+    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedientePropOUseParams(expediente?.id, paramsRef.current)
     if (!expIdUrl) {
       alert(errUrl || 'No hay id de expediente en la URL.')
       return
@@ -1284,7 +1284,7 @@ const ExpedienteFinanzas = ({
   const subirYVincularPdfCierre = async (eventOrFile, servicioIdParam) => {
     const file = eventOrFile?.target?.files?.[0] || eventOrFile
     if (!file) return
-    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedienteSoloUseParams(paramsRef.current)
+    const { idExpediente: expIdUrl, error: errUrl } = leerIdExpedientePropOUseParams(expediente?.id, paramsRef.current)
     if (!expIdUrl) {
       alert(errUrl || 'No hay id de expediente en la URL.')
       return

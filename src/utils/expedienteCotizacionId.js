@@ -34,6 +34,20 @@ export function leerIdExpedienteSoloUseParams(params) {
 }
 
 /**
+ * Id recibido por props (p. ej. modal desde Planning, sin :expedienteId en la URL) → si no hay, `useParams()`.
+ * @param {string|number|null|undefined} idProp — expedienteId del padre o expediente.id
+ * @param {Record<string, string|undefined>} params — resultado de `useParams()`
+ */
+export function leerIdExpedientePropOUseParams(idProp, params) {
+  const fromProp = idProp != null && String(idProp).trim() !== '' ? String(idProp).trim() : ''
+  if (!fromProp) return leerIdExpedienteSoloUseParams(params)
+  if (!esUuidExpedienteId(fromProp)) {
+    return { idExpediente: null, error: 'El id del expediente no es un UUID válido.' }
+  }
+  return { idExpediente: fromProp, error: null }
+}
+
+/**
  * UUID del expediente desde parámetros de la URL: ruta `…/expedientes/:expedienteId`
  * (o :expedienteUUID) y, si falta, query `?expediente=<uuid>`.
  * @param {Record<string, string|undefined>} params — useParams()
