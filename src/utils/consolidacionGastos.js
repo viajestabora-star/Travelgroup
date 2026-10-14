@@ -6,7 +6,6 @@
  */
 
 import { supabase } from '../supabase'
-import { obtenerVersionConfirmadaPorExpediente } from './varianteCierre'
 import { toNum } from './finanzasHelpers'
 import {
   MSJ_OPERACION_SIN_EMPRESA_ID,
@@ -111,28 +110,71 @@ const normalizarServicioParaConsolidacion = (r) => {
   }
 }
 
-/** Recoge servicios para validar/consolidar desde servicios_cotizacion. */
+/**
+ * Recoge servicios para validar/consolidar desde servicios_cotizacion.
+ * Multicotización: solo la variante confirmada; sin confirmada, solo si no hay varias variantes.
+ * @returns {Promise<{ ok: boolean, servicios?: object[], error?: string }>}
+ */
 const obtenerServiciosParaConsolidar = async (expedienteId) => {
-  // Multicotización: solo la variante confirmada; sin variante confirmada, todos los servicios.
-  const versionConfirmada = (await obtenerVersionConfirmadaPorExpediente([expedienteId])).get(String(expedienteId).trim())
-  let query = supabase
+  const idExp = String(expedienteId).trim()
+
+  const { data: versiones, error: versionesError } = await supabase
+    .from('versiones_cotizacion')
+    .select('id, confirmada')
+    .eq('id_expediente', idExp)
+  if (versionesError) {
+    return { ok: false, error: versionesError?.message || 'Error al leer las variantes de cotización' }
+  }
+
+  const { data, error: serviciosError } = await supabase
     .from('servicios_cotizacion')
     .select('*')
-    .eq('id_expediente', String(expedienteId).trim())
+    .eq('id_expediente', idExp)
     .neq('id', SERVICIO_ANOMALO_ID)
-  if (versionConfirmada) query = query.eq('version_id', versionConfirmada)
-  const { data } = await query
+  if (serviciosError) {
+    return { ok: false, error: serviciosError?.message || 'Error al leer los servicios de cotización' }
+  }
 
   const rows = Array.isArray(data) ? data : []
-  return rows.map(normalizarServicioParaConsolidacion)
+  const confirmadas = (Array.isArray(versiones) ? versiones : []).filter((v) => v?.confirmada === true)
+
+  let seleccion = rows
+  if (confirmadas.length > 1) {
+    return { ok: false, error: 'Hay más de una variante confirmada. Deja solo la que se vendió antes de cerrar.' }
+  }
+  if (confirmadas.length === 1) {
+    const idConfirmada = String(confirmadas[0].id)
+    seleccion = rows.filter((r) => r.version_id != null && String(r.version_id) === idConfirmada)
+    if (seleccion.length === 0) {
+      // Legacy: servicios sin version_id (anteriores a multicotización) → todos.
+      if (rows.every((r) => r.version_id == null)) {
+        seleccion = rows
+      } else {
+        return { ok: false, error: 'La variante confirmada no tiene servicios.' }
+      }
+    }
+  } else {
+    const variantesConServicios = new Set(
+      rows.filter((r) => r.version_id != null).map((r) => String(r.version_id))
+    )
+    if (variantesConServicios.size > 1) {
+      return { ok: false, error: 'Este expediente tiene varias variantes. Confirma la variante vendida antes de consolidar los gastos.' }
+    }
+  }
+
+  return { ok: true, servicios: seleccion.map(normalizarServicioParaConsolidacion) }
 }
 
 /**
  * Detecta servicios sin proveedor para aviso no bloqueante.
- * @returns { { ok: boolean, warning?: string, detalle?: string } }
+ * @returns { { ok: boolean, bloqueante?: boolean, warning?: string, detalle?: string } }
  */
 export const validarProveedoresServicios = async (expedienteId) => {
-  const servicios = await obtenerServiciosParaConsolidar(expedienteId)
+  const resultado = await obtenerServiciosParaConsolidar(expedienteId)
+  if (!resultado.ok) {
+    return { ok: false, bloqueante: true, warning: resultado.error }
+  }
+  const servicios = resultado.servicios
   const conDatos = servicios.filter((s) => {
     const coste = calcularCosteTotal(s)
     const tipo = (s.tipo_servicio || s.tipo || '').trim()
@@ -167,6 +209,22 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
       return { ok: false, error: 'Sesión no válida para consolidar gastos (RLS).' }
     }
 
+    // Leer antes de borrar: si la lectura falla o es ambigua, no se toca gastos_consolidados.
+    let empresaIdInt
+    let servicios = []
+    if (debeConsolidar) {
+      try {
+        empresaIdInt = await resolverEmpresaIdConsolidacion(expediente)
+      } catch (err) {
+        const msg = err?.message || MSJ_OPERACION_SIN_EMPRESA_ID
+        return { ok: false, error: msg }
+      }
+
+      const resultado = await obtenerServiciosParaConsolidar(expedienteId)
+      if (!resultado.ok) return { ok: false, error: resultado.error }
+      servicios = resultado.servicios
+    }
+
     const { error: delError } = await supabase
       .from('gastos_consolidados')
       .delete()
@@ -182,15 +240,6 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
 
     if (!debeConsolidar) return { ok: true }
 
-    let empresaIdInt
-    try {
-      empresaIdInt = await resolverEmpresaIdConsolidacion(expediente)
-    } catch (err) {
-      const msg = err?.message || MSJ_OPERACION_SIN_EMPRESA_ID
-      return { ok: false, error: msg }
-    }
-
-    const servicios = await obtenerServiciosParaConsolidar(expedienteId)
     const añoEjercicio = extraerAñoEjercicio(expediente?.numero_expediente)
 
     const filas = []

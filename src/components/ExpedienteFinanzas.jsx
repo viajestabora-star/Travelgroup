@@ -1520,6 +1520,11 @@ const ExpedienteFinanzas = ({
       const { data: expDataRaw } = await supabase.from('expedientes').select('id, numero_expediente, empresa_id').eq('id', expediente.id).single()
       const expData = expDataRaw || expediente
       const validacion = await validarProveedoresServicios(expediente.id)
+      if (!validacion.ok && validacion.bloqueante) {
+        alert(validacion.warning || 'No se pueden consolidar los gastos.')
+        setGuardandoCierre(false)
+        return
+      }
       if (!validacion.ok) {
         const confirmarSinProveedor = window.confirm(
           validacion.warning || 'Falta proveedor por asignar. ¿Deseas consolidar de todas formas?'

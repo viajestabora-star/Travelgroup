@@ -1127,6 +1127,10 @@ const Expedientes = ({ user = null }) => {
 
       if (debeConsolidar && expediente) {
         const validacion = await validarProveedoresServicios(id)
+        if (!validacion.ok && validacion.bloqueante) {
+          alert(validacion.warning || 'No se pueden consolidar los gastos.')
+          return
+        }
         if (!validacion.ok) {
           const confirmarSinProveedor = window.confirm(
             validacion.warning || 'Falta proveedor por asignar. ¿Deseas consolidar de todas formas?'
