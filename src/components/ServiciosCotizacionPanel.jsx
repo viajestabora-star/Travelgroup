@@ -322,6 +322,7 @@ const ServiciosCotizacionPanel = ({
   servicios: _serviciosProp,
   isSaving: _isSavingProp,
   setIsSaving,
+  onDirtyChange,
 }) => {
   const params = useParams()
   const paramsRef = useRef(params)
@@ -435,6 +436,7 @@ const ServiciosCotizacionPanel = ({
       isDraft: true,
     }
     queryClient.setQueryData(queryKey, (prev = []) => [...prev, nuevoServicio])
+    onDirtyChange?.(true)
   }
 
   const seleccionarMayoristaYCrearHotel = (servicioId, proveedorId, nombreProveedor) => {
@@ -462,6 +464,7 @@ const ServiciosCotizacionPanel = ({
       )
       return [...actualizado.slice(0, idx2 + 1), nuevoHotel, ...actualizado.slice(idx2 + 1)]
     })
+    onDirtyChange?.(true)
     setBusquedaProveedor(prev => ({ ...prev, [servicioId]: proveedorNombre }))
     setMostrarSugerencias(prev => ({ ...prev, [servicioId]: false }))
     /* Persistence via manual Guardar button */
@@ -477,6 +480,7 @@ const ServiciosCotizacionPanel = ({
     if (!window.confirm(mensajeConfirm)) return
     if (servicio.id === null || servicio.id === undefined) {
       queryClient.setQueryData(queryKey, (prev = []) => prev.filter((s) => s.id !== id))
+      onDirtyChange?.(true)
       return
     }
     const idsAEliminar = [id]
@@ -520,6 +524,7 @@ const ServiciosCotizacionPanel = ({
       s.id === id ? { ...s, ...updatesFinal } : s
     )
     queryClient.setQueryData(queryKey, serviciosActualizados)
+    onDirtyChange?.(true)
   }
 
   const guardarTodosServiciosEnSupabase = async (serviciosLista) => {
@@ -705,6 +710,7 @@ const ServiciosCotizacionPanel = ({
       if (typeof setServicios === 'function') {
         setServicios(serviciosUI)
       }
+      onDirtyChange?.(false)
       
       // Limpiar el array de IDs eliminados después de guardar exitosamente
       setIdsEliminados([])

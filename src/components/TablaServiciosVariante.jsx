@@ -54,6 +54,7 @@ const TablaServiciosVariante = ({
   lastSavedVersionesRef,
   lastSavedFormDataRef,
   formData,
+  onDirtyChange,
 }) => {
   const servsIniciales = versiones[indiceActivo]?.servicios ?? []
   const [servicios, setServiciosLocal] = useState(() =>
@@ -146,6 +147,7 @@ const TablaServiciosVariante = ({
       lastSavedFormDataRef={lastSavedFormDataRef}
       versiones={versiones}
       formData={formData}
+      onDirtyChange={onDirtyChange}
     />
   )
 }

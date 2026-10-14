@@ -690,9 +690,12 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   const [isSavingServicios, setIsSavingServicios] = useState(false)
   /** `handleGuardar` del panel de servicios: cabecera + servicios (mismo flujo que el botón central). */
   const guardarCotizacionYServiciosRef = useRef(null)
+  /** Ediciones de servicios pendientes en el panel (su caché local no llega a `versiones` hasta guardar) */
+  const [serviciosSucios, setServiciosSucios] = useState(false)
 
   useEffect(() => {
     setIsSavingServicios(false)
+    setServiciosSucios(false)
   }, [expediente?.id])
 
   // Estados para servicios (separados porque se guardan en tabla diferente)
@@ -4754,6 +4757,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       const r = await guardarTodo()
       if (r?.ok) {
         lastSavedFormDataRef.current = { ...formData }
+        setServiciosSucios(false)
         setGuardadoExitoCotizacion(true)
         setTimeout(() => setGuardadoExitoCotizacion(false), 2500)
       } else if (r && r.ok === false && r.error && !r.userAlerted) {
@@ -4781,7 +4785,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
   // Interceptar cambio de pestaña: aviso si hay cotización sin guardar
   const handleTabChange = (nuevoTab) => {
     const destino = nuevoTab === 'pagosProveedores' ? 'cierre' : nuevoTab
-    if (tab === 'cotizacion' && hasCotizacionSinGuardar) {
+    if (tab === 'cotizacion' && (hasCotizacionSinGuardar || serviciosSucios)) {
       const salir = window.confirm('Tienes cambios sin guardar. ¿Quieres salir?')
       if (salir) {
         guardarCotizacion().then((r) => { if (r?.ok) setTab(destino) })
@@ -4794,7 +4798,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
 
   // Interceptar cierre: aviso si hay cotización sin guardar
   const handleClose = () => {
-    if (tab === 'cotizacion' && hasCotizacionSinGuardar) {
+    if (tab === 'cotizacion' && (hasCotizacionSinGuardar || serviciosSucios)) {
       const salir = window.confirm('Tienes cambios sin guardar. ¿Quieres salir?')
       if (salir) {
         guardarCotizacion().then((r) => { if (r?.ok) onClose() })
@@ -6029,7 +6033,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
           {tab === 'cotizacion' && formData && (
               <div className="w-full space-y-6 relative">
                 {/* Botón Guardar Cotización + feedback éxito */}
-                {hasCotizacionSinGuardar && (
+                {(hasCotizacionSinGuardar || serviciosSucios) && (
                   <div className="sticky top-0 z-10 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 bg-amber-50/95 backdrop-blur border-b border-amber-200 flex items-center justify-between gap-4">
                     <span className="text-sm text-amber-800">
                       Cambios sin guardar
@@ -6757,6 +6761,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     lastSavedVersionesRef={lastSavedVersionesRef}
                     lastSavedFormDataRef={lastSavedFormDataRef}
                     formData={formData}
+                    onDirtyChange={setServiciosSucios}
                   />
                 ) : (
                   <ServiciosCotizacionPanel
@@ -6779,6 +6784,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
                     lastSavedFormDataRef={lastSavedFormDataRef}
                     versiones={versiones}
                     formData={formData}
+                    onDirtyChange={setServiciosSucios}
                   />
                 )}
 
