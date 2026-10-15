@@ -817,6 +817,8 @@ const ExpedienteFinanzas = ({
   const [costesRealesTablaSql, setCostesRealesTablaSql] = React.useState([])
   const [varianteCierreNombre, setVarianteCierreNombre] = React.useState(null)
   const [sinVarianteConfirmada, setSinVarianteConfirmada] = React.useState(false)
+  // Opción única sin confirmar: se trata como confirmada y se persiste confirmada=true al cerrar.
+  const [versionUnicaPorConfirmar, setVersionUnicaPorConfirmar] = React.useState(null)
   const [mapaUrlFacturaPorServicioDesdePagos, setMapaUrlFacturaPorServicioDesdePagos] = useState({})
   const [documentosAdicionalesExpediente, setDocumentosAdicionalesExpediente] = useState([])
   /** servicio_id con alguna fila en pagos_proveedores (con o sin PDF): bloquea el cambio de proveedor. */
@@ -958,6 +960,7 @@ const ExpedienteFinanzas = ({
       let versionIdCierre = null
       setVarianteCierreNombre(null)
       setSinVarianteConfirmada(false)
+      setVersionUnicaPorConfirmar(null)
       const { data: filasVersiones, error: errVersiones } = await supabase
         .from('versiones_cotizacion')
         .select('id, nombre, confirmada')
@@ -974,6 +977,11 @@ const ExpedienteFinanzas = ({
         if (confirmadas.length === 1) {
           versionIdCierre = confirmadas[0].id
           setVarianteCierreNombre(confirmadas[0].nombre || 'Sin nombre')
+        } else if (filasVersiones.length === 1 && confirmadas.length === 0) {
+          // Una sola opción: no hay selector de multicotización, así que se considera la confirmada.
+          versionIdCierre = filasVersiones[0].id
+          setVarianteCierreNombre(filasVersiones[0].nombre || 'Sin nombre')
+          setVersionUnicaPorConfirmar(filasVersiones[0].id)
         } else if (!isCierreGuardado) {
           setSinVarianteConfirmada(true)
           setErrorCargaCotizacion('Confirma una variante para hacer el cierre. Ve a la pestaña Cotización y pulsa «Confirmar» en la opción vendida.')
@@ -1519,6 +1527,19 @@ const ExpedienteFinanzas = ({
     try {
       const { data: expDataRaw } = await supabase.from('expedientes').select('id, numero_expediente, empresa_id').eq('id', expediente.id).single()
       const expData = expDataRaw || expediente
+      if (versionUnicaPorConfirmar) {
+        const { error: errorConfirmarUnica } = await supabase
+          .from('versiones_cotizacion')
+          .update({ confirmada: true })
+          .eq('id', versionUnicaPorConfirmar)
+        if (errorConfirmarUnica) {
+          console.error('[Cierre] Error confirmando la opción única:', errorConfirmarUnica)
+          alert('No se pudo confirmar la opción de cotización: ' + errorConfirmarUnica.message)
+          setGuardandoCierre(false)
+          return
+        }
+        setVersionUnicaPorConfirmar(null)
+      }
       const validacion = await validarProveedoresServicios(expediente.id)
       if (!validacion.ok && validacion.bloqueante) {
         alert(validacion.warning || 'No se pueden consolidar los gastos.')
