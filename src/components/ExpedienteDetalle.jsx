@@ -1186,12 +1186,15 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       filasS.filter(r => (versionId == null ? r.version_id == null : r.version_id === versionId))
         .map(r => fromDb(r, proveedores))
 
+    // Fila con total_pax > 0 = cabecera ya guardada: manda entera (incluidos ceros legítimos).
+    // total_pax 0/null = fila nunca guardada (p. ej. «Opción base»): hereda la cabecera del expediente.
     const cabeceraDe = (row) => {
       const def = getDefaultCabecera(expediente, null)
+      if (!(Number(row?.total_pax) > 0)) return def
       const out = { ...def }
       Object.keys(def).forEach(k => {
         const n = Number(row?.[k])
-        if (Number.isFinite(n) && n > 0) out[k] = n
+        if (row?.[k] != null && Number.isFinite(n)) out[k] = n
       })
       return out
     }
@@ -4721,6 +4724,34 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         sup_seguro_precio_total: toNum(fd?.sup_seguro_precio_total),
         desglose_grupos: limpiarDesgloseGruposParaSupabase(desgloseGrupos),
         empresa_id: empresaIdEscritura,
+      }
+
+      // Multicotización: la cabecera de cada variante vive en su fila de versiones_cotizacion.
+      // Se guardan todas las variantes en memoria (se pueden editar varias antes de guardar).
+      if (versiones?.length > 0) {
+        const ahora = new Date().toISOString()
+        for (const v of versiones) {
+          if (!v?.id) continue
+          const cab = { ...getDefaultCabecera(expediente, formData), ...v.cabecera }
+          const filaCab = { updated_at: ahora }
+          CABECERA_KEYS.forEach(k => { filaCab[k] = toNum(cab[k]) })
+          const { data: filasAct, error: errVersion } = await supabase
+            .from('versiones_cotizacion')
+            .update(filaCab)
+            .eq('id', v.id)
+            .eq('empresa_id', empresaIdEscritura)
+            .select('id')
+          if (errVersion || !filasAct?.length) {
+            console.error('❌ ERROR EN BASE DE DATOS (TABLA VERSIONES_COTIZACION):', errVersion || '0 filas actualizadas', v.id)
+            return { ok: false, error: errVersion ? extraerMensajeError(errVersion) : 'No se pudo guardar la cabecera de la variante (0 filas actualizadas).' }
+          }
+        }
+        // expedientes solo refleja la cabecera de la variante confirmada (o la activa si no hay confirmada)
+        const hayConfirmada = versiones.some(v => v?.confirmada)
+        if (hayConfirmada && !versiones[versionActiva]?.confirmada) {
+          CABECERA_KEYS.forEach(k => { delete datos[k] })
+          delete datos.pax_pago
+        }
       }
 
       console.log('📝 DATOS ENVIADOS A TABLA EXPEDIENTES:', datos)
