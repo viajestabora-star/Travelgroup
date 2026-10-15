@@ -6,11 +6,12 @@ import { supabase } from '../supabase'
 import { ensureAuthenticatedSession, buildWriteErrorMessage } from '../utils/supabaseWriteGuards'
 import { getNextInvoiceNumber } from '../utils/facturaNumeracion'
 import { solicitarRefrescoFacturasEmitidas } from '../utils/facturaEmitidaPdf'
-import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
+import { validarProveedoresServicios, consolidarGastosExpediente, reconsolidarGastosSiExisten } from '../utils/consolidacionGastos'
 import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
 import { detectarCamposPendientes } from '../utils/constraintValidator'
 import { existeNumeroExpedienteEnSupabase, esNumeroExpedienteValido } from '../utils/expedienteNumero'
 import { normalizarMetodoPago } from '../utils/finanzasHelpers'
+import { calcularCosteServicio } from '../utils/costeServicio'
 import { desgloseIvaBeneficioBruto } from '../utils/finance'
 import { DATOS_EMISOR } from '../config/empresa'
 import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmisorEmpresa'
@@ -354,40 +355,6 @@ const DEFAULT_SERVICE_VALUES = {
 };
 
 /**
- * ============ MOTOR DE CÁLCULO (MÓDULO) - CÓDIGO CRÍTICO ============
- * - porPersona: Precio por Persona → total = coste_pax × totalPax
- * - porGrupo: Total a dividir entre el grupo → coste_pax = total / pasajeros_pago
- * - Autobús: Siempre divide el total entre pasajeros_pago (equivalente a porGrupo)
- */
-const finalizarCalculoModulo = (servicio, paxPago = 31, paxTotal = 35) => {
-  const s = servicio || {};
-  const pP = Math.max(1, toNum(paxPago));
-  const pT = Math.max(1, toNum(paxTotal));
-  const precio = toNum(s.coste_unitario);
-  const n = Math.max(1, toNum(s.noches));
-  const d = Math.max(1, toNum(s.dias_guia));
-  const manual = toNum(s.total_servicio_manual);
-  const tipoNorm = normalizarTipo(s?.tipo_servicio || s?.tipo || '');
-  const esPorGrupo = s?.tipo_calculo === 'porGrupo' || s?.tipo_calculo === 'Total a dividir';
-  const esAutobusOTransporte = tipoNorm === 'autobus' || tipoNorm === 'transporte';
-
-  let totalFinal = 0;
-  let costePorPersona = 0;
-
-  if (esAutobusOTransporte || esPorGrupo) {
-    // Autobús/Transporte o Total a dividir: total = manual (o precio×cantidad para guía), coste_pax = total / pasajeros_pago
-    totalFinal = manual > 0 ? manual : (tipoNorm === 'guia' || tipoNorm === 'g' ? precio * Math.max(1, toNum(s.cantidad ?? d)) : precio);
-    costePorPersona = pP > 0 ? totalFinal / pP : 0;
-  } else {
-    // Precio por Persona: coste_pax = precio × factor, total = coste_pax × totalPax
-    const factor = (tipoNorm === 'hotel') ? n : (tipoNorm === 'guia' || tipoNorm === 'g' ? d : 1);
-    costePorPersona = precio * factor;
-    totalFinal = costePorPersona * pT;
-  }
-  return { ...s, coste_pax: Number(costePorPersona.toFixed(2)), total_servicio: Number(totalFinal.toFixed(2)) };
-};
-
-/**
  * ============ CALCULAR FINANZAS EXPEDIENTE - CÓDIGO CRÍTICO ============
  * Función PURA que encapsula toda la lógica de beneficios y gratuidades.
  * NO simplificar ni modificar sin revisión exhaustiva.
@@ -412,7 +379,6 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
 
     const normalizarTipoCalc = (tc) => (tc === 'porGrupo' || tc === 'Total a dividir' ? 'porGrupo' : 'porPersona');
     const getCosteUnitario = (s) => toNum(s.coste_unitario ?? s.costeUnitario ?? s.precio_manual);
-    const getTotalManual = (s) => toNum(s.total_servicio_manual ?? s.totalServicio ?? s.total_servicio);
 
     servicios.forEach((servicio) => {
       const s = { ...DEFAULT_SERVICE_VALUES, ...servicio };
@@ -423,18 +389,10 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
         coste_unitario: getCosteUnitario(s),
         noches: Math.max(1, toNum(s.noches)),
         dias_guia: toNum(s.dias_guia) || Math.max(1, toNum(s.noches)),
-        total_servicio_manual: getTotalManual(s),
       };
       const tipoNorm = normalizarTipo(s.tipo || s.tipo_servicio || 'Hotel') || 'hotel';
 
-      let costePax = 0;
-      if (tipoNorm === 'guia' || tipoNorm === 'g') {
-        const cantidad = Math.max(1, toNum(s.cantidad ?? s.dias_guia ?? 1));
-        costePax = pP > 0 ? (getCosteUnitario(s) * cantidad) / pP : 0;
-      } else {
-        const { coste_pax } = finalizarCalculoModulo(fila, paxPago, totalPax);
-        costePax = toNum(coste_pax);
-      }
+      const costePax = toNum(calcularCosteServicio(fila, paxPago, totalPax).coste_pax);
 
       if (tipoNorm === 'autobus' || tipoNorm === 'transporte') costeBusPorPax += costePax;
       else if (tipoNorm === 'guialocal' || tipoNorm === 'guia local') costeGuiaLocalPorPax += costePax;
@@ -452,7 +410,6 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
     let costeTotalProveedor = 0;
     servicios.forEach((servicio) => {
       const s = { ...DEFAULT_SERVICE_VALUES, ...servicio };
-      const tipoNorm = normalizarTipo(s.tipo || s.tipo_servicio || 'Hotel') || 'hotel';
       const fila = {
         ...s,
         tipo_calculo: normalizarTipoCalc(s.tipo_calculo || s.tipoCalculo),
@@ -460,15 +417,8 @@ const calcularFinanzasExpediente = ({ servicios = [], formData = {}, paxPago = 1
         coste_unitario: getCosteUnitario(s),
         noches: Math.max(1, toNum(s.noches)),
         dias_guia: toNum(s.dias_guia) || Math.max(1, toNum(s.noches)),
-        total_servicio_manual: getTotalManual(s),
       };
-      if (tipoNorm === 'guia' || tipoNorm === 'g') {
-        const cantidad = Math.max(1, toNum(s.cantidad ?? s.dias_guia ?? 1));
-        costeTotalProveedor += getCosteUnitario(s) * cantidad;
-      } else {
-        const { total_servicio } = finalizarCalculoModulo(fila, paxPago, totalPax);
-        costeTotalProveedor += toNum(total_servicio);
-      }
+      costeTotalProveedor += toNum(calcularCosteServicio(fila, paxPago, totalPax).total_servicio);
     });
 
     // Prorrateo: coste de gratuidades se reparte entre pasajeros de pago
@@ -3449,23 +3399,8 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     return proveedores.find(p => p.id === id)
   }
 
-  const calcularTotalFilaUI = (servicio) => {
-    const s = { ...DEFAULT_SERVICE_VALUES, ...servicio }
-    const tipoNorm = normalizarTipo(s.tipo || s.tipo_servicio || '')
-    const precioCoste = toNum(s.coste_unitario)
-    if (tipoNorm === 'guia' || tipoNorm === 'g') {
-      const cantidad = Math.max(1, toNum(s.cantidad ?? s.dias_guia ?? 1))
-      return precioCoste * cantidad
-    }
-    const fila = {
-      ...s,
-      tipo_calculo: s.tipo_calculo === 'porGrupo' || s.tipo_calculo === 'Total a dividir' ? 'porGrupo' : 'porPersona',
-      coste_unitario: precioCoste,
-      total_servicio_manual: toNum(s.total_servicio_manual),
-    }
-    const { total_servicio } = finalizarCalculoModulo(fila, paxPago, totalPax)
-    return toNum(total_servicio)
-  }
+  const calcularTotalFilaUI = (servicio) =>
+    toNum(calcularCosteServicio({ ...DEFAULT_SERVICE_VALUES, ...servicio }, paxPago, totalPax).total_servicio)
 
   const asegurarSesionAutenticada = async () => {
     const res = await ensureAuthenticatedSession(supabase)
@@ -4780,6 +4715,14 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
     }
   }
 
+  // Expediente ya consolidado (Finalizado/Cerrado): sustituir sus gastos_consolidados por los de la cotización guardada.
+  const reconsolidarTrasGuardarCotizacion = async () => {
+    const cons = await reconsolidarGastosSiExisten(expediente?.id, expediente)
+    if (!cons.ok) {
+      alert(`La cotización se guardó, pero no se pudieron actualizar los gastos consolidados: ${cons.error}`)
+    }
+  }
+
   // Guardar cotización (formData) y mostrar feedback. Retorna { ok } para permitir navegación tras guardar.
   const guardarCotizacion = async () => {
     if (isSavingServicios) return { ok: false, error: 'Ya hay un guardado en curso' }
@@ -4791,6 +4734,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
         setServiciosSucios(false)
         setGuardadoExitoCotizacion(true)
         setTimeout(() => setGuardadoExitoCotizacion(false), 2500)
+        await reconsolidarTrasGuardarCotizacion()
       } else if (r && r.ok === false && r.error && !r.userAlerted) {
         alert(`❌ Error al guardar: ${r.error}`)
       }
@@ -4807,6 +4751,7 @@ const ExpedienteDetalle = ({ expediente, onClose, onUpdate, onRefresh, clientes 
       lastSavedFormDataRef.current = { ...formData }
       setGuardadoExitoCotizacion(true)
       setTimeout(() => setGuardadoExitoCotizacion(false), 2500)
+      await reconsolidarTrasGuardarCotizacion()
     } else {
       alert(`❌ Error al guardar: ${resultado.error}`)
     }

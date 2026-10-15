@@ -1,12 +1,14 @@
 /**
- * Consolidación de gastos al cambiar estado a Finalizado/Cerrado.
+ * Consolidación de gastos al cambiar estado a Finalizado/Cerrado (y al guardar la cotización
+ * si el expediente ya tiene filas consolidadas).
  * - Detecta servicios sin proveedor para permitir aviso previo en UI.
- * - DELETE previo, INSERT solo si estado es Finalizado/Cerrado.
+ * - Calcula primero las filas nuevas; solo si el cálculo es válido, DELETE + INSERT.
+ * - Coste por servicio: regla de Cotización (calcularCosteCotizadoVisible) con los pax de la variante.
  * - Inserta también servicios sin proveedor (proveedor_id null).
  */
 
 import { supabase } from '../supabase'
-import { toNum } from './finanzasHelpers'
+import { calcularCosteCotizadoVisible } from '../lib/serviciosCotizacionAdapter'
 import {
   MSJ_OPERACION_SIN_EMPRESA_ID,
   resolverEmpresaIdEscrituraObligatorio,
@@ -26,15 +28,6 @@ const extraerAñoEjercicio = (numeroExpediente) => {
   if (!numeroExpediente || typeof numeroExpediente !== 'string') return new Date().getFullYear()
   const match = String(numeroExpediente).trim().match(/^(\d{4})/)
   return match ? parseInt(match[1], 10) : new Date().getFullYear()
-}
-
-/** Coste total: total_servicio_manual o (cantidad * coste_unitario) */
-const calcularCosteTotal = (s) => {
-  const manual = toNumSafe(s.total_servicio_manual)
-  if (manual > 0) return manual
-  const cant = Math.max(1, toNumSafe(s.cantidad))
-  const unit = toNumSafe(s.coste_unitario)
-  return cant * unit
 }
 
 /** Campos de ID de proveedor que usa el frontend (camelCase, BD, legacy). */
@@ -92,8 +85,11 @@ const resolverEmpresaIdConsolidacion = async (expediente) => {
   return resolverEmpresaIdEscrituraObligatorio(supabase)
 }
 
-/** Normaliza fila de servicio (tabla relacional) al shape del validador. */
-const normalizarServicioParaConsolidacion = (r) => {
+/**
+ * Normaliza fila de servicio (tabla relacional) al shape del validador.
+ * costeCotizado: regla de Cotización sobre la fila de BD, con los pax totales de la variante.
+ */
+const normalizarServicioParaConsolidacion = (r, paxTotal) => {
   const provId = r.proveedor_id_int ?? r.proveedor_id ?? r.proveedorId
   return {
     ...r,
@@ -101,12 +97,7 @@ const normalizarServicioParaConsolidacion = (r) => {
     proveedorId: r.proveedorId ?? provId,
     proveedor_id_int: r.proveedor_id_int ?? provId,
     tipo_servicio: r.tipo_servicio ?? r.tipo,
-    total_servicio_manual:
-      r.total_servicio_manual ??
-      r.total_servicio ??
-      (toNumSafe(r.coste_unitario) * Math.max(1, toNumSafe(r.cantidad ?? r.dias_guia ?? r.noches ?? 1))),
-    coste_unitario: r.coste_unitario ?? r.precio_venta,
-    cantidad: r.cantidad ?? r.dias_guia ?? r.noches ?? 1,
+    costeCotizado: calcularCosteCotizadoVisible(r, null, paxTotal),
   }
 }
 
@@ -120,10 +111,19 @@ const obtenerServiciosParaConsolidar = async (expedienteId) => {
 
   const { data: versiones, error: versionesError } = await supabase
     .from('versiones_cotizacion')
-    .select('id, confirmada')
+    .select('id, confirmada, total_pax')
     .eq('id_expediente', idExp)
   if (versionesError) {
     return { ok: false, error: versionesError?.message || 'Error al leer las variantes de cotización' }
+  }
+
+  const { data: expPax, error: expPaxError } = await supabase
+    .from('expedientes')
+    .select('total_pax')
+    .eq('id', idExp)
+    .single()
+  if (expPaxError) {
+    return { ok: false, error: expPaxError?.message || 'Error al leer los pasajeros del expediente' }
   }
 
   const { data, error: serviciosError } = await supabase
@@ -162,7 +162,18 @@ const obtenerServiciosParaConsolidar = async (expedienteId) => {
     }
   }
 
-  return { ok: true, servicios: seleccion.map(normalizarServicioParaConsolidacion) }
+  // Pax como en Cotización: cabecera de la variante si se guardó (total_pax > 0); si no, la del expediente.
+  const listaVersiones = Array.isArray(versiones) ? versiones : []
+  const idsVariante = new Set(seleccion.filter((r) => r.version_id != null).map((r) => String(r.version_id)))
+  const variante =
+    confirmadas[0] ||
+    (idsVariante.size === 1 ? listaVersiones.find((v) => idsVariante.has(String(v.id))) : null) ||
+    (listaVersiones.length === 1 ? listaVersiones[0] : null)
+  const paxTotal = toNumSafe(variante?.total_pax) > 0
+    ? toNumSafe(variante.total_pax)
+    : (toNumSafe(expPax?.total_pax) || 1)
+
+  return { ok: true, servicios: seleccion.map((r) => normalizarServicioParaConsolidacion(r, paxTotal)) }
 }
 
 /**
@@ -176,7 +187,7 @@ export const validarProveedoresServicios = async (expedienteId) => {
   }
   const servicios = resultado.servicios
   const conDatos = servicios.filter((s) => {
-    const coste = calcularCosteTotal(s)
+    const coste = toNumSafe(s.costeCotizado)
     const tipo = (s.tipo_servicio || s.tipo || '').trim()
     return coste > 0 || tipo !== ''
   })
@@ -194,7 +205,7 @@ export const validarProveedoresServicios = async (expedienteId) => {
 }
 
 /**
- * Ejecuta consolidación: DELETE + INSERT (solo si debeConsolidar).
+ * Ejecuta consolidación: calcula filas → DELETE + INSERT (INSERT solo si debeConsolidar).
  * @param {string} expedienteId - UUID del expediente
  * @param {object} expediente - { numero_expediente, empresa_id }
  * @param {boolean} debeConsolidar - true si estado es Finalizado o Cerrado
@@ -225,27 +236,16 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
       servicios = resultado.servicios
     }
 
-    const { error: delError } = await supabase
-      .from('gastos_consolidados')
-      .delete()
-      .eq('expediente_id', expedienteId)
-
-    if (delError) {
-      const msg = String(delError?.message || '')
-      if (/row-level security|rls|permission denied/i.test(msg) || String(delError?.code || '') === '42501') {
-        return { ok: false, error: 'RLS bloqueó DELETE en gastos_consolidados. Revisa la política para el usuario autenticado y su empresa_id.' }
-      }
-      return { ok: false, error: delError?.message || 'Error al limpiar gastos consolidados' }
-    }
-
-    if (!debeConsolidar) return { ok: true }
-
+    // Calcular las filas nuevas antes de borrar: si el cálculo falla, gastos_consolidados no se toca.
     const añoEjercicio = extraerAñoEjercicio(expediente?.numero_expediente)
-
     const filas = []
     for (const s of servicios) {
       const provId = obtenerProveedorIdValido(s)
-      const costeTotal = calcularCosteTotal(s)
+      const costeTotal = s.costeCotizado
+      if (typeof costeTotal !== 'number' || !Number.isFinite(costeTotal)) {
+        const nombre = s.nombre_especifico || s.tipo_servicio || s.tipo || 'Servicio'
+        return { ok: false, error: `No se pudo calcular el coste de «${nombre}». No se han modificado los gastos consolidados.` }
+      }
       if (costeTotal <= 0) continue
       const tipoServicio = (
         s.tipo_servicio ??
@@ -264,6 +264,21 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
         año_ejercicio: añoEjercicio,
       })
     }
+
+    const { error: delError } = await supabase
+      .from('gastos_consolidados')
+      .delete()
+      .eq('expediente_id', expedienteId)
+
+    if (delError) {
+      const msg = String(delError?.message || '')
+      if (/row-level security|rls|permission denied/i.test(msg) || String(delError?.code || '') === '42501') {
+        return { ok: false, error: 'RLS bloqueó DELETE en gastos_consolidados. Revisa la política para el usuario autenticado y su empresa_id.' }
+      }
+      return { ok: false, error: delError?.message || 'Error al limpiar gastos consolidados' }
+    }
+
+    if (!debeConsolidar) return { ok: true }
 
     if (filas.length === 0) return { ok: true }
 
@@ -290,4 +305,21 @@ export const consolidarGastosExpediente = async (expedienteId, expediente, debeC
   } catch (err) {
     return { ok: false, error: err?.message || String(err) }
   }
+}
+
+/**
+ * Re-consolida al guardar la cotización si el expediente ya tiene filas en gastos_consolidados
+ * (Finalizado/Cerrado), para que no queden importes de una versión anterior de la cotización.
+ * @returns {Promise<{ ok: boolean, reconsolidado?: boolean, error?: string }>}
+ */
+export const reconsolidarGastosSiExisten = async (expedienteId, expediente) => {
+  if (!expedienteId) return { ok: true, reconsolidado: false }
+  const { count, error } = await supabase
+    .from('gastos_consolidados')
+    .select('id', { count: 'exact', head: true })
+    .eq('expediente_id', expedienteId)
+  if (error) return { ok: false, error: error?.message || 'Error al leer gastos consolidados' }
+  if (!count) return { ok: true, reconsolidado: false }
+  const cons = await consolidarGastosExpediente(expedienteId, expediente, true)
+  return cons.ok ? { ok: true, reconsolidado: true } : cons
 }

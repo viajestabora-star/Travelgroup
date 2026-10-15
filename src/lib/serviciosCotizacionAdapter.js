@@ -4,6 +4,8 @@
  * No importa nada de componentes React. Solo lógica pura.
  */
 
+import { calcularCosteServicio } from '../utils/costeServicio'
+
 const toNum = (v) => {
   if (v === null || v === undefined) return 0
   const n = Number(v)
@@ -83,38 +85,15 @@ export const toDb = (servicio, idExpediente, empresaId) => ({
 })
 
 /**
+ * Coste cotizado de una fila de servicios_cotizacion con la regla de Cotización
+ * (misma normalización fromDb que usa Cotización al cargar).
  * @param {object} row - fila de servicios_cotizacion
- * @param {number|null} paxPago - NO afecta a este cálculo (ver finalizarCalculoModulo,
- *   ExpedienteFinanzas.jsx línea 102: paxPago solo influye en coste_pax, nunca en
- *   total_servicio). Se acepta por simetría de firma, no se usa aquí.
- * @param {number|null} totalPax - pasajeros totales del expediente. Necesario solo
- *   para tipo_calculo='porPersona'; sin él, se devuelve el coste por persona en vez
- *   del total de grupo.
+ * @param {number|null} paxPago - solo influye en coste_pax, nunca en el total.
+ * @param {number|null} totalPax - pasajeros totales. Necesario solo para tipo_calculo='porPersona';
+ *   sin él, se devuelve el coste por persona en vez del total de grupo.
  */
-const calcularCosteCotizadoVisible = (row, paxPago = null, totalPax = null) => {
-  const costeUnitario = toNum(row.coste_unitario)
-  const totalServicioManual = toNum(row.total_servicio_manual)
-  const cantidad = Math.max(1, toNum(row.cantidad))
-  const noches = Math.max(1, toNum(row.noches))
-  const diasGuia = Math.max(1, toNum(row.dias_guia))
-  const tipoServicioNorm = String(row.tipo_servicio || row.tipo || '').trim().toLowerCase()
-  const esGuia = tipoServicioNorm === 'guia' || tipoServicioNorm === 'guía' || tipoServicioNorm === 'g'
-  const esHotel = tipoServicioNorm === 'hotel'
-  const esAutobusOTransporte = tipoServicioNorm === 'autobus' || tipoServicioNorm === 'autobús' || tipoServicioNorm === 'transporte'
-  const esPorGrupo = row.tipo_calculo === 'porGrupo' || row.tipo_calculo === 'Total a dividir'
-
-  if (esAutobusOTransporte || esPorGrupo) {
-    if (totalServicioManual > 0) return totalServicioManual
-    if (esGuia) return costeUnitario * cantidad
-    return costeUnitario
-  }
-
-  // porPersona: total de grupo si tenemos totalPax; si no, coste por persona (comportamiento previo)
-  const factor = esHotel ? noches : (esGuia ? diasGuia : 1)
-  const costePorPersona = costeUnitario * factor
-  const pT = totalPax != null ? Math.max(1, toNum(totalPax)) : null
-  return pT != null ? costePorPersona * pT : costePorPersona
-}
+export const calcularCosteCotizadoVisible = (row, paxPago = null, totalPax = null) =>
+  toNum(calcularCosteServicio(fromDb(row), paxPago, totalPax).total_servicio)
 
 /** Para uso exclusivo de ExpedienteFinanzas — solo lectura, no escribe a BD */
 export const fromDbParaFinanzas = (row, proveedoresDb = [], paxPago = null, totalPax = null) => {

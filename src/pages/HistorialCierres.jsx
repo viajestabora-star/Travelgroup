@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../supabase'
 import { obtenerVersionConfirmadaPorExpediente } from '../utils/varianteCierre'
+import { calcularCosteCotizadoVisible } from '../lib/serviciosCotizacionAdapter'
 import { saveAs } from 'file-saver'
 import {
   resolverUrlPublicaFacturaProveedor,
@@ -729,17 +730,40 @@ const HistorialCierres = ({ user }) => {
     if (cierresFiltrados.length === 0) return
     setExportando(true)
     try {
-      // Deep-fetch: obtener costesReales de servicios_cotizacion para expedientes sin cierre_grupo
-      const idsNecesitanFetch = cierresFiltrados
+      const idsSinDetalle = cierresFiltrados
         .filter((c) => c.costesReales.length === 0)
         .map((c) => c.id)
 
       const detallesPorExpediente = {}
 
+      // Cierre guardado: las líneas son las de cierre_grupo.costesReales (no se recalculan).
+      const paxTotalPorExpediente = {}
+      if (idsSinDetalle.length > 0) {
+        const { data: cierresGuardados } = await supabase
+          .from('expedientes')
+          .select('id, total_pax, cierre_grupo')
+          .in('id', idsSinDetalle)
+        ;(cierresGuardados || []).forEach((e) => {
+          paxTotalPorExpediente[e.id] = e.total_pax
+          const lineas = Array.isArray(e?.cierre_grupo?.costesReales) ? e.cierre_grupo.costesReales : []
+          if (lineas.length > 0) {
+            detallesPorExpediente[e.id] = lineas.map((l) => ({
+              concepto: l?.concepto || '',
+              proveedor: l?.proveedor || '',
+              coste_cotizado: n(l?.coste_cotizado),
+              coste_real: n(l?.coste_real),
+            }))
+          }
+        })
+      }
+
+      // Deep-fetch: obtener costesReales de servicios_cotizacion para expedientes sin cierre_grupo
+      const idsNecesitanFetch = idsSinDetalle.filter((id) => !detallesPorExpediente[id])
+
       if (idsNecesitanFetch.length > 0) {
         const { data: serviciosTodasVariantes } = await supabase
           .from('servicios_cotizacion')
-          .select('id, id_expediente, version_id, tipo_servicio, nombre_especifico, coste_real_proveedor, coste_unitario, total_servicio_manual, proveedor_id_int, nombre_proveedor_texto')
+          .select('id, id_expediente, version_id, tipo_servicio, tipo_calculo, nombre_especifico, coste_real_proveedor, coste_unitario, cantidad, noches, dias_guia, proveedor_id_int, nombre_proveedor_texto')
           .in('id_expediente', idsNecesitanFetch)
           .gt('total_servicio', 0)
           .not('nombre_servicio', 'is', null)
@@ -764,11 +788,12 @@ const HistorialCierres = ({ user }) => {
           const proveedor = (s.proveedor_id_int && provNombres[s.proveedor_id_int]) || s.nombre_proveedor_texto || 'Pendiente de asignar'
           const tipo      = s.tipo_servicio || 'Servicio'
           const concepto  = s.nombre_especifico ? `${tipo} – ${s.nombre_especifico}` : tipo
+          const costeCotizado = calcularCosteCotizadoVisible(s, null, paxTotalPorExpediente[s.id_expediente])
           detallesPorExpediente[s.id_expediente].push({
             concepto,
             proveedor,
-            coste_cotizado: n(s.total_servicio_manual ?? s.coste_unitario),
-            coste_real:     n(s.coste_real_proveedor ?? s.total_servicio_manual ?? s.coste_unitario),
+            coste_cotizado: costeCotizado,
+            coste_real:     n(s.coste_real_proveedor ?? costeCotizado),
           })
         })
       }

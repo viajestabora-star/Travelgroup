@@ -5,6 +5,7 @@ import { supabase } from '../supabase'
 import ProveedorForm from './ProveedorForm'
 import { leerIdExpedienteSoloUseParams, leerIdExpedientePropOUseParams, resolverIdExpedienteFuenteVerdad } from '../utils/expedienteCotizacionId'
 import { toDb, fromDb, servicioVacio, validarServicio } from '../lib/serviciosCotizacionAdapter'
+import { calcularCosteServicio } from '../utils/costeServicio'
 import { useQueryClient } from '@tanstack/react-query'
 import { useServiciosCotizacion } from '../hooks/useServiciosCotizacion'
 import { useEliminarServicio } from '../hooks/useEliminarServicio'
@@ -145,32 +146,6 @@ const mapearRespuestaSupabaseAServiciosUI = (rows, proveedores = []) => {
   })
 
   return { serviciosUI, busquedaProveedor }
-}
-
-const finalizarCalculoModulo = (servicio, paxPago = 31, paxTotal = 35) => {
-  const s = servicio || {}
-  const pP = Math.max(1, toNum(paxPago))
-  const pT = Math.max(1, toNum(paxTotal))
-  const precio = toNum(s.coste_unitario)
-  const n = Math.max(1, toNum(s.noches))
-  const d = Math.max(1, toNum(s.dias_guia))
-  const manual = toNum(s.total_servicio_manual)
-  const tipoNorm = normalizarTipo(s?.tipo_servicio || s?.tipo || '')
-  const esPorGrupo = s?.tipo_calculo === 'porGrupo' || s?.tipo_calculo === 'Total a dividir'
-  const esAutobusOTransporte = tipoNorm === 'autobus' || tipoNorm === 'transporte'
-
-  let totalFinal = 0
-  let costePorPersona = 0
-
-  if (esAutobusOTransporte || esPorGrupo) {
-    totalFinal = manual > 0 ? manual : (tipoNorm === 'guia' || tipoNorm === 'g' ? precio * Math.max(1, toNum(s.cantidad ?? d)) : precio)
-    costePorPersona = pP > 0 ? totalFinal / pP : 0
-  } else {
-    const factor = (tipoNorm === 'hotel') ? n : (tipoNorm === 'guia' || tipoNorm === 'g' ? d : 1)
-    costePorPersona = precio * factor
-    totalFinal = costePorPersona * pT
-  }
-  return { ...s, coste_pax: Number(costePorPersona.toFixed(2)), total_servicio: Number(totalFinal.toFixed(2)) }
 }
 
 // ─── Helpers de filtrado de proveedores ──────────────────────────────────────
@@ -493,23 +468,8 @@ const ServiciosCotizacionPanel = ({
     mutateEliminar(idsAEliminar)
   }
 
-  const calcularTotalFilaUI = (servicio) => {
-    const s = { ...servicioVacio(), ...servicio }
-    const tipoNorm = normalizarTipo(s.tipo || s.tipo_servicio || '')
-    const precioCoste = toNum(s.coste_unitario)
-    if (tipoNorm === 'guia' || tipoNorm === 'g') {
-      const cantidad = Math.max(1, toNum(s.cantidad ?? s.dias_guia ?? 1))
-      return precioCoste * cantidad
-    }
-    const fila = {
-      ...s,
-      tipo_calculo: s.tipo_calculo === 'porGrupo' || s.tipo_calculo === 'Total a dividir' ? 'porGrupo' : 'porPersona',
-      coste_unitario: precioCoste,
-      total_servicio_manual: toNum(s.total_servicio_manual),
-    }
-    const { total_servicio } = finalizarCalculoModulo(fila, paxPago, totalPax)
-    return toNum(total_servicio)
-  }
+  const calcularTotalFilaUI = (servicio) =>
+    toNum(calcularCosteServicio({ ...servicioVacio(), ...servicio }, paxPago, totalPax).total_servicio)
 
   const actualizarServicio = (id, campoOrUpdates, valorOrOpts, opts = {}) => {
     const isMulti = typeof campoOrUpdates === 'object' && campoOrUpdates !== null && !Array.isArray(campoOrUpdates)

@@ -3,7 +3,8 @@ import { X, Plus, Save, Pencil, Trash2, FileText, Printer, FileDown, Eye, Paperc
 import { useParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import jsPDF from 'jspdf'
-import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarTipo, normalizarMetodoPago } from '../utils/finanzasHelpers'
+import { toNum, generarUUID, limpiarNumero, categorizarPago, numeroATexto, normalizarMetodoPago } from '../utils/finanzasHelpers'
+import { calcularCosteServicio } from '../utils/costeServicio'
 import { desgloseIvaBeneficioBruto } from '../utils/finance'
 import CobrosPagosModal, {
   sincronizarTotalCobradoExpediente,
@@ -12,7 +13,7 @@ import CobrosPagosModal, {
 } from './expedientes/CobrosPagosModal'
 import { validarProveedoresServicios, consolidarGastosExpediente } from '../utils/consolidacionGastos'
 import { fromDbParaFinanzas } from '../lib/serviciosCotizacionAdapter'
-import { construirBloqueTotalesCierre } from '../utils/cierreGrupoFuenteVerdad'
+import { construirBloqueTotalesCierre, leerTotalesCierreGrupo } from '../utils/cierreGrupoFuenteVerdad'
 import { DATOS_EMISOR } from '../config/empresa'
 import { cargarDatosEmisorEmpresa, cargarLogoParaPDF } from '../utils/datosEmisorEmpresa'
 import { useEmpresa } from '../context/EmpresaContext'
@@ -64,40 +65,6 @@ const DEFAULT_SERVICE_VALUES = {
   cantidad: 1,
   fechaRelease: '',
   releasePagado: false,
-}
-
-/**
- * ============ MOTOR DE CÁLCULO (MÓDULO) - CÓDIGO CRÍTICO ============
- * - porPersona: Precio por Persona → total = coste_pax × totalPax
- * - porGrupo: Total a dividir entre el grupo → coste_pax = total / pasajeros_pago
- * - Autobús: Siempre divide el total entre pasajeros_pago (equivalente a porGrupo)
- */
-const finalizarCalculoModulo = (servicio, paxPago = 31, paxTotal = 35) => {
-  const s = servicio || {}
-  const pP = Math.max(1, toNum(paxPago))
-  const pT = Math.max(1, toNum(paxTotal))
-  const precio = toNum(s.coste_unitario)
-  const n = Math.max(1, toNum(s.noches))
-  const d = Math.max(1, toNum(s.dias_guia))
-  const manual = toNum(s.total_servicio_manual)
-  const tipoNorm = normalizarTipo(s?.tipo_servicio || s?.tipo || '')
-  const esPorGrupo = s?.tipo_calculo === 'porGrupo' || s?.tipo_calculo === 'Total a dividir'
-  const esAutobusOTransporte = tipoNorm === 'autobus' || tipoNorm === 'transporte'
-
-  let totalFinal = 0
-  let costePorPersona = 0
-
-  if (esAutobusOTransporte || esPorGrupo) {
-    // Autobús/Transporte o Total a dividir: total = manual (o precio×cantidad para guía), coste_pax = total / pasajeros_pago
-    totalFinal = manual > 0 ? manual : (tipoNorm === 'guia' || tipoNorm === 'g' ? precio * Math.max(1, toNum(s.cantidad ?? d)) : precio)
-    costePorPersona = pP > 0 ? totalFinal / pP : 0
-  } else {
-    // Precio por Persona: coste_pax = precio × factor, total = coste_pax × totalPax
-    const factor = (tipoNorm === 'hotel') ? n : (tipoNorm === 'guia' || tipoNorm === 'g' ? d : 1)
-    costePorPersona = precio * factor
-    totalFinal = costePorPersona * pT
-  }
-  return { ...s, coste_pax: Number(costePorPersona.toFixed(2)), total_servicio: Number(totalFinal.toFixed(2)) }
 }
 
 const proveedorInformeTexto = (proveedor) => {
@@ -266,6 +233,15 @@ const ExpedienteFinanzas = ({
   const SUBMIT_DEDUPE_MS = 2000
   const cierreGrupo = expediente?.cierre_grupo || {}
   const onRefresh = onExpedienteRefresh
+  const isCierreGuardado = Boolean(
+    cierreGrupo &&
+    typeof cierreGrupo === 'object' &&
+    (cierreGrupo.ingresos_totales != null || cierreGrupo.total_ingresos != null || cierreGrupo.beneficio_limpio != null || cierreGrupo.beneficio != null)
+  )
+  const [edicionHabilitada, setEdicionHabilitada] = useState(false)
+  // Cierre guardado: se muestran las líneas y totales de cierre_grupo, sin recalcular desde servicios_cotizacion.
+  // «Habilitar Edición» vuelve al cálculo en vivo para poder corregir y volver a guardar.
+  const verCierreGuardado = isCierreGuardado && !edicionHabilitada
 
   // Datos fiscales del emisor dinámicos por tenant (para PDFs)
   const [emisorData, setEmisorData] = useState({ ...DATOS_EMISOR, logo_url: null })
@@ -793,23 +769,8 @@ const ExpedienteFinanzas = ({
     }
   }
 
-  const calcularTotalFilaUI = (servicio) => {
-    const s = { ...DEFAULT_SERVICE_VALUES, ...servicio }
-    const tipoNorm = normalizarTipo(s.tipo || s.tipo_servicio || '')
-    const precioCoste = toNum(s.coste_unitario)
-    if (tipoNorm === 'guia' || tipoNorm === 'g') {
-      const cantidad = Math.max(1, toNum(s.cantidad ?? s.dias_guia ?? 1))
-      return precioCoste * cantidad
-    }
-    const fila = {
-      ...s,
-      tipo_calculo: s.tipo_calculo === 'porGrupo' || s.tipo_calculo === 'Total a dividir' ? 'porGrupo' : 'porPersona',
-      coste_unitario: precioCoste,
-      total_servicio_manual: toNum(s.total_servicio_manual),
-    }
-    const { total_servicio } = finalizarCalculoModulo(fila, paxPago, totalPax)
-    return toNum(total_servicio)
-  }
+  const calcularTotalFilaUI = (servicio) =>
+    toNum(calcularCosteServicio({ ...DEFAULT_SERVICE_VALUES, ...servicio }, paxPago, totalPax).total_servicio)
 
   const [cargandoCotizacion, setCargandoCotizacion] = React.useState(false)
   const [errorCargaCotizacion, setErrorCargaCotizacion] = React.useState(null)
@@ -954,8 +915,8 @@ const ExpedienteFinanzas = ({
         return
       }
 
-      // Multicotización: el Cierre usa solo la variante confirmada (también en cierres ya guardados,
-      // cuyas líneas de coste se recalculan desde servicios_cotizacion). Un cierre guardado sin variante
+      // Multicotización: el Cierre usa solo la variante confirmada (en un cierre guardado estas filas solo
+      // se muestran al habilitar la edición; la vista usa cierre_grupo). Un cierre guardado sin variante
       // confirmada (históricos migrados con «Versión 1») mantiene la carga de todos sus servicios.
       let versionIdCierre = null
       setVarianteCierreNombre(null)
@@ -1122,7 +1083,16 @@ const ExpedienteFinanzas = ({
   }
 
   const costesRealesVista = React.useMemo(() => {
-    const rows = Array.isArray(costesRealesTablaSql) ? costesRealesTablaSql : []
+    const rows = verCierreGuardado
+      ? (Array.isArray(cierreGrupo.costesReales) ? cierreGrupo.costesReales : []).map((c) => ({
+          servicioId: String(c?.id_servicio ?? '').trim(),
+          conceptoVisible: c?.concepto || '',
+          proveedorVisible: c?.proveedor || '',
+          costeCotizadoVisible: toNum(c?.coste_cotizado),
+          costeRealProveedorVisible: toNum(c?.coste_real),
+          facturaUrl: c?.url_factura_pdf ?? c?.url_pdf ?? null,
+        }))
+      : (Array.isArray(costesRealesTablaSql) ? costesRealesTablaSql : [])
     return rows.map((row) => {
       const sid = String(row?.servicioId ?? '').trim()
       const desdePagos = sid && mapaUrlFacturaPorServicioDesdePagos[sid] ? mapaUrlFacturaPorServicioDesdePagos[sid] : null
@@ -1130,9 +1100,9 @@ const ExpedienteFinanzas = ({
       const facturaUrl = sqlUrl || desdePagos || null
       return { ...row, facturaUrl }
     })
-  }, [costesRealesTablaSql, mapaUrlFacturaPorServicioDesdePagos])
+  }, [verCierreGuardado, cierreGrupo, costesRealesTablaSql, mapaUrlFacturaPorServicioDesdePagos])
 
-  /** Informes imprimibles: mismas líneas que la tabla (servicios_cotizacion), no arrays en expediente.cierre_grupo. */
+  /** Informes imprimibles: mismas líneas que la tabla (cierre_grupo si el cierre está guardado; si no, servicios_cotizacion). */
   const costesRealesLineasParaInformes = React.useMemo(() => (
     (costesRealesVista || []).map((c) => ({
       concepto: c.conceptoVisible || '',
@@ -1475,6 +1445,10 @@ const ExpedienteFinanzas = ({
   }
 
   const calcularCierreFinanciero = () => {
+    if (verCierreGuardado) {
+      const t = leerTotalesCierreGrupo(cierreGrupo)
+      return { ingresosTotales: t.ingresos_totales, gastosTotales: t.gastos_totales, beneficioLimpio: t.beneficio_limpio, ivaPagado: t.iva_pagado, beneficioBruto: t.beneficio_bruto }
+    }
     // ⚠️ BLINDAJE NIVEL 2 (alineado con Presupuesto, ExpedienteDetalle.jsx ~L3295):
     // usar SIEMPRE formData en vivo (ya trae la cabecera de la variante activa),
     // no expediente.* persistido, que puede quedar obsoleto o ser de otra variante.
@@ -1492,19 +1466,11 @@ const ExpedienteFinanzas = ({
     return { ingresosTotales, gastosTotales, beneficioLimpio, ivaPagado, beneficioBruto }
   }
 
-  const isCierreGuardado = Boolean(
-    cierreGrupo &&
-    typeof cierreGrupo === 'object' &&
-    (cierreGrupo.ingresos_totales != null || cierreGrupo.total_ingresos != null || cierreGrupo.beneficio_limpio != null || cierreGrupo.beneficio != null)
-  )
-
   const estadoExp = expediente?.estado || ''
   const esFinalizado = estadoExp === 'Finalizado'
   const esCerrado = estadoExp === 'Cerrado' || estadoExp.toLowerCase() === 'cerrado'
-  // Campos bloqueados SOLO si el cierre está guardado Y el estado es Cerrado o Finalizado
-  // En cualquier otro estado (Confirmado, Petición, En curso) siempre editables
-  const [edicionHabilitada, setEdicionHabilitada] = useState(false)
-  const camposBloqueados = isCierreGuardado && (esCerrado || esFinalizado) && !edicionHabilitada
+  // Campos bloqueados mientras se muestra el cierre guardado (líneas de cierre_grupo, no editables)
+  const camposBloqueados = verCierreGuardado
   // Proveedor: cierres históricos (cierre ya guardado o estado cerrado/finalizado) solo lectura.
   const proveedorSoloLectura = isCierreGuardado || esCerrado || esFinalizado
 
